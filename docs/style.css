@@ -23,10 +23,13 @@ body {
 a { color: var(--accent); text-decoration: none; }
 
 /* Sheet */
-.nav { display: none; }
+.nav { background: var(--sheet); max-width: 860px; margin: 0 auto; border: 1px solid var(--line); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.nav .wrap { display: flex; justify-content: space-between; align-items: center; height: 52px; }
+.nav .brand { font-weight: 800; color: var(--navy); }
+.nav .notes-link { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .hero, section, footer { background: var(--sheet); max-width: 860px; margin: 0 auto; }
 .hero, section, footer { border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
-.hero { border-top: 1px solid var(--line); border-radius: 4px 4px 0 0; }
+.hero { border-radius: 0; }
 footer { border-bottom: 1px solid var(--line); border-radius: 0 0 4px 4px; box-shadow: 0 12px 32px -12px rgba(0,0,0,.18); }
 .wrap { padding: 0 56px; }
 @media (max-width: 640px) { .wrap { padding: 0 24px; } }
