@@ -7,8 +7,6 @@
   --accent: #0f766e;
   --accent-soft: #ccfbf1;
   --tag: #f5f5f4;
-  --tag-learn: #fef3c7;
-  --tag-learn-text: #92400e;
   --maxw: 880px;
 }
 @media (prefers-color-scheme: dark) {
@@ -21,8 +19,6 @@
     --accent: #2dd4bf;
     --accent-soft: #134e4a;
     --tag: #292524;
-    --tag-learn: #422006;
-    --tag-learn-text: #fcd34d;
   }
 }
 
@@ -97,8 +93,6 @@ section h2 span { color: var(--muted); font-weight: 400; font-size: 15px; margin
   font-size: 13px; padding: 4px 10px; border-radius: 6px;
   background: var(--tag); color: var(--text); border: 1px solid var(--line);
 }
-.tag.learn { background: var(--tag-learn); color: var(--tag-learn-text); border-color: transparent; }
-.legend { font-size: 13px; color: var(--muted); margin-top: 18px; }
 
 /* Timeline */
 .job { display: grid; grid-template-columns: 150px 1fr; gap: 8px 24px; padding: 24px 0; border-top: 1px dashed var(--line); }
