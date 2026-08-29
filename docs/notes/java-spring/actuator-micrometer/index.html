@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Actuator와 Micrometer · Java / Spring</title>
+  <meta name="description" content="Actuator 엔드포인트로 상태를 노출하고 Micrometer로 메트릭·트레이스를 수집해 운영 가시성을 확보하는 방법">
+  <meta property="og:title" content="Actuator와 Micrometer · Java / Spring">
+  <meta property="og:description" content="Actuator 엔드포인트로 상태를 노출하고 Micrometer로 메트릭·트레이스를 수집해 운영 가시성을 확보하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/actuator-micrometer/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>Actuator와 Micrometer</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>Actuator와 Micrometer</h1>
+  <p class="summary">Actuator 엔드포인트로 상태를 노출하고 Micrometer로 메트릭·트레이스를 수집해 운영 가시성을 확보하는 방법</p>
+  <div class="content">
+<p>컨테이너로 띄운 애플리케이션이 멈추면 콘솔 로그만으로는 원인을 찾기 어렵다. Kubernetes는 인스턴스가 살아 있는지, 트래픽을 받을 준비가 됐는지 판단할 신호가 필요하고, 운영자는 힙 사용량·커넥션 풀 대기·응답 시간 분포를 시계열로 봐야 장애 전조를 잡는다. Actuator는 이 운영 기능을 HTTP 엔드포인트로 제공하고, Micrometer는 메트릭을 수집해 Prometheus 같은 백엔드로 내보내는 추상화 계층을 맡는다.</p>
+<h2>핵심 개념</h2>
+<h3>Actuator 엔드포인트와 노출 제어</h3>
+<p><code>spring-boot-starter-actuator</code> 의존성을 추가하면 <code>/actuator/*</code> 경로에 <code>health</code>(상태)·<code>info</code>(빌드 버전)·<code>metrics</code>·<code>prometheus</code>·<code>loggers</code>(로그 레벨 변경)·<code>env</code>·<code>heapdump</code> 등이 등록된다. Spring Boot 3.x 기준 웹으로 기본 노출되는 것은 <code>health</code> 하나뿐이며, 나머지는 <code>management.endpoints.web.exposure.include</code>에 명시해야 열린다. <code>/health</code>는 등록된 <code>HealthIndicator</code>를 모두 집계하며 DB·Redis·디스크 중 하나라도 DOWN이면 전체가 DOWN이다.</p>
+<h3>Kubernetes 프로브</h3>
+<p><code>management.health.probes.enabled=true</code>를 켜면 <code>/actuator/health/liveness</code>와 <code>/readiness</code>가 생긴다. Liveness 실패는 컨테이너 재시작을 유발하고, Readiness 실패는 라우팅에서 제외될 뿐 재시작하지 않는다. Readiness는 초기화가 끝날 때까지 OUT_OF_SERVICE를 유지하므로 DB 연결 대기 같은 일시적 상태는 Readiness에만 반영한다.</p>
+<h3>Micrometer와 자동 계측</h3>
+<p>Micrometer는 메트릭의 SLF4J다. 코드는 <code>MeterRegistry</code>에만 의존하고, 클래스패스의 구현체(<code>micrometer-registry-prometheus</code>)가 백엔드 포맷을 결정한다. 자동 구성은 <code>PrometheusMeterRegistry</code> 빈과 <code>/actuator/prometheus</code>를 등록하고, 내장 <code>MeterBinder</code>들이 <code>jvm.memory.used</code>·<code>jvm.gc.pause</code>·<code>hikaricp.connections.pending</code>·<code>tomcat.threads.busy</code>·<code>http.server.requests</code>·<code>logback.events</code> 같은 메트릭을 일괄 등록한다. Meter 타입은 Counter(단조 증가), Gauge(현재 값), Timer(소요 시간과 횟수), DistributionSummary(크기 분포) 네 가지다. <code>/actuator/metrics</code>는 JSON 탐색용이고, Prometheus 스크레이프 대상은 <code>/actuator/prometheus</code>여야 한다.</p>
+<h3>Observation API</h3>
+<p>Spring Boot 3.x의 Observation API는 하나의 Observation으로 Timer(메트릭)와 Span(트레이스)을 동시에 만든다. <code>lowCardinalityKeyValue</code>는 메트릭 태그와 span attribute 양쪽에, <code>highCardinalityKeyValue</code>는 span attribute에만 기록되어 주문 ID 같은 무한 값이 시계열을 폭발시키는 사고를 막는다. 트레이스를 실제로 내보내려면 <code>micrometer-tracing-bridge-otel</code>과 exporter 의존성이 추가로 필요하다.</p>
+<h2>코드</h2>
+<p>운영 기본 설정. 관리 포트를 분리하고 노출을 최소화하며 HTTP 요청 메트릭에만 히스토그램을 켠다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">management:</span>
+  <span class="hljs-attr">server:</span>
+    <span class="hljs-attr">port:</span> <span class="hljs-number">8081</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">health,</span> <span class="hljs-string">info,</span> <span class="hljs-string">prometheus,</span> <span class="hljs-string">metrics,</span> <span class="hljs-string">loggers</span>
+  <span class="hljs-attr">endpoint:</span>
+    <span class="hljs-attr">health:</span>
+      <span class="hljs-attr">show-details:</span> <span class="hljs-string">when-authorized</span>
+  <span class="hljs-attr">health:</span>
+    <span class="hljs-attr">probes:</span>
+      <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+  <span class="hljs-attr">metrics:</span>
+    <span class="hljs-attr">tags:</span>
+      <span class="hljs-attr">application:</span> <span class="hljs-string">${spring.application.name}</span>
+    <span class="hljs-attr">distribution:</span>
+      <span class="hljs-attr">percentiles-histogram:</span>
+        <span class="hljs-attr">http.server.requests:</span> <span class="hljs-literal">true</span>
+      <span class="hljs-attr">slo:</span>
+        <span class="hljs-attr">http.server.requests:</span> <span class="hljs-string">50ms,</span> <span class="hljs-string">100ms,</span> <span class="hljs-string">200ms,</span> <span class="hljs-string">500ms</span>
+<span class="hljs-attr">server:</span>
+  <span class="hljs-attr">shutdown:</span> <span class="hljs-string">graceful</span></code></pre>
+<p>Actuator 전용 <code>SecurityFilterChain</code>. <code>health</code>·<code>info</code>만 무인증으로 열고 나머지는 ADMIN으로 제한하며, <code>@Order(1)</code>로 API 체인보다 먼저 평가되게 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ActuatorSecurityConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@Order(1)</span>
+    <span class="hljs-type">SecurityFilterChain</span> <span class="hljs-title function_">actuatorSecurity</span><span class="hljs-params">(HttpSecurity http)</span> <span class="hljs-keyword">throws</span> Exception {
+        http
+            .securityMatcher(EndpointRequest.toAnyEndpoint())
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers(EndpointRequest.to(<span class="hljs-string">&quot;health&quot;</span>, <span class="hljs-string">&quot;info&quot;</span>)).permitAll()
+                .anyRequest().hasRole(<span class="hljs-string">&quot;ADMIN&quot;</span>))
+            .httpBasic(Customizer.withDefaults());
+        <span class="hljs-keyword">return</span> http.build();
+    }
+}</code></pre>
+<p>커스텀 헬스 인디케이터와 계측. <code>@Observed</code>는 <code>ObservedAspect</code> 빈이 있어야 동작한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentGatewayHealthIndicator</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">HealthIndicator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentGateway gateway;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PaymentGatewayHealthIndicator</span><span class="hljs-params">(PaymentGateway gateway)</span> {
+        <span class="hljs-built_in">this</span>.gateway = gateway;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Health</span> <span class="hljs-title function_">health</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> gateway.ping()
+                ? Health.up().withDetail(<span class="hljs-string">&quot;latencyMs&quot;</span>, gateway.latencyMillis()).build()
+                : Health.down().withDetail(<span class="hljs-string">&quot;reason&quot;</span>, <span class="hljs-string">&quot;ping failed&quot;</span>).build();
+        } <span class="hljs-keyword">catch</span> (Exception e) {
+            <span class="hljs-keyword">return</span> Health.down(e).build();
+        }
+    }
+}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MetricsConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">ObservedAspect</span> <span class="hljs-title function_">observedAspect</span><span class="hljs-params">(ObservationRegistry registry)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ObservedAspect</span>(registry);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">MeterRegistryCustomizer</span>&lt;MeterRegistry&gt; <span class="hljs-title function_">meterFilters</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> registry -&gt; registry.config()
+            .meterFilter(MeterFilter.maximumAllowableTags(
+                <span class="hljs-string">&quot;http.server.requests&quot;</span>, <span class="hljs-string">&quot;uri&quot;</span>, <span class="hljs-number">100</span>, MeterFilter.deny()));
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ObservationRegistry observationRegistry;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(ObservationRegistry observationRegistry)</span> {
+        <span class="hljs-built_in">this</span>.observationRegistry = observationRegistry;
+    }
+
+    <span class="hljs-meta">@Observed(name = &quot;orders.process&quot;, lowCardinalityKeyValues = {&quot;team&quot;, &quot;checkout&quot;})</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">process</span><span class="hljs-params">(CreateOrderRequest request)</span> {
+        <span class="hljs-keyword">return</span> Observation.createNotStarted(<span class="hljs-string">&quot;orders.validate&quot;</span>, observationRegistry)
+            .lowCardinalityKeyValue(<span class="hljs-string">&quot;type&quot;</span>, request.type().name())
+            .highCardinalityKeyValue(<span class="hljs-string">&quot;orderId&quot;</span>, request.orderId().toString())
+            .observe(() -&gt; validateAndSave(request));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>include: &quot;*&quot;</code>를 운영에 두는 것.</strong> <code>/env</code>는 시크릿을, <code>/heapdump</code>는 메모리 전체를 노출한다. <code>health,info,prometheus</code>로 제한하고 관리 포트를 분리한다.</li>
+<li><strong><code>@Timed</code>·<code>@Observed</code>를 붙였는데 메트릭이 없다.</strong> <code>TimedAspect</code>·<code>ObservedAspect</code> 빈이 없으면 AOP가 연결되지 않고 컴파일 오류도 없다. <code>http.server.requests</code>만 잡히는 증상이면 Aspect 빈부터 확인한다.</li>
+<li><strong><code>initialDelaySeconds</code>가 짧으면 재시작 루프에 빠진다.</strong> 기동이 60초 넘게 걸리면 Liveness가 먼저 실패해 컨테이너가 계속 죽는다. <code>startupProbe</code>를 두거나 지연을 기동 시간에 맞춘다.</li>
+<li><strong>히스토그램을 모든 Timer에 켜면 Prometheus 메모리가 급증한다.</strong> <code>histogram_quantile()</code>을 실제로 쓰는 메트릭에만 켜고 <code>uri</code> 태그 카디널리티를 <code>MeterFilter</code>로 제한한다.</li>
+<li><strong>SecurityFilterChain에 <code>@Order</code>가 없으면 Actuator 요청이 401을 받는다.</strong> API 체인이 먼저 매칭될 수 있다. <code>/actuator/loggers</code> POST는 반드시 인증 뒤에 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/logging-logback-slf4j/">로깅 — Logback·SLF4J</a></li>
+<li><a href="/notes/java-spring/cors-security-oauth2-jwt/">CORS와 Spring Security — OAuth2·JWT</a></li>
+<li><a href="/notes/java-spring/deploy-docker-buildpack/">배포 — Docker·Buildpack</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Actuator, Micrometer, Prometheus, Observation API, Kubernetes Probe</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/testing-mockmvc-testcontainers/"><small>이전</small>테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</a>
+  <a class="next" href="/notes/java-spring/dto-mapping-mapstruct/"><small>다음</small>DTO 매핑 — MapStruct</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

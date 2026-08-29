@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArgumentResolver·파일 업로드·페이징 · Java / Spring</title>
+  <meta name="description" content="컨트롤러 매개변수를 채우는 HandlerMethodArgumentResolver 원리와 MultipartFile 업로드·Pageable 페이징의 안전한 사용법">
+  <meta property="og:title" content="ArgumentResolver·파일 업로드·페이징 · Java / Spring">
+  <meta property="og:description" content="컨트롤러 매개변수를 채우는 HandlerMethodArgumentResolver 원리와 MultipartFile 업로드·Pageable 페이징의 안전한 사용법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/argument-resolver-upload-paging/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>ArgumentResolver·파일 업로드·페이징</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Web MVC</p>
+  <h1>ArgumentResolver·파일 업로드·페이징</h1>
+  <p class="summary">컨트롤러 매개변수를 채우는 HandlerMethodArgumentResolver 원리와 MultipartFile 업로드·Pageable 페이징의 안전한 사용법</p>
+  <div class="content">
+<p>컨트롤러가 늘어나면 같은 코드가 반복된다. 토큰에서 사용자를 조회하는 코드가 메서드마다 붙고, 파일은 <code>@RequestBody</code>로 받을 수 없으며, 목록 조회는 <code>page</code>·<code>size</code>·<code>sort</code>를 매번 파싱해야 한다. Spring MVC는 이 셋을 HandlerMethodArgumentResolver, MultipartFile, Pageable로 추상화하며, 모두 &quot;컨트롤러 매개변수를 프레임워크가 대신 채운다&quot;는 같은 메커니즘 위에서 동작한다.</p>
+<h2>핵심 개념</h2>
+<h3>HandlerMethodArgumentResolver</h3>
+<p><code>@PathVariable Long id</code>에 URL 문자열이 <code>Long</code>으로 들어오는 과정은 <code>HandlerMethodArgumentResolver</code>가 담당한다. <code>supportsParameter</code>가 처리 여부를 판단하고 <code>resolveArgument</code>가 값을 만든다. <code>RequestMappingHandlerAdapter</code>는 호출 직전에 매개변수마다 등록된 리졸버에 순서대로 묻고, 처음 <code>true</code>를 반환한 리졸버의 결과를 인자로 쓴다. <code>@RequestParam</code>·<code>@RequestBody</code>·<code>Pageable</code>의 기본 리졸버가 이 방식으로 등록되어 있다.</p>
+<p>커스텀 리졸버는 마커 어노테이션, 구현체 Bean, <code>WebMvcConfigurer.addArgumentResolvers</code> 등록의 세 단계다. 추가한 리졸버는 기본 리졸버 뒤에 붙으므로 어노테이션과 타입을 AND로 검사해 조건이 겹치지 않게 한다. HandlerInterceptor가 흐름을 제어한다면 ArgumentResolver는 매개변수에 객체를 주입한다. Spring Security의 <code>@AuthenticationPrincipal</code>이 같은 일을 하므로 직접 만드는 경우는 경량 인증이나 Principal 가공이 필요할 때다.</p>
+<h3>MultipartFile</h3>
+<p>파일 업로드 본문은 boundary로 구분된 여러 파트로 이루어진 <code>multipart/form-data</code>다. 파일 파트는 <code>MultipartFile</code>로 받는다. JSON 파트와 파일 파트를 한 요청으로 받을 때는 <code>@RequestPart</code>가 필요하다. 파트의 <code>Content-Type</code>에 맞는 <code>HttpMessageConverter</code>가 적용되어 JSON을 DTO로 역직렬화하고 <code>@Valid</code>도 붙는다. 기본 제한은 파일 1MB·요청 10MB이며 초과 시 <code>MaxUploadSizeExceededException</code>이 발생한다.</p>
+<h3>Pageable과 Page·Slice</h3>
+<p>페이징·정렬 파라미터는 <code>Pageable</code>이 통째로 받아 <code>?page=0&amp;size=25&amp;sort=name,asc</code>를 <code>LIMIT</code>/<code>OFFSET</code>과 <code>ORDER BY</code>로 바꾼다. 페이지 번호는 0부터 시작하고 기본값은 <code>@PageableDefault</code>로 지정한다.</p>
+<table>
+<thead>
+<tr>
+<th>반환 타입</th>
+<th>COUNT 쿼리</th>
+<th>다음 페이지 여부</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Page&lt;T&gt;</code></td>
+<td>발생</td>
+<td>제공</td>
+<td>페이지 번호 UI</td>
+</tr>
+<tr>
+<td><code>Slice&lt;T&gt;</code></td>
+<td>없음 (size+1 조회)</td>
+<td>제공</td>
+<td>무한 스크롤</td>
+</tr>
+<tr>
+<td><code>List&lt;T&gt;</code></td>
+<td>없음</td>
+<td>없음</td>
+<td>정렬만 필요한 목록</td>
+</tr>
+</tbody></table>
+<p>선택적 조건이 많으면 파생 쿼리의 if-else 대신 <code>Specification</code>을 <code>and</code>로 합성한다. 조건 값이 null이면 <code>criteriaBuilder.conjunction()</code>을 반환해 그 조건이 빠진 것처럼 동작시킨다.</p>
+<h2>코드</h2>
+<p>현재 로그인 사용자를 주입하는 <code>@LoginUser</code> 리졸버. 어노테이션과 타입을 함께 검사한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Target(ElementType.PARAMETER)</span>
+<span class="hljs-meta">@Retention(RetentionPolicy.RUNTIME)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-meta">@interface</span> LoginUser {
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LoginUserArgumentResolver</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">HandlerMethodArgumentResolver</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserService userService;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">supportsParameter</span><span class="hljs-params">(MethodParameter parameter)</span> {
+        <span class="hljs-keyword">return</span> parameter.hasParameterAnnotation(LoginUser.class)
+            &amp;&amp; User.class.isAssignableFrom(parameter.getParameterType());
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">resolveArgument</span><span class="hljs-params">(MethodParameter parameter,
+                                  ModelAndViewContainer mavContainer,
+                                  NativeWebRequest webRequest,
+                                  WebDataBinderFactory binderFactory)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">header</span> <span class="hljs-operator">=</span> webRequest.getHeader(HttpHeaders.AUTHORIZATION);
+        <span class="hljs-keyword">if</span> (header == <span class="hljs-literal">null</span> || !header.startsWith(<span class="hljs-string">&quot;Bearer &quot;</span>)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UnauthorizedException</span>(<span class="hljs-string">&quot;인증 토큰 없음&quot;</span>);
+        }
+        <span class="hljs-keyword">return</span> userService.findByToken(header.substring(<span class="hljs-number">7</span>));
+    }
+}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">WebConfig</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">WebMvcConfigurer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> LoginUserArgumentResolver loginUserResolver;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">addArgumentResolvers</span><span class="hljs-params">(List&lt;HandlerMethodArgumentResolver&gt; resolvers)</span> {
+        resolvers.add(loginUserResolver);
+    }
+}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderService orderService;
+
+    <span class="hljs-meta">@GetMapping(&quot;/my-orders&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;OrderResponse&gt; <span class="hljs-title function_">myOrders</span><span class="hljs-params">(<span class="hljs-meta">@LoginUser</span> User user)</span> {
+        <span class="hljs-keyword">return</span> orderService.findByUser(user);
+    }
+}</code></pre>
+<p>JSON 파트와 이미지 파트를 한 요청으로 받아 S3에 스트리밍 업로드하는 API.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/products&quot;)</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">ALLOWED</span> <span class="hljs-operator">=</span> Set.of(<span class="hljs-string">&quot;image/jpeg&quot;</span>, <span class="hljs-string">&quot;image/png&quot;</span>, <span class="hljs-string">&quot;image/webp&quot;</span>);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">MAX_IMAGE</span> <span class="hljs-operator">=</span> <span class="hljs-number">5L</span> * <span class="hljs-number">1024</span> * <span class="hljs-number">1024</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductService productService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> S3Client s3;
+
+    <span class="hljs-meta">@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProductResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(<span class="hljs-meta">@RequestPart(&quot;info&quot;)</span> <span class="hljs-meta">@Valid</span> ProductRequest info,
+                                  <span class="hljs-meta">@RequestPart(&quot;image&quot;)</span> MultipartFile image)</span> <span class="hljs-keyword">throws</span> IOException {
+        validate(image);
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;products/&quot;</span> + UUID.randomUUID() + <span class="hljs-string">&quot;-&quot;</span>
+                + StringUtils.cleanPath(Objects.requireNonNull(image.getOriginalFilename()));
+        s3.putObject(PutObjectRequest.builder()
+                        .bucket(<span class="hljs-string">&quot;my-uploads&quot;</span>).key(key)
+                        .contentType(image.getContentType())
+                        .build(),
+                RequestBody.fromInputStream(image.getInputStream(), image.getSize()));
+        <span class="hljs-keyword">return</span> productService.create(info, key);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">validate</span><span class="hljs-params">(MultipartFile file)</span> {
+        <span class="hljs-keyword">if</span> (file.isEmpty()) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BadRequestException</span>(<span class="hljs-string">&quot;빈 파일&quot;</span>);
+        <span class="hljs-keyword">if</span> (file.getSize() &gt; MAX_IMAGE) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BadRequestException</span>(<span class="hljs-string">&quot;파일 크기 초과&quot;</span>);
+        <span class="hljs-keyword">if</span> (!ALLOWED.contains(file.getContentType())) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BadRequestException</span>(<span class="hljs-string">&quot;허용되지 않는 형식&quot;</span>);
+        <span class="hljs-type">String</span> <span class="hljs-variable">name</span> <span class="hljs-operator">=</span> StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
+        <span class="hljs-keyword">if</span> (name.contains(<span class="hljs-string">&quot;..&quot;</span>)) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BadRequestException</span>(<span class="hljs-string">&quot;파일명 위험&quot;</span>);
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">servlet:</span>
+    <span class="hljs-attr">multipart:</span>
+      <span class="hljs-attr">max-file-size:</span> <span class="hljs-string">10MB</span>
+      <span class="hljs-attr">max-request-size:</span> <span class="hljs-string">50MB</span></code></pre>
+<p>정렬 필드를 화이트리스트로 검증하고 <code>Specification</code>을 합성하는 목록 조회.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/products&quot;)</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductQueryController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">SORTABLE</span> <span class="hljs-operator">=</span> Set.of(<span class="hljs-string">&quot;name&quot;</span>, <span class="hljs-string">&quot;category&quot;</span>, <span class="hljs-string">&quot;price&quot;</span>, <span class="hljs-string">&quot;createdAt&quot;</span>);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    <span class="hljs-meta">@GetMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Page</span>&lt;ProductResponse&gt; <span class="hljs-title function_">list</span><span class="hljs-params">(
+            <span class="hljs-meta">@RequestParam(required = false)</span> String name,
+            <span class="hljs-meta">@RequestParam(required = false)</span> String category,
+            <span class="hljs-meta">@RequestParam(required = false)</span> BigDecimal minPrice,
+            <span class="hljs-meta">@RequestParam(required = false)</span> BigDecimal maxPrice,
+            <span class="hljs-meta">@PageableDefault(size = 20, sort = &quot;createdAt&quot;, direction = Sort.Direction.DESC)</span>
+            Pageable pageable)</span> {
+
+        pageable.getSort().stream()
+                .map(Sort.Order::getProperty)
+                .filter(p -&gt; !SORTABLE.contains(p))
+                .findFirst()
+                .ifPresent(p -&gt; { <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BadRequestException</span>(<span class="hljs-string">&quot;허용되지 않는 정렬 필드: &quot;</span> + p); });
+
+        <span class="hljs-type">Specification</span>&lt;Product&gt; <span class="hljs-variable">spec</span> <span class="hljs-operator">=</span> Specification
+                .where(ProductSpecs.nameContains(name))
+                .and(ProductSpecs.categoryIs(category))
+                .and(ProductSpecs.priceBetween(minPrice, maxPrice));
+
+        <span class="hljs-keyword">return</span> productRepository.findAll(spec, pageable).map(ProductResponse::from);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductSpecs</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Specification</span>&lt;Product&gt; <span class="hljs-title function_">nameContains</span><span class="hljs-params">(String name)</span> {
+        <span class="hljs-keyword">return</span> (root, query, cb) -&gt; !StringUtils.hasText(name)
+                ? cb.conjunction()
+                : cb.like(cb.lower(root.get(<span class="hljs-string">&quot;name&quot;</span>)), <span class="hljs-string">&quot;%&quot;</span> + name.toLowerCase() + <span class="hljs-string">&quot;%&quot;</span>);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Specification</span>&lt;Product&gt; <span class="hljs-title function_">categoryIs</span><span class="hljs-params">(String category)</span> {
+        <span class="hljs-keyword">return</span> (root, query, cb) -&gt; category == <span class="hljs-literal">null</span>
+                ? cb.conjunction()
+                : cb.equal(root.get(<span class="hljs-string">&quot;category&quot;</span>), category);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Specification</span>&lt;Product&gt; <span class="hljs-title function_">priceBetween</span><span class="hljs-params">(BigDecimal min, BigDecimal max)</span> {
+        <span class="hljs-keyword">return</span> (root, query, cb) -&gt; {
+            <span class="hljs-keyword">if</span> (min == <span class="hljs-literal">null</span> &amp;&amp; max == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> cb.conjunction();
+            <span class="hljs-keyword">if</span> (min == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> cb.lessThanOrEqualTo(root.get(<span class="hljs-string">&quot;price&quot;</span>), max);
+            <span class="hljs-keyword">if</span> (max == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> cb.greaterThanOrEqualTo(root.get(<span class="hljs-string">&quot;price&quot;</span>), min);
+            <span class="hljs-keyword">return</span> cb.between(root.get(<span class="hljs-string">&quot;price&quot;</span>), min, max);
+        };
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>supportsParameter</code> 조건이 느슨하면 다른 매개변수를 가로챈다.</strong> 어노테이션만 검사하면 <code>@LoginUser String</code>에 <code>User</code>를 반환하고, 타입만 검사하면 의도하지 않은 <code>User</code> 매개변수까지 처리한다.</li>
+<li><strong><code>Content-Type</code>은 클라이언트가 보내는 값이다.</strong> 매직 바이트 검사(Apache Tika 등)를 추가하고, 업로드 파일은 정적 리소스 경로 밖에 UUID 이름으로 저장한다.</li>
+<li><strong><code>getBytes()</code>는 파일 전체를 힙에 올린다.</strong> 동시 요청 수만큼 배가되므로 <code>getInputStream()</code>으로 스트리밍하고, 수백 MB 이상은 presigned URL로 서버를 거치지 않게 한다.</li>
+<li><strong><code>size</code>와 <code>sort</code>를 그대로 받으면 공격 벡터가 된다.</strong> <code>size=999999</code>는 테이블 전체를 읽고 <code>sort=password</code>는 숨겨야 할 컬럼을 건드린다. <code>spring.data.web.pageable.max-page-size</code>를 낮추고 정렬 필드는 화이트리스트로 검증한다.</li>
+<li><strong>컬렉션 fetch join과 페이징은 함께 쓸 수 없다.</strong> <code>JOIN FETCH</code> 쿼리에 <code>Pageable</code>을 넘기면 Hibernate가 <code>HHH90003004</code> 경고와 함께 전체 결과를 메모리에서 페이징한다. ID만 먼저 페이징한 뒤 <code>IN</code>으로 fetch join한다. 무한 스크롤에는 <code>Slice</code>로 COUNT 쿼리를 없앤다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/controller-request-binding/">Controller와 요청 바인딩</a></li>
+<li><a href="/notes/java-spring/dispatcher-servlet-filter-interceptor/">요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</a></li>
+<li><a href="/notes/java-spring/jpa-queries-querydsl-auditing/">쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · HandlerMethodArgumentResolver, MultipartFile, Pageable, Slice, Spring MVC</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/controller-request-binding/"><small>이전</small>Controller와 요청 바인딩</a>
+  <a class="next" href="/notes/java-spring/exception-handling-validation/"><small>다음</small>예외 처리와 검증 — @ControllerAdvice·Bean Validation</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

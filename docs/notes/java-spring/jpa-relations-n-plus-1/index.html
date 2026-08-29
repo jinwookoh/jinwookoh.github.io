@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>연관관계·N+1·값 객체 · Java / Spring</title>
+  <meta name="description" content="외래 키를 가진 쪽이 연관관계의 주인이며, 모든 관계를 LAZY로 두고 Fetch Join으로 N+1을 끊고, 식별자 없는 값은 @Embeddable로 묶는다.">
+  <meta property="og:title" content="연관관계·N+1·값 객체 · Java / Spring">
+  <meta property="og:description" content="외래 키를 가진 쪽이 연관관계의 주인이며, 모든 관계를 LAZY로 두고 Fetch Join으로 N+1을 끊고, 식별자 없는 값은 @Embeddable로 묶는다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jpa-relations-n-plus-1/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>연관관계·N+1·값 객체</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>연관관계·N+1·값 객체</h1>
+  <p class="summary">외래 키를 가진 쪽이 연관관계의 주인이며, 모든 관계를 LAZY로 두고 Fetch Join으로 N+1을 끊고, 식별자 없는 값은 @Embeddable로 묶는다.</p>
+  <div class="content">
+<p>고객은 여러 주문을 가지고, 주문은 여러 항목을 담으며, 주문에는 주소와 금액이 붙는다. 이 구조를 외래 키 컬럼과 개별 필드로만 표현하면 서비스 코드가 ID를 들고 반복 조회를 하고, 연관 객체의 로딩 시점이 드러나지 않아 목록 화면 하나에 SQL이 수백 번 나가는 N+1이 생기며, 주소·금액 필드가 엔티티마다 흩어져 검증·계산 로직이 중복된다. 연관관계 매핑, 페치 전략, <code>@Embeddable</code> 값 객체가 이 세 문제를 각각 맡는다.</p>
+<h2>핵심 개념</h2>
+<h3>네 가지 연관관계와 주인</h3>
+<p>JPA는 관계를 <code>@ManyToOne</code>·<code>@OneToMany</code>·<code>@OneToOne</code>·<code>@ManyToMany</code>로 분류한다. 외래 키 컬럼 하나가 <code>@ManyToOne</code> 필드 하나에 대응하므로 실무에서 가장 자주 쓰는 것은 <code>@ManyToOne</code>이다.</p>
+<p>양방향으로 매핑해도 데이터베이스의 외래 키는 한 곳에만 있다. 그래서 JPA는 <strong>연관관계의 주인(owning side)</strong> 을 정한다. 외래 키를 가진 쪽이 주인이며 <code>@JoinColumn</code>으로 컬럼명을 지정하고, 반대편은 <code>mappedBy</code>로 주인 필드명을 가리키는 읽기 전용이다. 주인이 아닌 쪽 컬렉션에 객체를 추가해도 SQL은 나가지 않으므로, 양방향일 때는 두 참조를 한 번에 맞추는 편의 메서드를 엔티티에 둔다.</p>
+<p>단방향이 기본이다. 양방향은 반대편 컬렉션을 실제로 탐색해야 할 때만 추가한다. JSON 직렬화 순환과 동기화 누락이 양방향의 대가다.</p>
+<p><code>@ManyToMany</code>는 조인 테이블을 자동 관리하지만 가입일·역할 같은 추가 컬럼을 둘 수 없다. 중간 엔티티를 만들고 양쪽에 <code>@ManyToOne</code>을 두는 방식으로 푼다.</p>
+<h3>페치 전략과 N+1</h3>
+<table>
+<thead>
+<tr>
+<th>어노테이션</th>
+<th>기본 FetchType</th>
+<th>위험</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>@ManyToOne</code>, <code>@OneToOne</code></td>
+<td>EAGER</td>
+<td>사용하지 않는 연관 객체까지 매번 조인</td>
+</tr>
+<tr>
+<td><code>@OneToMany</code>, <code>@ManyToMany</code></td>
+<td>LAZY</td>
+<td>컬렉션 접근 시 행마다 추가 쿼리</td>
+</tr>
+</tbody></table>
+<p>N+1은 부모 N건을 한 번에 조회한 뒤 각 부모의 연관 객체에 접근할 때 N번의 SELECT가 추가로 나가는 현상이다. EAGER는 해결책이 아니다. JPQL로 목록을 조회하면 EAGER 연관마다 별도 쿼리가 나가 숨은 N+1이 된다. 정석은 모든 연관관계를 <code>FetchType.LAZY</code>로 명시하고, 함께 필요한 연관 객체만 조회 시점에 <code>JOIN FETCH</code> 또는 <code>@EntityGraph</code>로 한 번의 조인에 끌어오는 것이다.</p>
+<h3>Cascade와 orphanRemoval</h3>
+<p><code>cascade</code>는 부모의 영속성 작업을 자식에게 전파한다. <code>CascadeType.ALL</code>은 <code>PERSIST</code>·<code>MERGE</code>·<code>REMOVE</code>·<code>REFRESH</code>·<code>DETACH</code> 전부를 포함하며, <code>REMOVE</code>는 부모 삭제 시 자식 전부를 지운다. <code>orphanRemoval = true</code>는 부모 컬렉션에서 빠진 자식을 DELETE한다. 둘 다 주문–주문항목처럼 부모 없이는 자식이 의미가 없는 소유 관계에만 붙인다. 고객–주문에 <code>ALL</code>을 붙이면 고객 정리 한 번에 과거 주문 이력이 사라진다.</p>
+<h3>값 객체 — @Embeddable</h3>
+<p>식별자가 의미를 갖는 것이 엔티티이고, 필드 값이 같으면 같은 것으로 취급되는 것이 값 객체다. 주소·금액·기간·이메일이 대표적이다. <code>@Embeddable</code> 클래스를 엔티티에 <code>@Embedded</code>로 두면 조인 없이 값 객체의 필드가 엔티티 테이블 컬럼으로 펼쳐진다. 같은 값 객체를 두 번 쓰면 컬럼명이 충돌하므로 <code>@AttributeOverride</code>로 재정의한다. 값 객체는 불변으로 설계하고, 모든 필드 기반 <code>equals</code>/<code>hashCode</code>와 도메인 메서드를 갖춰야 데이터 묶음 이상의 의미를 가진다.</p>
+<h2>코드</h2>
+<p>주문–주문항목 소유 관계. 연관관계는 LAZY로 명시하고, 양쪽 참조를 편의 메서드 하나로 맞춘다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.persistence.*;
+<span class="hljs-keyword">import</span> java.util.ArrayList;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@ManyToOne(fetch = FetchType.LAZY)</span>
+    <span class="hljs-meta">@JoinColumn(name = &quot;customer_id&quot;, nullable = false)</span>
+    <span class="hljs-keyword">private</span> Customer customer;
+
+    <span class="hljs-meta">@OneToMany(mappedBy = &quot;order&quot;, cascade = CascadeType.ALL, orphanRemoval = true)</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">List</span>&lt;OrderItem&gt; <span class="hljs-variable">items</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;();
+
+    <span class="hljs-meta">@Embedded</span>
+    <span class="hljs-meta">@AttributeOverride(name = &quot;amount&quot;, column = @Column(name = &quot;total_amount&quot;))</span>
+    <span class="hljs-meta">@AttributeOverride(name = &quot;currency&quot;, column = @Column(name = &quot;total_currency&quot;))</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Money</span> <span class="hljs-variable">total</span> <span class="hljs-operator">=</span> Money.zero(<span class="hljs-string">&quot;KRW&quot;</span>);
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Order</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Order</span><span class="hljs-params">(Customer customer)</span> {
+        <span class="hljs-built_in">this</span>.customer = customer;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">addItem</span><span class="hljs-params">(Product product, <span class="hljs-type">int</span> quantity)</span> {
+        <span class="hljs-type">OrderItem</span> <span class="hljs-variable">item</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderItem</span>(<span class="hljs-built_in">this</span>, product, quantity);
+        items.add(item);
+        total = total.add(product.getPrice().multiply(quantity));
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">equals</span><span class="hljs-params">(Object o)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-built_in">this</span> == o || (o <span class="hljs-keyword">instanceof</span> Order other &amp;&amp; id != <span class="hljs-literal">null</span> &amp;&amp; id.equals(other.id));
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">hashCode</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> getClass().hashCode();
+    }
+}
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;order_items&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderItem</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@ManyToOne(fetch = FetchType.LAZY)</span>
+    <span class="hljs-meta">@JoinColumn(name = &quot;order_id&quot;, nullable = false)</span>
+    <span class="hljs-keyword">private</span> Order order;
+
+    <span class="hljs-meta">@ManyToOne(fetch = FetchType.LAZY)</span>
+    <span class="hljs-meta">@JoinColumn(name = &quot;product_id&quot;, nullable = false)</span>
+    <span class="hljs-keyword">private</span> Product product;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> quantity;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">OrderItem</span><span class="hljs-params">()</span> {}
+
+    OrderItem(Order order, Product product, <span class="hljs-type">int</span> quantity) {
+        <span class="hljs-built_in">this</span>.order = order;
+        <span class="hljs-built_in">this</span>.product = product;
+        <span class="hljs-built_in">this</span>.quantity = quantity;
+    }
+}</code></pre>
+<p>불변 값 객체. 기본 생성자는 Hibernate 리플렉션용으로 <code>protected</code>로 두고, 비교는 모든 필드 값으로 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.persistence.Embeddable;
+<span class="hljs-keyword">import</span> java.util.Objects;
+
+<span class="hljs-meta">@Embeddable</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Money</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> amount;
+    <span class="hljs-keyword">private</span> String currency;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Money</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Money</span><span class="hljs-params">(<span class="hljs-type">long</span> amount, String currency)</span> {
+        <span class="hljs-keyword">if</span> (amount &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;amount must be &gt;= 0&quot;</span>);
+        <span class="hljs-built_in">this</span>.amount = amount;
+        <span class="hljs-built_in">this</span>.currency = Objects.requireNonNull(currency);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Money</span> <span class="hljs-title function_">zero</span><span class="hljs-params">(String currency)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Money</span>(<span class="hljs-number">0</span>, currency);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Money</span> <span class="hljs-title function_">add</span><span class="hljs-params">(Money other)</span> {
+        <span class="hljs-keyword">if</span> (!currency.equals(other.currency)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;currency mismatch&quot;</span>);
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Money</span>(amount + other.amount, currency);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Money</span> <span class="hljs-title function_">multiply</span><span class="hljs-params">(<span class="hljs-type">int</span> factor)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Money</span>(amount * factor, currency);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">amount</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> amount; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">currency</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> currency; }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">equals</span><span class="hljs-params">(Object o)</span> {
+        <span class="hljs-keyword">return</span> o <span class="hljs-keyword">instanceof</span> Money m &amp;&amp; amount == m.amount &amp;&amp; currency.equals(m.currency);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">hashCode</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> Objects.hash(amount, currency);
+    }
+}</code></pre>
+<p>N+1 회피. 목록은 <code>@EntityGraph</code>, 단건 상세는 <code>JOIN FETCH</code>로 필요한 연관만 한 번에 가져온다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.data.jpa.repository.*;
+<span class="hljs-keyword">import</span> org.springframework.data.repository.query.Param;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Optional;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Order, Long&gt; {
+
+    <span class="hljs-meta">@EntityGraph(attributePaths = {&quot;customer&quot;})</span>
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findAllByCustomerId</span><span class="hljs-params">(Long customerId)</span>;
+
+    <span class="hljs-meta">@Query(&quot;&quot;&quot;
+            select distinct o from Order o
+            join fetch o.items i
+            join fetch i.product
+            where o.id = :id
+            &quot;&quot;&quot;)</span>
+    <span class="hljs-type">Optional</span>&lt;Order&gt; <span class="hljs-title function_">findByIdWithItems</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id)</span>;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>컬렉션 Fetch Join과 페이징을 함께 쓰면 메모리 페이징이 일어난다.</strong> Hibernate는 <code>HHH90003004</code> 경고를 남기고 전체 결과를 메모리에 올린 뒤 잘라낸다. 컬렉션은 <code>hibernate.default_batch_fetch_size</code>로 IN 쿼리 묶음 로딩을 하고, Fetch Join은 <code>@ManyToOne</code> 방향에만 쓴다.</li>
+<li><strong><code>CascadeType.REMOVE</code>와 <code>orphanRemoval</code>은 자식 행을 한 건씩 DELETE한다.</strong> 자식이 수천 건이면 그만큼의 DELETE 문이 나간다. 대량 삭제는 <code>@Modifying</code> 벌크 JPQL이나 DB의 <code>ON DELETE CASCADE</code>로 처리한다.</li>
+<li><strong>Lombok <code>@Data</code>·<code>@ToString</code>을 엔티티에 붙이면 양방향 관계에서 <code>StackOverflowError</code>가 난다.</strong> <code>equals</code>는 ID 기반으로 직접 구현하고, <code>hashCode</code>는 영속화 전후로 ID가 바뀌어도 <code>Set</code> 버킷이 유지되도록 클래스 상수로 둔다.</li>
+<li><strong>트랜잭션 밖에서 LAZY 컬렉션에 접근하면 <code>LazyInitializationException</code>이 난다.</strong> <code>spring.jpa.open-in-view=true</code> 기본값이 이를 감추지만 뷰 렌더링까지 커넥션을 붙잡는다. OSIV를 끄고 서비스 계층 안에서 DTO로 변환해 반환한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/jpa-hibernate-spring-data/">JPA·Hibernate·Spring Data JPA — Entity와 Repository</a></li>
+<li><a href="/notes/java-spring/jpa-queries-querydsl-auditing/">쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</a></li>
+<li><a href="/notes/java-spring/persistence-context-lazy-loading/">영속성 컨텍스트와 LazyLoading</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · JPA, Hibernate, N+1, Fetch Join, Embeddable</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/jpa-hibernate-spring-data/"><small>이전</small>JPA·Hibernate·Spring Data JPA — Entity와 Repository</a>
+  <a class="next" href="/notes/java-spring/jpa-queries-querydsl-auditing/"><small>다음</small>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>컬렉션·제네릭·Optional · Java / Spring</title>
+  <meta name="description" content="여러 객체를 담는 컬렉션, 담기는 타입을 컴파일 시점에 고정하는 제네릭, 없을 수 있는 반환값을 표현하는 Optional을 한 번에 정리한다.">
+  <meta property="og:title" content="컬렉션·제네릭·Optional · Java / Spring">
+  <meta property="og:description" content="여러 객체를 담는 컬렉션, 담기는 타입을 컴파일 시점에 고정하는 제네릭, 없을 수 있는 반환값을 표현하는 Optional을 한 번에 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/collections-generics-optional/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>컬렉션·제네릭·Optional</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>컬렉션·제네릭·Optional</h1>
+  <p class="summary">여러 객체를 담는 컬렉션, 담기는 타입을 컴파일 시점에 고정하는 제네릭, 없을 수 있는 반환값을 표현하는 Optional을 한 번에 정리한다.</p>
+  <div class="content">
+<p>백엔드 코드의 대부분은 객체 여러 개를 모아서 조회하고, 걸러내고, 키로 찾는 일이다. 배열만으로는 크기 조절·중복 제거·키 조회를 직접 구현해야 하고, 제네릭이 없던 자바 1.4 시절처럼 컬렉션에 아무 타입이나 들어가면 꺼낼 때마다 캐스팅이 필요하며 잘못된 타입은 런타임 <code>ClassCastException</code>으로 드러난다. 값의 부재를 <code>null</code>로만 표현하면 검사를 빠뜨리는 순간 <code>NullPointerException</code>이 발생한다. 컬렉션, 제네릭, Optional은 이 세 문제를 각각 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>컬렉션 3대 인터페이스</h3>
+<table>
+<thead>
+<tr>
+<th>인터페이스</th>
+<th>특성</th>
+<th>대표 구현체</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>List</code></td>
+<td>순서 있음, 중복 허용, 인덱스 접근</td>
+<td><code>ArrayList</code>, <code>LinkedList</code></td>
+</tr>
+<tr>
+<td><code>Set</code></td>
+<td>중복 불허</td>
+<td><code>HashSet</code>, <code>LinkedHashSet</code>, <code>TreeSet</code></td>
+</tr>
+<tr>
+<td><code>Map</code></td>
+<td>키-값 쌍, 키 중복 불허</td>
+<td><code>HashMap</code>, <code>LinkedHashMap</code>, <code>TreeMap</code></td>
+</tr>
+</tbody></table>
+<p><code>ArrayList</code>는 동적 배열이라 인덱스 접근이 O(1)이고, 중간 삽입·삭제는 O(n)이지만 연속 메모리 덕분에 캐시 효율이 높아 실무에서는 거의 항상 <code>ArrayList</code>를 쓴다. <code>LinkedList</code>는 포인터 오버헤드와 O(n) 인덱스 접근 때문에 이론상 이점이 실제 성능으로 이어지는 경우가 드물다.</p>
+<p><code>HashSet</code>·<code>HashMap</code>은 평균 O(1) 조회를 제공하며 순서를 보장하지 않는다. <code>LinkedHashSet</code>·<code>LinkedHashMap</code>은 삽입 순서를, <code>TreeSet</code>·<code>TreeMap</code>은 정렬 순서를 O(log n)으로 유지한다. 정렬 순회가 명시적 요구일 때만 Tree 계열을 선택한다.</p>
+<p>생성은 자바 9 이후 <code>List.of</code>·<code>Set.of</code>·<code>Map.of</code>가 표준이다. 불변이라 <code>add</code>·<code>put</code> 호출 시 <code>UnsupportedOperationException</code>이 발생하고 <code>null</code>을 허용하지 않는다. 가변이 필요하면 <code>new ArrayList&lt;&gt;(List.of(...))</code>처럼 복사한다.</p>
+<h3>제네릭</h3>
+<p>제네릭은 클래스나 메서드가 다루는 타입을 매개변수로 선언하는 기능이다. <code>List&lt;String&gt;</code>으로 선언하면 <code>Integer</code>를 넣는 코드는 컴파일 단계에서 거부되고 꺼낼 때 캐스팅이 필요 없다. 타입 매개변수 이름은 관례상 <code>T</code>, <code>E</code>, <code>K</code>·<code>V</code>를 쓴다.</p>
+<ul>
+<li>제네릭 클래스 <code>class Box&lt;T&gt;</code>는 인스턴스 생성 시, 제네릭 메서드 <code>static &lt;T&gt; T first(List&lt;T&gt; list)</code>는 호출 인자로부터 타입이 정해진다.</li>
+<li>바운드 <code>&lt;T extends Number&gt;</code>는 <code>T</code>를 <code>Number</code>의 하위 타입으로 제한하고 그 범위의 메서드를 호출할 수 있게 한다.</li>
+<li>와일드카드 <code>List&lt;?&gt;</code>는 요소를 <code>Object</code>로만 읽고 <code>null</code> 외에는 추가할 수 없다. <code>? extends T</code>는 읽기, <code>? super T</code>는 쓰기에 쓴다는 것이 PECS 원칙이다.</li>
+</ul>
+<p>제네릭 타입 정보는 컴파일 후 지워진다(타입 소거). 런타임에는 <code>List&lt;String&gt;</code>과 <code>List&lt;Integer&gt;</code>가 같은 <code>ArrayList.class</code>이므로 <code>new T[]</code>나 <code>T.class</code>를 쓸 수 없고, Jackson의 <code>TypeReference</code>나 Spring의 <code>ParameterizedTypeReference</code>처럼 익명 서브클래스로 타입을 보존하는 우회가 필요하다.</p>
+<h3>Optional</h3>
+<p><code>Optional&lt;T&gt;</code>는 값이 없을 수 있음을 반환 타입에 드러내는 컨테이너다. 값을 꺼내려면 <code>orElse</code>·<code>orElseThrow</code>·<code>map</code> 같은 API를 거쳐야 하므로 부재 처리가 강제된다.</p>
+<p>생성은 <code>Optional.of</code>, <code>Optional.ofNullable</code>, <code>Optional.empty</code> 세 가지이며 <code>Optional.of(null)</code>은 즉시 NPE를 던진다. 값을 다루는 API는 <code>map</code>(변환), <code>flatMap</code>(중첩 제거), <code>filter</code>(불일치 시 빈 <code>Optional</code>), <code>ifPresent</code>, <code>orElse</code>(즉시 평가), <code>orElseGet</code>(지연 평가), <code>orElseThrow</code>(예외)다. <code>isPresent()</code> 뒤에 <code>get()</code>을 부르는 방식은 <code>null</code> 검사와 다를 게 없으므로 체이닝으로 대체한다.</p>
+<h2>코드</h2>
+<p>컬렉션 선택과 불변·가변 초기화를 비교한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.*;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CollectionBasics</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">names</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;(List.of(<span class="hljs-string">&quot;Alice&quot;</span>, <span class="hljs-string">&quot;Bob&quot;</span>));
+        names.add(<span class="hljs-string">&quot;Alice&quot;</span>);                          <span class="hljs-comment">// 중복 허용</span>
+        System.out.println(names.get(<span class="hljs-number">0</span>) + <span class="hljs-string">&quot; / &quot;</span> + names.size()); <span class="hljs-comment">// Alice / 3</span>
+
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">tags</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashSet</span>&lt;&gt;(Set.of(<span class="hljs-string">&quot;java&quot;</span>, <span class="hljs-string">&quot;spring&quot;</span>));
+        tags.add(<span class="hljs-string">&quot;java&quot;</span>);                            <span class="hljs-comment">// 무시됨</span>
+        System.out.println(tags.size());             <span class="hljs-comment">// 2</span>
+
+        <span class="hljs-type">Map</span>&lt;Long, String&gt; <span class="hljs-variable">users</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashMap</span>&lt;&gt;();
+        users.put(<span class="hljs-number">1L</span>, <span class="hljs-string">&quot;Alice&quot;</span>);
+        users.put(<span class="hljs-number">1L</span>, <span class="hljs-string">&quot;Alice v2&quot;</span>);                   <span class="hljs-comment">// 같은 키는 덮어쓴다</span>
+        <span class="hljs-keyword">for</span> (Map.Entry&lt;Long, String&gt; e : users.entrySet()) {
+            System.out.println(e.getKey() + <span class="hljs-string">&quot; = &quot;</span> + e.getValue());
+        }
+
+        <span class="hljs-type">Map</span>&lt;String, Integer&gt; <span class="hljs-variable">sorted</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TreeMap</span>&lt;&gt;(Map.of(<span class="hljs-string">&quot;b&quot;</span>, <span class="hljs-number">2</span>, <span class="hljs-string">&quot;a&quot;</span>, <span class="hljs-number">1</span>));
+        System.out.println(sorted);                  <span class="hljs-comment">// {a=1, b=2}</span>
+
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">fixed</span> <span class="hljs-operator">=</span> List.of(<span class="hljs-string">&quot;x&quot;</span>);
+        <span class="hljs-comment">// fixed.add(&quot;y&quot;);  -&gt; UnsupportedOperationException</span>
+    }
+}</code></pre>
+<p>제네릭 클래스·바운드·와일드카드와 타입 소거를 확인한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GenericsDemo</span> {
+
+    <span class="hljs-keyword">record</span> <span class="hljs-title class_">Box</span>&lt;T&gt;(T value) {}
+
+    <span class="hljs-keyword">static</span> &lt;T <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Comparable</span>&lt;T&gt;&gt; <span class="hljs-type">T</span> <span class="hljs-title function_">max</span><span class="hljs-params">(List&lt;? extends T&gt; items)</span> {
+        <span class="hljs-type">T</span> <span class="hljs-variable">best</span> <span class="hljs-operator">=</span> items.get(<span class="hljs-number">0</span>);
+        <span class="hljs-keyword">for</span> (T item : items) {
+            <span class="hljs-keyword">if</span> (item.compareTo(best) &gt; <span class="hljs-number">0</span>) best = item;
+        }
+        <span class="hljs-keyword">return</span> best;
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-type">double</span> <span class="hljs-title function_">sum</span><span class="hljs-params">(List&lt;? extends Number&gt; numbers)</span> {
+        <span class="hljs-type">double</span> <span class="hljs-variable">total</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">for</span> (Number n : numbers) total += n.doubleValue();
+        <span class="hljs-keyword">return</span> total;
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">fillDefaults</span><span class="hljs-params">(List&lt;? <span class="hljs-built_in">super</span> Integer&gt; target)</span> {
+        target.add(<span class="hljs-number">0</span>);                                <span class="hljs-comment">// Integer 상위 타입 리스트에 쓰기</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">Box</span>&lt;String&gt; <span class="hljs-variable">box</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Box</span>&lt;&gt;(<span class="hljs-string">&quot;hello&quot;</span>);
+        <span class="hljs-type">String</span> <span class="hljs-variable">s</span> <span class="hljs-operator">=</span> box.value();                       <span class="hljs-comment">// 캐스팅 불필요</span>
+
+        System.out.println(max(List.of(<span class="hljs-number">3</span>, <span class="hljs-number">9</span>, <span class="hljs-number">4</span>)));    <span class="hljs-comment">// 9</span>
+        System.out.println(sum(List.of(<span class="hljs-number">1</span>, <span class="hljs-number">2.5</span>)));     <span class="hljs-comment">// 3.5</span>
+
+        <span class="hljs-type">List</span>&lt;Number&gt; <span class="hljs-variable">sink</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">java</span>.util.ArrayList&lt;&gt;();
+        fillDefaults(sink);
+
+        System.out.println(List.of(<span class="hljs-string">&quot;a&quot;</span>).getClass() == List.of(<span class="hljs-number">1</span>).getClass()); <span class="hljs-comment">// true, 타입 소거</span>
+    }
+}</code></pre>
+<p>리포지토리가 반환한 <code>Optional</code>을 서비스에서 체이닝으로 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.Optional;
+<span class="hljs-keyword">import</span> org.springframework.data.jpa.repository.JpaRepository;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">UserRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;User, Long&gt; {
+    <span class="hljs-type">Optional</span>&lt;User&gt; <span class="hljs-title function_">findByEmail</span><span class="hljs-params">(String email)</span>;
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserRepository userRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserService</span><span class="hljs-params">(UserRepository userRepository)</span> {
+        <span class="hljs-built_in">this</span>.userRepository = userRepository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">User</span> <span class="hljs-title function_">getActiveUser</span><span class="hljs-params">(String email)</span> {
+        <span class="hljs-keyword">return</span> userRepository.findByEmail(email)
+                .filter(User::isActive)
+                .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">UserNotFoundException</span>(email));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">greeting</span><span class="hljs-params">(String email)</span> {
+        <span class="hljs-keyword">return</span> userRepository.findByEmail(email)
+                .map(User::getName)
+                .map(name -&gt; <span class="hljs-string">&quot;안녕하세요, &quot;</span> + name)
+                .orElseGet(() -&gt; <span class="hljs-string">&quot;게스트&quot;</span>);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Optional</span>&lt;Order&gt; <span class="hljs-title function_">latestOrder</span><span class="hljs-params">(String email)</span> {
+        <span class="hljs-keyword">return</span> userRepository.findByEmail(email)
+                .flatMap(User::latestOrder);          <span class="hljs-comment">// User -&gt; Optional&lt;Order&gt;</span>
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>HashMap</code>을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.</strong> 공유 상태에는 <code>ConcurrentHashMap</code>을 쓴다.</li>
+<li><strong><code>orElse</code>의 인자는 값이 있어도 평가된다.</strong> DB 조회처럼 비용이 있는 기본값은 <code>orElseGet</code>으로 지연시킨다.</li>
+<li><strong><code>Optional</code>은 반환 타입 전용이다.</strong> 필드에 두면 직렬화와 JPA 매핑이 깨지고, 빈 컬렉션이 부재를 표현하므로 <code>Optional&lt;List&lt;T&gt;&gt;</code>로 감싸지 않는다.</li>
+<li><strong>타입 소거 때문에 제네릭 타입 역직렬화는 힌트가 필요하다.</strong> <code>RestClient</code>에서 <code>.body(List.class)</code>로 받으면 <code>List&lt;LinkedHashMap&gt;</code>이 되므로 <code>ParameterizedTypeReference&lt;List&lt;User&gt;&gt;</code>를 넘긴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/interface-polymorphism-solid/">인터페이스·다형성·SOLID</a></li>
+<li><a href="/notes/java-spring/lambda-functional-stream/">람다·함수형 인터페이스·Stream</a></li>
+<li><a href="/notes/java-spring/jpa-hibernate-spring-data/">JPA·Hibernate·Spring Data JPA — Entity와 Repository</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Java, Collections, Generics, Optional, HashMap</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/interface-polymorphism-solid/"><small>이전</small>인터페이스·다형성·SOLID</a>
+  <a class="next" href="/notes/java-spring/exception-handling/"><small>다음</small>예외 처리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

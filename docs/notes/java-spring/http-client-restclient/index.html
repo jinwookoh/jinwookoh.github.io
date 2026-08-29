@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTTP 클라이언트 — RestClient · Java / Spring</title>
+  <meta name="description" content="Spring 6.1+ 동기 호출 표준 RestClient의 빌더·상태 코드 매핑·타임아웃·인터셉터·테스트 패턴을 정리한다">
+  <meta property="og:title" content="HTTP 클라이언트 — RestClient · Java / Spring">
+  <meta property="og:description" content="Spring 6.1+ 동기 호출 표준 RestClient의 빌더·상태 코드 매핑·타임아웃·인터셉터·테스트 패턴을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/http-client-restclient/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>HTTP 클라이언트 — RestClient</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>HTTP 클라이언트 — RestClient</h1>
+  <p class="summary">Spring 6.1+ 동기 호출 표준 RestClient의 빌더·상태 코드 매핑·타임아웃·인터셉터·테스트 패턴을 정리한다</p>
+  <div class="content">
+<p>백엔드는 결제·회원·재고 같은 다른 서비스나 외부 API를 HTTP로 호출한다. 저수준 API로 직접 짜면 URL 인코딩, JSON 직렬화, 상태 코드 분기를 매 호출마다 반복하고, 인증 토큰 주입 같은 공통 관심사가 호출 코드 전체에 흩어진다. 타임아웃 없는 클라이언트로 응답 없는 외부 서비스를 호출하면 요청 스레드가 묶이고, 풀이 고갈되면 외부 장애가 그대로 우리 서비스 장애가 된다. Spring의 HTTP 클라이언트는 이 반복과 위험을 한 곳에서 관리하게 한다.</p>
+<h2>핵심 개념</h2>
+<p>Spring에는 도입 시점이 다른 HTTP 클라이언트가 공존한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">클라이언트</th>
+<th align="left">방식</th>
+<th align="left">도입</th>
+<th align="left">상태</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>RestTemplate</code></td>
+<td align="left">동기·블로킹</td>
+<td align="left">Spring 3.0</td>
+<td align="left">유지보수 모드 (deprecated 아님, 신규 기능 추가 없음)</td>
+</tr>
+<tr>
+<td align="left"><code>WebClient</code></td>
+<td align="left">비동기·논블로킹</td>
+<td align="left">Spring 5.0</td>
+<td align="left">리액티브 표준, <code>spring-webflux</code> 필요</td>
+</tr>
+<tr>
+<td align="left"><code>RestClient</code></td>
+<td align="left">동기·블로킹</td>
+<td align="left">Spring 6.1</td>
+<td align="left">동기 호출 표준, Fluent API</td>
+</tr>
+</tbody></table>
+<p>신규 동기 코드는 <code>RestClient</code>, 스트리밍이나 논블로킹이 필요한 리액티브 스택은 <code>WebClient</code>, 기존 <code>RestTemplate</code> 코드는 유지하다가 점진적으로 옮긴다. <code>RestClient</code>는 <code>spring-boot-starter-web</code>에 포함되고, <code>RestTemplate</code>과 같은 요청 팩토리·메시지 컨버터·인터셉터 인프라 위에서 동작하므로 기존 구성 요소를 그대로 재사용한다. <code>WebClient</code>는 <code>Mono</code>·<code>Flux</code>를 다뤄야 하고, <code>.block()</code>으로 동기 변환하면 논블로킹의 이점이 사라진다.</p>
+<p><code>RestClient</code> 호출 체인은 <code>get()</code>·<code>post()</code>로 메서드를 고르고, <code>uri()</code>로 경로 변수와 쿼리 파라미터를 지정하고, <code>retrieve()</code>를 거쳐 <code>body(Class)</code> 또는 <code>toEntity(Class)</code>로 결과를 꺼내는 순서다. <code>retrieve()</code>는 4xx·5xx에 기본적으로 <code>RestClientResponseException</code>을 던지며, <code>onStatus(predicate, handler)</code>로 특정 코드를 도메인 예외에 매핑한다. 제네릭 타입은 타입 소거 때문에 <code>ParameterizedTypeReference</code>로 받는다. URL은 문자열 연결 대신 템플릿 변수나 <code>UriBuilder</code>를 써서 한글·공백·특수 문자 인코딩을 클라이언트에 맡긴다.</p>
+<p>공통 관심사는 <code>ClientHttpRequestInterceptor</code>로 처리한다. 매 요청 직전에 실행되어 헤더 추가·로깅·계측을 수행하며, 빌더의 <code>requestInterceptor(...)</code>로 등록해야 동작한다. OAuth2 client credentials 흐름이라면 <code>OAuth2AuthorizedClientManager</code>가 토큰 발급·캐싱·갱신을 담당하고, 인터셉터는 받은 액세스 토큰을 <code>Authorization</code> 헤더에 붙이기만 한다.</p>
+<p>테스트는 <code>@RestClientTest</code>와 <code>MockRestServiceServer</code> 조합을 쓴다. 지정한 클라이언트만 컨텍스트에 올리고, <code>RestClient.Builder</code>에 바인딩된 가짜 서버가 등록된 요청에 미리 정한 응답을 돌려준다.</p>
+<h2>코드</h2>
+<p>빈으로 등록한 <code>RestClient</code>에 baseUrl·기본 헤더·타임아웃·인터셉터를 한 번에 설정한다. 생성 비용이 있으므로 호출마다 만들지 않고 재사용한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentClientConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">RestClient</span> <span class="hljs-title function_">paymentRestClient</span><span class="hljs-params">(RestClient.Builder builder,
+                                 ClientHttpRequestInterceptor oauthInterceptor,
+                                 <span class="hljs-meta">@Value(&quot;${payment.base-url}&quot;)</span> String baseUrl)</span> {
+        <span class="hljs-type">JdkClientHttpRequestFactory</span> <span class="hljs-variable">factory</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdkClientHttpRequestFactory</span>(
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(<span class="hljs-number">3</span>)).build());
+        factory.setReadTimeout(Duration.ofSeconds(<span class="hljs-number">10</span>));
+
+        <span class="hljs-keyword">return</span> builder
+                .baseUrl(baseUrl)
+                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .requestFactory(factory)
+                .requestInterceptor(oauthInterceptor)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">ClientHttpRequestInterceptor</span> <span class="hljs-title function_">oauthInterceptor</span><span class="hljs-params">(OAuth2AuthorizedClientManager manager)</span> {
+        <span class="hljs-keyword">return</span> (request, body, execution) -&gt; {
+            <span class="hljs-type">OAuth2AuthorizeRequest</span> <span class="hljs-variable">authorizeRequest</span> <span class="hljs-operator">=</span> OAuth2AuthorizeRequest
+                    .withClientRegistrationId(<span class="hljs-string">&quot;payment-auth&quot;</span>)
+                    .principal(<span class="hljs-string">&quot;payment-client&quot;</span>)
+                    .build();
+            <span class="hljs-type">OAuth2AuthorizedClient</span> <span class="hljs-variable">client</span> <span class="hljs-operator">=</span> manager.authorize(authorizeRequest);
+            <span class="hljs-keyword">if</span> (client == <span class="hljs-literal">null</span>) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;OAuth2 토큰을 획득하지 못했다&quot;</span>);
+            }
+            request.getHeaders().setBearerAuth(client.getAccessToken().getTokenValue());
+            <span class="hljs-keyword">return</span> execution.execute(request, body);
+        };
+    }
+}</code></pre>
+<p>GET·POST·목록 조회와 상태 코드별 예외 매핑을 한 클라이언트에 모은다. 404는 도메인 예외로, 5xx는 재시도 가능한 예외로 구분한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PaymentClient</span><span class="hljs-params">(RestClient paymentRestClient)</span> {
+        <span class="hljs-built_in">this</span>.restClient = paymentRestClient;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Payment</span> <span class="hljs-title function_">getPayment</span><span class="hljs-params">(String id, String traceId)</span> {
+        <span class="hljs-keyword">return</span> restClient.get()
+                .uri(uri -&gt; uri.path(<span class="hljs-string">&quot;/payments/{id}&quot;</span>).queryParam(<span class="hljs-string">&quot;includeDetail&quot;</span>, <span class="hljs-literal">true</span>).build(id))
+                .header(<span class="hljs-string">&quot;X-Trace-Id&quot;</span>, traceId)
+                .retrieve()
+                .onStatus(status -&gt; status.value() == <span class="hljs-number">404</span>, (req, res) -&gt; {
+                    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentNotFoundException</span>(id);
+                })
+                .onStatus(HttpStatusCode::is5xxServerError, (req, res) -&gt; {
+                    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentUpstreamException</span>(res.getStatusCode());
+                })
+                .body(Payment.class);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Payment</span> <span class="hljs-title function_">createPayment</span><span class="hljs-params">(PaymentRequest request)</span> {
+        <span class="hljs-type">ResponseEntity</span>&lt;Payment&gt; <span class="hljs-variable">entity</span> <span class="hljs-operator">=</span> restClient.post()
+                .uri(<span class="hljs-string">&quot;/payments&quot;</span>)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(request)
+                .retrieve()
+                .toEntity(Payment.class);
+        <span class="hljs-keyword">return</span> entity.getBody();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Payment&gt; <span class="hljs-title function_">listPayments</span><span class="hljs-params">(<span class="hljs-type">long</span> userId)</span> {
+        <span class="hljs-keyword">return</span> restClient.get()
+                .uri(<span class="hljs-string">&quot;/payments?userId={id}&quot;</span>, userId)
+                .retrieve()
+                .body(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ParameterizedTypeReference</span>&lt;&gt;() {});
+    }
+}</code></pre>
+<p><code>@RestClientTest</code>로 클라이언트만 띄우고 <code>MockRestServiceServer</code>가 응답을 대신한다. 마지막의 <code>verify()</code>가 등록한 요청이 실제로 발생했는지 확인한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestClientTest(PaymentClient.class)</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentClientTest</span> {
+
+    <span class="hljs-meta">@Autowired</span> PaymentClient paymentClient;
+    <span class="hljs-meta">@Autowired</span> MockRestServiceServer server;
+    <span class="hljs-meta">@Autowired</span> ObjectMapper objectMapper;
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">getPayment_returnsBody</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">Payment</span> <span class="hljs-variable">expected</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Payment</span>(<span class="hljs-string">&quot;p-1&quot;</span>, <span class="hljs-number">12000L</span>, <span class="hljs-string">&quot;DONE&quot;</span>);
+        server.expect(method(HttpMethod.GET))
+              .andExpect(requestTo(containsString(<span class="hljs-string">&quot;/payments/p-1&quot;</span>)))
+              .andExpect(header(<span class="hljs-string">&quot;X-Trace-Id&quot;</span>, <span class="hljs-string">&quot;t-1&quot;</span>))
+              .andRespond(withSuccess(objectMapper.writeValueAsString(expected),
+                                      MediaType.APPLICATION_JSON));
+
+        <span class="hljs-type">Payment</span> <span class="hljs-variable">actual</span> <span class="hljs-operator">=</span> paymentClient.getPayment(<span class="hljs-string">&quot;p-1&quot;</span>, <span class="hljs-string">&quot;t-1&quot;</span>);
+
+        assertThat(actual.id()).isEqualTo(<span class="hljs-string">&quot;p-1&quot;</span>);
+        server.verify();
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">getPayment_404_mapsToDomainException</span><span class="hljs-params">()</span> {
+        server.expect(requestTo(containsString(<span class="hljs-string">&quot;/payments/missing&quot;</span>)))
+              .andRespond(withResourceNotFound());
+
+        assertThatThrownBy(() -&gt; paymentClient.getPayment(<span class="hljs-string">&quot;missing&quot;</span>, <span class="hljs-string">&quot;t-2&quot;</span>))
+                .isInstanceOf(PaymentNotFoundException.class);
+        server.verify();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>타임아웃 미설정.</strong> 기본 요청 팩토리의 타임아웃은 사실상 무한이다. 연결·읽기 타임아웃을 항상 명시하고 외부 서비스별 SLA에 맞춰 값을 다르게 둔다.</li>
+<li><strong>직렬 호출.</strong> 독립적인 외부 API를 순서대로 부르면 응답 시간이 합산된다. <code>CompletableFuture</code>나 Virtual Thread 기반 Executor로 병렬화하면 가장 느린 호출 수준으로 줄지만, 외부 서비스 동시 부하와 커넥션 풀 크기를 함께 조정한다.</li>
+<li><strong>재시도 범위.</strong> Spring Retry나 Resilience4j로 재시도할 때 대상은 연결 실패·5xx·타임아웃 같은 일시 오류로 한정한다. 멱등하지 않은 POST를 재시도하면 중복 결제 같은 사고가 나고, 백오프 없는 즉시 재시도는 장애 중인 서비스를 더 밀어붙인다.</li>
+<li><strong>String으로 받아 직접 파싱.</strong> 응답을 <code>String.class</code>로 받아 수동으로 JSON을 뜯으면 스키마 변경에 조용히 깨진다. DTO에 <code>@JsonIgnoreProperties(ignoreUnknown = true)</code>를 붙여 받고, <code>Page&lt;T&gt;</code> 같은 인터페이스 타입은 <code>PageImpl</code>을 상속한 구체 클래스에 <code>@JsonCreator</code>로 매핑한다.</li>
+<li><strong>테스트의 <code>verify()</code> 누락과 빌더 바인딩.</strong> <code>verify()</code>를 빠뜨리면 호출이 발생하지 않아도 테스트가 통과한다. 주입받은 <code>RestClient.Builder</code>는 생성자에서 한 번만 <code>build()</code>해야 가짜 서버와 바인딩되며, 메서드 안에서 매번 빌드하면 테스트 설정이 적용되지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/events-async-scheduling/">이벤트·비동기·스케줄링</a></li>
+<li><a href="/notes/java-spring/cors-security-oauth2-jwt/">CORS와 Spring Security — OAuth2·JWT</a></li>
+<li><a href="/notes/java-spring/testing-mockmvc-testcontainers/">테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · RestClient, WebClient, RestTemplate, MockRestServiceServer, ClientHttpRequestInterceptor</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/events-async-scheduling/"><small>이전</small>이벤트·비동기·스케줄링</a>
+  <a class="next" href="/notes/java-spring/testing-mockmvc-testcontainers/"><small>다음</small>테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

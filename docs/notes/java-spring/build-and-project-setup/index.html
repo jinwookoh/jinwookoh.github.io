@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles · Java / Spring</title>
+  <meta name="description" content="빌드 도구가 의존성을 해석하고, Initializr가 표준 골격을 만들며, Profile과 외부 설정이 환경 차이를 코드 밖으로 밀어내는 구조를 정리한다.">
+  <meta property="og:title" content="빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles · Java / Spring">
+  <meta property="og:description" content="빌드 도구가 의존성을 해석하고, Initializr가 표준 골격을 만들며, Profile과 외부 설정이 환경 차이를 코드 밖으로 밀어내는 구조를 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/build-and-project-setup/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Spring 코어</p>
+  <h1>빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles</h1>
+  <p class="summary">빌드 도구가 의존성을 해석하고, Initializr가 표준 골격을 만들며, Profile과 외부 설정이 환경 차이를 코드 밖으로 밀어내는 구조를 정리한다.</p>
+  <div class="content">
+<p>Spring 애플리케이션은 Spring MVC, Jackson, JDBC 드라이버 같은 외부 라이브러리에 의존하고, 그 라이브러리들은 다시 다른 라이브러리를 요구한다. <code>.jar</code>를 직접 내려받아 올리면 전이 의존성 누락과 버전 충돌이 발생한다. 골격을 손으로 만들면 자동 구성 규약에서 어긋나기 쉽고, 환경별 DB 주소·자격 증명을 코드에 박으면 환경 전환마다 재빌드가 필요하며 비밀이 저장소에 남는다. Maven/Gradle, Spring Initializr, Profiles가 이 세 문제를 각각 담당한다.</p>
+<h2>핵심 개념</h2>
+<h3>의존성 좌표와 BOM</h3>
+<p>라이브러리는 <code>groupId:artifactId:version</code> 좌표로 식별한다. 빌드 도구는 이 좌표를 Maven Central에서 해석하고, 그 아티팩트가 선언한 의존성까지 재귀적으로 가져온다. 버전이 충돌하면 Maven은 트리에서 가장 가까운 선언을, Gradle은 가장 높은 버전을 택한다. Spring Boot는 <code>spring-boot-dependencies</code> BOM으로 검증된 버전 조합을 관리하므로 스타터 선언에서 버전을 생략한다.</p>
+<p>스코프는 라이브러리가 올라가는 클래스패스를 정한다.</p>
+<table>
+<thead>
+<tr>
+<th>Maven</th>
+<th>Gradle</th>
+<th>의미</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>compile</code></td>
+<td><code>implementation</code></td>
+<td>컴파일·실행 모두</td>
+</tr>
+<tr>
+<td><code>runtime</code></td>
+<td><code>runtimeOnly</code></td>
+<td>실행 시에만 (JDBC 드라이버)</td>
+</tr>
+<tr>
+<td><code>test</code></td>
+<td><code>testImplementation</code></td>
+<td>테스트에만</td>
+</tr>
+<tr>
+<td><code>provided</code></td>
+<td><code>compileOnly</code></td>
+<td>컴파일에만, 런타임이 제공 (Lombok)</td>
+</tr>
+</tbody></table>
+<h3>Maven과 Gradle</h3>
+<p>Maven은 <code>pom.xml</code>의 XML 선언과 고정된 생명주기로 동작하며 규약이 강해 프로젝트 간 편차가 적다. Gradle은 <code>build.gradle(.kts)</code>를 Groovy/Kotlin DSL로 작성하고, 증분 빌드와 빌드 캐시로 반복 빌드가 빠르며 빌드 로직을 코드로 표현할 수 있다. 어느 쪽이든 Spring Boot 플러그인이 실행 가능한 jar 생성과 BOM 적용을 맡고, <code>mvnw</code>/<code>gradlew</code> 래퍼로 도구 버전을 저장소에 고정한다.</p>
+<h3>Spring Initializr</h3>
+<p>start.spring.io는 빌드 도구, 언어, Boot 버전, Group·Artifact, 패키징, Java 버전, 의존성을 받아 골격 ZIP을 만든다. 핵심은 <code>src/main</code>·<code>src/test</code> 규약 구조, <code>@SpringBootApplication</code> 메인 클래스, Jar 패키징 셋이다. <code>@SpringBootApplication</code>은 <code>@SpringBootConfiguration</code>·<code>@EnableAutoConfiguration</code>·<code>@ComponentScan</code>의 합성이며 메인 클래스의 패키지가 스캔 루트가 된다. Jar는 내장 서블릿 컨테이너를 포함해 <code>java -jar</code> 하나로 서버가 뜬다.</p>
+<h3>Profiles와 외부 설정</h3>
+<p>설정값은 명령줄 인자 &gt; 환경 변수 &gt; <code>application-{profile}.yml</code> &gt; <code>application.yml</code> &gt; 코드 기본값 순으로 병합된다. 환경 변수는 relaxed binding으로 <code>SPRING_DATASOURCE_URL</code>이 <code>spring.datasource.url</code>에 대응한다. <code>spring.profiles.active</code>로 켠 프로파일의 파일이 공통 파일을 덮어쓰고, <code>@Profile</code> Bean은 해당 프로파일에서만 등록된다. 단일 값은 <code>@Value(&quot;${key:default}&quot;)</code>, 묶음은 <code>@ConfigurationProperties</code>로 주입하며, Boot 3.x에서는 불변 record에 생성자 바인딩하는 형태가 표준이다.</p>
+<h2>코드</h2>
+<p>Gradle Kotlin DSL 빌드 스크립트. 스타터 버전은 BOM이 채운다.</p>
+<pre><code class="hljs language-kotlin">plugins {
+    java
+    id(<span class="hljs-string">&quot;org.springframework.boot&quot;</span>) version <span class="hljs-string">&quot;3.5.0&quot;</span>
+    id(<span class="hljs-string">&quot;io.spring.dependency-management&quot;</span>) version <span class="hljs-string">&quot;1.1.7&quot;</span>
+}
+
+group = <span class="hljs-string">&quot;com.example&quot;</span>
+version = <span class="hljs-string">&quot;0.0.1-SNAPSHOT&quot;</span>
+
+java {
+    toolchain { languageVersion.<span class="hljs-keyword">set</span>(JavaLanguageVersion.of(<span class="hljs-number">21</span>)) }
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    implementation(<span class="hljs-string">&quot;org.springframework.boot:spring-boot-starter-web&quot;</span>)
+    implementation(<span class="hljs-string">&quot;org.springframework.boot:spring-boot-starter-validation&quot;</span>)
+    runtimeOnly(<span class="hljs-string">&quot;org.postgresql:postgresql&quot;</span>)
+    compileOnly(<span class="hljs-string">&quot;org.projectlombok:lombok&quot;</span>)
+    annotationProcessor(<span class="hljs-string">&quot;org.projectlombok:lombok&quot;</span>)
+    annotationProcessor(<span class="hljs-string">&quot;org.springframework.boot:spring-boot-configuration-processor&quot;</span>)
+    developmentOnly(<span class="hljs-string">&quot;org.springframework.boot:spring-boot-devtools&quot;</span>)
+    testImplementation(<span class="hljs-string">&quot;org.springframework.boot:spring-boot-starter-test&quot;</span>)
+}
+
+tasks.withType&lt;Test&gt; { useJUnitPlatform() }</code></pre>
+<p>공통 설정과 프로파일별 설정. 비밀은 환경 변수로 참조한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># application.yml</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">application:</span>
+    <span class="hljs-attr">name:</span> <span class="hljs-string">myshop</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">open-in-view:</span> <span class="hljs-literal">false</span>
+<span class="hljs-attr">server:</span>
+  <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span>
+<span class="hljs-attr">app:</span>
+  <span class="hljs-attr">upload:</span>
+    <span class="hljs-attr">dir:</span> <span class="hljs-string">/var/uploads</span>
+    <span class="hljs-attr">max-file-size:</span> <span class="hljs-number">10485760</span>
+    <span class="hljs-attr">allowed-types:</span> [<span class="hljs-string">image/jpeg</span>, <span class="hljs-string">image/png</span>]
+<span class="hljs-meta">---</span>
+<span class="hljs-comment"># application-dev.yml</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:h2:mem:devdb</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">hibernate:</span>
+      <span class="hljs-attr">ddl-auto:</span> <span class="hljs-string">create-drop</span>
+<span class="hljs-attr">logging:</span>
+  <span class="hljs-attr">level:</span>
+    <span class="hljs-attr">com.example.myshop:</span> <span class="hljs-string">DEBUG</span>
+<span class="hljs-meta">---</span>
+<span class="hljs-comment"># application-prod.yml</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://prod-db.internal:5432/myshop</span>
+    <span class="hljs-attr">username:</span> <span class="hljs-string">${DB_USERNAME:myshop}</span>
+    <span class="hljs-attr">password:</span> <span class="hljs-string">${DB_PASSWORD}</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">hibernate:</span>
+      <span class="hljs-attr">ddl-auto:</span> <span class="hljs-string">validate</span>
+<span class="hljs-attr">logging:</span>
+  <span class="hljs-attr">level:</span>
+    <span class="hljs-attr">com.example.myshop:</span> <span class="hljs-string">INFO</span></code></pre>
+<p>record 기반 <code>@ConfigurationProperties</code>와 검증, 프로파일별 Bean 분기.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.myshop.config;
+
+<span class="hljs-keyword">import</span> jakarta.validation.constraints.Min;
+<span class="hljs-keyword">import</span> jakarta.validation.constraints.NotBlank;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> org.springframework.boot.context.properties.ConfigurationProperties;
+<span class="hljs-keyword">import</span> org.springframework.validation.annotation.Validated;
+
+<span class="hljs-meta">@Validated</span>
+<span class="hljs-meta">@ConfigurationProperties(prefix = &quot;app.upload&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">UploadProperties</span><span class="hljs-params">(
+        @NotBlank String dir,
+        @Min(1)</span> <span class="hljs-type">long</span> maxFileSize,
+        List&lt;String&gt; allowedTypes) {
+}</code></pre>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.myshop;
+
+<span class="hljs-keyword">import</span> com.example.myshop.config.UploadProperties;
+<span class="hljs-keyword">import</span> org.springframework.boot.SpringApplication;
+<span class="hljs-keyword">import</span> org.springframework.boot.autoconfigure.SpringBootApplication;
+<span class="hljs-keyword">import</span> org.springframework.boot.context.properties.EnableConfigurationProperties;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Profile;
+
+<span class="hljs-meta">@SpringBootApplication</span>
+<span class="hljs-meta">@EnableConfigurationProperties(UploadProperties.class)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MyShopApplication</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        SpringApplication.run(MyShopApplication.class, args);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@Profile(&quot;prod&quot;)</span>
+    <span class="hljs-type">EmailSender</span> <span class="hljs-title function_">smtpEmailSender</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SmtpEmailSender</span>();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@Profile(&quot;!prod&quot;)</span>
+    <span class="hljs-type">EmailSender</span> <span class="hljs-title function_">consoleEmailSender</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> message -&gt; System.out.println(<span class="hljs-string">&quot;[email] &quot;</span> + message);
+    }
+}</code></pre>
+<p>프로파일 전환은 재빌드 없이 명령줄 또는 환경 변수로 한다.</p>
+<pre><code class="hljs language-bash">./gradlew bootJar
+java -jar build/libs/myshop-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
+SPRING_PROFILES_ACTIVE=prod DB_PASSWORD=... java -jar build/libs/myshop-0.0.1-SNAPSHOT.jar</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>BOM을 우회한 버전 지정.</strong> Jackson·Hibernate 같은 관리 대상에 임의 버전을 적으면 검증된 조합이 깨진다. BOM 프로퍼티 오버라이드로 처리하고 <code>./gradlew dependencies</code>로 확인한다.</li>
+<li><strong><code>application.yml</code>에 기본 프로파일 고정.</strong> <code>spring.profiles.active: dev</code>가 남은 채 운영 jar를 실행하면 H2와 <code>create-drop</code>이 운영에서 동작한다. 기본값을 두지 않고 배포 스크립트가 프로파일을 주입하도록 강제한다.</li>
+<li><strong>비밀의 저장소 유출.</strong> <code>application-prod.yml</code>에 실제 값을 쓰면 git 이력에 남는다. <code>${ENV}</code> 참조만 두고 값은 Secret·Vault로 주입하며, 비밀번호에는 기본값을 두지 않아 미주입 시 기동에 실패하게 한다.</li>
+<li><strong>컴포넌트 스캔 루트 이탈.</strong> 메인 클래스 패키지 밖에 Bean을 두면 <code>NoSuchBeanDefinitionException</code>이 난다. 메인 클래스는 최상위 패키지에 둔다.</li>
+<li><strong>DevTools 스코프.</strong> <code>implementation</code>으로 넣으면 운영 jar에 포함되므로 <code>developmentOnly</code>를 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/spring-framework-boot-autoconfig/">Spring Framework와 Boot 자동 구성</a></li>
+<li><a href="/notes/java-spring/bean-registration-injection/">Bean 등록과 주입 — 어노테이션·@Component·@Configuration</a></li>
+<li><a href="/notes/java-spring/deploy-docker-buildpack/">배포 — Docker·Buildpack</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Maven, Gradle, Spring Initializr, Spring Profiles, ConfigurationProperties</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/design-patterns-behavioral/"><small>이전</small>디자인 패턴 — 행위·조합</a>
+  <a class="next" href="/notes/java-spring/spring-framework-boot-autoconfig/"><small>다음</small>Spring Framework와 Boot 자동 구성</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

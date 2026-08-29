@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>디자인 패턴 — 행위·조합 · Java / Spring</title>
+  <meta name="description" content="행위 패턴 9가지의 역할 분담 원칙과 Observer·Strategy·Mediator를 한 시스템에 조합하는 기준을 정리한다">
+  <meta property="og:title" content="디자인 패턴 — 행위·조합 · Java / Spring">
+  <meta property="og:description" content="행위 패턴 9가지의 역할 분담 원칙과 Observer·Strategy·Mediator를 한 시스템에 조합하는 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/design-patterns-behavioral/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>디자인 패턴 — 행위·조합</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>디자인 패턴 — 행위·조합</h1>
+  <p class="summary">행위 패턴 9가지의 역할 분담 원칙과 Observer·Strategy·Mediator를 한 시스템에 조합하는 기준을 정리한다</p>
+  <div class="content">
+<p>객체 생성과 구조를 정리해도 객체 사이의 통신과 책임 분배를 규칙 없이 두면 문제가 남는다. 결제 방식이 늘 때마다 <code>if-else</code> 분기가 자라고, 상태 변경을 알려야 할 대상이 늘 때마다 호출 코드가 흩어지며, 객체들이 서로를 직접 참조하면서 N×N 결합이 만들어진다. 한 클래스 수정이 여러 클래스에 번지고 테스트 격리도 어려워진다. GoF 행위 패턴은 이 문제에 대한 답이고, 실제 시스템에서는 여러 패턴이 동시에 결합된 형태로 나타난다.</p>
+<h2>핵심 개념</h2>
+<p>행위 패턴 중 자주 쓰는 아홉 가지는 다음처럼 구분한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">패턴</th>
+<th align="left">목적</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Strategy</td>
+<td align="left">알고리즘을 캡슐화해 런타임에 교체</td>
+</tr>
+<tr>
+<td align="left">State</td>
+<td align="left">내부 상태에 따라 행동 변경, 전환 로직 포함</td>
+</tr>
+<tr>
+<td align="left">Observer</td>
+<td align="left">Subject 상태 변경 시 Observer에 자동 통지</td>
+</tr>
+<tr>
+<td align="left">Mediator</td>
+<td align="left">객체 간 직접 통신을 중재자 경유로 치환</td>
+</tr>
+<tr>
+<td align="left">Command</td>
+<td align="left">요청을 객체로 캡슐화해 큐잉·로깅·undo 지원</td>
+</tr>
+<tr>
+<td align="left">Memento</td>
+<td align="left">내부 상태 스냅샷을 저장·복원</td>
+</tr>
+<tr>
+<td align="left">Template Method</td>
+<td align="left">골격은 상위 클래스, 일부 단계는 하위 클래스</td>
+</tr>
+<tr>
+<td align="left">Iterator</td>
+<td align="left">내부 구조 노출 없이 순회</td>
+</tr>
+<tr>
+<td align="left">Chain of Responsibility</td>
+<td align="left">처리 가능한 핸들러까지 요청 전달</td>
+</tr>
+</tbody></table>
+<p>구조가 닮아 혼동하는 쌍은 의도로 구분한다. Strategy와 State는 둘 다 인터페이스에 행위를 위임하고 Context가 구현체를 보관하지만, Strategy는 클라이언트가 명시적으로 고르는 선택의 문제이고 State는 이벤트에 따라 내부에서 전환되는 전이의 문제다. Observer와 Mediator는 둘 다 직접 참조를 제거하지만, Observer는 Subject에서 Observer로 흐르는 1:N 단방향 통지이고 Mediator는 N:N 통신을 한 곳에서 라우팅하는 양방향 구조다. Command와 Memento는 둘 다 undo에 쓰이는데, Command는 동작을 저장해 역으로 실행하고 Memento는 상태를 저장해 직접 복원한다. Template Method는 컴파일 타임에 상속으로 단계를 고정하고, Strategy는 런타임에 객체 주입으로 알고리즘 전체를 바꾼다.</p>
+<p>Strategy가 가장 자주 쓰이는 이유는 SOLID 세 원칙을 동시에 만족하기 때문이다. 알고리즘별로 클래스가 분리되니 SRP, Context가 인터페이스에만 의존하니 DIP, 새 전략 추가 시 기존 코드를 수정하지 않으니 OCP다. 자바에서는 <code>Comparator</code>와 람다가 이 패턴의 표준 형태이고, 단일 메서드 전략은 함수형 인터페이스로 대체하면 클래스 수가 줄어든다.</p>
+<p>패턴 조합은 한 시스템 안에서 자연스럽게 발생한다. 승차 공유 도메인이라면 요금 정책은 Strategy, 탑승 상태 변경 통지는 Observer, 승객·운전자·탑승 객체 사이의 매칭과 통신은 Mediator가 맡는다. 자주 함께 쓰는 조합으로 Observer+Mediator(채팅·이벤트 시스템), Strategy+Factory(전략 생성 위치 집중), Composite+Visitor(트리 순회), Proxy+Decorator(접근 제어와 기능 추가 병행)가 있다. Spring에서는 <code>ApplicationEventPublisher</code>와 <code>@EventListener</code>가 Observer, <code>JdbcTemplate</code>이 Template Method, 서블릿 Filter 체인이 Chain of Responsibility에 해당한다.</p>
+<h2>코드</h2>
+<p>요금 정책을 Strategy로 분리하고 차량별 단가는 다형성으로 처리해 <code>if-else</code>를 제거한다. <code>sealed</code>와 <code>record</code>로 전략 집합을 컴파일 타임에 닫는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Vehicle</span> {
+    <span class="hljs-type">double</span> <span class="hljs-title function_">farePerKm</span><span class="hljs-params">()</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Car</span><span class="hljs-params">()</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Vehicle</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">farePerKm</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-number">20.0</span>; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Bike</span><span class="hljs-params">()</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Vehicle</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">farePerKm</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-number">10.0</span>; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">FareStrategy</span> <span class="hljs-keyword">permits</span> StandardFare, SharedFare, LuxuryFare {
+    <span class="hljs-type">double</span> <span class="hljs-title function_">calculate</span><span class="hljs-params">(Vehicle vehicle, <span class="hljs-type">double</span> distanceKm)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">StandardFare</span><span class="hljs-params">()</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">FareStrategy</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">calculate</span><span class="hljs-params">(Vehicle v, <span class="hljs-type">double</span> d)</span> { <span class="hljs-keyword">return</span> v.farePerKm() * d; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">SharedFare</span><span class="hljs-params">()</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">FareStrategy</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">calculate</span><span class="hljs-params">(Vehicle v, <span class="hljs-type">double</span> d)</span> { <span class="hljs-keyword">return</span> v.farePerKm() * d * <span class="hljs-number">0.5</span>; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">LuxuryFare</span><span class="hljs-params">()</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">FareStrategy</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">calculate</span><span class="hljs-params">(Vehicle v, <span class="hljs-type">double</span> d)</span> { <span class="hljs-keyword">return</span> v.farePerKm() * d * <span class="hljs-number">1.5</span>; }
+}</code></pre>
+<p>탑승 상태 변경 통지는 Spring 이벤트 인프라를 Observer로 사용한다. 발행자는 리스너를 알지 못한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">RideStatus</span> { SCHEDULED, ONGOING, COMPLETED }
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">RideStatusChanged</span><span class="hljs-params">(Long rideId, Long passengerId, Long driverId, RideStatus status)</span> {}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RideService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApplicationEventPublisher publisher;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RideService</span><span class="hljs-params">(ApplicationEventPublisher publisher)</span> {
+        <span class="hljs-built_in">this</span>.publisher = publisher;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">updateStatus</span><span class="hljs-params">(Ride ride, RideStatus next)</span> {
+        ride.changeStatus(next);
+        publisher.publishEvent(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RideStatusChanged</span>(
+                ride.getId(), ride.getPassengerId(), ride.getDriverId(), next));
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RideNotificationListener</span> {
+    <span class="hljs-meta">@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">on</span><span class="hljs-params">(RideStatusChanged event)</span> {
+        <span class="hljs-comment">// 승객·운전자에게 푸시 발송</span>
+    }
+}</code></pre>
+<p>매칭 시스템은 Mediator 역할을 맡아 승객과 운전자가 서로를 직접 참조하지 않게 한다. 가용 운전자 목록을 한 곳에서 관리해 중복 배정을 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RideMatchingSystem</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Map</span>&lt;Long, Driver&gt; <span class="hljs-variable">availableDrivers</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RideService rideService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RideMatchingSystem</span><span class="hljs-params">(RideService rideService)</span> {
+        <span class="hljs-built_in">this</span>.rideService = rideService;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">addDriver</span><span class="hljs-params">(Driver driver)</span> {
+        availableDrivers.put(driver.getId(), driver);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Optional</span>&lt;Ride&gt; <span class="hljs-title function_">requestRide</span><span class="hljs-params">(Passenger passenger, <span class="hljs-type">double</span> distanceKm, FareStrategy fare)</span> {
+        <span class="hljs-type">Optional</span>&lt;Driver&gt; <span class="hljs-variable">nearest</span> <span class="hljs-operator">=</span> availableDrivers.values().stream()
+                .min(Comparator.comparingDouble(
+                        d -&gt; d.getLocation().distanceTo(passenger.getLocation())));
+        <span class="hljs-keyword">if</span> (nearest.isEmpty()) {
+            <span class="hljs-keyword">return</span> Optional.empty();
+        }
+        <span class="hljs-type">Driver</span> <span class="hljs-variable">driver</span> <span class="hljs-operator">=</span> nearest.get();
+        <span class="hljs-keyword">if</span> (availableDrivers.remove(driver.getId()) == <span class="hljs-literal">null</span>) {
+            <span class="hljs-keyword">return</span> Optional.empty(); <span class="hljs-comment">// 다른 요청이 먼저 배정</span>
+        }
+        <span class="hljs-type">Ride</span> <span class="hljs-variable">ride</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Ride</span>(passenger, driver, distanceKm,
+                fare.calculate(driver.getVehicle(), distanceKm));
+        rideService.updateStatus(ride, RideStatus.ONGOING);
+        <span class="hljs-keyword">return</span> Optional.of(ride);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">complete</span><span class="hljs-params">(Ride ride)</span> {
+        rideService.updateStatus(ride, RideStatus.COMPLETED);
+        availableDrivers.put(ride.getDriver().getId(), ride.getDriver());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Observer 재진입 루프.</strong> 리스너 안에서 Subject 상태를 다시 바꾸면 통지가 재귀적으로 발생한다. 커밋 이후 처리해야 하는 리스너는 <code>@TransactionalEventListener</code>로 분리한다.</li>
+<li><strong>Mediator의 God Object화.</strong> 모든 통신이 중재자를 지나면 비즈니스 로직까지 그곳으로 모인다. 중재자는 라우팅과 조정만 맡고 도메인 규칙은 각 Colleague에 둔다.</li>
+<li><strong>Command·Memento의 비용.</strong> 단순 호출까지 Command로 감싸면 클래스 수가 폭발하고, 모든 변경마다 Memento를 저장하면 메모리가 무한히 자란다. undo·큐잉·로깅 요구가 있을 때만 도입하고 히스토리는 <code>ArrayDeque</code>로 크기를 제한한다.</li>
+<li><strong>Iterator 순회 중 수정.</strong> <code>for-each</code> 안에서 컬렉션을 수정하면 <code>ConcurrentModificationException</code>이 발생한다. <code>Iterator.remove()</code>나 <code>removeIf()</code>를 쓴다.</li>
+<li><strong>Chain의 종단 처리 누락.</strong> 끝까지 처리자가 없을 때의 동작을 정의하지 않으면 요청이 조용히 사라진다. 기본 처리자를 두거나 예외를 던지고, 처리한 핸들러를 로그에 남긴다.</li>
+<li><strong>패턴 과잉 적용.</strong> 변경 가능성이 없는 코드에 패턴을 먼저 넣으면 오버엔지니어링이 된다. 큰 <code>if-else</code>, 흩어진 <code>new</code>, 강한 참조망 같은 코드 냄새가 보일 때 그 부분부터 점진적으로 리팩토링한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/design-patterns-creational-structural/">디자인 패턴 — 생성·구조</a></li>
+<li><a href="/notes/java-spring/interface-polymorphism-solid/">인터페이스·다형성·SOLID</a></li>
+<li><a href="/notes/java-spring/events-async-scheduling/">이벤트·비동기·스케줄링</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Design Pattern, Observer, Strategy, Mediator, Command</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/design-patterns-creational-structural/"><small>이전</small>디자인 패턴 — 생성·구조</a>
+  <a class="next" href="/notes/java-spring/build-and-project-setup/"><small>다음</small>빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

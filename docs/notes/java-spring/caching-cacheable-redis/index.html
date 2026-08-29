@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>캐싱 — @Cacheable과 Spring Data Redis · Java / Spring</title>
+  <meta name="description" content="@Cacheable·@CachePut·@CacheEvict로 메서드 결과를 캐싱하고, Redis 연동 시 TTL·직렬화·자기 호출 함정을 어떻게 다루는가">
+  <meta property="og:title" content="캐싱 — @Cacheable과 Spring Data Redis · Java / Spring">
+  <meta property="og:description" content="@Cacheable·@CachePut·@CacheEvict로 메서드 결과를 캐싱하고, Redis 연동 시 TTL·직렬화·자기 호출 함정을 어떻게 다루는가">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/caching-cacheable-redis/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>캐싱 — @Cacheable과 Spring Data Redis</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>캐싱 — @Cacheable과 Spring Data Redis</h1>
+  <p class="summary">@Cacheable·@CachePut·@CacheEvict로 메서드 결과를 캐싱하고, Redis 연동 시 TTL·직렬화·자기 호출 함정을 어떻게 다루는가</p>
+  <div class="content">
+<p>상품 카탈로그, 공통 코드처럼 수백만 번 읽히지만 갱신은 몇 번뿐인 데이터를 매번 DB까지 보내면 읽기 트래픽이 곧 DB 병목이 된다. 첫 조회 결과를 메모리나 외부 저장소에 두고 같은 인자의 요청은 거기서 반환하면 응답 시간이 밀리초에서 마이크로초 단위로 내려간다. 다만 캐시를 손으로 넣고 빼는 코드가 서비스마다 흩어지면 갱신 누락과 키 불일치가 생기므로, Spring은 이를 어노테이션 기반 추상화로 표준화한다.</p>
+<h2>핵심 개념</h2>
+<p>Spring Cache는 저장소와 무관한 추상화 계층이다. 코드에는 어노테이션만 붙이고 실제 저장소는 <code>CacheManager</code> 구현으로 결정한다. 활성화는 <code>@EnableCaching</code>이며, 이것이 없으면 캐시 어노테이션은 무시된다.</p>
+<p>동작 원리는 AOP 프록시다. 외부에서 메서드가 호출될 때 프록시가 먼저 캐시를 조회해, 값이 있으면 메서드를 실행하지 않고 반환하고 없으면 실행 후 결과를 저장한다. 프록시를 거치지 않는 호출에서는 캐시가 동작하지 않는다.</p>
+<p>세 어노테이션의 차이는 메서드 실행 여부에 있다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">어노테이션</th>
+<th align="left">메서드 실행</th>
+<th align="left">캐시 동작</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>@Cacheable</code></td>
+<td align="left">캐시 미스일 때만</td>
+<td align="left">결과 저장 후 반환</td>
+<td align="left">조회</td>
+</tr>
+<tr>
+<td align="left"><code>@CachePut</code></td>
+<td align="left">항상</td>
+<td align="left">결과로 캐시 갱신</td>
+<td align="left">수정</td>
+</tr>
+<tr>
+<td align="left"><code>@CacheEvict</code></td>
+<td align="left">항상</td>
+<td align="left">항목 또는 전체 삭제</td>
+<td align="left">삭제</td>
+</tr>
+<tr>
+<td align="left"><code>@Caching</code></td>
+<td align="left">항상</td>
+<td align="left">위 어노테이션 여러 개 묶음</td>
+<td align="left">복합 무효화</td>
+</tr>
+</tbody></table>
+<p>키는 기본적으로 파라미터 조합으로 만들어지며 SpEL로 직접 지정할 수 있다. <code>#id</code>는 파라미터, <code>#result</code>는 반환값, <code>#root.methodName</code>은 메서드 이름이다. <code>condition</code>은 실행 전에 평가해 캐시 참여 여부를 결정하고, <code>unless</code>는 실행 후 반환값을 보고 저장을 거른다.</p>
+<p>저장소 선택 기준은 인스턴스 수다. Boot 기본 <code>CacheManager</code>는 <code>ConcurrentHashMap</code> 기반이라 TTL과 최대 크기를 제어할 수 없다. 단일 인스턴스라면 Caffeine, 여러 인스턴스가 같은 데이터를 캐시한다면 Redis로 저장소를 공유해야 인스턴스 간 불일치가 사라진다.</p>
+<p>Spring Data Redis는 Lettuce(기본)나 Jedis 위에 <code>RedisTemplate</code>, <code>RedisCacheManager</code>, <code>@RedisHash</code> Repository를 얹은 추상화다. Lettuce는 Netty 기반으로 연결을 공유하고 비동기·리액티브를 지원한다. <code>spring-boot-starter-data-redis</code>와 <code>spring.cache.type=redis</code>만으로 <code>@Cacheable</code>의 저장소가 Redis로 바뀌고, <code>RedisCacheManager</code>를 직접 정의하면 캐시별 TTL과 직렬화를 지정할 수 있다. Sorted Set·Hash 조작은 <code>RedisTemplate</code>의 <code>opsForZSet()</code>, <code>opsForHash()</code>로 직접 수행한다.</p>
+<h2>코드</h2>
+<p>조회·수정·삭제의 기본 패턴이다. 삭제 시 <code>@Caching</code>으로 단건 캐시와 목록 캐시를 함께 무효화한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductService</span><span class="hljs-params">(ProductRepository productRepository)</span> {
+        <span class="hljs-built_in">this</span>.productRepository = productRepository;
+    }
+
+    <span class="hljs-meta">@Cacheable(cacheNames = &quot;products&quot;, key = &quot;#id&quot;, unless = &quot;#result == null&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProductDto</span> <span class="hljs-title function_">findById</span><span class="hljs-params">(Long id)</span> {
+        <span class="hljs-keyword">return</span> productRepository.findById(id).map(ProductDto::from).orElse(<span class="hljs-literal">null</span>);
+    }
+
+    <span class="hljs-meta">@Cacheable(cacheNames = &quot;productList&quot;, key = &quot;#status + &#x27;:&#x27; + #page&quot;,
+               condition = &quot;#page == 0&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Page</span>&lt;ProductDto&gt; <span class="hljs-title function_">list</span><span class="hljs-params">(String status, <span class="hljs-type">int</span> page)</span> {
+        <span class="hljs-keyword">return</span> productRepository.findByStatus(status, PageRequest.of(page, <span class="hljs-number">20</span>))
+                .map(ProductDto::from);
+    }
+
+    <span class="hljs-meta">@CachePut(cacheNames = &quot;products&quot;, key = &quot;#result.id&quot;)</span>
+    <span class="hljs-meta">@CacheEvict(cacheNames = &quot;productList&quot;, allEntries = true)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProductDto</span> <span class="hljs-title function_">update</span><span class="hljs-params">(Long id, ProductUpdateRequest request)</span> {
+        <span class="hljs-type">Product</span> <span class="hljs-variable">product</span> <span class="hljs-operator">=</span> productRepository.findById(id).orElseThrow();
+        product.update(request.name(), request.price());
+        <span class="hljs-keyword">return</span> ProductDto.from(product);
+    }
+
+    <span class="hljs-meta">@Caching(evict = {
+        @CacheEvict(cacheNames = &quot;products&quot;, key = &quot;#id&quot;),
+        @CacheEvict(cacheNames = &quot;productList&quot;, allEntries = true)
+    })</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">delete</span><span class="hljs-params">(Long id)</span> {
+        productRepository.deleteById(id);
+    }
+}</code></pre>
+<p>Redis 캐시 저장소 설정이다. 키는 문자열, 값은 JSON으로 직렬화하고 캐시별 TTL을 분리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableCaching</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RedisCacheConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">RedisCacheManager</span> <span class="hljs-title function_">cacheManager</span><span class="hljs-params">(RedisConnectionFactory connectionFactory)</span> {
+        <span class="hljs-type">RedisCacheConfiguration</span> <span class="hljs-variable">defaults</span> <span class="hljs-operator">=</span> RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(<span class="hljs-number">10</span>))
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair
+                        .fromSerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">StringRedisSerializer</span>()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair
+                        .fromSerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">GenericJackson2JsonRedisSerializer</span>()));
+
+        <span class="hljs-keyword">return</span> RedisCacheManager.builder(connectionFactory)
+                .cacheDefaults(defaults)
+                .withCacheConfiguration(<span class="hljs-string">&quot;products&quot;</span>, defaults.entryTtl(Duration.ofHours(<span class="hljs-number">1</span>)))
+                .withCacheConfiguration(<span class="hljs-string">&quot;productList&quot;</span>, defaults.entryTtl(Duration.ofMinutes(<span class="hljs-number">5</span>)))
+                .build();
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">cache:</span>
+    <span class="hljs-attr">type:</span> <span class="hljs-string">redis</span>
+  <span class="hljs-attr">data:</span>
+    <span class="hljs-attr">redis:</span>
+      <span class="hljs-attr">host:</span> <span class="hljs-string">localhost</span>
+      <span class="hljs-attr">port:</span> <span class="hljs-number">6379</span>
+      <span class="hljs-attr">timeout:</span> <span class="hljs-string">2s</span></code></pre>
+<p>랭킹 집계는 <code>RedisTemplate</code>으로 직접 다룬다. 직렬화기를 지정하지 않으면 JDK 직렬화가 적용되어 redis-cli에서 읽을 수 없으므로 Bean을 직접 정의한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RedisTemplateConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">RedisTemplate</span>&lt;String, Object&gt; <span class="hljs-title function_">redisTemplate</span><span class="hljs-params">(RedisConnectionFactory connectionFactory)</span> {
+        <span class="hljs-type">RedisTemplate</span>&lt;String, Object&gt; <span class="hljs-variable">template</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RedisTemplate</span>&lt;&gt;();
+        template.setConnectionFactory(connectionFactory);
+        template.setKeySerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">StringRedisSerializer</span>());
+        template.setHashKeySerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">StringRedisSerializer</span>());
+        template.setValueSerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">GenericJackson2JsonRedisSerializer</span>());
+        template.setHashValueSerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">GenericJackson2JsonRedisSerializer</span>());
+        <span class="hljs-keyword">return</span> template;
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RankingService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RedisTemplate&lt;String, Object&gt; redisTemplate;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RankingService</span><span class="hljs-params">(RedisTemplate&lt;String, Object&gt; redisTemplate)</span> {
+        <span class="hljs-built_in">this</span>.redisTemplate = redisTemplate;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">addScore</span><span class="hljs-params">(String userId, <span class="hljs-type">double</span> delta)</span> {
+        redisTemplate.opsForZSet().incrementScore(<span class="hljs-string">&quot;leaderboard&quot;</span>, userId, delta);
+    }
+
+    <span class="hljs-keyword">public</span> Set&lt;ZSetOperations.TypedTuple&lt;Object&gt;&gt; top(<span class="hljs-type">int</span> count) {
+        <span class="hljs-keyword">return</span> redisTemplate.opsForZSet().reverseRangeWithScores(<span class="hljs-string">&quot;leaderboard&quot;</span>, <span class="hljs-number">0</span>, count - <span class="hljs-number">1</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>자기 호출.</strong> 같은 클래스 안에서 <code>this.findById(id)</code>로 부르면 프록시를 거치지 않아 캐시가 적용되지 않는다. <code>@Transactional</code>과 같은 원리이며, 캐시 대상 메서드를 별도 Bean으로 분리한다. public 메서드에만 적용된다.</li>
+<li><strong>TTL 부재.</strong> <code>RedisCacheManager</code> 기본 설정은 만료 없이 영구 보관이라 키가 쌓여 메모리가 고갈된다. <code>entryTtl</code>이나 <code>spring.cache.redis.time-to-live</code>로 기본 TTL을 지정하고, <code>RedisTemplate</code>으로 직접 쓸 때도 <code>set(key, value, Duration)</code>으로 TTL을 함께 넘긴다.</li>
+<li><strong>null 캐싱.</strong> null 결과도 저장되므로 데이터가 나중에 생겨도 TTL이 끝날 때까지 null만 반환된다. <code>disableCachingNullValues()</code>나 <code>unless = &quot;#result == null&quot;</code>로 막는다.</li>
+<li><strong>무효화 누락과 키 설계.</strong> 쓰기 경로에 <code>@CachePut</code>이나 <code>@CacheEvict</code>가 빠지면 오래된 데이터가 계속 반환된다. 수정 메서드에 <code>@Cacheable</code>을 붙이면 두 번째 수정부터 DB 갱신이 생략된다. 키가 거칠면 다른 조회가 같은 항목을 덮어쓰고, 세밀하면 미스가 잦아진다.</li>
+<li><strong>직렬화와 타입.</strong> <code>GenericJackson2JsonRedisSerializer</code>는 클래스 정보를 JSON에 포함하므로 클래스 이름이 바뀌면 기존 캐시 역직렬화가 실패한다. 배포 시 캐시를 비우거나 캐시 이름에 버전을 붙인다. <code>Object</code> 캐스팅은 <code>ClassCastException</code> 위험이 있으므로 타입별 <code>RedisTemplate</code>이나 <code>StringRedisTemplate</code>을 쓴다.</li>
+<li><strong>Lettuce 공유 연결과 Cluster.</strong> <code>BLPOP</code> 같은 blocking 명령은 공유 연결을 멈추므로 전용 연결로 분리한다. Cluster에서 <code>multiGet</code>은 키가 다른 슬롯에 있으면 CROSSSLOT 오류가 나므로 hash tag로 모으거나 파이프라인으로 나눈다. 루프 안 Redis 호출은 <code>multiGet</code>이나 <code>executePipelined</code>로 묶는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/aop-spel/">AOP와 SpEL</a></li>
+<li><a href="/notes/java-spring/transactional-locking/">@Transactional 원리와 낙관/비관 락</a></li>
+<li><a href="/notes/java-spring/persistence-context-lazy-loading/">영속성 컨텍스트와 LazyLoading</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Cache, @Cacheable, Redis, Spring Data Redis, Caffeine</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/persistence-context-lazy-loading/"><small>이전</small>영속성 컨텍스트와 LazyLoading</a>
+  <a class="next" href="/notes/java-spring/logging-logback-slf4j/"><small>다음</small>로깅 — Logback·SLF4J</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

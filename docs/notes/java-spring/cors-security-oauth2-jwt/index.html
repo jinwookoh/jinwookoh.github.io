@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CORS와 Spring Security — OAuth2·JWT · Java / Spring</title>
+  <meta name="description" content="CORS 허용 헤더, SecurityFilterChain 인증·인가, 그리고 JWT를 공개 키로 검증하는 OAuth2 Resource Server 구성을 정리한다.">
+  <meta property="og:title" content="CORS와 Spring Security — OAuth2·JWT · Java / Spring">
+  <meta property="og:description" content="CORS 허용 헤더, SecurityFilterChain 인증·인가, 그리고 JWT를 공개 키로 검증하는 OAuth2 Resource Server 구성을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/cors-security-oauth2-jwt/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>CORS와 Spring Security — OAuth2·JWT</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Web MVC</p>
+  <h1>CORS와 Spring Security — OAuth2·JWT</h1>
+  <p class="summary">CORS 허용 헤더, SecurityFilterChain 인증·인가, 그리고 JWT를 공개 키로 검증하는 OAuth2 Resource Server 구성을 정리한다.</p>
+  <div class="content">
+<p>프론트엔드와 백엔드가 다른 Origin에서 서비스되면 서버가 허용 헤더를 명시하지 않는 한 브라우저가 응답을 자바스크립트에 전달하지 않는다. 반대로 서버 쪽 보호가 없으면 URL을 아는 누구나 엔드포인트를 호출할 수 있다. 두 문제는 같은 필터 체인 위에서 해결되며, 따로 설정하면 OPTIONS 요청이 인증에 막히는 식으로 충돌한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Origin</strong>은 프로토콜·호스트·포트의 조합이다. 하나라도 다르면 다른 Origin이며, <code>localhost:3000</code>과 <code>localhost:8080</code>도 교차 출처다. CORS는 브라우저 정책이므로 서버 간 호출이나 모바일 앱에는 적용되지 않는다.</p>
+<p>POST + JSON, PUT, DELETE, 커스텀 헤더처럼 단순 요청이 아니면 브라우저는 본 요청 전에 <code>OPTIONS</code> <strong>preflight</strong>를 보낸다. 서버는 <code>Access-Control-Allow-Origin</code>, <code>-Methods</code>, <code>-Headers</code>, <code>-Credentials</code> 헤더로 응답하고, 브라우저는 <code>Access-Control-Max-Age</code> 동안 결과를 캐시한다.</p>
+<p>Spring Security는 <strong>SecurityFilterChain</strong> Bean으로 구성한 서블릿 필터 묶음이다. 요청은 CorsFilter, CsrfFilter, 인증 필터, AuthorizationFilter 순으로 통과한 뒤 DispatcherServlet에 도달한다. **인증(Authentication)**은 누구인지 확인하는 단계, **인가(Authorization)**는 그 주체가 자원에 접근할 수 있는지 판단하는 단계다. 인증 결과는 <code>SecurityContextHolder</code>에 저장되고 컨트롤러에서는 <code>@AuthenticationPrincipal</code>로 꺼낸다. Spring Security 6부터 <code>WebSecurityConfigurerAdapter</code>는 제거되었고 람다 DSL로만 설정한다.</p>
+<p><strong>OAuth2</strong>는 비밀번호 대신 발급된 토큰으로 자원에 접근하는 프로토콜이며 네 역할로 구성된다.</p>
+<table>
+<thead>
+<tr>
+<th>역할</th>
+<th>책임</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Resource Owner</td>
+<td>자원의 소유자, 보통 사용자</td>
+</tr>
+<tr>
+<td>Client</td>
+<td>자원에 접근하려는 애플리케이션</td>
+</tr>
+<tr>
+<td>Authorization Server</td>
+<td>토큰 발급, 공개 키 제공 (<code>/oauth2/jwks</code>)</td>
+</tr>
+<tr>
+<td>Resource Server</td>
+<td>토큰을 검증하고 보호된 API를 제공</td>
+</tr>
+</tbody></table>
+<p>서버 간 통신은 Client Credentials, 사용자 로그인은 Authorization Code(+ PKCE) 흐름을 쓴다. Implicit과 Password 흐름은 폐기되었다.</p>
+<p><strong>JWT</strong>는 <code>header.payload.signature</code> 세 부분을 Base64Url로 인코딩한 토큰이다. payload는 누구나 디코딩할 수 있으므로 비밀 정보를 넣지 않는다. Authorization Server가 개인 키로 서명하고 Resource Server는 JWKS에서 받아 캐시한 공개 키로 검증하므로 요청마다 인증 서버에 질의하지 않는다. 이것이 stateless 검증의 근거다.</p>
+<h2>코드</h2>
+<p>Spring Security가 있으면 <code>WebMvcConfigurer</code>의 CORS 매핑은 Security 필터보다 뒤에 적용되므로, <code>CorsConfigurationSource</code> Bean을 등록해 필터 체인의 <code>cors()</code>에 연결한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CorsConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">CorsConfigurationSource</span> <span class="hljs-title function_">corsConfigurationSource</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">CorsConfiguration</span> <span class="hljs-variable">config</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">CorsConfiguration</span>();
+        config.setAllowedOriginPatterns(List.of(<span class="hljs-string">&quot;http://localhost:[*]&quot;</span>, <span class="hljs-string">&quot;https://*.myshop.com&quot;</span>));
+        config.setAllowedMethods(List.of(<span class="hljs-string">&quot;GET&quot;</span>, <span class="hljs-string">&quot;POST&quot;</span>, <span class="hljs-string">&quot;PUT&quot;</span>, <span class="hljs-string">&quot;PATCH&quot;</span>, <span class="hljs-string">&quot;DELETE&quot;</span>, <span class="hljs-string">&quot;OPTIONS&quot;</span>));
+        config.setAllowedHeaders(List.of(<span class="hljs-string">&quot;*&quot;</span>));
+        config.setAllowCredentials(<span class="hljs-literal">true</span>);
+        config.setMaxAge(<span class="hljs-number">3600L</span>);
+
+        <span class="hljs-type">UrlBasedCorsConfigurationSource</span> <span class="hljs-variable">source</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UrlBasedCorsConfigurationSource</span>();
+        source.registerCorsConfiguration(<span class="hljs-string">&quot;/api/**&quot;</span>, config);
+        <span class="hljs-keyword">return</span> source;
+    }
+}</code></pre>
+<p>REST API용 필터 체인이다. 세션과 CSRF를 끄고, preflight는 인증 없이 통과시키며, JWT 검증은 <code>oauth2ResourceServer</code>에 맡긴다. <code>issuer-uri</code> 한 줄이면 기동 시 <code>/.well-known/openid-configuration</code>을 조회해 공개 키 위치를 찾는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableWebSecurity</span>
+<span class="hljs-meta">@EnableMethodSecurity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SecurityConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">SecurityFilterChain</span> <span class="hljs-title function_">filterChain</span><span class="hljs-params">(HttpSecurity http,
+                                           CorsConfigurationSource corsConfigurationSource)</span> <span class="hljs-keyword">throws</span> Exception {
+        http
+            .cors(cors -&gt; cors.configurationSource(corsConfigurationSource))
+            .csrf(csrf -&gt; csrf.disable())
+            .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers(HttpMethod.OPTIONS, <span class="hljs-string">&quot;/**&quot;</span>).permitAll()
+                .requestMatchers(<span class="hljs-string">&quot;/api/public/**&quot;</span>).permitAll()
+                .requestMatchers(<span class="hljs-string">&quot;/api/admin/**&quot;</span>).hasRole(<span class="hljs-string">&quot;ADMIN&quot;</span>)
+                .anyRequest().authenticated())
+            .oauth2ResourceServer(oauth2 -&gt; oauth2.jwt(Customizer.withDefaults()));
+        <span class="hljs-keyword">return</span> http.build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PasswordEncoder</span> <span class="hljs-title function_">passwordEncoder</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+}</code></pre>
+<pre><code class="hljs language-properties"><span class="hljs-attr">spring.security.oauth2.resourceserver.jwt.issuer-uri</span>=<span class="hljs-string">http://localhost:9000</span></code></pre>
+<p>메서드 단위 인가와 테스트다. <code>@PreAuthorize</code>는 AOP 프록시로 동작하며 SpEL로 principal과 인자를 함께 검사한다. 테스트는 <code>spring-security-test</code>의 <code>jwt()</code>로 인증 서버 없이 토큰을 대신한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/orders&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+
+    <span class="hljs-meta">@DeleteMapping(&quot;/{id}&quot;)</span>
+    <span class="hljs-meta">@PreAuthorize(&quot;hasRole(&#x27;ADMIN&#x27;)&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">delete</span><span class="hljs-params">(<span class="hljs-meta">@PathVariable</span> Long id)</span> { ... }
+
+    <span class="hljs-meta">@GetMapping(&quot;/{id}&quot;)</span>
+    <span class="hljs-meta">@PreAuthorize(&quot;hasAuthority(&#x27;SCOPE_order.read&#x27;) and #id == authentication.name&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">get</span><span class="hljs-params">(<span class="hljs-meta">@PathVariable</span> Long id, <span class="hljs-meta">@AuthenticationPrincipal</span> Jwt jwt)</span> { ... }
+}
+
+<span class="hljs-meta">@Test</span>
+<span class="hljs-type">void</span> <span class="hljs-title function_">listOrdersWithJwt</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+    mockMvc.perform(get(<span class="hljs-string">&quot;/api/orders&quot;</span>)
+                .with(jwt().jwt(t -&gt; t.subject(<span class="hljs-string">&quot;client1&quot;</span>).claim(<span class="hljs-string">&quot;scope&quot;</span>, <span class="hljs-string">&quot;order.read&quot;</span>))))
+           .andExpect(status().isOk());
+}
+
+<span class="hljs-meta">@Test</span>
+<span class="hljs-type">void</span> <span class="hljs-title function_">tamperedTokenIsRejected</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+    mockMvc.perform(get(<span class="hljs-string">&quot;/api/orders&quot;</span>)
+                .header(HttpHeaders.AUTHORIZATION, <span class="hljs-string">&quot;Bearer invalid.jwt.token&quot;</span>))
+           .andExpect(status().isUnauthorized());
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>allowedOrigins(&quot;*&quot;)</code>와 <code>allowCredentials(true)</code>는 함께 쓸 수 없다.</strong> 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 <code>allowedOriginPatterns</code>를 쓰되 운영에서는 정확한 도메인만 남긴다.</li>
+<li><strong>preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.</strong> OPTIONS 요청에는 Authorization 헤더가 없으므로 <code>permitAll()</code>로 명시하고 <code>http.cors()</code>로 CorsFilter를 인증 필터 앞에 둔다.</li>
+<li><strong>프록시·CDN 뒤에서 CORS 헤더가 이중으로 붙는다.</strong> nginx나 CloudFront가 이미 헤더를 추가하면 브라우저는 중복 값을 거부한다. 헤더를 붙이는 계층은 하나만 둔다.</li>
+<li><strong>폼 기반 세션 앱에서 CSRF를 끄면 안 된다.</strong> CSRF 비활성화는 토큰을 헤더로 보내는 stateless API에만 유효하며, 쿠키에 JWT를 담아 자동 전송하면 다시 CSRF 대상이 된다.</li>
+<li><strong>Resource Server는 기동 시 인증 서버에 접속한다.</strong> 인증 서버가 내려가 있으면 <code>Unable to resolve the Configuration with the provided Issuer</code>로 부팅이 실패하고, <code>issuer-uri</code> 오타는 모든 요청을 401로 만든다. 기동 순서를 맞추고, 서명 키 교체 시에는 <code>kid</code>가 다른 새 키를 먼저 JWKS에 추가한 뒤 구 키를 제거한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/dispatcher-servlet-filter-interceptor/">요청 처리 흐름 — Filter·Interceptor</a></li>
+<li><a href="/notes/java-spring/aop-spel/">AOP와 SpEL</a></li>
+<li><a href="/notes/java-spring/testing-mockmvc-testcontainers/">테스트 — MockMvc·Testcontainers</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · CORS, Spring Security, OAuth2, JWT, SecurityFilterChain</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/exception-handling-validation/"><small>이전</small>예외 처리와 검증 — @ControllerAdvice·Bean Validation</a>
+  <a class="next" href="/notes/java-spring/openapi-docs/"><small>다음</small>API 문서화 — Springdoc OpenAPI</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AOP와 SpEL · Java / Spring</title>
+  <meta name="description" content="횡단 관심사를 프록시로 분리하는 Spring AOP의 동작 원리와 SpEL 표현식의 역할·경계를 정리한다">
+  <meta property="og:title" content="AOP와 SpEL · Java / Spring">
+  <meta property="og:description" content="횡단 관심사를 프록시로 분리하는 Spring AOP의 동작 원리와 SpEL 표현식의 역할·경계를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/aop-spel/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>AOP와 SpEL</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Spring 코어</p>
+  <h1>AOP와 SpEL</h1>
+  <p class="summary">횡단 관심사를 프록시로 분리하는 Spring AOP의 동작 원리와 SpEL 표현식의 역할·경계를 정리한다</p>
+  <div class="content">
+<p>서비스 메서드를 열어 보면 비즈니스 로직은 몇 줄이고 로깅·시간 측정·권한 검증·트랜잭션 관리 같은 공통 코드가 나머지를 차지하는 경우가 많다. 이 코드가 수백 개 메서드에 반복되면 한 줄을 고치려 해도 모든 위치를 수정해야 하고, 핵심 로직이 부가 코드에 묻힌다. 여러 모듈을 가로질러 반복되는 횡단 관심사(cross-cutting concern)를 한 곳에 정의해 컨테이너가 대상 메서드에 끼워 넣게 하는 기법이 AOP다. <code>@PreAuthorize</code>나 <code>@Cacheable</code>처럼 AOP 기반 어노테이션이 조건이나 키를 문자열로 받을 때 그 문자열을 해석하는 것이 SpEL이다.</p>
+<h2>핵심 개념</h2>
+<table>
+<thead>
+<tr>
+<th>용어</th>
+<th>의미</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Aspect</td>
+<td>횡단 관심사를 모은 단위. <code>@Aspect</code> 클래스</td>
+</tr>
+<tr>
+<td>Join Point</td>
+<td>Advice가 끼어들 수 있는 지점. Spring AOP는 메서드 실행만 해당</td>
+</tr>
+<tr>
+<td>Pointcut</td>
+<td>Join Point 중 실제 적용 대상을 고르는 표현식</td>
+</tr>
+<tr>
+<td>Advice</td>
+<td>선택된 지점에서 실행되는 코드</td>
+</tr>
+<tr>
+<td>Weaving</td>
+<td>Aspect와 대상 코드를 결합하는 과정. Spring AOP는 런타임 프록시로 수행</td>
+</tr>
+</tbody></table>
+<p>Spring AOP는 대상 Bean을 감싼 프록시를 컨테이너에 대신 등록한다. 호출자는 프록시를 주입받고, 프록시가 Advice를 실행한 뒤 원본에 위임한다. 인터페이스 기반 JDK 동적 프록시와 서브클래스를 만드는 CGLIB 방식이 있으며, Spring Boot는 <code>spring.aop.proxy-target-class=true</code>가 기본이라 CGLIB를 쓴다. <code>@Transactional</code>, <code>@PreAuthorize</code>, <code>@Cacheable</code>, <code>@Retryable</code>, <code>@Timed</code>가 모두 이 구조 위에서 동작한다. 프록시 방식이므로 가로챌 수 있는 것은 메서드 실행뿐이고, 프록시를 거치지 않는 호출에는 Advice가 적용되지 않는다. 바이트코드를 직접 엮는 AspectJ에는 이 제약이 없다.</p>
+<p>Advice는 <code>@Before</code>, <code>@After</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@Around</code> 다섯 종류다. <code>@Around</code>만 <code>ProceedingJoinPoint</code>로 실행 자체를 제어한다. <code>proceed()</code>를 호출하지 않으면 원본이 실행되지 않고, 인자를 바꿔 넘기거나 반환값을 가공할 수 있다. Pointcut은 <code>@annotation(...)</code>이 어노테이션 기준, <code>execution(* com.example.service.*.*(..))</code>이 시그니처 기준이며 <code>*</code>는 한 토큰, <code>..</code>는 하위 패키지 전체 또는 임의 개수의 인자를 뜻한다.</p>
+<p>SpEL(Spring Expression Language)은 문자열 속 표현식을 런타임에 평가한다. 리터럴, 산술·논리 연산, 프로퍼티 접근과 메서드 호출, 인덱스 <code>[0]</code>과 맵 키 <code>[&#39;tag&#39;]</code>, null이면 멈추는 <code>?.</code>, Bean 참조 <code>@beanName</code>, 타입 참조 <code>T(...)</code>를 지원한다. <code>@Value</code>에서 <code>${app.timeout:30}</code>은 설정값을 치환하는 프로퍼티 플레이스홀더이고 <code>#{...}</code>가 SpEL이며 <code>#{&#39;${app.name}&#39;.toUpperCase()}</code>처럼 중첩도 된다. AOP 어노테이션 안에서는 <code>#userId</code>처럼 메서드 인자를 참조한다. 직접 쓸 일은 드물고 주로 <code>@PreAuthorize</code> 조건, <code>@Cacheable</code> 키, <code>@ConditionalOnExpression</code>에서 만난다.</p>
+<h2>코드</h2>
+<p><code>spring-boot-starter-aop</code>를 추가하면 <code>@EnableAspectJAutoProxy</code>가 자동 구성된다. 마커 어노테이션과 실행 시간을 기록하는 <code>@Around</code> Aspect다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Target(ElementType.METHOD)</span>
+<span class="hljs-meta">@Retention(RetentionPolicy.RUNTIME)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-meta">@interface</span> LogExecution {
+}
+
+<span class="hljs-meta">@Aspect</span>
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LoggingAspect</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(LoggingAspect.class);
+
+    <span class="hljs-meta">@Around(&quot;@annotation(com.example.shop.aop.LogExecution)&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">logExecution</span><span class="hljs-params">(ProceedingJoinPoint pjp)</span> <span class="hljs-keyword">throws</span> Throwable {
+        <span class="hljs-type">String</span> <span class="hljs-variable">method</span> <span class="hljs-operator">=</span> pjp.getSignature().toShortString();
+        <span class="hljs-type">long</span> <span class="hljs-variable">start</span> <span class="hljs-operator">=</span> System.nanoTime();
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">Object</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> pjp.proceed();
+            log.info(<span class="hljs-string">&quot;{} ok {}ms&quot;</span>, method, (System.nanoTime() - start) / <span class="hljs-number">1_000_000</span>);
+            <span class="hljs-keyword">return</span> result;
+        } <span class="hljs-keyword">catch</span> (Throwable t) {
+            log.error(<span class="hljs-string">&quot;{} failed: {}&quot;</span>, method, t.getMessage());
+            <span class="hljs-keyword">throw</span> t;
+        }
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-meta">@LogExecution</span>
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">placeOrder</span><span class="hljs-params">(Order order)</span> {
+        <span class="hljs-comment">// 비즈니스 로직만 남는다</span>
+    }
+}</code></pre>
+<p><code>proceed()</code>를 생략하면 원본이 실행되지 않는 점을 이용한 단순 캐시다. <code>@Cacheable</code>과 같은 발상이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Aspect</span>
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SimpleCacheAspect</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Map</span>&lt;String, Object&gt; <span class="hljs-variable">cache</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+
+    <span class="hljs-meta">@Around(&quot;@annotation(com.example.shop.aop.SimpleCached)&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">cache</span><span class="hljs-params">(ProceedingJoinPoint pjp)</span> <span class="hljs-keyword">throws</span> Throwable {
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> pjp.getSignature().toLongString() + Arrays.toString(pjp.getArgs());
+        <span class="hljs-type">Object</span> <span class="hljs-variable">hit</span> <span class="hljs-operator">=</span> cache.get(key);
+        <span class="hljs-keyword">if</span> (hit != <span class="hljs-literal">null</span>) {
+            <span class="hljs-keyword">return</span> hit;
+        }
+        <span class="hljs-type">Object</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> pjp.proceed();
+        <span class="hljs-keyword">if</span> (result != <span class="hljs-literal">null</span>) {
+            cache.put(key, result);
+        }
+        <span class="hljs-keyword">return</span> result;
+    }
+}</code></pre>
+<p>어노테이션 안의 SpEL과 직접 평가다. 직접 평가는 메서드 호출·타입 참조가 차단된 <code>SimpleEvaluationContext</code>를 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductService</span> {
+
+    <span class="hljs-meta">@Value(&quot;${app.default-page-size:20}&quot;)</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> defaultPageSize;
+
+    <span class="hljs-meta">@Value(&quot;#{&#x27;${app.region}&#x27;.toUpperCase()}&quot;)</span>
+    <span class="hljs-keyword">private</span> String region;
+
+    <span class="hljs-meta">@Cacheable(cacheNames = &quot;product&quot;, key = &quot;#productId&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Product</span> <span class="hljs-title function_">find</span><span class="hljs-params">(Long productId)</span> { <span class="hljs-comment">/* ... */</span> <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>; }
+
+    <span class="hljs-meta">@PreAuthorize(&quot;hasRole(&#x27;ADMIN&#x27;) or #ownerId == authentication.principal.id&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(Long ownerId, Product product)</span> { <span class="hljs-comment">/* ... */</span> }
+}
+
+<span class="hljs-type">ExpressionParser</span> <span class="hljs-variable">parser</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SpelExpressionParser</span>();
+<span class="hljs-type">EvaluationContext</span> <span class="hljs-variable">ctx</span> <span class="hljs-operator">=</span> SimpleEvaluationContext.forReadOnlyDataBinding().build();
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Order</span><span class="hljs-params">(<span class="hljs-type">long</span> amount, String grade)</span> {}
+<span class="hljs-type">Boolean</span> <span class="hljs-variable">vip</span> <span class="hljs-operator">=</span> parser.parseExpression(<span class="hljs-string">&quot;amount &gt; 100000 and grade == &#x27;GOLD&#x27;&quot;</span>)
+        .getValue(ctx, <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(<span class="hljs-number">150_000</span>, <span class="hljs-string">&quot;GOLD&quot;</span>), Boolean.class);</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>자기 호출</strong>. 같은 클래스 안에서 <code>this.method()</code>로 부르면 프록시를 거치지 않아 <code>@Transactional</code>도 <code>@Cacheable</code>도 적용되지 않는다. 다른 Bean으로 분리하는 것이 정석이고 <code>AopContext.currentProxy()</code>는 최후 수단이다.</li>
+<li><strong>프록시가 못 감싸는 메서드</strong>. CGLIB는 서브클래스를 만들므로 <code>final</code>·<code>private</code> 메서드에는 Advice가 걸리지 않는다. 오류 없이 넘어가므로 테스트로 확인한다.</li>
+<li><strong>Aspect 순서와 예외 전파</strong>. 여러 Aspect가 겹치면 <code>@Order</code> 없이는 순서가 보장되지 않는다. <code>@Around</code>에서 예외를 삼키면 바깥 <code>@Transactional</code>이 롤백을 판단하지 못한다.</li>
+<li><strong>넓은 Pointcut의 비용</strong>. <code>execution(* com.example..*.*(..))</code>처럼 잡으면 거의 모든 Bean이 프록시가 되어 기동 시간과 호출 오버헤드가 늘어난다. 마커 어노테이션 기반 Pointcut이 범위를 명시적으로 유지한다.</li>
+<li><strong>SpEL과 사용자 입력</strong>. <code>T(java.lang.Runtime).getRuntime().exec(...)</code>이 평가되면 서버에서 명령이 실행된다. 외부 입력을 <code>StandardEvaluationContext</code>로 평가하는 코드는 원격 코드 실행 취약점이며 실제 CVE가 반복된 경로다. 불가피하면 <code>SimpleEvaluationContext</code>로 제한한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/bean-scope-lifecycle/">Bean Scope와 생명주기</a></li>
+<li><a href="/notes/java-spring/transactional-locking/">@Transactional 원리와 낙관/비관 락</a></li>
+<li><a href="/notes/java-spring/caching-cacheable-redis/">캐싱 — @Cacheable과 Spring Data Redis</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring AOP, SpEL, Proxy, Pointcut, Advice</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/bean-scope-lifecycle/"><small>이전</small>Bean Scope와 생명주기</a>
+  <a class="next" href="/notes/java-spring/layered-architecture/"><small>다음</small>계층 설계 — 서비스 레이어 분리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

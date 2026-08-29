@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>람다·함수형 인터페이스·Stream · Java / Spring</title>
+  <meta name="description" content="람다는 함수형 인터페이스의 인스턴스이고, Stream은 그 람다를 받아 컬렉션을 선언적으로 처리하는 일회용 지연 파이프라인이다.">
+  <meta property="og:title" content="람다·함수형 인터페이스·Stream · Java / Spring">
+  <meta property="og:description" content="람다는 함수형 인터페이스의 인스턴스이고, Stream은 그 람다를 받아 컬렉션을 선언적으로 처리하는 일회용 지연 파이프라인이다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/lambda-functional-stream/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>람다·함수형 인터페이스·Stream</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>람다·함수형 인터페이스·Stream</h1>
+  <p class="summary">람다는 함수형 인터페이스의 인스턴스이고, Stream은 그 람다를 받아 컬렉션을 선언적으로 처리하는 일회용 지연 파이프라인이다.</p>
+  <div class="content">
+<p>자바 8 이전에는 동작을 인자로 넘기려면 익명 내부 클래스가 필요했다. 정렬 기준 한 줄을 위해 <code>Comparator</code> 구현 6줄을 감싸야 했고, 필터 조건이 늘 때마다 메서드가 하나씩 늘어났다. 컬렉션 처리도 <code>for</code>와 <code>if</code>를 중첩해 순회 방법을 직접 적어야 했으므로 의도가 보일러플레이트에 묻혔다. 람다는 함수를 값으로 다루게 하고, 함수형 인터페이스는 그 값의 표준 타입을 제공하며, Stream은 둘을 받아 컬렉션 처리를 선언형 파이프라인으로 바꾼다.</p>
+<h2>핵심 개념</h2>
+<h3>람다는 함수형 인터페이스의 인스턴스다</h3>
+<p>람다의 타입은 추상 메서드가 정확히 하나인 인터페이스이며 default·static 메서드는 몇 개든 무방하다. <code>@FunctionalInterface</code>는 이 조건을 컴파일 타임에 검증하므로 붙이는 것이 표준이다.</p>
+<p>문법은 <code>(파라미터) -&gt; { 본문 }</code>이며 타입 생략, 단일 표현식이면 <code>{}</code>와 <code>return</code> 생략, 파라미터가 하나일 때만 <code>()</code> 생략이 가능하다. 캡처하는 외부 지역 변수는 effectively final이어야 한다. 람다는 지역 변수의 복사본을 캡처하므로 재할당을 금지하며, 인스턴스 필드에는 이 규칙이 없다. 람다 안의 <code>this</code>는 둘러싼 클래스 인스턴스이고 익명 클래스의 <code>this</code>는 자기 자신이다. 람다는 <code>invokedynamic</code>으로 런타임에 생성되어 클래스 파일이 생기지 않는다.</p>
+<p>메서드 참조는 정적 메서드(<code>Integer::parseInt</code>), 타입의 인스턴스 메서드(<code>String::toUpperCase</code>), 객체의 인스턴스 메서드(<code>list::add</code>), 생성자(<code>ArrayList::new</code>) 네 종류다.</p>
+<h3>java.util.function 표준 인터페이스</h3>
+<p>입력과 출력 형태의 조합 네 가지가 기본이다. <code>Supplier&lt;T&gt;</code>는 <code>() -&gt; T</code>, <code>Consumer&lt;T&gt;</code>는 <code>T -&gt; void</code>, <code>Predicate&lt;T&gt;</code>는 <code>T -&gt; boolean</code>, <code>Function&lt;T,R&gt;</code>은 <code>T -&gt; R</code>이다. <code>Bi*</code>는 입력이 둘인 변형이고, <code>UnaryOperator</code>·<code>BinaryOperator</code>는 입출력 타입이 같은 특수화로 <code>reduce</code>가 <code>BinaryOperator</code>를 받는다. <code>Predicate</code>는 <code>and</code>·<code>or</code>·<code>negate</code>로, <code>Function</code>은 <code>andThen</code>·<code>compose</code>로 조합하며 <code>f.andThen(g)</code>는 <code>g(f(x))</code>, <code>f.compose(g)</code>는 <code>f(g(x))</code>다. <code>Runnable</code>과 <code>Callable&lt;T&gt;</code>도 함수형 인터페이스이며 <code>Callable</code>만 checked exception을 던질 수 있다. <code>IntPredicate</code> 같은 원시 특수화는 박싱을 피하기 위한 것이다.</p>
+<h3>Stream은 컬렉션이 아니라 파이프라인이다</h3>
+<p>소스 → 중간 연산(0개 이상) → 종료 연산(1개) 구조다. 중간 연산(<code>filter</code>·<code>map</code>·<code>flatMap</code>·<code>mapToInt</code>·<code>sorted</code>·<code>distinct</code>·<code>limit</code>·<code>takeWhile</code>·<code>peek</code>)은 Stream을 반환해 체이닝되고, 종료 연산(<code>toList</code>·<code>collect</code>·<code>count</code>·<code>findFirst</code>·<code>anyMatch</code>·<code>reduce</code> 등)이 호출되기 전까지 아무것도 실행되지 않는다. 요소를 한 개씩 끌어오므로 무한 소스도 <code>limit</code>으로 끊어 쓸 수 있고, <code>findFirst</code>·<code>anyMatch</code>는 결과가 결정되면 즉시 멈춘다. 원본은 변경되지 않으며 종료 연산을 거친 Stream은 재사용할 수 없다.</p>
+<p><code>map</code>은 1:1 변환, <code>flatMap</code>은 요소를 Stream으로 펼쳐 이어 붙이는 평탄화다. <code>reduce</code>는 초기값을 주면 값을, 주지 않으면 <code>Optional</code>을 반환한다. <code>groupingBy</code>는 SQL GROUP BY에 해당하고 두 번째 인자로 <code>counting</code>·<code>summingInt</code>를 중첩한다. Java 16부터는 <code>stream.toList()</code>가 불변 리스트를 반환하므로 단순 수집에는 <code>collect(Collectors.toList())</code> 대신 이쪽을 쓴다.</p>
+<h2>코드</h2>
+<p>같은 정렬 기준을 익명 클래스, 람다, 메서드 참조로 표현한 예다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.Comparator;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ComparatorForms</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">Comparator</span>&lt;String&gt; <span class="hljs-variable">anonymous</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Comparator</span>&lt;&gt;() {
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">compare</span><span class="hljs-params">(String a, String b)</span> {
+                <span class="hljs-keyword">return</span> Integer.compare(a.length(), b.length());
+            }
+        };
+        <span class="hljs-type">Comparator</span>&lt;String&gt; <span class="hljs-variable">lambda</span> <span class="hljs-operator">=</span> (a, b) -&gt; Integer.compare(a.length(), b.length());
+        <span class="hljs-type">Comparator</span>&lt;String&gt; <span class="hljs-variable">reference</span> <span class="hljs-operator">=</span> Comparator.comparingInt(String::length);
+
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">words</span> <span class="hljs-operator">=</span> List.of(<span class="hljs-string">&quot;kafka&quot;</span>, <span class="hljs-string">&quot;jvm&quot;</span>, <span class="hljs-string">&quot;spring&quot;</span>, <span class="hljs-string">&quot;io&quot;</span>);
+        System.out.println(words.stream().sorted(reference).toList());
+        <span class="hljs-comment">// [io, jvm, kafka, spring]</span>
+    }
+}</code></pre>
+<p><code>Predicate</code>를 합성해 동적 필터를 만드는 예다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.function.Predicate;
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Member</span><span class="hljs-params">(String name, <span class="hljs-type">int</span> age, String city, <span class="hljs-type">boolean</span> active)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MemberCriteria</span> {
+    <span class="hljs-keyword">static</span> <span class="hljs-type">Predicate</span>&lt;Member&gt; <span class="hljs-title function_">ageOver</span><span class="hljs-params">(<span class="hljs-type">int</span> age)</span> { <span class="hljs-keyword">return</span> m -&gt; m.age() &gt; age; }
+    <span class="hljs-keyword">static</span> <span class="hljs-type">Predicate</span>&lt;Member&gt; <span class="hljs-title function_">livesIn</span><span class="hljs-params">(String city)</span> { <span class="hljs-keyword">return</span> m -&gt; m.city().equals(city); }
+    <span class="hljs-keyword">static</span> <span class="hljs-type">Predicate</span>&lt;Member&gt; <span class="hljs-title function_">active</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> Member::active; }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">List</span>&lt;Member&gt; <span class="hljs-variable">members</span> <span class="hljs-operator">=</span> List.of(
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Member</span>(<span class="hljs-string">&quot;Alice&quot;</span>, <span class="hljs-number">34</span>, <span class="hljs-string">&quot;Seoul&quot;</span>, <span class="hljs-literal">true</span>),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Member</span>(<span class="hljs-string">&quot;Bob&quot;</span>, <span class="hljs-number">19</span>, <span class="hljs-string">&quot;Seoul&quot;</span>, <span class="hljs-literal">true</span>),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Member</span>(<span class="hljs-string">&quot;Chris&quot;</span>, <span class="hljs-number">41</span>, <span class="hljs-string">&quot;Busan&quot;</span>, <span class="hljs-literal">false</span>));
+
+        <span class="hljs-type">Predicate</span>&lt;Member&gt; <span class="hljs-variable">criteria</span> <span class="hljs-operator">=</span> ageOver(<span class="hljs-number">20</span>).and(livesIn(<span class="hljs-string">&quot;Seoul&quot;</span>)).and(active());
+
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">names</span> <span class="hljs-operator">=</span> members.stream()
+                .filter(criteria)
+                .map(Member::name)
+                .toList();
+        System.out.println(names); <span class="hljs-comment">// [Alice]</span>
+    }
+}</code></pre>
+<p>서비스 계층에서 흔한 집계 파이프라인이다. <code>groupingBy</code>·<code>mapToInt</code>·<code>flatMap</code>을 한 번에 본다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.stream.Collectors;
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Item</span><span class="hljs-params">(String sku, <span class="hljs-type">int</span> quantity)</span> {}
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Order</span><span class="hljs-params">(<span class="hljs-type">long</span> id, String status, <span class="hljs-type">int</span> amount, List&lt;Item&gt; items)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderStats</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-variable">orders</span> <span class="hljs-operator">=</span> List.of(
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(<span class="hljs-number">1L</span>, <span class="hljs-string">&quot;PAID&quot;</span>, <span class="hljs-number">12000</span>, List.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Item</span>(<span class="hljs-string">&quot;A&quot;</span>, <span class="hljs-number">2</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">Item</span>(<span class="hljs-string">&quot;B&quot;</span>, <span class="hljs-number">1</span>))),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(<span class="hljs-number">2L</span>, <span class="hljs-string">&quot;PAID&quot;</span>, <span class="hljs-number">8000</span>, List.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Item</span>(<span class="hljs-string">&quot;A&quot;</span>, <span class="hljs-number">1</span>))),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(<span class="hljs-number">3L</span>, <span class="hljs-string">&quot;CANCELLED&quot;</span>, <span class="hljs-number">5000</span>, List.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Item</span>(<span class="hljs-string">&quot;C&quot;</span>, <span class="hljs-number">3</span>))));
+
+        <span class="hljs-type">Map</span>&lt;String, Long&gt; <span class="hljs-variable">countByStatus</span> <span class="hljs-operator">=</span> orders.stream()
+                .collect(Collectors.groupingBy(Order::status, Collectors.counting()));
+
+        <span class="hljs-type">int</span> <span class="hljs-variable">paidTotal</span> <span class="hljs-operator">=</span> orders.stream()
+                .filter(o -&gt; o.status().equals(<span class="hljs-string">&quot;PAID&quot;</span>))
+                .mapToInt(Order::amount)
+                .sum();
+
+        <span class="hljs-type">Map</span>&lt;String, Integer&gt; <span class="hljs-variable">quantityBySku</span> <span class="hljs-operator">=</span> orders.stream()
+                .flatMap(o -&gt; o.items().stream())
+                .collect(Collectors.groupingBy(Item::sku, Collectors.summingInt(Item::quantity)));
+
+        System.out.println(countByStatus);  <span class="hljs-comment">// {PAID=2, CANCELLED=1}</span>
+        System.out.println(paidTotal);      <span class="hljs-comment">// 20000</span>
+        System.out.println(quantityBySku);  <span class="hljs-comment">// {A=3, B=1, C=3}</span>
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>parallelStream</code>은 기본 선택지가 아니다.</strong> 공용 <code>ForkJoinPool.commonPool</code>을 다른 작업과 나눠 쓰고, 데이터가 수만 건 미만이면 분할·병합 오버헤드가 이득을 상회하며, I/O가 섞인 람다는 공용 풀을 블로킹한다. CPU 집약적이고 순서 무관하며 부작용 없는 작업에 한해 측정 후 적용한다.</li>
+<li><strong><code>forEach</code> 안에서 외부 컬렉션을 수정하지 않는다.</strong> <code>ArrayList</code>에 <code>add</code>하는 부작용은 병렬 전환 시 race condition이 된다. 결과는 <code>toList</code>나 <code>collect</code>로 수집한다. 단순 순회만 있다면 for-each가 더 읽기 쉽다.</li>
+<li><strong><code>Collectors.toMap</code>은 키 중복 시 <code>IllegalStateException</code>을 던진다.</strong> 중복 가능한 키에는 세 번째 인자로 병합 함수를 넘긴다.</li>
+<li><strong>박싱 비용과 <code>Optional</code> 위치.</strong> 합계·평균은 <code>mapToInt</code>로 원시 스트림에서 계산한다. <code>Optional</code>은 반환 타입에서만 쓰고 필드나 파라미터에는 쓰지 않으며, 기본값이 비싼 계산이면 <code>orElse</code> 대신 <code>orElseGet</code>을 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/collections-generics-optional/">컬렉션·제네릭·Optional</a></li>
+<li><a href="/notes/java-spring/interface-polymorphism-solid/">인터페이스·다형성·SOLID</a></li>
+<li><a href="/notes/java-spring/modern-java/">Modern Java 9~21 핵심</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Lambda, Functional Interface, Stream API, Collectors, Method Reference</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/exception-handling/"><small>이전</small>예외 처리</a>
+  <a class="next" href="/notes/java-spring/modern-java/"><small>다음</small>Modern Java 9~21 핵심</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

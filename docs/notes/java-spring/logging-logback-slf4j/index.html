@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로깅 — Logback·SLF4J · Java / Spring</title>
+  <meta name="description" content="코드는 SLF4J 파사드만 의존하고 Logback이 출력을 맡는 구조에서 레벨·롤링·MDC 추적 ID를 어떻게 잡는가">
+  <meta property="og:title" content="로깅 — Logback·SLF4J · Java / Spring">
+  <meta property="og:description" content="코드는 SLF4J 파사드만 의존하고 Logback이 출력을 맡는 구조에서 레벨·롤링·MDC 추적 ID를 어떻게 잡는가">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/logging-logback-slf4j/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>로깅 — Logback·SLF4J</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>로깅 — Logback·SLF4J</h1>
+  <p class="summary">코드는 SLF4J 파사드만 의존하고 Logback이 출력을 맡는 구조에서 레벨·롤링·MDC 추적 ID를 어떻게 잡는가</p>
+  <div class="content">
+<p><code>System.out.println</code> 출력은 레벨이 없어 운영에서 끌 수 없고, 어느 클래스가 어떤 스레드에서 남겼는지 알 수 없으며, 파일 분리나 오래된 기록 삭제도 되지 않는다. 동시 요청이 많은 서버에서는 줄이 뒤섞여 한 요청의 흐름을 복원하기도 어렵다. 로깅 프레임워크는 레벨·출력 대상·포맷·롤링·요청별 컨텍스트를 표준화해 이 문제를 해결한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>SLF4J(Simple Logging Facade for Java)</strong> 는 로깅 API의 파사드다. 코드는 <code>org.slf4j.Logger</code>만 호출하고 실제 출력은 클래스패스의 구현체가 담당한다. <strong>Logback</strong>은 기본 구현체이며 <code>spring-boot-starter</code>에 포함된 <code>spring-boot-starter-logging</code>이 가져오므로 별도 의존성이 없다. Log4j2로 바꾸려면 스타터만 교체하면 되고 코드는 그대로다.</p>
+<p>로거는 이름 기준 계층을 이룬다. <code>com.example.shop.order.OrderService</code> 로거는 <code>com.example.shop.order</code> → <code>com.example.shop</code> → root 순으로 부모를 갖고, 레벨이 없는 로거는 가장 가까운 부모의 레벨을 상속한다. 패키지 단위 레벨 분기가 가능한 이유다.</p>
+<p>레벨은 TRACE &lt; DEBUG &lt; INFO &lt; WARN &lt; ERROR 다섯 단계다. 로거 레벨이 INFO이면 INFO 이상만 통과하고 DEBUG·TRACE는 버려진다. 운영은 INFO, 개발은 애플리케이션 패키지만 DEBUG로 두는 구성이 일반적이다.</p>
+<table>
+<thead>
+<tr>
+<th>레벨</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ERROR</td>
+<td>예외·복구 불가 상황. 알림 대상</td>
+</tr>
+<tr>
+<td>WARN</td>
+<td>실패는 아니지만 확인이 필요한 상태 (재시도·폴백)</td>
+</tr>
+<tr>
+<td>INFO</td>
+<td>주요 비즈니스 이벤트·기동 정보</td>
+</tr>
+<tr>
+<td>DEBUG</td>
+<td>변수 값·분기 흐름. 개발 환경 전용</td>
+</tr>
+<tr>
+<td>TRACE</td>
+<td>프레임워크 내부 수준의 상세 추적</td>
+</tr>
+</tbody></table>
+<p>Logback 설정은 <strong>Appender</strong>(출력 대상), <strong>Encoder</strong>(포맷), <strong>Logger/root</strong>(로거-레벨-appender 연결) 세 요소로 구성된다. Spring Boot는 <code>application.yml</code>의 <code>logging.*</code> 속성으로 흔한 설정을 처리하고, 그 이상은 <code>logback-spring.xml</code>로 넘어간다. <code>logback.xml</code>이 아니라 <code>logback-spring.xml</code>이어야 <code>&lt;springProfile&gt;</code> 같은 Boot 확장을 쓸 수 있다.</p>
+<p><strong>MDC(Mapped Diagnostic Context)</strong> 는 스레드에 붙는 키-값 저장소다. 요청 진입 시 추적 ID를 넣어 두면 그 스레드의 모든 로그에 <code>%X{traceId}</code>로 찍힌다. Micrometer Tracing을 쓰면 traceId·spanId가 같은 방식으로 자동 주입된다.</p>
+<h2>코드</h2>
+<p>Lombok <code>@Slf4j</code>는 <code>LoggerFactory.getLogger(OrderService.class)</code> 필드를 생성한다. 인자는 <code>{}</code>로 넘기고, 예외를 마지막 인자로 넘기면 스택 트레이스가 함께 출력된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@Slf4j</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">placeOrder</span><span class="hljs-params">(OrderRequest req)</span> {
+        log.info(<span class="hljs-string">&quot;order.create.start userId={}&quot;</span>, req.userId());
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orderRepository.save(Order.from(req));
+            log.info(<span class="hljs-string">&quot;order.create.done id={} amount={}&quot;</span>, order.getId(), order.getAmount());
+            <span class="hljs-keyword">return</span> order;
+        } <span class="hljs-keyword">catch</span> (DataAccessException e) {
+            log.error(<span class="hljs-string">&quot;order.create.failed userId={}&quot;</span>, req.userId(), e);
+            <span class="hljs-keyword">throw</span> e;
+        }
+    }
+}</code></pre>
+<p><code>application.yml</code>만으로 패키지별 레벨·파일 출력·롤링을 지정한다. <code>logging.file.name</code>과 <code>logging.file.path</code>는 하나만 쓴다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">logging:</span>
+  <span class="hljs-attr">level:</span>
+    <span class="hljs-attr">root:</span> <span class="hljs-string">INFO</span>
+    <span class="hljs-attr">com.example.shop:</span> <span class="hljs-string">DEBUG</span>
+    <span class="hljs-attr">org.hibernate.SQL:</span> <span class="hljs-string">DEBUG</span>
+    <span class="hljs-attr">org.hibernate.orm.jdbc.bind:</span> <span class="hljs-string">TRACE</span>
+  <span class="hljs-attr">file:</span>
+    <span class="hljs-attr">name:</span> <span class="hljs-string">logs/shop.log</span>
+  <span class="hljs-attr">logback:</span>
+    <span class="hljs-attr">rollingpolicy:</span>
+      <span class="hljs-attr">file-name-pattern:</span> <span class="hljs-string">logs/shop.%d{yyyy-MM-dd}.%i.log.gz</span>
+      <span class="hljs-attr">max-file-size:</span> <span class="hljs-string">50MB</span>
+      <span class="hljs-attr">max-history:</span> <span class="hljs-number">30</span>
+      <span class="hljs-attr">total-size-cap:</span> <span class="hljs-string">3GB</span></code></pre>
+<p>요청마다 추적 ID를 MDC에 넣는 필터와, 그 값을 패턴에 반영하고 프로파일별로 appender를 나누는 <code>logback-spring.xml</code>이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TraceIdFilter</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">OncePerRequestFilter</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">void</span> <span class="hljs-title function_">doFilterInternal</span><span class="hljs-params">(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain chain)</span> <span class="hljs-keyword">throws</span> ServletException, IOException {
+        <span class="hljs-type">String</span> <span class="hljs-variable">traceId</span> <span class="hljs-operator">=</span> Optional.ofNullable(request.getHeader(<span class="hljs-string">&quot;X-Trace-Id&quot;</span>))
+                .orElseGet(() -&gt; UUID.randomUUID().toString().substring(<span class="hljs-number">0</span>, <span class="hljs-number">8</span>));
+        MDC.put(<span class="hljs-string">&quot;traceId&quot;</span>, traceId);
+        response.setHeader(<span class="hljs-string">&quot;X-Trace-Id&quot;</span>, traceId);
+        <span class="hljs-keyword">try</span> {
+            chain.doFilter(request, response);
+        } <span class="hljs-keyword">finally</span> {
+            MDC.remove(<span class="hljs-string">&quot;traceId&quot;</span>);
+        }
+    }
+}</code></pre>
+<pre><code class="hljs language-xml"><span class="hljs-meta">&lt;?xml version=<span class="hljs-string">&quot;1.0&quot;</span> encoding=<span class="hljs-string">&quot;UTF-8&quot;</span>?&gt;</span>
+<span class="hljs-tag">&lt;<span class="hljs-name">configuration</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">include</span> <span class="hljs-attr">resource</span>=<span class="hljs-string">&quot;org/springframework/boot/logging/logback/defaults.xml&quot;</span>/&gt;</span>
+
+    <span class="hljs-tag">&lt;<span class="hljs-name">appender</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;CONSOLE&quot;</span> <span class="hljs-attr">class</span>=<span class="hljs-string">&quot;ch.qos.logback.core.ConsoleAppender&quot;</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">encoder</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">pattern</span>&gt;</span>%d{HH:mm:ss.SSS} %-5level [%X{traceId:-}] %logger{36} - %msg%n<span class="hljs-tag">&lt;/<span class="hljs-name">pattern</span>&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">encoder</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">appender</span>&gt;</span>
+
+    <span class="hljs-tag">&lt;<span class="hljs-name">appender</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;FILE&quot;</span> <span class="hljs-attr">class</span>=<span class="hljs-string">&quot;ch.qos.logback.core.rolling.RollingFileAppender&quot;</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">file</span>&gt;</span>logs/shop.log<span class="hljs-tag">&lt;/<span class="hljs-name">file</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">rollingPolicy</span> <span class="hljs-attr">class</span>=<span class="hljs-string">&quot;ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy&quot;</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">fileNamePattern</span>&gt;</span>logs/shop.%d{yyyy-MM-dd}.%i.log.gz<span class="hljs-tag">&lt;/<span class="hljs-name">fileNamePattern</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">maxFileSize</span>&gt;</span>50MB<span class="hljs-tag">&lt;/<span class="hljs-name">maxFileSize</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">maxHistory</span>&gt;</span>30<span class="hljs-tag">&lt;/<span class="hljs-name">maxHistory</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">totalSizeCap</span>&gt;</span>3GB<span class="hljs-tag">&lt;/<span class="hljs-name">totalSizeCap</span>&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">rollingPolicy</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">encoder</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">pattern</span>&gt;</span>%d %-5level [%X{traceId:-}] %logger - %msg%n<span class="hljs-tag">&lt;/<span class="hljs-name">pattern</span>&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">encoder</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">appender</span>&gt;</span>
+
+    <span class="hljs-tag">&lt;<span class="hljs-name">springProfile</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;local&quot;</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">root</span> <span class="hljs-attr">level</span>=<span class="hljs-string">&quot;INFO&quot;</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">appender-ref</span> <span class="hljs-attr">ref</span>=<span class="hljs-string">&quot;CONSOLE&quot;</span>/&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">root</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">logger</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;com.example.shop&quot;</span> <span class="hljs-attr">level</span>=<span class="hljs-string">&quot;DEBUG&quot;</span>/&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">springProfile</span>&gt;</span>
+
+    <span class="hljs-tag">&lt;<span class="hljs-name">springProfile</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;prod&quot;</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">root</span> <span class="hljs-attr">level</span>=<span class="hljs-string">&quot;INFO&quot;</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">appender-ref</span> <span class="hljs-attr">ref</span>=<span class="hljs-string">&quot;FILE&quot;</span>/&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">root</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">springProfile</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">configuration</span>&gt;</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p><strong>문자열 연결과 무거운 인자.</strong> <code>log.debug(&quot;user &quot; + id)</code>는 DEBUG가 꺼져 있어도 연결이 먼저 일어난다. <code>{}</code> 플레이스홀더는 레벨 검사 후에만 포맷하지만, 인자 자체가 직렬화처럼 무거우면 <code>log.isDebugEnabled()</code> 가드나 SLF4J 2.x fluent API의 <code>addArgument(() -&gt; heavy())</code>로 지연시킨다.</p>
+<p><strong>MDC 누수.</strong> MDC는 ThreadLocal 기반이라 정리하지 않으면 풀에서 재사용된 스레드가 이전 요청의 traceId를 달고 나온다. <code>finally</code>에서 반드시 제거한다. <code>@Async</code>로 넘어가면 전파되지 않으므로 <code>TaskDecorator</code>로 복사한다.</p>
+<p><strong>민감 정보.</strong> 비밀번호·카드번호·주민등록번호·API 키·JWT는 한 줄이라도 남기면 보관 기간 내내 유출 대상이 된다. DTO의 <code>toString()</code>에 딸려 나오는 경우가 흔하므로 객체를 통째로 넘기지 않고 필요한 필드만 마스킹해서 찍는다.</p>
+<p><strong>동기 쓰기와 디스크.</strong> 기본 appender는 호출 스레드에서 동기적으로 쓴다. 로그량이 많으면 <code>AsyncAppender</code>로 감싸되, 큐가 차면 DEBUG 이하를 버리는 기본 동작을 알고 써야 한다. <code>totalSizeCap</code>을 빼먹으면 디스크가 가득 차 애플리케이션이 멈춘다.</p>
+<p><strong>컨테이너 환경의 포맷.</strong> Kubernetes에서는 파일 대신 stdout으로 내보내고 수집기가 가져가는 구조가 표준이며, 필드 검색을 위해 JSON 출력이 필요하다. Spring Boot 3.4부터는 <code>logging.structured.format.console=ecs</code> 한 줄로 지원한다. <code>spring.jpa.show-sql=true</code>는 <code>System.out</code>으로 출력되어 이 체계를 전부 우회하므로 SQL은 <code>org.hibernate.SQL</code> 로거로 잡는다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/build-and-project-setup/">빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles</a></li>
+<li><a href="/notes/java-spring/dispatcher-servlet-filter-interceptor/">요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</a></li>
+<li><a href="/notes/java-spring/actuator-micrometer/">Actuator와 Micrometer</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · SLF4J, Logback, MDC, Spring Boot, 로깅</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/caching-cacheable-redis/"><small>이전</small>캐싱 — @Cacheable과 Spring Data Redis</a>
+  <a class="next" href="/notes/java-spring/events-async-scheduling/"><small>다음</small>이벤트·비동기·스케줄링</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

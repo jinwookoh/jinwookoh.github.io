@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>디자인 패턴 — 생성·구조 · Java / Spring</title>
+  <meta name="description" content="객체를 어떻게 만들고(생성) 어떻게 조합하는지(구조)를 GoF 11개 패턴의 적용 신호와 함정 중심으로 정리한다.">
+  <meta property="og:title" content="디자인 패턴 — 생성·구조 · Java / Spring">
+  <meta property="og:description" content="객체를 어떻게 만들고(생성) 어떻게 조합하는지(구조)를 GoF 11개 패턴의 적용 신호와 함정 중심으로 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/design-patterns-creational-structural/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>디자인 패턴 — 생성·구조</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>디자인 패턴 — 생성·구조</h1>
+  <p class="summary">객체를 어떻게 만들고(생성) 어떻게 조합하는지(구조)를 GoF 11개 패턴의 적용 신호와 함정 중심으로 정리한다.</p>
+  <div class="content">
+<p>객체 하나를 만드는 데는 <code>new</code> 한 줄이면 충분하다. 문제는 옵션 조합이 많거나, 생성 비용이 크거나, 하나만 존재해야 하거나, 짝이 맞는 부품 묶음으로 만들어야 할 때 생긴다. 조합 단계에서도 문제가 반복된다. 기능 조합을 상속으로 풀면 클래스가 2^N으로 폭발하고, 외부 라이브러리 시그니처가 맞지 않아 호출부 전체를 고치며, 같은 모양의 객체 10만 개가 각자 이미지를 들고 있어 힙이 바닥난다. GoF 생성 패턴 5개와 구조 패턴 6개는 이런 상황의 처방이며, 핵심은 어떤 코드 신호에 어떤 패턴을 꺼내는지 아는 것이다.</p>
+<h2>핵심 개념</h2>
+<p>생성 패턴은 &quot;어떤 클래스의 인스턴스를 어떻게 만드는가&quot;를 클라이언트로부터 분리한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">패턴</th>
+<th align="left">해결하는 문제</th>
+<th align="left">적용 신호</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Singleton</td>
+<td align="left">인스턴스가 하나만 존재</td>
+<td align="left">설정·커넥션 풀·캐시 관리자</td>
+</tr>
+<tr>
+<td align="left">Factory Method</td>
+<td align="left">구현체 선택을 클라이언트에서 분리</td>
+<td align="left"><code>new ConcreteClass()</code> 산재, 런타임 타입 결정</td>
+</tr>
+<tr>
+<td align="left">Abstract Factory</td>
+<td align="left">어울리는 객체 군을 한 세트로 생성</td>
+<td align="left">플랫폼·벤더별 부품 일관성</td>
+</tr>
+<tr>
+<td align="left">Builder</td>
+<td align="left">선택 파라미터가 많은 불변 객체</td>
+<td align="left">생성자 4개 이상, boolean·int 연속</td>
+</tr>
+<tr>
+<td align="left">Prototype</td>
+<td align="left">비용 큰 객체를 복제로 생성</td>
+<td align="left">체크포인트·Undo·템플릿 변형</td>
+</tr>
+</tbody></table>
+<p>Singleton의 단순 lazy 초기화는 멀티스레드에서 인스턴스가 두 개 생길 수 있고, Double-Checked Locking은 <code>volatile</code> 없이는 명령어 재배치로 초기화가 끝나지 않은 참조가 노출된다. 클래스 로딩이 원자성을 보장하는 holder idiom이나 enum이 가장 안전하다.</p>
+<p>Factory Method는 static 메서드 안에서 switch로 분기하는 Simple Factory와, 팩토리를 인터페이스로 추상화해 서브클래스가 생성 대상을 정하는 GoF 정통 형태로 나뉜다. 전자는 타입 추가마다 분기가 늘어 OCP를 위반한다. Abstract Factory는 Factory Method 여러 개를 하나의 인터페이스로 묶은 것으로, 새 플랫폼 추가는 쉽지만 새 제품 타입 추가는 모든 팩토리를 수정해야 한다.</p>
+<p>Builder는 필수 값을 빌더 생성자로 받고 선택 값을 체이닝하며, <code>build()</code>에서 검증한 뒤 private 생성자로 final 필드를 채운다. Prototype에서 <code>Object.clone()</code>은 얕은 복사이고 <code>Cloneable</code>은 설계 결함이 많아 복사 생성자로 대체한다.</p>
+<p>구조 패턴은 객체를 조합해 더 큰 구조를 만든다. Adapter·Decorator·Proxy는 모두 객체를 감싸지만 목적이 다르다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">패턴</th>
+<th align="left">감싸는 목적</th>
+<th align="left">인터페이스</th>
+<th align="left">중첩</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Adapter</td>
+<td align="left">호환되지 않는 인터페이스 변환</td>
+<td align="left">대상 인터페이스로 바꿈</td>
+<td align="left">드묾</td>
+</tr>
+<tr>
+<td align="left">Decorator</td>
+<td align="left">기능을 런타임에 추가</td>
+<td align="left">동일 유지</td>
+<td align="left">여러 겹</td>
+</tr>
+<tr>
+<td align="left">Proxy</td>
+<td align="left">접근 제어(지연 로딩·캐싱·권한·로깅)</td>
+<td align="left">동일 유지</td>
+<td align="left">보통 한 겹</td>
+</tr>
+</tbody></table>
+<p>Adapter는 Target을 구현하면서 내부에서 Adaptee를 호출해 시그니처를 변환한다. Decorator는 같은 인터페이스를 구현한 클래스가 같은 타입을 필드로 가지며 한 가지 책임만 더한다. Java I/O의 <code>BufferedInputStream</code>이 대표 사례다. Proxy는 Virtual·Protection·Remote·Logging으로 나뉘며, Spring AOP의 <code>@Transactional</code>이 JDK 동적 프록시 또는 CGLIB 프록시로 동작한다.</p>
+<p>Composite는 Leaf와 Composite가 같은 인터페이스를 구현해 트리를 재귀적으로 처리한다. Facade는 여러 서브시스템 호출을 단일 진입점으로 묶으며 API Gateway가 이 모양이다. Flyweight는 공유 가능한 내재적 상태와 객체마다 고유한 외재적 상태를 분리하고, 내재적 상태를 팩토리에서 한 번만 만들어 공유한다. 공유 상태는 반드시 불변이어야 한다.</p>
+<h2>코드</h2>
+<p>Builder와 holder idiom 싱글톤을 결합한 설정 객체.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">HttpClientConfig</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String baseUrl;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Duration connectTimeout;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Duration readTimeout;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> maxRetries;
+
+    <span class="hljs-type">private</span> <span class="hljs-title function_">HttpClientConfig</span><span class="hljs-params">(Builder b)</span> {
+        <span class="hljs-built_in">this</span>.baseUrl = b.baseUrl;
+        <span class="hljs-built_in">this</span>.connectTimeout = b.connectTimeout;
+        <span class="hljs-built_in">this</span>.readTimeout = b.readTimeout;
+        <span class="hljs-built_in">this</span>.maxRetries = b.maxRetries;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Builder</span> <span class="hljs-title function_">builder</span><span class="hljs-params">(String baseUrl)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Builder</span>(baseUrl);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Builder</span> {
+        <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String baseUrl;
+        <span class="hljs-keyword">private</span> <span class="hljs-type">Duration</span> <span class="hljs-variable">connectTimeout</span> <span class="hljs-operator">=</span> Duration.ofSeconds(<span class="hljs-number">3</span>);
+        <span class="hljs-keyword">private</span> <span class="hljs-type">Duration</span> <span class="hljs-variable">readTimeout</span> <span class="hljs-operator">=</span> Duration.ofSeconds(<span class="hljs-number">10</span>);
+        <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> <span class="hljs-variable">maxRetries</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+
+        <span class="hljs-type">private</span> <span class="hljs-title function_">Builder</span><span class="hljs-params">(String baseUrl)</span> {
+            <span class="hljs-built_in">this</span>.baseUrl = Objects.requireNonNull(baseUrl);
+        }
+        <span class="hljs-keyword">public</span> <span class="hljs-type">Builder</span> <span class="hljs-title function_">connectTimeout</span><span class="hljs-params">(Duration d)</span> { <span class="hljs-built_in">this</span>.connectTimeout = d; <span class="hljs-keyword">return</span> <span class="hljs-built_in">this</span>; }
+        <span class="hljs-keyword">public</span> <span class="hljs-type">Builder</span> <span class="hljs-title function_">readTimeout</span><span class="hljs-params">(Duration d)</span> { <span class="hljs-built_in">this</span>.readTimeout = d; <span class="hljs-keyword">return</span> <span class="hljs-built_in">this</span>; }
+        <span class="hljs-keyword">public</span> <span class="hljs-type">Builder</span> <span class="hljs-title function_">maxRetries</span><span class="hljs-params">(<span class="hljs-type">int</span> n)</span> { <span class="hljs-built_in">this</span>.maxRetries = n; <span class="hljs-keyword">return</span> <span class="hljs-built_in">this</span>; }
+
+        <span class="hljs-keyword">public</span> <span class="hljs-type">HttpClientConfig</span> <span class="hljs-title function_">build</span><span class="hljs-params">()</span> {
+            <span class="hljs-keyword">if</span> (maxRetries &lt; <span class="hljs-number">0</span> || maxRetries &gt; <span class="hljs-number">10</span>) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;maxRetries out of range: &quot;</span> + maxRetries);
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HttpClientConfig</span>(<span class="hljs-built_in">this</span>);
+        }
+    }
+}
+
+<span class="hljs-comment">// holder idiom — 클래스 로딩이 초기화의 원자성과 가시성을 보장한다</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DefaultConfigHolder</span> {
+    <span class="hljs-type">private</span> <span class="hljs-title function_">DefaultConfigHolder</span><span class="hljs-params">()</span> {}
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Holder</span> {
+        <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">HttpClientConfig</span> <span class="hljs-variable">INSTANCE</span> <span class="hljs-operator">=</span>
+            HttpClientConfig.builder(<span class="hljs-string">&quot;https://api.example.com&quot;</span>).maxRetries(<span class="hljs-number">3</span>).build();
+    }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">HttpClientConfig</span> <span class="hljs-title function_">get</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> Holder.INSTANCE; }
+}</code></pre>
+<p>같은 인터페이스 위에서 Adapter는 시그니처를 변환하고 Decorator는 재시도를 한 겹 더한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">NotificationSender</span> {
+    <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String to, String subject, String body)</span>;
+}
+
+<span class="hljs-comment">// Adaptee — 외부 SDK, 메서드명·파라미터가 다르다</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">VendorMailSdk</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">deliver</span><span class="hljs-params">(String recipient, String title, String content)</span> { <span class="hljs-comment">/* ... */</span> }
+}
+
+<span class="hljs-comment">// Adapter — Target 구현 + Adaptee 위임</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">VendorMailAdapter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">NotificationSender</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> VendorMailSdk sdk;
+    <span class="hljs-type">public</span> <span class="hljs-title function_">VendorMailAdapter</span><span class="hljs-params">(VendorMailSdk sdk)</span> { <span class="hljs-built_in">this</span>.sdk = sdk; }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String to, String subject, String body)</span> {
+        sdk.deliver(to, subject, body);
+    }
+}
+
+<span class="hljs-comment">// Decorator — 같은 인터페이스를 유지하며 재시도를 추가</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RetryingSender</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">NotificationSender</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> NotificationSender delegate;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> maxAttempts;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RetryingSender</span><span class="hljs-params">(NotificationSender delegate, <span class="hljs-type">int</span> maxAttempts)</span> {
+        <span class="hljs-built_in">this</span>.delegate = delegate;
+        <span class="hljs-built_in">this</span>.maxAttempts = maxAttempts;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String to, String subject, String body)</span> {
+        <span class="hljs-type">RuntimeException</span> <span class="hljs-variable">last</span> <span class="hljs-operator">=</span> <span class="hljs-literal">null</span>;
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; maxAttempts; i++) {
+            <span class="hljs-keyword">try</span> {
+                delegate.send(to, subject, body);
+                <span class="hljs-keyword">return</span>;
+            } <span class="hljs-keyword">catch</span> (RuntimeException e) {
+                last = e;
+            }
+        }
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;send failed after &quot;</span> + maxAttempts + <span class="hljs-string">&quot; attempts&quot;</span>, last);
+    }
+}
+
+<span class="hljs-comment">// Spring Boot 구성 — 조합은 한 곳에서</span>
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">NotificationConfig</span> {
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">NotificationSender</span> <span class="hljs-title function_">notificationSender</span><span class="hljs-params">(VendorMailSdk sdk)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RetryingSender</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">VendorMailAdapter</span>(sdk), <span class="hljs-number">3</span>);
+    }
+}</code></pre>
+<p>Flyweight 팩토리. record로 불변을 보장하고 <code>computeIfAbsent</code>로 중복 생성과 경쟁 조건을 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">GlyphStyle</span><span class="hljs-params">(String fontFamily, <span class="hljs-type">int</span> size, <span class="hljs-type">boolean</span> bold)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GlyphStyleFactory</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Map</span>&lt;String, GlyphStyle&gt; <span class="hljs-variable">CACHE</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">GlyphStyle</span> <span class="hljs-title function_">of</span><span class="hljs-params">(String fontFamily, <span class="hljs-type">int</span> size, <span class="hljs-type">boolean</span> bold)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> fontFamily + <span class="hljs-string">&quot;/&quot;</span> + size + <span class="hljs-string">&quot;/&quot;</span> + bold;
+        <span class="hljs-keyword">return</span> CACHE.computeIfAbsent(key, k -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">GlyphStyle</span>(fontFamily, size, bold));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">cachedCount</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> CACHE.size(); }
+}
+
+<span class="hljs-comment">// 외재적 상태(위치)만 개별 객체가 들고, 스타일은 공유 참조</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Glyph</span><span class="hljs-params">(<span class="hljs-type">char</span> ch, <span class="hljs-type">int</span> x, <span class="hljs-type">int</span> y, GlyphStyle style)</span> {}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Singleton 직접 구현은 대부분 불필요하다.</strong> Spring Bean이 기본 singleton scope이고, static 접근점은 DI를 우회해 테스트에서 mock 교체를 막는다.</li>
+<li><strong>Lazy 초기화는 Singleton이 아니어도 같은 경쟁 조건을 갖는다.</strong> Virtual Proxy의 <code>if (real == null)</code> 역시 두 스레드가 동시에 통과한다. <code>volatile</code> + DCL이나 <code>computeIfAbsent</code>를 쓰고, Virtual Thread 환경에서는 <code>synchronized</code> 안의 블로킹 I/O가 pinning을 유발하므로 <code>ReentrantLock</code>을 검토한다.</li>
+<li><strong>Lombok <code>@Builder</code>는 필수 값을 강제하지 못한다.</strong> <code>@NonNull</code>이나 <code>build()</code> 검증을 별도로 둔다. 필드 2~3개짜리 객체에 Builder는 과설계다.</li>
+<li><strong>Spring 프록시는 self-invocation을 가로채지 못한다.</strong> <code>@Transactional</code>은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 <code>this.method()</code>에는 어드바이스가 빠진다. 대상 클래스가 <code>final</code>이면 CGLIB 서브클래싱도 실패한다.</li>
+<li><strong>Facade가 비즈니스 로직을 흡수하면 God Object가 된다.</strong> Composite의 재귀 순회는 깊이가 예측 불가능하면 스택 오버플로를 일으키므로 반복 순회로 바꾼다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>인터페이스·다형성·SOLID — /notes/java-spring/interface-polymorphism-solid/</li>
+<li>디자인 패턴 — 행위·조합 — /notes/java-spring/design-patterns-behavioral/</li>
+<li>AOP와 SpEL — /notes/java-spring/aop-spel/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Design Pattern, GoF, Singleton, Builder, Decorator, Proxy</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/virtual-thread-practice/"><small>이전</small>Virtual Thread — 실전·Spring Boot·Structured Concurrency</a>
+  <a class="next" href="/notes/java-spring/design-patterns-behavioral/"><small>다음</small>디자인 패턴 — 행위·조합</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

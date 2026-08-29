@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>예외 처리 · Java / Spring</title>
+  <meta name="description" content="체크드와 언체크드 예외의 경계를 정확히 긋고, try-with-resources와 예외 체이닝으로 자원 누수와 원인 소실을 막는 방법을 정리한다.">
+  <meta property="og:title" content="예외 처리 · Java / Spring">
+  <meta property="og:description" content="체크드와 언체크드 예외의 경계를 정확히 긋고, try-with-resources와 예외 체이닝으로 자원 누수와 원인 소실을 막는 방법을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/exception-handling/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>예외 처리</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>예외 처리</h1>
+  <p class="summary">체크드와 언체크드 예외의 경계를 정확히 긋고, try-with-resources와 예외 체이닝으로 자원 누수와 원인 소실을 막는 방법을 정리한다.</p>
+  <div class="content">
+<p>예외 처리 체계가 없으면 비정상 상황을 반환값으로 표현해야 한다. 실패를 <code>-1</code>이나 <code>null</code>로 돌려주는 방식은 호출자가 검사를 빠뜨려도 컴파일러가 알려주지 않고, 실패 지점과 실제 오류가 드러나는 지점이 멀어져 원인 추적이 어렵다. 자원 정리도 문제다. 파일이나 DB 커넥션을 연 뒤 중간에 실패하면 닫는 코드까지 도달하지 못해 핸들과 커넥션이 누수된다. 자바 예외는 실패를 일반 흐름과 분리된 별도 경로로 전파하고, 스택 트레이스로 발생 지점을 보존하며, <code>finally</code>와 try-with-resources로 자원 해제를 보장하는 장치다.</p>
+<h2>핵심 개념</h2>
+<p>예외는 <code>Throwable</code>을 상속한 객체다. <code>Throwable</code> 아래에 <code>Error</code>와 <code>Exception</code>이 있고, <code>Exception</code> 아래에 다시 <code>RuntimeException</code>이 있다. <code>Error</code>는 <code>OutOfMemoryError</code>처럼 애플리케이션이 복구할 수 없는 JVM 수준 문제이므로 잡지 않는다. 실제 설계 판단이 갈리는 지점은 <code>Exception</code>의 두 갈래다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>체크드 예외</th>
+<th>언체크드 예외</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>상속</td>
+<td><code>Exception</code> 직접 상속 (<code>RuntimeException</code> 제외)</td>
+<td><code>RuntimeException</code> 상속</td>
+</tr>
+<tr>
+<td>대표</td>
+<td><code>IOException</code>, <code>SQLException</code>, <code>InterruptedException</code></td>
+<td><code>NullPointerException</code>, <code>IllegalArgumentException</code>, <code>IllegalStateException</code></td>
+</tr>
+<tr>
+<td>컴파일러</td>
+<td><code>throws</code> 선언 또는 <code>try-catch</code> 강제</td>
+<td>강제 없음</td>
+</tr>
+<tr>
+<td>의도</td>
+<td>호출자가 복구 가능한 외부 요인</td>
+<td>프로그래밍 오류 또는 복구 불가한 상태</td>
+</tr>
+</tbody></table>
+<p>체크드 예외는 호출자가 반드시 인지하도록 컴파일 단계에서 강제한다는 취지로 설계됐으나, 실제로는 호출 계층마다 <code>throws</code> 목록이 늘어나고 복구 의미 없는 <code>catch</code>가 반복되는 부작용이 컸다. 이 때문에 Spring은 <code>SQLException</code>을 <code>DataAccessException</code> 계층으로 변환하는 등 프레임워크 전반을 언체크드 예외로 설계했고, 현대 자바 코드도 도메인 예외를 <code>RuntimeException</code> 기반으로 정의하는 것이 표준이다. 체크드 예외를 만나면 그 자리에서 의미 있는 언체크드 예외로 감싸 던진다.</p>
+<p><code>try-catch</code>는 위에서 아래로 첫 매칭 블록만 실행하므로 구체 타입을 먼저, 상위 타입을 나중에 둔다. <code>Exception</code>을 첫 번째에 두면 그 아래 블록은 도달 불가 코드가 되어 컴파일 에러가 난다. 처리 로직이 같은 예외는 <code>catch (A | B e)</code> 멀티 캐치로 합친다.</p>
+<p><code>finally</code>는 예외 발생 여부와 무관하게 실행되지만 자원 해제 용도로는 try-with-resources가 우선이다. <code>AutoCloseable</code>을 구현한 객체를 <code>try (...)</code> 괄호에 선언하면 블록 종료 시 선언 역순으로 <code>close()</code>가 호출된다. <code>close()</code> 중 예외가 나더라도 본문 예외가 우선 전파되고 <code>close()</code> 예외는 suppressed로 첨부되므로 원인이 소실되지 않는다. <code>finally</code>에서 직접 <code>close()</code>를 부르는 방식은 이 두 가지를 보장하지 못한다.</p>
+<p>예외를 변환할 때는 원인 예외를 생성자 두 번째 인자로 넘긴다. <code>getCause()</code>로 원인이 연결되고 스택 트레이스에 <code>Caused by:</code>로 출력된다. 원인을 빼고 메시지만 옮기면 실제 실패 지점이 사라진다.</p>
+<h2>코드</h2>
+<p>도메인 예외는 <code>RuntimeException</code>을 상속하고, 핸들러가 응답을 만들 때 필요한 값을 필드로 보존한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">InsufficientBalanceException</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">RuntimeException</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> currentBalance;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> requested;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">InsufficientBalanceException</span><span class="hljs-params">(<span class="hljs-type">long</span> currentBalance, <span class="hljs-type">long</span> requested)</span> {
+        <span class="hljs-built_in">super</span>(<span class="hljs-string">&quot;잔액 부족: 현재 %d, 요청 %d&quot;</span>.formatted(currentBalance, requested));
+        <span class="hljs-built_in">this</span>.currentBalance = currentBalance;
+        <span class="hljs-built_in">this</span>.requested = requested;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">currentBalance</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> currentBalance; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">requested</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> requested; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Account</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> balance;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">withdraw</span><span class="hljs-params">(<span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-keyword">if</span> (amount &lt;= <span class="hljs-number">0</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;금액은 양수여야 한다: &quot;</span> + amount);
+        }
+        <span class="hljs-keyword">if</span> (amount &gt; balance) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">InsufficientBalanceException</span>(balance, amount);
+        }
+        balance -= amount;
+    }
+}</code></pre>
+<p>체크드 예외를 경계에서 언체크드로 변환하면서 원인을 보존하고, try-with-resources로 자원을 닫는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ConfigLoader</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Properties</span> <span class="hljs-title function_">load</span><span class="hljs-params">(Path path)</span> {
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">var</span> <span class="hljs-variable">reader</span> <span class="hljs-operator">=</span> Files.newBufferedReader(path)) {
+            <span class="hljs-type">var</span> <span class="hljs-variable">props</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Properties</span>();
+            props.load(reader);
+            <span class="hljs-keyword">return</span> props;
+        } <span class="hljs-keyword">catch</span> (NoSuchFileException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConfigNotFoundException</span>(path, e);
+        } <span class="hljs-keyword">catch</span> (IOException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UncheckedIOException</span>(<span class="hljs-string">&quot;설정 파일 읽기 실패: &quot;</span> + path, e);
+        }
+    }
+}</code></pre>
+<p>Spring Boot 3.x에서는 <code>@RestControllerAdvice</code>와 RFC 9457 표준 응답인 <code>ProblemDetail</code>로 도메인 예외를 HTTP 응답으로 변환한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestControllerAdvice</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GlobalExceptionHandler</span> {
+
+    <span class="hljs-meta">@ExceptionHandler(InsufficientBalanceException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProblemDetail</span> <span class="hljs-title function_">handle</span><span class="hljs-params">(InsufficientBalanceException e)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">problem</span> <span class="hljs-operator">=</span> ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        problem.setTitle(<span class="hljs-string">&quot;Insufficient balance&quot;</span>);
+        problem.setProperty(<span class="hljs-string">&quot;currentBalance&quot;</span>, e.currentBalance());
+        problem.setProperty(<span class="hljs-string">&quot;requested&quot;</span>, e.requested());
+        <span class="hljs-keyword">return</span> problem;
+    }
+
+    <span class="hljs-meta">@ExceptionHandler(IllegalArgumentException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProblemDetail</span> <span class="hljs-title function_">handleBadRequest</span><span class="hljs-params">(IllegalArgumentException e)</span> {
+        <span class="hljs-keyword">return</span> ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>빈 catch와 원인 없는 재던지기.</strong> <code>catch (Exception e) {}</code>는 장애를 묵살하고, <code>throw new XxxException(e.getMessage())</code>는 스택 트레이스를 버린다. 잡았으면 로그를 남기거나 원인을 붙여 다시 던지는 둘 중 하나를 반드시 한다. 로그와 재던지기를 동시에 하면 상위 계층에서 같은 예외가 중복 기록되므로 한 계층에서만 로그를 남긴다.</li>
+<li><strong>예외로 흐름 제어.</strong> 예외 생성 시 <code>fillInStackTrace()</code>가 스택을 캡처하므로 정상 흐름에서 초당 수천 번 던지면 비용이 눈에 띈다. 존재 여부 확인 같은 예상 가능한 분기는 <code>Optional</code>이나 boolean 반환으로 처리한다. 스택이 불필요한 예외라면 <code>writableStackTrace=false</code> 생성자를 쓴다.</li>
+<li><strong><code>InterruptedException</code> 삼키기.</strong> 잡은 뒤 아무 처리도 하지 않으면 스레드의 인터럽트 플래그가 지워져 종료 신호가 사라진다. <code>Thread.currentThread().interrupt()</code>로 플래그를 복원한 뒤 종료하거나 언체크드 예외로 감싼다. Virtual Thread 환경에서도 동일하다.</li>
+<li><strong><code>@Transactional</code> 롤백 규칙.</strong> 기본 설정은 <code>RuntimeException</code>과 <code>Error</code>에서만 롤백하고 체크드 예외는 커밋한다. 체크드 예외를 그대로 전파하는 서비스 메서드는 실패했는데 커밋되는 상황을 만든다. 도메인 예외를 언체크드로 통일하면 이 문제가 사라진다.</li>
+<li><strong><code>finally</code>에서의 <code>return</code>.</strong> <code>finally</code> 블록에 <code>return</code>이 있으면 <code>try</code>에서 던진 예외가 무시된다. <code>finally</code>는 정리 작업만 두고 제어 흐름을 바꾸지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/collections-generics-optional/</li>
+<li>/notes/java-spring/exception-handling-validation/</li>
+<li>/notes/java-spring/transactional-locking/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Java, Exception, try-with-resources, RuntimeException, Spring</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/collections-generics-optional/"><small>이전</small>컬렉션·제네릭·Optional</a>
+  <a class="next" href="/notes/java-spring/lambda-functional-stream/"><small>다음</small>람다·함수형 인터페이스·Stream</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

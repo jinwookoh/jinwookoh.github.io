@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>@Transactional 원리와 낙관/비관 락 · Java / Spring</title>
+  <meta name="description" content="@Transactional은 원자성만 보장하며 동시 수정 충돌은 @Version 낙관적 락이나 @Lock 비관적 락으로 따로 막는다.">
+  <meta property="og:title" content="@Transactional 원리와 낙관/비관 락 · Java / Spring">
+  <meta property="og:description" content="@Transactional은 원자성만 보장하며 동시 수정 충돌은 @Version 낙관적 락이나 @Lock 비관적 락으로 따로 막는다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/transactional-locking/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>@Transactional 원리와 낙관/비관 락</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>@Transactional 원리와 낙관/비관 락</h1>
+  <p class="summary">@Transactional은 원자성만 보장하며 동시 수정 충돌은 @Version 낙관적 락이나 @Lock 비관적 락으로 따로 막는다.</p>
+  <div class="content">
+<p>계좌 이체는 출금과 입금이라는 두 번의 SQL로 이루어진다. 출금이 끝난 직후 예외가 발생하면 출금만 반영되고 입금은 누락된다. 여러 SQL을 하나의 단위로 묶어 모두 커밋되거나 모두 롤백되도록 보장하는 장치가 트랜잭션이고, Spring에서는 <code>@Transactional</code> 한 줄로 이를 선언한다. 그러나 트랜잭션은 한 작업 묶음의 원자성을 보장할 뿐, 다른 트랜잭션이 같은 행을 동시에 수정하는 것까지 막지 않는다. 재고 1개짜리 상품에 주문 두 건이 동시에 들어오면 둘 다 &quot;1개 남음&quot;을 읽고 각자 0으로 저장해 실제로는 2개가 팔린다. 이 갱신 손실(lost update)은 락으로 별도 처리해야 한다.</p>
+<h2>핵심 개념</h2>
+<p>트랜잭션은 ACID, 즉 원자성(Atomicity)·일관성(Consistency)·격리성(Isolation)·지속성(Durability)을 보장한다.</p>
+<p><code>@Transactional</code>은 Spring AOP 프록시로 동작한다. 컨테이너는 어노테이션이 붙은 빈 대신 프록시를 등록하고, 프록시가 메서드 호출 전에 <code>PlatformTransactionManager</code>로 트랜잭션을 시작한 뒤 정상 종료 시 커밋, 예외 시 롤백한다. Spring Boot가 JPA·JDBC에 맞는 트랜잭션 매니저를 자동 등록한다.</p>
+<p>전파(Propagation)는 트랜잭션 메서드가 다른 트랜잭션 메서드를 호출할 때 결합 방식을 정한다. 기본값 <code>REQUIRED</code>는 기존 트랜잭션이 있으면 참여하고 없으면 새로 시작한다. <code>REQUIRES_NEW</code>는 기존 트랜잭션을 일시 중단하고 새 트랜잭션을 열어 감사 로그처럼 본 작업의 실패와 무관하게 커밋해야 할 때 쓴다. <code>NESTED</code>는 savepoint로 중첩하고, 나머지 <code>SUPPORTS</code>·<code>NOT_SUPPORTED</code>·<code>MANDATORY</code>·<code>NEVER</code>는 드물게 쓴다.</p>
+<p>격리 수준(Isolation)은 <code>READ_UNCOMMITTED</code>, <code>READ_COMMITTED</code>, <code>REPEATABLE_READ</code>, <code>SERIALIZABLE</code> 순으로 강해진다. 기본값 <code>DEFAULT</code>는 DB 설정을 따르며 PostgreSQL은 READ_COMMITTED, MySQL InnoDB는 REPEATABLE_READ다. 읽고 계산해서 다시 쓰는 패턴의 갱신 손실은 격리 수준만으로 막히지 않는다.</p>
+<p>롤백은 기본적으로 <code>RuntimeException</code>과 <code>Error</code>만 대상이며 checked exception은 던져도 커밋된다. <code>rollbackFor</code>로 대상을 넓히거나 <code>noRollbackFor</code>로 제외한다.</p>
+<p>갱신 손실을 막는 락 전략은 두 가지다.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>낙관적 락</th>
+<th>비관적 락</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>전제</td>
+<td>충돌이 드물다</td>
+<td>충돌이 잦다</td>
+</tr>
+<tr>
+<td>방식</td>
+<td><code>@Version</code> 컬럼으로 커밋 시점에 충돌 감지</td>
+<td>읽는 시점에 <code>SELECT ... FOR UPDATE</code>로 행 잠금</td>
+</tr>
+<tr>
+<td>충돌 시</td>
+<td><code>ObjectOptimisticLockingFailureException</code>, 재시도 필요</td>
+<td>뒤 트랜잭션이 대기</td>
+</tr>
+<tr>
+<td>비용</td>
+<td>락 대기 없음</td>
+<td>대기·데드락·처리량 저하</td>
+</tr>
+</tbody></table>
+<p>낙관적 락은 엔티티를 읽을 때 version을 함께 읽고, UPDATE에 <code>WHERE version = ?</code> 조건을 붙인다. 그 사이 다른 트랜잭션이 version을 올렸으면 갱신 건수가 0이 되고 JPA가 예외를 던진다. 비관적 락의 <code>PESSIMISTIC_WRITE</code>는 행 배타 락으로 번역되어 먼저 잠근 트랜잭션이 커밋할 때까지 다른 트랜잭션의 읽기가 대기한다.</p>
+<h2>코드</h2>
+<p>송금 서비스에 <code>@Transactional</code>을 붙이고 checked exception도 롤백하도록 지정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TransferService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AccountRepository accountRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TransferService</span><span class="hljs-params">(AccountRepository accountRepository)</span> {
+        <span class="hljs-built_in">this</span>.accountRepository = accountRepository;
+    }
+
+    <span class="hljs-meta">@Transactional(rollbackFor = Exception.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">transfer</span><span class="hljs-params">(Long from, Long to, <span class="hljs-type">long</span> amount)</span> <span class="hljs-keyword">throws</span> IOException {
+        accountRepository.withdraw(from, amount);
+        accountRepository.deposit(to, amount);
+    }
+}</code></pre>
+<p>낙관적 락은 <code>@Version</code> 필드 하나로 활성화되며, 재시도는 트랜잭션 메서드 바깥에서 트랜잭션 전체를 다시 호출하는 구조여야 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Product</span> {
+    <span class="hljs-meta">@Id</span> <span class="hljs-meta">@GeneratedValue</span>
+    <span class="hljs-keyword">private</span> Long id;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> stock;
+
+    <span class="hljs-meta">@Version</span>
+    <span class="hljs-keyword">private</span> Long version;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">decreaseStock</span><span class="hljs-params">(<span class="hljs-type">int</span> qty)</span> {
+        <span class="hljs-keyword">if</span> (stock &lt; qty) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;재고 부족&quot;</span>);
+        stock -= qty;
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">StockService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StockTxService stockTxService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">StockService</span><span class="hljs-params">(StockTxService stockTxService)</span> {
+        <span class="hljs-built_in">this</span>.stockTxService = stockTxService;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">decrease</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> qty)</span> {
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">attempt</span> <span class="hljs-operator">=</span> <span class="hljs-number">1</span>; ; attempt++) {
+            <span class="hljs-keyword">try</span> {
+                stockTxService.decreaseOnce(productId, qty);
+                <span class="hljs-keyword">return</span>;
+            } <span class="hljs-keyword">catch</span> (ObjectOptimisticLockingFailureException e) {
+                <span class="hljs-keyword">if</span> (attempt &gt;= <span class="hljs-number">3</span>) <span class="hljs-keyword">throw</span> e;
+            }
+        }
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">StockTxService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">StockTxService</span><span class="hljs-params">(ProductRepository productRepository)</span> {
+        <span class="hljs-built_in">this</span>.productRepository = productRepository;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">decreaseOnce</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> qty)</span> {
+        <span class="hljs-type">Product</span> <span class="hljs-variable">product</span> <span class="hljs-operator">=</span> productRepository.findById(productId).orElseThrow();
+        product.decreaseStock(qty);
+    }
+}</code></pre>
+<p>비관적 락은 리포지토리 조회 메서드에 <code>@Lock</code>을 붙이고 타임아웃 힌트를 함께 지정한 뒤, 반드시 트랜잭션 안에서 호출한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">ProductRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Product, Long&gt; {
+
+    <span class="hljs-meta">@Lock(LockModeType.PESSIMISTIC_WRITE)</span>
+    <span class="hljs-meta">@QueryHints(@QueryHint(name = &quot;jakarta.persistence.lock.timeout&quot;, value = &quot;3000&quot;))</span>
+    <span class="hljs-meta">@Query(&quot;select p from Product p where p.id = :id&quot;)</span>
+    <span class="hljs-type">Optional</span>&lt;Product&gt; <span class="hljs-title function_">findByIdForUpdate</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id)</span>;
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PessimisticStockService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PessimisticStockService</span><span class="hljs-params">(ProductRepository productRepository)</span> {
+        <span class="hljs-built_in">this</span>.productRepository = productRepository;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">decrease</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> qty)</span> {
+        <span class="hljs-type">Product</span> <span class="hljs-variable">product</span> <span class="hljs-operator">=</span> productRepository.findByIdForUpdate(productId).orElseThrow();
+        product.decreaseStock(qty);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>자기 호출과 private 메서드. 같은 클래스 안에서 <code>this.save()</code>로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, private 메서드의 <code>@Transactional</code>은 무시된다. 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.</li>
+<li>예외 흡수. 트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다. 롤백하려면 <code>TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()</code>를 호출한다. 반대로 <code>REQUIRED</code>로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 <code>UnexpectedRollbackException</code>이 난다.</li>
+<li>재시도 위치. 낙관적 락 재시도를 트랜잭션 안에서 돌리면 영속성 컨텍스트가 낡은 version을 계속 들고 있어 무한 실패한다. 기존 테이블에 <code>@Version</code>을 추가할 때는 기존 행의 null version을 마이그레이션으로 0으로 채운다.</li>
+<li>비관적 락 대기와 데드락. 락 타임아웃이 없으면 요청이 무한 대기하고, 두 트랜잭션이 서로의 행을 기다리면 데드락이 된다. <code>jakarta.persistence.lock.timeout</code> 힌트로 상한을 두고 여러 행은 항상 같은 순서로 잠근다.</li>
+<li>락이 필요 없는 경우. 이메일 중복 가입처럼 유일성만 필요하면 unique 제약이 락보다 싸고 확실하다. 조회 전용 메서드는 <code>readOnly = true</code>로 더티 체킹을 끈다. 트랜잭션 경계는 서비스 레이어에 두고 컨트롤러나 리포지토리에는 붙이지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/jdbc-jdbctemplate/">JDBC·DataSource·JdbcTemplate</a></li>
+<li><a href="/notes/java-spring/persistence-context-lazy-loading/">영속성 컨텍스트와 LazyLoading</a></li>
+<li><a href="/notes/java-spring/layered-architecture/">계층 설계 — 서비스 레이어 분리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring, @Transactional, JPA, 낙관적 락, 비관적 락</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/jdbc-jdbctemplate/"><small>이전</small>JDBC·DataSource·JdbcTemplate</a>
+  <a class="next" href="/notes/java-spring/jpa-hibernate-spring-data/"><small>다음</small>JPA·Hibernate·Spring Data JPA — Entity와 Repository</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

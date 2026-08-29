@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>영속성 컨텍스트와 LazyLoading · Java / Spring</title>
+  <meta name="description" content="영속성 컨텍스트는 트랜잭션 범위의 1차 캐시이며, LazyInitializationException과 N+1은 이 범위를 벗어난 지연 로딩에서 발생한다">
+  <meta property="og:title" content="영속성 컨텍스트와 LazyLoading · Java / Spring">
+  <meta property="og:description" content="영속성 컨텍스트는 트랜잭션 범위의 1차 캐시이며, LazyInitializationException과 N+1은 이 범위를 벗어난 지연 로딩에서 발생한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/persistence-context-lazy-loading/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>영속성 컨텍스트와 LazyLoading</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>영속성 컨텍스트와 LazyLoading</h1>
+  <p class="summary">영속성 컨텍스트는 트랜잭션 범위의 1차 캐시이며, LazyInitializationException과 N+1은 이 범위를 벗어난 지연 로딩에서 발생한다</p>
+  <div class="content">
+<p>JPA를 처음 쓰면 설명되지 않는 동작이 연달아 나타난다. <code>save()</code>를 호출하지 않았는데 UPDATE가 실행되고, 같은 PK로 <code>findById</code>를 두 번 호출했는데 SQL은 한 번만 나가며, 서비스 메서드가 끝난 뒤 컨트롤러에서 연관 필드를 읽으면 <code>LazyInitializationException</code>이 발생한다. JPA는 SQL을 즉시 실행하는 라이브러리가 아니라 Entity를 메모리에서 관리하다가 필요한 시점에 SQL로 동기화하는 계층이고, 그 관리 공간이 영속성 컨텍스트다. 이 구조를 모르면 조회 한 번이 쿼리 101번으로 늘어나는 N+1 문제도 로그를 보기 전까지 알아채지 못한다.</p>
+<h2>핵심 개념</h2>
+<p>영속성 컨텍스트(Persistence Context)는 <code>EntityManager</code>가 관리하는 Entity의 보관소다. Spring에서는 트랜잭션과 생명주기를 같이하며, <code>@Transactional</code> 메서드가 시작될 때 열리고 커밋 또는 롤백 시점에 닫힌다. 컨텍스트가 제공하는 기능은 네 가지다.</p>
+<p>첫째, 1차 캐시. 같은 컨텍스트 안에서 같은 PK로 조회하면 두 번째부터는 DB에 가지 않고 보관 중인 객체를 반환하므로 두 참조의 <code>==</code> 비교가 참이다. 트랜잭션 단위라 요청 간에 공유되지 않는다.</p>
+<p>둘째, 변경 감지(Dirty Checking). Entity를 로딩할 때 초기 상태의 스냅샷을 보관하고, 플러시 시점에 현재 상태와 비교해 달라진 Entity에 대해 UPDATE를 만든다. <code>save()</code> 호출 없이 관리 상태의 Entity를 변경한 것만으로 DB가 바뀐다.</p>
+<p>셋째, 쓰기 지연. 생성된 SQL은 즉시 실행되지 않고 쌓였다가 커밋 직전, JPQL 실행 직전, <code>flush()</code> 호출 시 한꺼번에 나간다.</p>
+<p>넷째, 지연 로딩 프록시. 연관 Entity를 프록시로 채워두고, 필드를 처음 읽는 순간 컨텍스트를 통해 SELECT를 실행한다. 컨텍스트가 닫힌 뒤에는 프록시를 초기화할 수 없다.</p>
+<p>Entity의 상태는 컨텍스트와의 관계로 네 가지로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th>상태</th>
+<th>진입 경로</th>
+<th>특징</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Transient</td>
+<td><code>new</code> 직후</td>
+<td>컨텍스트가 모르는 객체, 식별자 없음</td>
+</tr>
+<tr>
+<td>Managed</td>
+<td><code>persist</code>, <code>findById</code>, JPQL 결과</td>
+<td>1차 캐시·변경 감지 대상</td>
+</tr>
+<tr>
+<td>Detached</td>
+<td>트랜잭션 종료, <code>detach</code>, <code>clear</code></td>
+<td>변경해도 DB 반영 안 됨, 프록시 초기화 불가</td>
+</tr>
+<tr>
+<td>Removed</td>
+<td><code>remove</code> 호출 후</td>
+<td>플러시 시 DELETE 예약</td>
+</tr>
+</tbody></table>
+<p>로딩 전략은 <code>FetchType.LAZY</code>와 <code>FetchType.EAGER</code> 두 가지다. <code>@ManyToOne</code>과 <code>@OneToOne</code>은 기본이 EAGER, <code>@OneToMany</code>와 <code>@ManyToMany</code>는 기본이 LAZY다. EAGER는 JPQL 조회 시 JOIN이 아니라 별도 SELECT로 채워지므로 N+1을 피하지 못한다. 모든 연관관계를 LAZY로 명시하고 필요한 곳에서만 함께 가져오는 방식이 표준이다.</p>
+<h2>코드</h2>
+<p>같은 트랜잭션 안에서 1차 캐시와 변경 감지가 동작하는 서비스 메서드다. 두 번째 <code>findById</code>는 SQL을 발행하지 않고, 트랜잭션 커밋 시 UPDATE 한 건이 나간다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">changeAmount</span><span class="hljs-params">(Long orderId, <span class="hljs-type">int</span> amount)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">first</span> <span class="hljs-operator">=</span> orderRepository.findById(orderId).orElseThrow();
+        <span class="hljs-type">Order</span> <span class="hljs-variable">second</span> <span class="hljs-operator">=</span> orderRepository.findById(orderId).orElseThrow();
+        <span class="hljs-keyword">assert</span> first == second;          <span class="hljs-comment">// 1차 캐시: 같은 인스턴스</span>
+
+        first.changeAmount(amount);      <span class="hljs-comment">// 변경 감지: save() 없이 커밋 시 UPDATE</span>
+    }
+}</code></pre>
+<p>연관관계를 LAZY로 명시한 Entity와, 지연 로딩을 트랜잭션 밖에서 건드려 예외가 나는 경로다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@ManyToOne(fetch = FetchType.LAZY)</span>
+    <span class="hljs-meta">@JoinColumn(name = &quot;member_id&quot;)</span>
+    <span class="hljs-keyword">private</span> Member member;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> amount;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Order</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">changeAmount</span><span class="hljs-params">(<span class="hljs-type">int</span> amount)</span> { <span class="hljs-built_in">this</span>.amount = amount; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Long</span> <span class="hljs-title function_">getId</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> id; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Member</span> <span class="hljs-title function_">getMember</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> member; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getAmount</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> amount; }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderQueryService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+
+    <span class="hljs-meta">@Transactional(readOnly = true)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">find</span><span class="hljs-params">(Long id)</span> {
+        <span class="hljs-keyword">return</span> orderRepository.findById(id).orElseThrow();  <span class="hljs-comment">// member는 프록시</span>
+    }
+}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderQueryService orderQueryService;
+
+    <span class="hljs-meta">@GetMapping(&quot;/orders/{id}&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">get</span><span class="hljs-params">(<span class="hljs-meta">@PathVariable</span> Long id)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orderQueryService.find(id);          <span class="hljs-comment">// 여기서 컨텍스트 종료</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(order.getId(), order.getMember().getName(), order.getAmount());
+        <span class="hljs-comment">// open-in-view=false 환경에서 getName() 호출 시 LazyInitializationException</span>
+    }
+}</code></pre>
+<p>해결은 필요한 연관 Entity를 조회 쿼리에서 함께 가져오고, DTO 변환을 트랜잭션 안에서 끝내는 것이다. 목록 조회에는 <code>@EntityGraph</code>, 단건 조회에는 Fetch Join을 사용했다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Order, Long&gt; {
+
+    <span class="hljs-meta">@Query(&quot;select o from Order o join fetch o.member where o.id = :id&quot;)</span>
+    <span class="hljs-type">Optional</span>&lt;Order&gt; <span class="hljs-title function_">findWithMemberById</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id)</span>;
+
+    <span class="hljs-meta">@EntityGraph(attributePaths = &quot;member&quot;)</span>
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findAllByStatus</span><span class="hljs-params">(OrderStatus status)</span>;
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderQueryService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+
+    <span class="hljs-meta">@Transactional(readOnly = true)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">findResponse</span><span class="hljs-params">(Long id)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orderRepository.findWithMemberById(id).orElseThrow();
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(order.getId(), order.getMember().getName(), order.getAmount());
+    }
+
+    <span class="hljs-meta">@Transactional(readOnly = true)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;OrderResponse&gt; <span class="hljs-title function_">findAll</span><span class="hljs-params">(OrderStatus status)</span> {
+        <span class="hljs-keyword">return</span> orderRepository.findAllByStatus(status).stream()
+                .map(o -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(o.getId(), o.getMember().getName(), o.getAmount()))
+                .toList();
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">open-in-view:</span> <span class="hljs-literal">false</span>
+    <span class="hljs-attr">properties:</span>
+      <span class="hljs-attr">hibernate:</span>
+        <span class="hljs-attr">default_batch_fetch_size:</span> <span class="hljs-number">100</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><p><strong>N+1은 로그에서만 보인다.</strong> 주문 100건을 조회한 뒤 반복문에서 <code>getMember()</code>를 읽으면 SELECT가 1 + 100번 나간다. 테스트 데이터가 적으면 드러나지 않으므로 SQL 로그로 쿼리 수를 확인해야 한다. Fetch Join 또는 <code>@EntityGraph</code>로 명시하고, 놓친 경로를 위해 <code>default_batch_fetch_size</code>를 전역으로 두어 프록시 초기화가 IN 쿼리로 묶이게 하는 조합이 기본 대응이다.</p>
+</li>
+<li><p><strong>컬렉션 Fetch Join의 한계.</strong> <code>@OneToMany</code>를 Fetch Join하면서 <code>Pageable</code>을 붙이면 Hibernate가 전체를 메모리로 가져와 페이징하는 경고를 내고, 컬렉션 두 개 이상을 동시에 Fetch Join하면 <code>MultipleBagFetchException</code>이 발생한다. 컬렉션은 <code>default_batch_fetch_size</code>에 맡기는 편이 안전하다.</p>
+</li>
+<li><p><strong>open-in-view 기본값은 true다.</strong> Spring Boot는 HTTP 응답이 끝날 때까지 컨텍스트를 열어두는 인터셉터를 기본 등록한다. 예외는 사라지지만 직렬화 중에 쿼리가 나가고 DB 커넥션이 요청 전체 시간 동안 점유된다. 운영에서는 <code>open-in-view: false</code>로 끄고 조회 서비스에서 DTO 변환까지 끝낸다.</p>
+</li>
+<li><p><strong>의도하지 않은 변경 감지.</strong> 트랜잭션 안에서 계산용으로 Entity 필드를 바꾸면 그대로 UPDATE가 나간다. Entity에 무분별한 setter를 두지 않고, 읽기 전용 경로는 <code>@Transactional(readOnly = true)</code>로 선언해 플러시를 막는다.</p>
+</li>
+<li><p><strong>양방향 연관관계의 직렬화 순환.</strong> <code>Order.member</code>와 <code>Member.orders</code>가 서로를 참조하는 Entity를 그대로 JSON으로 반환하면 Jackson이 무한 재귀에 빠지고 프록시 필드에서 직렬화 예외가 난다. <code>@JsonIgnore</code>는 임시 조치이며 응답은 항상 DTO로 변환한다.</p>
+</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/jpa-hibernate-spring-data/">JPA·Hibernate·Spring Data JPA — Entity와 Repository</a></li>
+<li><a href="/notes/java-spring/jpa-relations-n-plus-1/">연관관계·N+1·값 객체</a></li>
+<li><a href="/notes/java-spring/transactional-locking/">@Transactional 원리와 낙관/비관 락</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · JPA, Hibernate, 영속성 컨텍스트, LazyLoading, N+1</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/jpa-queries-querydsl-auditing/"><small>이전</small>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</a>
+  <a class="next" href="/notes/java-spring/caching-cacheable-redis/"><small>다음</small>캐싱 — @Cacheable과 Spring Data Redis</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

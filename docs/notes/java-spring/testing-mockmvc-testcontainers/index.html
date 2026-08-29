@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway · Java / Spring</title>
+  <meta name="description" content="슬라이스·통합·실제 DB 테스트를 어떤 기준으로 나누고, Testcontainers와 Flyway로 운영과 같은 환경을 재현하는가">
+  <meta property="og:title" content="테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway · Java / Spring">
+  <meta property="og:description" content="슬라이스·통합·실제 DB 테스트를 어떤 기준으로 나누고, Testcontainers와 Flyway로 운영과 같은 환경을 재현하는가">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/testing-mockmvc-testcontainers/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</h1>
+  <p class="summary">슬라이스·통합·실제 DB 테스트를 어떤 기준으로 나누고, Testcontainers와 Flyway로 운영과 같은 환경을 재현하는가</p>
+  <div class="content">
+<p>자동 테스트가 없으면 변경의 영향을 매번 손으로 확인해야 하고, 누락된 경로에서 장애가 난다. 테스트가 있어도 구성이 잘못되면 다른 문제가 생긴다. 모든 테스트를 <code>@SpringBootTest</code>로 작성하면 컨텍스트 기동 비용 때문에 스위트가 수십 분으로 늘어나 실행하지 않게 되고, H2에만 의존하면 PostgreSQL·MySQL 고유 문법 차이 때문에 테스트는 통과하는데 운영에서 SQL이 깨진다.</p>
+<h2>핵심 개념</h2>
+<p><code>spring-boot-starter-test</code> 하나에 JUnit 5, AssertJ, Mockito, Spring Test가 포함된다. 테스트는 Given·When·Then으로 나누고 검증은 AssertJ <code>assertThat</code> 체이닝을 쓴다.</p>
+<p>테스트는 띄우는 컨텍스트 범위에 따라 세 층으로 나뉜다. Mockito만으로 서비스 로직을 검증하는 단위 테스트가 가장 빠르고, 웹 계층만 올리는 <code>@WebMvcTest</code>나 JPA 계층만 올리는 <code>@DataJpaTest</code> 같은 슬라이스 테스트가 그 다음이며, 전체 컨텍스트를 올리는 <code>@SpringBootTest</code>가 가장 무겁다. 무거운 테스트는 전체 흐름을 검증하는 소수에 한정한다.</p>
+<p>MockMvc는 서블릿 컨테이너 없이 DispatcherServlet 처리 흐름을 메모리에서 실행한다. <code>perform</code>으로 요청을 만들고 <code>andExpect</code>로 상태 코드·헤더·<code>jsonPath</code>를 검증하며 <code>andDo(print())</code>로 실제 요청·응답을 출력한다. <code>@WebMvcTest</code>에서는 컨트롤러가 의존하는 서비스 빈이 없으므로 <code>@MockitoBean</code>으로 대체해야 컨텍스트가 뜬다. Spring Boot 3.4부터 <code>@MockBean</code>은 deprecated이고 <code>@MockitoBean</code>이 대체한다. 전체 흐름을 HTTP 레벨에서 검증하려면 <code>@SpringBootTest</code> + <code>@AutoConfigureMockMvc</code>를 쓰고, Spring Security가 있으면 <code>@WithMockUser</code>로 인증 상태를 주입한다. 테스트 클래스에 <code>@Transactional</code>을 붙이면 각 테스트가 끝날 때 롤백되어 DB 상태가 격리된다.</p>
+<p>Testcontainers는 테스트 실행 중 Docker 컨테이너를 기동하고 종료한다. <code>@Testcontainers</code>가 생명주기를 관리하고, <code>@Container</code>가 붙은 static 필드는 클래스당 한 번 기동된다. Spring Boot 3.1부터 <code>@ServiceConnection</code>을 붙이면 컨테이너 타입을 보고 <code>DataSource</code>·Redis·Kafka 연결 속성을 자동 구성하므로 <code>@DynamicPropertySource</code>로 URL·계정을 수동 등록할 필요가 없다. <code>@DataJpaTest</code>는 DataSource를 임베디드 DB로 교체하므로 컨테이너 DB를 쓰려면 <code>@AutoConfigureTestDatabase(replace = NONE)</code>을 명시한다.</p>
+<p>Flyway는 <code>db/migration/</code>의 <code>V{버전}__{설명}.sql</code>을 순서대로 적용하고 이력과 체크섬을 <code>flyway_schema_history</code>에 기록한다. 적용된 스크립트를 수정하면 체크섬 불일치로 기동이 실패하므로 변경은 항상 새 버전 파일로 추가한다. Flyway를 쓰는 환경에서는 <code>ddl-auto</code>를 <code>validate</code> 또는 <code>none</code>으로 두어 스키마 소유권을 일원화한다. Testcontainers와 결합하면 빈 컨테이너에 Flyway가 운영 스키마를 만들므로 마이그레이션 스크립트도 매 빌드마다 검증된다.</p>
+<h2>코드</h2>
+<p>컨트롤러 슬라이스 테스트. 서비스는 <code>@MockitoBean</code>으로 대체하고 정상 응답·404·검증 실패 응답을 확인한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@WebMvcTest(OrderController.class)</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderControllerTest</span> {
+
+    <span class="hljs-meta">@Autowired</span> MockMvc mockMvc;
+    <span class="hljs-meta">@Autowired</span> ObjectMapper objectMapper;
+    <span class="hljs-meta">@MockitoBean</span> OrderService orderService;
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-keyword">void</span> 주문_단건_조회() <span class="hljs-keyword">throws</span> Exception {
+        given(orderService.findById(<span class="hljs-number">1L</span>))
+                .willReturn(Optional.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(<span class="hljs-number">1L</span>, <span class="hljs-number">10_000</span>, <span class="hljs-string">&quot;PENDING&quot;</span>)));
+
+        mockMvc.perform(get(<span class="hljs-string">&quot;/api/orders/{id}&quot;</span>, <span class="hljs-number">1L</span>).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(<span class="hljs-string">&quot;$.amount&quot;</span>).value(<span class="hljs-number">10_000</span>))
+                .andExpect(jsonPath(<span class="hljs-string">&quot;$.status&quot;</span>).value(<span class="hljs-string">&quot;PENDING&quot;</span>));
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-keyword">void</span> 없는_주문은_404() <span class="hljs-keyword">throws</span> Exception {
+        given(orderService.findById(anyLong())).willReturn(Optional.empty());
+
+        mockMvc.perform(get(<span class="hljs-string">&quot;/api/orders/{id}&quot;</span>, <span class="hljs-number">99L</span>))
+                .andExpect(status().isNotFound());
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-keyword">void</span> 검증_실패는_400과_필드_오류() <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">var</span> <span class="hljs-variable">invalid</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderRequest</span>(<span class="hljs-literal">null</span>, -<span class="hljs-number">100</span>);
+
+        mockMvc.perform(post(<span class="hljs-string">&quot;/api/orders&quot;</span>)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalid)))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath(<span class="hljs-string">&quot;$.errors[*].field&quot;</span>,
+                        containsInAnyOrder(<span class="hljs-string">&quot;productId&quot;</span>, <span class="hljs-string">&quot;amount&quot;</span>)));
+    }
+}</code></pre>
+<p>PostgreSQL 컨테이너 위에서 Flyway 마이그레이션을 적용하고 전체 흐름을 검증하는 통합 테스트. 컨테이너는 static 필드로 두어 클래스 내 테스트가 공유한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@SpringBootTest</span>
+<span class="hljs-meta">@AutoConfigureMockMvc</span>
+<span class="hljs-meta">@Testcontainers</span>
+<span class="hljs-meta">@Transactional</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderIntegrationTest</span> {
+
+    <span class="hljs-meta">@Container</span>
+    <span class="hljs-meta">@ServiceConnection</span>
+    <span class="hljs-keyword">static</span> <span class="hljs-type">PostgreSQLContainer</span>&lt;?&gt; <span class="hljs-variable">postgres</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">PostgreSQLContainer</span>&lt;&gt;(<span class="hljs-string">&quot;postgres:16-alpine&quot;</span>);
+
+    <span class="hljs-meta">@Autowired</span> MockMvc mockMvc;
+    <span class="hljs-meta">@Autowired</span> ObjectMapper objectMapper;
+    <span class="hljs-meta">@Autowired</span> OrderRepository orderRepository;
+    <span class="hljs-meta">@MockitoBean</span> PaymentGateway paymentGateway;
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-keyword">void</span> 주문_생성_API_전체_흐름() <span class="hljs-keyword">throws</span> Exception {
+        given(paymentGateway.charge(any())).willReturn(PaymentResult.approved(<span class="hljs-string">&quot;tx-1&quot;</span>));
+
+        mockMvc.perform(post(<span class="hljs-string">&quot;/api/orders&quot;</span>)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderRequest</span>(<span class="hljs-number">1L</span>, <span class="hljs-number">10_000</span>))))
+                .andExpect(status().isCreated())
+                .andExpect(header().exists(<span class="hljs-string">&quot;Location&quot;</span>));
+
+        assertThat(orderRepository.findAll())
+                .singleElement()
+                .extracting(Order::getStatus)
+                .isEqualTo(OrderStatus.PAID);
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-keyword">void</span> 결제_실패_시_주문이_남지_않는다() <span class="hljs-keyword">throws</span> Exception {
+        given(paymentGateway.charge(any())).willThrow(<span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentFailedException</span>(<span class="hljs-string">&quot;declined&quot;</span>));
+
+        mockMvc.perform(post(<span class="hljs-string">&quot;/api/orders&quot;</span>)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderRequest</span>(<span class="hljs-number">1L</span>, <span class="hljs-number">10_000</span>))))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(orderRepository.count()).isZero();
+    }
+}</code></pre>
+<p>위 테스트가 전제하는 설정. Flyway가 스키마를 만들고 Hibernate는 검증만 하며, DataSource 접속 정보는 <code>@ServiceConnection</code>이 채운다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># src/test/resources/application-test.yml</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">hibernate:</span>
+      <span class="hljs-attr">ddl-auto:</span> <span class="hljs-string">validate</span>
+    <span class="hljs-attr">open-in-view:</span> <span class="hljs-literal">false</span>
+  <span class="hljs-attr">flyway:</span>
+    <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+    <span class="hljs-attr">locations:</span> <span class="hljs-string">classpath:db/migration</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>컨텍스트 캐시가 깨지는 구성.</strong> Spring Test는 같은 설정의 컨텍스트를 캐시해 재사용하는데, 클래스마다 <code>@MockitoBean</code> 조합이나 프로퍼티가 다르면 다시 띄운다. 통합 테스트는 공통 추상 클래스에 구성을 모아 캐시 히트를 높인다.</li>
+<li><strong>컨테이너 기동 비용.</strong> <code>@Container</code>를 인스턴스 필드에 두면 메서드마다 기동된다. static 필드나 수동 <code>start()</code>한 싱글턴 컨테이너를 공유하면 스위트 전체에서 한 번만 기동된다. <code>.withReuse(true)</code>는 <code>~/.testcontainers.properties</code>에 <code>testcontainers.reuse.enable=true</code>가 있어야 동작하고 JVM 종료 후에도 컨테이너가 남으므로 로컬 개발용으로만 쓴다.</li>
+<li><strong><code>@Transactional</code> 롤백이 가리는 결함.</strong> <code>REQUIRES_NEW</code>로 분리된 트랜잭션, <code>AFTER_COMMIT</code> 이벤트 리스너, 비동기 스레드의 DB 접근은 롤백 환경에서 실제와 다르게 동작한다. 이런 경로는 롤백 없이 실행하고 <code>@Sql</code>로 정리한다.</li>
+<li><strong>Flyway 버전 충돌과 큰 DML.</strong> 브랜치마다 마이그레이션을 만들면 같은 V 번호가 두 개 생겨 병합 후 기동이 실패한다. 병합 시점에 번호를 확정하는 규칙이 안전하다. 대량 UPDATE는 락으로 배포가 멎으므로 단계를 나눈다.</li>
+<li><strong>Docker 없는 CI.</strong> Testcontainers는 Docker 데몬이 필수다. 컨테이너 안에서 빌드하는 러너는 소켓 마운트나 Testcontainers Cloud 설정이 없으면 시작 단계에서 실패한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/exception-handling-validation/</li>
+<li>/notes/java-spring/transactional-locking/</li>
+<li>/notes/java-spring/jpa-hibernate-spring-data/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · MockMvc, @SpringBootTest, Testcontainers, Flyway, JUnit 5</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/http-client-restclient/"><small>이전</small>HTTP 클라이언트 — RestClient</a>
+  <a class="next" href="/notes/java-spring/actuator-micrometer/"><small>다음</small>Actuator와 Micrometer</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

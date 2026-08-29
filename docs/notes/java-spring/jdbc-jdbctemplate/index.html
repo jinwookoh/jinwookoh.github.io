@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JDBC·DataSource·JdbcTemplate · Java / Spring</title>
+  <meta name="description" content="JDBC 표준 위에 DataSource로 커넥션을 풀링하고 JdbcTemplate으로 보일러플레이트와 예외를 제거하는 구조">
+  <meta property="og:title" content="JDBC·DataSource·JdbcTemplate · Java / Spring">
+  <meta property="og:description" content="JDBC 표준 위에 DataSource로 커넥션을 풀링하고 JdbcTemplate으로 보일러플레이트와 예외를 제거하는 구조">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jdbc-jdbctemplate/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>JDBC·DataSource·JdbcTemplate</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>JDBC·DataSource·JdbcTemplate</h1>
+  <p class="summary">JDBC 표준 위에 DataSource로 커넥션을 풀링하고 JdbcTemplate으로 보일러플레이트와 예외를 제거하는 구조</p>
+  <div class="content">
+<p>자바 코드가 DB 벤더의 프로토콜에 직접 의존하면 DB를 바꿀 때 데이터 접근 코드를 전부 다시 써야 한다. 매 요청마다 새 물리 커넥션을 열면 TCP 연결과 인증 비용(수십~수백 ms)이 응답 시간에 그대로 더해진다. 여기에 <code>Connection</code>·<code>PreparedStatement</code>·<code>ResultSet</code> 정리와 체크드 예외 <code>SQLException</code> 처리가 쿼리마다 반복되면 SQL 한 줄보다 부수 코드가 훨씬 많아진다. JDBC 표준, DataSource 기반 커넥션 풀, JdbcTemplate은 이 세 문제를 각각 담당하는 계층이다.</p>
+<h2>핵심 개념</h2>
+<p><strong>JDBC</strong>는 <code>java.sql</code> 패키지의 표준 API다. 애플리케이션은 <code>Connection</code>·<code>Statement</code>·<code>ResultSet</code> 인터페이스만 사용하고, 벤더별 <strong>JDBC 드라이버</strong>가 실제 통신을 맡는다. 드라이버 jar가 클래스패스에 있으면 자동 등록되며, PostgreSQL <code>org.postgresql:postgresql</code>, MySQL <code>com.mysql:mysql-connector-j</code> 등의 버전은 Spring Boot가 관리한다.</p>
+<p><strong>DriverManager</strong>는 호출마다 새 물리 커넥션을 만든다. <strong>DataSource</strong>(<code>javax.sql.DataSource</code>)는 커넥션을 얻는 방법을 구현체에 위임하는 인터페이스이고, 실무 구현체는 <strong>커넥션 풀</strong>이다. 풀은 기동 시 커넥션을 미리 만들어 <code>getConnection()</code> 에 대여하고, <code>close()</code> 는 실제로 닫지 않고 반납한다. Spring Boot는 2.0부터 <strong>HikariCP</strong>를 기본 풀로 쓰며, <code>spring.datasource.url</code>·<code>username</code>·<code>password</code> 만 있으면 자동 구성이 <code>HikariDataSource</code> 와 <code>JdbcTemplate</code>·<code>NamedParameterJdbcTemplate</code> Bean을 등록한다.</p>
+<p><strong>JdbcTemplate</strong>은 DataSource를 감싸 커넥션 획득·Statement 생성·ResultSet 순회·자원 반납·예외 변환을 대신 수행한다. 개발자는 SQL, 바인딩 파라미터, 한 행을 객체로 바꾸는 <strong>RowMapper</strong> 만 제공한다.</p>
+<table>
+<thead>
+<tr>
+<th>메서드</th>
+<th>용도</th>
+<th>반환</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>queryForObject</code></td>
+<td>정확히 1건 조회</td>
+<td>객체 1개. 0건이면 <code>EmptyResultDataAccessException</code></td>
+</tr>
+<tr>
+<td><code>query</code></td>
+<td>다건 조회</td>
+<td><code>List&lt;T&gt;</code></td>
+</tr>
+<tr>
+<td><code>update</code></td>
+<td>INSERT·UPDATE·DELETE</td>
+<td>영향받은 행 수</td>
+</tr>
+<tr>
+<td><code>batchUpdate</code></td>
+<td>대량 변경</td>
+<td>행 수 배열</td>
+</tr>
+</tbody></table>
+<p>컬럼명과 필드명이 일치하면 <code>BeanPropertyRowMapper</code> 가 snake_case를 camelCase로 바꿔 자동 매핑한다. 기본 생성자와 setter가 필요하므로 record 같은 불변 객체에는 생성자 기반 <code>DataClassRowMapper</code> 를 쓴다. <code>NamedParameterJdbcTemplate</code> 은 <code>?</code> 대신 <code>:name</code> 파라미터를 받고 <code>IN (:ids)</code> 에 컬렉션을 확장한다. <code>SimpleJdbcInsert</code> 는 테이블명과 컬럼 Map만으로 INSERT를 만들고 생성 키를 돌려준다.</p>
+<p>예외는 <code>SQLException</code> 이 <code>DataAccessException</code> 계층의 런타임 예외로 변환되며, 벤더별 에러 코드가 <code>DuplicateKeyException</code> 같은 공통 타입으로 매핑되어 DB를 바꿔도 catch 절은 그대로다.</p>
+<h2>코드</h2>
+<p>Spring Boot 설정. HikariCP 항목은 선택이며 기본값으로도 동작한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://localhost:5432/myshop</span>
+    <span class="hljs-attr">username:</span> <span class="hljs-string">postgres</span>
+    <span class="hljs-attr">password:</span> <span class="hljs-string">${DB_PASSWORD}</span>
+    <span class="hljs-attr">hikari:</span>
+      <span class="hljs-attr">maximum-pool-size:</span> <span class="hljs-number">10</span>
+      <span class="hljs-attr">connection-timeout:</span> <span class="hljs-number">30000</span>
+      <span class="hljs-attr">max-lifetime:</span> <span class="hljs-number">1800000</span>
+      <span class="hljs-attr">leak-detection-threshold:</span> <span class="hljs-number">60000</span></code></pre>
+<p>record 도메인과 <code>DataClassRowMapper</code> 를 쓰는 Repository. 0건 예외를 <code>Optional</code> 로 흡수한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.time.LocalDateTime;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.Optional;
+<span class="hljs-keyword">import</span> org.springframework.dao.EmptyResultDataAccessException;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.core.DataClassRowMapper;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.core.JdbcTemplate;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.core.RowMapper;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Repository;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Order</span><span class="hljs-params">(Long id, Long productId, <span class="hljs-type">int</span> amount, String status, LocalDateTime createdAt)</span> {}
+
+<span class="hljs-meta">@Repository</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">JdbcOrderRepository</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RowMapper</span>&lt;Order&gt; <span class="hljs-variable">MAPPER</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DataClassRowMapper</span>&lt;&gt;(Order.class);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcTemplate jdbc;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> NamedParameterJdbcTemplate namedJdbc;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">JdbcOrderRepository</span><span class="hljs-params">(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc)</span> {
+        <span class="hljs-built_in">this</span>.jdbc = jdbc;
+        <span class="hljs-built_in">this</span>.namedJdbc = namedJdbc;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Optional</span>&lt;Order&gt; <span class="hljs-title function_">findById</span><span class="hljs-params">(Long id)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> Optional.of(jdbc.queryForObject(
+                    <span class="hljs-string">&quot;SELECT id, product_id, amount, status, created_at FROM orders WHERE id = ?&quot;</span>,
+                    MAPPER, id));
+        } <span class="hljs-keyword">catch</span> (EmptyResultDataAccessException e) {
+            <span class="hljs-keyword">return</span> Optional.empty();
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findByIds</span><span class="hljs-params">(List&lt;Long&gt; ids)</span> {
+        <span class="hljs-keyword">return</span> namedJdbc.query(
+                <span class="hljs-string">&quot;SELECT id, product_id, amount, status, created_at FROM orders WHERE id IN (:ids)&quot;</span>,
+                Map.of(<span class="hljs-string">&quot;ids&quot;</span>, ids), MAPPER);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">updateStatus</span><span class="hljs-params">(Long id, String status)</span> {
+        <span class="hljs-keyword">return</span> jdbc.update(<span class="hljs-string">&quot;UPDATE orders SET status = ? WHERE id = ?&quot;</span>, status, id);
+    }
+}</code></pre>
+<p><code>SimpleJdbcInsert</code> 로 자동 생성 키를 받는 저장과 <code>batchUpdate</code> 대량 INSERT.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> javax.sql.DataSource;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.core.JdbcTemplate;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.core.simple.SimpleJdbcInsert;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderWriter</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> SimpleJdbcInsert insert;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcTemplate jdbc;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderWriter</span><span class="hljs-params">(DataSource dataSource, JdbcTemplate jdbc)</span> {
+        <span class="hljs-built_in">this</span>.insert = <span class="hljs-keyword">new</span> <span class="hljs-title class_">SimpleJdbcInsert</span>(dataSource)
+                .withTableName(<span class="hljs-string">&quot;orders&quot;</span>)
+                .usingGeneratedKeyColumns(<span class="hljs-string">&quot;id&quot;</span>);
+        <span class="hljs-built_in">this</span>.jdbc = jdbc;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">save</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> amount)</span> {
+        <span class="hljs-type">Number</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> insert.executeAndReturnKey(
+                Map.of(<span class="hljs-string">&quot;product_id&quot;</span>, productId, <span class="hljs-string">&quot;amount&quot;</span>, amount, <span class="hljs-string">&quot;status&quot;</span>, <span class="hljs-string">&quot;CREATED&quot;</span>));
+        <span class="hljs-keyword">return</span> key.longValue();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span>[] <span class="hljs-title function_">saveAll</span><span class="hljs-params">(List&lt;Order&gt; orders)</span> {
+        <span class="hljs-keyword">return</span> jdbc.batchUpdate(
+                <span class="hljs-string">&quot;INSERT INTO orders (product_id, amount, status) VALUES (?, ?, ?)&quot;</span>,
+                orders.stream()
+                        .map(o -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">Object</span>[]{o.productId(), o.amount(), o.status()})
+                        .toList());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>풀 크기는 크게 잡을수록 손해다.</strong> DB가 동시에 실행할 수 있는 쿼리 수는 코어 수에 묶이므로 커넥션을 늘리면 경합만 늘어난다. 10개 전후에서 시작해 <code>hikaricp.connections.pending</code> 메트릭을 보며 조정하고, 인스턴스 수 × 풀 크기가 DB <code>max_connections</code> 를 넘지 않게 한다.</li>
+<li><strong>커넥션 누수는 풀 고갈로 나타난다.</strong> 직접 얻은 커넥션의 반납을 빠뜨리면 <code>connection-timeout</code> 이후 <code>SQLTransientConnectionException</code> 이 발생한다. <code>leak-detection-threshold</code> 를 켜면 임계 시간을 넘긴 대여의 스택 트레이스가 로그에 남는다.</li>
+<li><strong><code>max-lifetime</code> 은 DB·프록시의 유휴 종료 시간보다 짧아야 한다.</strong> 그렇지 않으면 이미 끊긴 커넥션을 빌려 첫 쿼리에서 실패한다.</li>
+<li><strong><code>queryForObject</code> 의 0건은 null이 아니라 예외다.</strong> <code>Optional</code> 로 감싸려면 <code>EmptyResultDataAccessException</code> 을 잡거나 <code>query()</code> 로 리스트를 받아 첫 요소를 취한다.</li>
+<li><strong>JPA와의 역할 분담.</strong> 단순 CRUD는 JPA, 통계·복잡한 조인·대량 배치는 JdbcTemplate이 맞다. 한 트랜잭션에서 섞어 쓸 수 있지만 영속성 컨텍스트의 미반영 변경이 JdbcTemplate 쿼리에 보이지 않는 점은 주의한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/transactional-locking/">@Transactional 원리와 낙관/비관 락</a></li>
+<li><a href="/notes/java-spring/jpa-hibernate-spring-data/">JPA·Hibernate·Spring Data JPA — Entity와 Repository</a></li>
+<li><a href="/notes/java-spring/testing-mockmvc-testcontainers/">테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · JDBC, DataSource, HikariCP, JdbcTemplate, RowMapper</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/openapi-docs/"><small>이전</small>API 문서화 — Springdoc OpenAPI</a>
+  <a class="next" href="/notes/java-spring/transactional-locking/"><small>다음</small>@Transactional 원리와 낙관/비관 락</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

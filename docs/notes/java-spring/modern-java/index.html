@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modern Java 9~21 핵심 · Java / Spring</title>
+  <meta name="description" content="Java 9~21에서 실무 코드를 바꾼 언어·API 변화를 LTS 기준으로 묶어 정리한다">
+  <meta property="og:title" content="Modern Java 9~21 핵심 · Java / Spring">
+  <meta property="og:description" content="Java 9~21에서 실무 코드를 바꾼 언어·API 변화를 LTS 기준으로 묶어 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/modern-java/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>Modern Java 9~21 핵심</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>Modern Java 9~21 핵심</h1>
+  <p class="summary">Java 9~21에서 실무 코드를 바꾼 언어·API 변화를 LTS 기준으로 묶어 정리한다</p>
+  <div class="content">
+<p>Java 8 문법에 머문 코드는 불변 데이터 클래스 하나에 생성자·getter·equals·hashCode·toString을 손으로 쓰고, <code>instanceof</code> 뒤에 같은 타입으로 다시 캐스팅하고, <code>switch</code>에서 <code>break</code>를 빠뜨려 fall-through 버그를 만든다. 상속 계층에 새 타입이 추가됐을 때 누락된 분기를 컴파일러가 잡지 못하는 것도 같은 문제다. Java 9~21의 언어 변화는 이 보일러플레이트와 런타임 실수를 컴파일 시점으로 끌어오는 방향이다.</p>
+<h2>핵심 개념</h2>
+<p>버전은 LTS 단위로 묶는다. 9<del>10은 11(LTS)에, 12</del>16은 17(LTS)에, 18~20은 21(LTS)에 정착했다. 미리보기 기능은 정식 버전 기준으로 기억한다. Switch 표현식 14, 텍스트 블록 15, Record·instanceof 패턴 16, Sealed 17, Record Patterns·Switch 패턴 매칭·Virtual Thread 21이다.</p>
+<p><strong>Java 9~11 — API 정비.</strong> <code>List.of</code>·<code>Set.of</code>·<code>Map.of</code>는 불변 컬렉션을 만들며 요소·키·값 어디에도 <code>null</code>을 허용하지 않는다. <code>Stream.iterate</code>에 종료 조건 오버로드가 추가됐고 <code>takeWhile</code>·<code>dropWhile</code>은 정렬된 스트림을 조건으로 자른다. Java 10의 <code>var</code>는 지역 변수·for 변수·try-with-resources에서만 타입을 추론하며, 초기화 없이 선언하거나 <code>null</code>로만 초기화하면 컴파일 오류다. Java 11은 <code>String.isBlank</code>·<code>strip</code>·<code>repeat</code>·<code>lines</code>, <code>Files.readString</code>·<code>writeString</code>, <code>Optional.isEmpty</code>를 추가했다. <code>strip</code>은 Unicode 공백을, <code>trim</code>은 ASCII 공백만 제거한다.</p>
+<p><strong>Java 15~17 — 데이터 모델링 문법.</strong> 텍스트 블록은 <code>&quot;&quot;&quot;</code>로 여닫는 여러 줄 문자열이며 가장 적게 들여쓴 줄 기준으로 공통 들여쓰기를 제거한다. Switch 표현식은 <code>-&gt;</code> 문법으로 fall-through를 없애고 값을 반환하며, 블록 분기에서는 <code>yield</code>를 쓴다. <code>instanceof</code> 패턴 매칭은 타입 검사와 캐스팅을 합쳐 패턴 변수를 바인딩하고 <code>&amp;&amp;</code>로 조건을 이어 쓸 수 있다.</p>
+<p>Record는 불변 데이터 운반체다. 헤더의 컴포넌트가 <code>private final</code> 필드가 되고 정규 생성자·accessor(<code>x()</code>, <code>getX()</code>가 아님)·<code>equals</code>·<code>hashCode</code>·<code>toString</code>이 생성된다. 암묵적으로 <code>final</code>이며 상속과 인스턴스 필드 추가가 불가능하다. 컴팩트 생성자로 검증을 넣을 수 있고 인터페이스 구현·static 멤버·추가 메서드는 허용된다. Sealed 타입은 <code>permits</code>로 하위 타입을 열거하고, 각 하위 타입은 <code>final</code>·<code>sealed</code>·<code>non-sealed</code> 중 하나를 선언해야 한다.</p>
+<p><strong>Java 21 — 패턴 매칭 완성.</strong> Switch 패턴 매칭은 <code>case Integer i -&gt;</code> 타입 패턴, <code>when</code> 절 가드 패턴, <code>case null</code>을 지원한다. Record Pattern은 <code>obj instanceof Point(int x, int y)</code>처럼 레코드를 컴포넌트로 분해하며 중첩도 가능하다. Sealed 타입을 switch에 넣으면 컴파일러가 모든 하위 타입을 알기 때문에 <code>default</code> 없이 exhaustive 검사를 받고, 하위 타입이 추가되면 누락된 switch가 컴파일 오류가 된다. 세 기능이 합쳐지면 대수적 데이터 타입(ADT) 방식으로 도메인을 모델링할 수 있다. 같은 버전의 Virtual Thread는 별도 글에서 다룬다.</p>
+<h2>코드</h2>
+<p>Sealed 인터페이스와 Record로 도메인을 닫고 Switch 패턴 매칭으로 <code>default</code> 없이 분기한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">sealed</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Shape</span> <span class="hljs-keyword">permits</span> Circle, Square, Triangle {}
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Circle</span><span class="hljs-params">(<span class="hljs-type">double</span> r)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Shape</span> {}
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Square</span><span class="hljs-params">(<span class="hljs-type">double</span> s)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Shape</span> {}
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Triangle</span><span class="hljs-params">(<span class="hljs-type">double</span> a, <span class="hljs-type">double</span> b, <span class="hljs-type">double</span> c)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Shape</span> {
+    Triangle {
+        <span class="hljs-keyword">if</span> (a + b &lt;= c || a + c &lt;= b || b + c &lt;= a)
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;invalid triangle&quot;</span>);
+    }
+}
+
+<span class="hljs-type">double</span> <span class="hljs-title function_">area</span><span class="hljs-params">(Shape shape)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">switch</span> (shape) {
+        <span class="hljs-type">case</span> <span class="hljs-title function_">Circle</span><span class="hljs-params">(<span class="hljs-type">double</span> r)</span> -&gt; Math.PI * r * r;
+        <span class="hljs-type">case</span> <span class="hljs-title function_">Square</span><span class="hljs-params">(<span class="hljs-type">double</span> s)</span> -&gt; s * s;
+        <span class="hljs-type">case</span> <span class="hljs-title function_">Triangle</span><span class="hljs-params">(<span class="hljs-type">double</span> a, <span class="hljs-type">double</span> b, <span class="hljs-type">double</span> c)</span> -&gt; {
+            <span class="hljs-type">double</span> <span class="hljs-variable">p</span> <span class="hljs-operator">=</span> (a + b + c) / <span class="hljs-number">2</span>;
+            <span class="hljs-keyword">yield</span> Math.sqrt(p * (p - a) * (p - b) * (p - c));
+        }
+    };
+}</code></pre>
+<p>가드 패턴과 <code>case null</code>을 포함한 타입 분기. <code>null</code>을 명시하지 않으면 <code>NullPointerException</code>이 발생한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">String</span> <span class="hljs-title function_">describe</span><span class="hljs-params">(Object obj)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">switch</span> (obj) {
+        <span class="hljs-keyword">case</span> <span class="hljs-literal">null</span> -&gt; <span class="hljs-string">&quot;null&quot;</span>;
+        <span class="hljs-keyword">case</span> Integer i <span class="hljs-keyword">when</span> i &gt; <span class="hljs-number">0</span> -&gt; <span class="hljs-string">&quot;positive int &quot;</span> + i;
+        <span class="hljs-keyword">case</span> Integer i -&gt; <span class="hljs-string">&quot;non-positive int &quot;</span> + i;
+        <span class="hljs-keyword">case</span> String s <span class="hljs-keyword">when</span> s.isBlank() -&gt; <span class="hljs-string">&quot;blank string&quot;</span>;
+        <span class="hljs-keyword">case</span> String s -&gt; <span class="hljs-string">&quot;string &quot;</span> + s.strip();
+        <span class="hljs-keyword">case</span> List&lt;?&gt; list -&gt; <span class="hljs-string">&quot;list of &quot;</span> + list.size();
+        <span class="hljs-keyword">default</span> -&gt; <span class="hljs-string">&quot;unknown&quot;</span>;
+    };
+}</code></pre>
+<p>Spring Boot 3.x 컨트롤러에서 Record를 요청·응답 DTO로 쓰고 텍스트 블록으로 테스트 페이로드를 만든다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.validation.constraints.NotBlank;
+<span class="hljs-keyword">import</span> org.springframework.web.bind.annotation.*;
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">CreateOrderRequest</span><span class="hljs-params">(@NotBlank String productId, <span class="hljs-type">int</span> quantity)</span> {
+    CreateOrderRequest {
+        <span class="hljs-keyword">if</span> (quantity &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;quantity must be positive&quot;</span>);
+    }
+}
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderResponse</span><span class="hljs-params">(<span class="hljs-type">long</span> id, String productId, <span class="hljs-type">int</span> quantity)</span> {}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/orders&quot;)</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+    <span class="hljs-meta">@PostMapping</span>
+    <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> <span class="hljs-meta">@jakarta</span>.validation.Valid CreateOrderRequest req)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">saved</span> <span class="hljs-operator">=</span> orderService.create(req.productId(), req.quantity());
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(saved.id(), saved.productId(), saved.quantity());
+    }
+}
+
+<span class="hljs-type">String</span> <span class="hljs-variable">payload</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&quot;&quot;
+    {
+      &quot;productId&quot;: &quot;P-100&quot;,
+      &quot;quantity&quot;: 2
+    }
+    &quot;&quot;&quot;</span>;</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>불변 컬렉션과 null.</strong> <code>List.of</code>·<code>Stream.toList()</code> 반환값에 <code>add</code>를 호출하면 런타임 예외다. 가변 리스트가 필요하면 <code>Collectors.toCollection(ArrayList::new)</code>를 쓴다. <code>Stream.toList()</code>는 <code>null</code> 요소를 허용하지만 <code>List.of</code>는 허용하지 않는다.</li>
+<li><strong>Record와 JPA.</strong> JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다. DTO·값 객체·프로젝션에 한정한다. 컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.</li>
+<li><strong><code>var</code> 추론 함정.</strong> <code>var list = new ArrayList&lt;&gt;();</code>는 <code>ArrayList&lt;Object&gt;</code>로 추론된다. 우변에서 타입이 드러나지 않는 메서드 호출 결과에는 쓰지 않는다.</li>
+<li><strong>Sealed 계층의 모듈 경계.</strong> permits의 하위 타입은 같은 모듈(무명 모듈이면 같은 패키지)에 있어야 한다. 멀티모듈로 계층을 나누면 컴파일이 실패한다.</li>
+<li><strong>Switch 패턴의 지배(dominance)와 null.</strong> 상위 타입 case나 가드 없는 case가 하위 타입 case·가드 case보다 앞에 오면 컴파일 오류다. <code>default</code>가 있어도 <code>null</code>은 처리되지 않으므로 <code>case null</code>을 명시한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/lambda-functional-stream/">람다·함수형 인터페이스·Stream</a></li>
+<li><a href="/notes/java-spring/virtual-thread-basics/">Virtual Thread — 원리·API·Pinning</a></li>
+<li><a href="/notes/java-spring/interface-polymorphism-solid/">인터페이스·다형성·SOLID</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Java 21, Record, Sealed Classes, Pattern Matching, var</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/lambda-functional-stream/"><small>이전</small>람다·함수형 인터페이스·Stream</a>
+  <a class="next" href="/notes/java-spring/virtual-thread-basics/"><small>다음</small>Virtual Thread — 원리·API·Pinning</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

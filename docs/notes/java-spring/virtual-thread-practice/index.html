@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Virtual Thread — 실전·Spring Boot·Structured Concurrency · Java / Spring</title>
+  <meta name="description" content="Spring Boot 설정 한 줄로 Virtual Thread를 켠 뒤, 병렬 호출·외부 자원 보호·측정을 어떻게 설계하는가">
+  <meta property="og:title" content="Virtual Thread — 실전·Spring Boot·Structured Concurrency · Java / Spring">
+  <meta property="og:description" content="Spring Boot 설정 한 줄로 Virtual Thread를 켠 뒤, 병렬 호출·외부 자원 보호·측정을 어떻게 설계하는가">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/virtual-thread-practice/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>Virtual Thread — 실전·Spring Boot·Structured Concurrency</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>Virtual Thread — 실전·Spring Boot·Structured Concurrency</h1>
+  <p class="summary">Spring Boot 설정 한 줄로 Virtual Thread를 켠 뒤, 병렬 호출·외부 자원 보호·측정을 어떻게 설계하는가</p>
+  <div class="content">
+<p>Tomcat 기본 워커 풀은 200개다. 요청이 외부 API나 DB 응답을 기다리는 동안 스레드가 묶이고, 동시 요청이 200을 넘으면 나머지는 큐에서 대기한다. 처리량을 올리려면 WebFlux로 다시 쓰거나 풀을 키워 메모리를 소모해야 했다. Virtual Thread를 서블릿 컨테이너와 <code>@Async</code>에 연결하면 동기 코드를 그대로 두고 이 한계를 넘는다. 다만 병목은 DB 커넥션과 외부 API로 옮겨가고, 여러 스레드를 한 작업 단위로 묶어 실패와 취소를 전파할 구조가 필요해진다.</p>
+<h2>핵심 개념</h2>
+<p>Spring Boot 3.2 이상과 Java 21에서 <code>spring.threads.virtual.enabled=true</code> 한 줄이 Tomcat·Jetty·Undertow 워커, <code>@Async</code> 실행기, <code>@Scheduled</code> 작업 스레드, 자동 구성 <code>TaskExecutor</code> 빈을 모두 Virtual Thread로 바꾼다. 직접 등록한 <code>ThreadPoolTaskExecutor</code>는 <code>VirtualThreadTaskExecutor</code>(Spring 6.1+)로 교체한다. 작업당 스레드를 새로 만드는 모델에서 풀 크기·큐 용량 설정은 의미가 없다.</p>
+<p>MVC에 Virtual Thread를 얹으면 I/O 대기 위주 워크로드에서 WebFlux와 비슷한 처리량을 내면서 프로그래밍 모델은 동기 그대로다. WebFlux는 백프레셔가 결정적인 스트리밍이나 R2DBC 같은 Reactive 드라이버가 전제인 경우에 남는다. HTTP 클라이언트는 <code>RestClient</code>(Spring 6.1+)가 기본이다.</p>
+<p>Structured Concurrency는 여러 Virtual Thread를 부모 스코프 안에서 시작하고 끝내는 규칙이다. <code>ExecutorService</code>의 <code>Future</code>는 하나가 실패해도 나머지가 계속 돈다. <code>StructuredTaskScope</code>는 try-with-resources로 열고 <code>fork</code>로 자식을 시작한 뒤 <code>join</code>으로 대기하며, 스코프를 벗어날 때 남은 자식을 정리한다. <code>ShutdownOnFailure</code>는 하나라도 실패하면 나머지를 interrupt하고 <code>throwIfFailed</code>로 예외를 던진다. <code>ShutdownOnSuccess</code>는 첫 성공 시 나머지를 취소하고 <code>result</code>로 반환한다. <code>joinUntil(Instant)</code> 초과 시에는 <code>TimeoutException</code>과 함께 자식이 취소된다. <code>Subtask.get()</code>은 상태가 SUCCESS일 때만 호출할 수 있다.</p>
+<p>컨텍스트 전달은 <code>ScopedValue</code>를 쓴다. <code>ThreadLocal</code>은 수동 <code>remove</code>가 필요하고 스레드 수만큼 메모리가 는다. <code>ScopedValue</code>는 불변이고 스코프 종료 시 자동 해제되며 자식 스레드에 자동 상속된다. 두 API 모두 Java 21에서는 Preview(<code>--enable-preview</code>)이고 이후 버전에서 재설계되었으므로 운영 반영은 JDK 버전을 확인한 뒤 결정한다.</p>
+<h2>코드</h2>
+<p>Virtual Thread를 켜고 HikariCP 크기를 고정한다. 커넥션 풀 크기는 Virtual Thread 수와 무관하게 DB가 견디는 수준(보통 10~30)으로 둔다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">threads:</span>
+    <span class="hljs-attr">virtual:</span>
+      <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">hikari:</span>
+      <span class="hljs-attr">maximum-pool-size:</span> <span class="hljs-number">20</span>
+      <span class="hljs-attr">minimum-idle:</span> <span class="hljs-number">10</span>
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">prometheus,metrics,threaddump</span>
+  <span class="hljs-attr">metrics:</span>
+    <span class="hljs-attr">distribution:</span>
+      <span class="hljs-attr">percentiles-histogram:</span>
+        <span class="hljs-attr">http.server.requests:</span> <span class="hljs-literal">true</span></code></pre>
+<p>외부 서비스 세 개를 병렬 호출하고 2초 데드라인을 건 Fan-out이다. 하나가 실패하거나 시간이 초과되면 나머지가 취소된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.time.Instant;
+<span class="hljs-keyword">import</span> java.util.concurrent.StructuredTaskScope;
+<span class="hljs-keyword">import</span> java.util.concurrent.StructuredTaskScope.Subtask;
+<span class="hljs-keyword">import</span> java.util.concurrent.TimeoutException;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+<span class="hljs-keyword">import</span> org.springframework.web.client.RestClient;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DashboardService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RestClient</span> <span class="hljs-variable">restClient</span> <span class="hljs-operator">=</span> RestClient.create();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Dashboard</span> <span class="hljs-title function_">load</span><span class="hljs-params">(String userId)</span> <span class="hljs-keyword">throws</span> InterruptedException {
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">var</span> <span class="hljs-variable">scope</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StructuredTaskScope</span>.ShutdownOnFailure()) {
+            <span class="hljs-type">Subtask</span>&lt;User&gt; <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> scope.fork(() -&gt; get(<span class="hljs-string">&quot;/users/&quot;</span> + userId, User.class));
+            <span class="hljs-type">Subtask</span>&lt;Orders&gt; <span class="hljs-variable">orders</span> <span class="hljs-operator">=</span> scope.fork(() -&gt; get(<span class="hljs-string">&quot;/orders?user=&quot;</span> + userId, Orders.class));
+            <span class="hljs-type">Subtask</span>&lt;Profile&gt; <span class="hljs-variable">profile</span> <span class="hljs-operator">=</span> scope.fork(() -&gt; get(<span class="hljs-string">&quot;/profiles/&quot;</span> + userId, Profile.class));
+
+            scope.joinUntil(Instant.now().plusSeconds(<span class="hljs-number">2</span>));
+            scope.throwIfFailed(DashboardException::<span class="hljs-keyword">new</span>);
+
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Dashboard</span>(user.get(), orders.get(), profile.get());
+        } <span class="hljs-keyword">catch</span> (TimeoutException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DashboardException</span>(e);
+        }
+    }
+
+    <span class="hljs-keyword">private</span> &lt;T&gt; <span class="hljs-type">T</span> <span class="hljs-title function_">get</span><span class="hljs-params">(String path, Class&lt;T&gt; type)</span> {
+        <span class="hljs-keyword">return</span> restClient.get().uri(<span class="hljs-string">&quot;http://api.internal&quot;</span> + path).retrieve().body(type);
+    }
+}</code></pre>
+<p>외부 API를 <code>Semaphore</code>로 보호하면서 <code>ScopedValue</code>로 컨텍스트를 자식에 전달한다. <code>Semaphore.acquire</code>는 대기 중 캐리어를 반납한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.concurrent.Semaphore;
+<span class="hljs-keyword">import</span> java.util.concurrent.StructuredTaskScope;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PriceAggregator</span> {
+
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">ScopedValue</span>&lt;String&gt; <span class="hljs-variable">TRACE_ID</span> <span class="hljs-operator">=</span> ScopedValue.newInstance();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Semaphore</span> <span class="hljs-variable">vendorLimit</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Semaphore</span>(<span class="hljs-number">50</span>);
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Quote</span> <span class="hljs-title function_">quote</span><span class="hljs-params">(String traceId, String sku)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">return</span> ScopedValue.where(TRACE_ID, traceId).call(() -&gt; {
+            <span class="hljs-keyword">try</span> (<span class="hljs-type">var</span> <span class="hljs-variable">scope</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StructuredTaskScope</span>.ShutdownOnSuccess&lt;Quote&gt;()) {
+                scope.fork(() -&gt; ask(vendorA, sku));
+                scope.fork(() -&gt; ask(vendorB, sku));
+                scope.join();
+                <span class="hljs-keyword">return</span> scope.result();
+            }
+        });
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Quote</span> <span class="hljs-title function_">ask</span><span class="hljs-params">(Vendor vendor, String sku)</span> <span class="hljs-keyword">throws</span> InterruptedException {
+        vendorLimit.acquire();
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> vendor.quote(sku, TRACE_ID.get());
+        } <span class="hljs-keyword">finally</span> {
+            vendorLimit.release();
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>무제한 동시성은 DB와 외부 API 폭주로 이어진다.</strong> Platform Thread 풀은 그 자체가 백프레셔였다. Virtual Thread에서는 커넥션을 못 얻은 스레드가 HikariCP 앞에 무한정 쌓이므로 <code>Semaphore</code>·RateLimiter·Circuit Breaker를 명시적으로 둔다.</li>
+<li><strong>Pinning 비율이 처리량을 직접 깎는다.</strong> 1,000 동시 요청에서 Pinning 30%만 있어도 처리 시간이 약 1초에서 3초로 는다. JDBC 드라이버·HikariCP·Logback을 최신으로 올리고 JFR의 <code>jdk.VirtualThreadPinned</code> 이벤트로 추적한다. Java 24부터는 <code>synchronized</code> 안의 블로킹이 Pinning을 일으키지 않는다.</li>
+<li><strong>CPU 집약 작업은 이득이 없다.</strong> 캐리어 전환 비용만 더해지므로 <code>ForkJoinPool</code>로 분리한다. Virtual Thread를 <code>newFixedThreadPool</code>에 넣는 것도 재사용 이득이 없으므로 <code>newVirtualThreadPerTaskExecutor</code>를 쓴다.</li>
+<li><strong>자동 취소는 interrupt에 의존한다.</strong> <code>Thread.sleep</code>·소켓 I/O처럼 interrupt에 반응하는 지점이 있어야 멈추므로 루프 연산은 <code>isInterrupted()</code>를 검사한다. <code>ShutdownOnSuccess</code> 기반 Race는 비용이 후보 수만큼 는다.</li>
+<li><strong>측정 없이 도입 효과를 판단하지 않는다.</strong> 처리량·p99 지연·메모리를 전후 비교한다. Actuator의 <code>http.server.requests</code> 히스토그램과 <code>jvm.threads.virtual.live</code>·<code>peak</code>를 Prometheus로 수집하고, 부하는 wrk·Gatling, 운영 워크로드는 JFR 캡처 후 JMC로 본다. Virtual Thread 스택은 힙에 있어 수백만 개가 살아 있으면 GC 빈도가 오른다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/virtual-thread-basics/">Virtual Thread — 원리·API·Pinning</a></li>
+<li><a href="/notes/java-spring/events-async-scheduling/">이벤트·비동기·스케줄링</a></li>
+<li><a href="/notes/java-spring/http-client-restclient/">HTTP 클라이언트 — RestClient</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Virtual Thread, Spring Boot, Structured Concurrency, ScopedValue, JFR</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/virtual-thread-basics/"><small>이전</small>Virtual Thread — 원리·API·Pinning</a>
+  <a class="next" href="/notes/java-spring/design-patterns-creational-structural/"><small>다음</small>디자인 패턴 — 생성·구조</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

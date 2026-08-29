@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥 · Java / Spring</title>
+  <meta name="description" content="자바가 JVM 위에서 어떻게 실행되고, 클래스·객체와 OOP 4기둥이 Spring Bean 설계의 전제가 되는 이유를 정리한다.">
+  <meta property="og:title" content="자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥 · Java / Spring">
+  <meta property="og:description" content="자바가 JVM 위에서 어떻게 실행되고, 클래스·객체와 OOP 4기둥이 Spring Bean 설계의 전제가 되는 이유를 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/java-overview-oop/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥</h1>
+  <p class="summary">자바가 JVM 위에서 어떻게 실행되고, 클래스·객체와 OOP 4기둥이 Spring Bean 설계의 전제가 되는 이유를 정리한다.</p>
+  <div class="content">
+<p>C로 작성한 서버 프로그램은 OS와 CPU 아키텍처마다 따로 컴파일해야 하고, 메모리 해제를 개발자가 직접 책임진다. 해제 누락은 장기 실행 서버에서 메모리 누수로 이어진다. 또한 데이터와 그 데이터를 다루는 함수가 분리된 절차적 코드는 필드 하나가 바뀔 때 영향 범위를 추적하기 어렵다. 자바는 이 문제를 JVM, 가비지 컬렉터, 객체지향 모델로 해결했고, 그 위에 Spring 생태계가 쌓이면서 국내 백엔드의 사실상 표준이 됐다. Spring의 Bean, IoC, DI는 &quot;클래스로 객체를 만들고 인터페이스로 의존을 끊는다&quot;는 자바 기본 모델 위에 서 있으므로, 이 글의 개념이 이후 모든 글의 전제가 된다.</p>
+<h2>핵심 개념</h2>
+<h3>JVM과 실행 모델</h3>
+<p>자바 소스(<code>.java</code>)는 <code>javac</code>가 바이트코드(<code>.class</code>)로 컴파일하고, 바이트코드는 각 OS용 JVM이 실행한다. 바이트코드는 특정 OS나 CPU에 종속되지 않으므로 한 번 빌드한 산출물을 어느 플랫폼에서든 그대로 배포할 수 있다. 자바는 순수 인터프리터 언어가 아니라 컴파일과 인터프리트를 모두 거치는 혼합형이다. JVM은 처음에는 바이트코드를 인터프리트하다가 호출 빈도가 높은 메서드를 JIT 컴파일러로 기계어로 변환해 캐싱하므로, 장기 실행 서버에서는 기동 후 시간이 지날수록 처리 성능이 올라간다. 짧은 CLI 도구에서는 기동 비용 때문에 불리하다.</p>
+<p>용어 구분은 다음과 같다.</p>
+<table>
+<thead>
+<tr>
+<th>이름</th>
+<th>정체</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Java</td>
+<td>언어 명세</td>
+</tr>
+<tr>
+<td>JVM</td>
+<td>바이트코드를 실행하는 가상 머신. GC·JIT 포함</td>
+</tr>
+<tr>
+<td>JRE</td>
+<td>JVM + 표준 라이브러리. 실행 전용</td>
+</tr>
+<tr>
+<td>JDK</td>
+<td>JRE + <code>javac</code> 등 개발 도구</td>
+</tr>
+</tbody></table>
+<p>Java 11부터 JRE는 별도 배포되지 않으며, 실행 전용 환경은 <code>jlink</code>로 필요한 모듈만 묶어 만든다. 운영 환경에서는 LTS(8·11·17·21·25)만 쓴다. Spring Boot 3.x는 Java 17 이상을 요구한다.</p>
+<h3>클래스와 객체</h3>
+<p>클래스는 필드(상태)와 메서드(동작), 생성자(초기화)를 묶은 타입 정의이고, 객체(인스턴스)는 <code>new</code>로 클래스에서 생성한 실체다. 클래스 자체는 객체가 아니다. 메서드는 특정 객체에 묶여 호출되며, <code>static</code> 멤버만 객체 없이 클래스 이름으로 접근한다. 생성자는 클래스와 같은 이름을 가지며 <code>new</code> 시점에 한 번 실행되고, <code>this</code>는 현재 객체를 가리킨다.</p>
+<p>Spring의 Bean은 컨테이너가 대신 생성하고 보관하는 객체다. <code>@Component</code>가 붙은 클래스는 기동 시 컨테이너가 인스턴스를 만들어 필요한 곳에 주입한다. <code>new</code>를 호출하는 주체가 개발자에서 컨테이너로 옮겨간 것이 IoC의 실체다.</p>
+<h3>OOP 4기둥</h3>
+<table>
+<thead>
+<tr>
+<th>기둥</th>
+<th>목적</th>
+<th>자바 수단</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>캡슐화</td>
+<td>상태 보호, 무결성</td>
+<td><code>private</code> 필드 + 검증이 있는 공개 메서드</td>
+</tr>
+<tr>
+<td>상속</td>
+<td>공통 구현 재사용 (IS-A)</td>
+<td><code>extends</code>, <code>super</code>, <code>protected</code></td>
+</tr>
+<tr>
+<td>다형성</td>
+<td>같은 호출이 실제 타입에 따라 다르게 동작</td>
+<td>오버로딩(컴파일 시), 오버라이딩(런타임)</td>
+</tr>
+<tr>
+<td>추상화</td>
+<td>구현을 가리고 계약만 노출</td>
+<td><code>abstract class</code>, <code>interface</code></td>
+</tr>
+</tbody></table>
+<p>캡슐화는 인스턴스의 데이터 무결성을 지키는 것이고, 추상화는 설계 차원에서 사용자가 알아야 할 것을 시그니처로 줄이는 것이다. 접근 제어자는 <code>public</code>(어디서나), <code>protected</code>(같은 패키지 + 다른 패키지의 하위 클래스), 키워드 없는 package-private(같은 패키지), <code>private</code>(같은 클래스) 네 단계이며, 두 기둥을 코드로 강제하는 도구다.</p>
+<p>상속은 하위 클래스가 상위 클래스의 한 종류로 읽힐 때(IS-A)만 쓰고, 부품으로 갖는 관계(HAS-A)는 컴포지션으로 표현한다. 런타임 다형성은 상위 타입 변수에 하위 객체를 담았을 때 실제 객체의 메서드가 호출되는 메커니즘이며, 새 타입을 추가해도 호출 코드를 수정하지 않게 만드는 OCP의 기반이다. 인터페이스는 CAN-DO 계약이고 다중 구현이 가능하며, 추상 클래스는 IS-A 관계에서 공통 구현과 계약을 함께 제공하고 단일 상속만 허용한다. Java 8부터 인터페이스도 <code>default</code> 메서드로 구현을 가질 수 있다.</p>
+<h2>코드</h2>
+<p><code>Player.java</code>를 컴파일하고 실행하는 기본 흐름이다.</p>
+<pre><code class="hljs language-bash">javac Player.java        <span class="hljs-comment"># Player.class 생성</span>
+java Player              <span class="hljs-comment"># JVM이 바이트코드 실행</span>
+java Player.java         <span class="hljs-comment"># 단일 파일은 컴파일 없이 바로 실행</span></code></pre>
+<p>캡슐화가 적용된 클래스다. 상태는 <code>private</code>, 변경은 검증이 있는 메서드로만, 불변 필드는 <code>final</code>로 고정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Player</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String name;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> hp;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Player</span><span class="hljs-params">(String name, <span class="hljs-type">int</span> hp)</span> {
+        <span class="hljs-keyword">if</span> (hp &lt; <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;hp must be &gt;= 0&quot;</span>);
+        <span class="hljs-built_in">this</span>.name = name;
+        <span class="hljs-built_in">this</span>.hp = hp;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">getName</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> name; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getHp</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> hp; }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">takeDamage</span><span class="hljs-params">(<span class="hljs-type">int</span> amount)</span> {
+        <span class="hljs-keyword">if</span> (amount &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;amount must be &gt; 0&quot;</span>);
+        <span class="hljs-built_in">this</span>.hp = Math.max(<span class="hljs-number">0</span>, <span class="hljs-built_in">this</span>.hp - amount);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">Player</span> <span class="hljs-variable">alice</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Player</span>(<span class="hljs-string">&quot;Alice&quot;</span>, <span class="hljs-number">100</span>);
+        alice.takeDamage(<span class="hljs-number">30</span>);
+        System.out.println(alice.getName() + <span class="hljs-string">&quot; hp=&quot;</span> + alice.getHp());   <span class="hljs-comment">// Alice hp=70</span>
+    }
+}</code></pre>
+<p>상속·추상화·다형성을 보여주는 결제 예제다. <code>PaymentMethod</code>는 CAN-DO 계약, <code>Card</code>는 IS-A 공통 구현이며, 호출 측은 구체 타입을 모른 채 <code>pay()</code>만 호출한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.math.BigDecimal;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">PaymentMethod</span> {
+    <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(BigDecimal amount)</span>;
+}
+
+<span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Card</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">PaymentMethod</span> {
+    <span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> String cardNumber;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Card</span><span class="hljs-params">(String cardNumber)</span> {
+        <span class="hljs-built_in">this</span>.cardNumber = cardNumber;
+    }
+
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">String</span> <span class="hljs-title function_">masked</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;****&quot;</span> + cardNumber.substring(cardNumber.length() - <span class="hljs-number">4</span>);
+    }
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">CreditCard</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Card</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> BigDecimal limit;
+
+    CreditCard(String cardNumber, BigDecimal limit) {
+        <span class="hljs-built_in">super</span>(cardNumber);
+        <span class="hljs-built_in">this</span>.limit = limit;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(BigDecimal amount)</span> {
+        <span class="hljs-keyword">if</span> (amount.compareTo(limit) &gt; <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;limit exceeded&quot;</span>);
+        System.out.println(<span class="hljs-string">&quot;credit &quot;</span> + masked() + <span class="hljs-string">&quot; &quot;</span> + amount);
+    }
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">MobilePay</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">PaymentMethod</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String accountId;
+
+    MobilePay(String accountId) { <span class="hljs-built_in">this</span>.accountId = accountId; }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(BigDecimal amount)</span> {
+        System.out.println(<span class="hljs-string">&quot;mobile &quot;</span> + accountId + <span class="hljs-string">&quot; &quot;</span> + amount);
+    }
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Checkout</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">List</span>&lt;PaymentMethod&gt; <span class="hljs-variable">methods</span> <span class="hljs-operator">=</span> List.of(
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">CreditCard</span>(<span class="hljs-string">&quot;4111111111111111&quot;</span>, <span class="hljs-keyword">new</span> <span class="hljs-title class_">BigDecimal</span>(<span class="hljs-string">&quot;5000&quot;</span>)),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">MobilePay</span>(<span class="hljs-string">&quot;alice@bank&quot;</span>));
+        <span class="hljs-keyword">for</span> (PaymentMethod m : methods) {
+            m.pay(<span class="hljs-keyword">new</span> <span class="hljs-title class_">BigDecimal</span>(<span class="hljs-string">&quot;120.50&quot;</span>));   <span class="hljs-comment">// 실제 타입에 따라 다른 구현 실행</span>
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>getter/setter 자동 생성은 캡슐화가 아니다.</strong> 모든 필드에 setter를 열면 <code>public</code> 필드와 같다. 상태 변경은 <code>takeDamage</code>처럼 의도가 드러나는 메서드로 제한한다. Lombok <code>@Data</code>를 엔티티에 붙이면 이 원칙이 무너지기 쉽다.</li>
+<li><strong><code>instanceof</code> 분기가 늘면 다형성을 잃고 있다는 신호다.</strong> 타입별 <code>if-else</code>는 새 타입마다 수정 지점이 생기므로 오버라이딩으로 옮긴다. 다만 Java 21의 sealed 타입 + 패턴 매칭 <code>switch</code>는 컴파일러가 누락을 검출하므로 예외다.</li>
+<li><strong>상속 계층이 3단계를 넘으면 컴포지션을 검토한다.</strong> <code>Stack extends Vector</code>가 대표적인 표준 라이브러리의 실패 사례다. Spring에서도 공통 로직은 상속보다 위임·AOP로 풀리는 경우가 많다.</li>
+<li><strong>JIT 워밍업 전 성능으로 판단하지 않는다.</strong> 기동 직후 응답 시간은 정상 상태보다 느리다. 부하 테스트는 워밍업 이후를 측정하고, 롤링 배포 시 신규 인스턴스에 트래픽을 점진적으로 보낸다.</li>
+<li><strong>개발과 운영의 JDK 배포판·버전을 맞춘다.</strong> 같은 LTS라도 패치에 따라 GC 기본값이나 TLS 동작이 달라진다. Dockerfile에 정확한 태그를 고정한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/interface-polymorphism-solid/</li>
+<li>/notes/java-spring/modern-java/</li>
+<li>/notes/java-spring/ioc-di-application-context/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Java, JVM, OOP, 캡슐화, 다형성</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/java-spring/interface-polymorphism-solid/"><small>다음</small>인터페이스·다형성·SOLID</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

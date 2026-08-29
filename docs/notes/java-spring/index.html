@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Java / Spring · Notes</title>
+  <meta name="description" content="자바 언어 기초부터 Spring Boot 3 기반 백엔드의 코어·웹·데이터·운영까지.">
+  <meta property="og:title" content="Java / Spring · Notes">
+  <meta property="og:description" content="자바 언어 기초부터 Spring Boot 3 기반 백엔드의 코어·웹·데이터·운영까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Java / Spring</span></nav>
+    <header class="series-head"><h1>Java / Spring</h1><p>자바 언어 기초부터 Spring Boot 3 기반 백엔드의 코어·웹·데이터·운영까지.</p><p class="count">40편</p></header>
+<section class="part-group"><h2>자바 기초·모던 자바</h2><ol class="toc"><li><a href="/notes/java-spring/java-overview-oop/"><span class="n">1</span><span class="t">자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥</span><span class="s">자바가 JVM 위에서 어떻게 실행되고, 클래스·객체와 OOP 4기둥이 Spring Bean 설계의 전제가 되는 이유를 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/interface-polymorphism-solid/"><span class="n">2</span><span class="t">인터페이스·다형성·SOLID</span><span class="s">인터페이스와 다형성이 구현체 교체를 가능하게 하고, SOLID 5원칙이 그 교체를 안전하게 만드는 규칙임을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/collections-generics-optional/"><span class="n">3</span><span class="t">컬렉션·제네릭·Optional</span><span class="s">여러 객체를 담는 컬렉션, 담기는 타입을 컴파일 시점에 고정하는 제네릭, 없을 수 있는 반환값을 표현하는 Optional을 한 번에 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/exception-handling/"><span class="n">4</span><span class="t">예외 처리</span><span class="s">체크드와 언체크드 예외의 경계를 정확히 긋고, try-with-resources와 예외 체이닝으로 자원 누수와 원인 소실을 막는 방법을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/lambda-functional-stream/"><span class="n">5</span><span class="t">람다·함수형 인터페이스·Stream</span><span class="s">람다는 함수형 인터페이스의 인스턴스이고, Stream은 그 람다를 받아 컬렉션을 선언적으로 처리하는 일회용 지연 파이프라인이다.</span></a></li>
+<li><a href="/notes/java-spring/modern-java/"><span class="n">6</span><span class="t">Modern Java 9~21 핵심</span><span class="s">Java 9~21에서 실무 코드를 바꾼 언어·API 변화를 LTS 기준으로 묶어 정리한다</span></a></li>
+<li><a href="/notes/java-spring/virtual-thread-basics/"><span class="n">7</span><span class="t">Virtual Thread — 원리·API·Pinning</span><span class="s">Virtual Thread가 Carrier 위에서 mount·unmount하는 원리, 생성 API 4가지, synchronized가 일으키는 Pinning의 원인과 대응을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/virtual-thread-practice/"><span class="n">8</span><span class="t">Virtual Thread — 실전·Spring Boot·Structured Concurrency</span><span class="s">Spring Boot 설정 한 줄로 Virtual Thread를 켠 뒤, 병렬 호출·외부 자원 보호·측정을 어떻게 설계하는가</span></a></li>
+<li><a href="/notes/java-spring/design-patterns-creational-structural/"><span class="n">9</span><span class="t">디자인 패턴 — 생성·구조</span><span class="s">객체를 어떻게 만들고(생성) 어떻게 조합하는지(구조)를 GoF 11개 패턴의 적용 신호와 함정 중심으로 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/design-patterns-behavioral/"><span class="n">10</span><span class="t">디자인 패턴 — 행위·조합</span><span class="s">행위 패턴 9가지의 역할 분담 원칙과 Observer·Strategy·Mediator를 한 시스템에 조합하는 기준을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>Spring 코어</h2><ol class="toc"><li><a href="/notes/java-spring/build-and-project-setup/"><span class="n">11</span><span class="t">빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles</span><span class="s">빌드 도구가 의존성을 해석하고, Initializr가 표준 골격을 만들며, Profile과 외부 설정이 환경 차이를 코드 밖으로 밀어내는 구조를 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/spring-framework-boot-autoconfig/"><span class="n">12</span><span class="t">Spring Framework와 Boot 자동 구성</span><span class="s">Spring Boot는 Framework를 대체하지 않으며, 클래스패스와 조건 어노테이션으로 인프라 Bean을 채우는 래퍼다</span></a></li>
+<li><a href="/notes/java-spring/ioc-di-application-context/"><span class="n">13</span><span class="t">IoC/DI와 ApplicationContext — Bean이란</span><span class="s">객체 생성과 연결의 책임을 컨테이너로 넘기는 IoC/DI의 원리와, ApplicationContext가 Bean을 다루는 방식을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/bean-registration-injection/"><span class="n">14</span><span class="t">Bean 등록과 주입 — 어노테이션·@Component·@Configuration</span><span class="s">어노테이션이 리플렉션으로 읽히는 원리부터 @Component 스캔·@Bean 팩토리·생성자 주입·@Primary/@Qualifier 분기까지 정리한다</span></a></li>
+<li><a href="/notes/java-spring/bean-scope-lifecycle/"><span class="n">15</span><span class="t">Bean Scope와 생명주기</span><span class="s">Bean을 몇 개 만들고 언제 초기화·소멸시키는지 결정하는 Scope와 콜백의 동작 규칙</span></a></li>
+<li><a href="/notes/java-spring/aop-spel/"><span class="n">16</span><span class="t">AOP와 SpEL</span><span class="s">횡단 관심사를 프록시로 분리하는 Spring AOP의 동작 원리와 SpEL 표현식의 역할·경계를 정리한다</span></a></li>
+<li><a href="/notes/java-spring/layered-architecture/"><span class="n">17</span><span class="t">계층 설계 — 서비스 레이어 분리</span><span class="s">Controller·Service·Repository 3계층의 책임과 의존 방향, 비즈니스 로직과 트랜잭션 경계를 서비스에 두는 이유</span></a></li></ol></section>
+<section class="part-group"><h2>Web MVC</h2><ol class="toc"><li><a href="/notes/java-spring/dispatcher-servlet-filter-interceptor/"><span class="n">18</span><span class="t">요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</span><span class="s">HTTP 요청이 Tomcat에서 컨트롤러까지 거치는 단계와 Filter·Interceptor가 갈리는 지점을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/controller-request-binding/"><span class="n">19</span><span class="t">Controller와 요청 바인딩</span><span class="s">HTTP 요청의 경로·쿼리·본문을 메서드 인자로 받고, 반환 객체를 JSON 응답으로 내보내는 Spring MVC의 바인딩 규칙</span></a></li>
+<li><a href="/notes/java-spring/argument-resolver-upload-paging/"><span class="n">20</span><span class="t">ArgumentResolver·파일 업로드·페이징</span><span class="s">컨트롤러 매개변수를 채우는 HandlerMethodArgumentResolver 원리와 MultipartFile 업로드·Pageable 페이징의 안전한 사용법</span></a></li>
+<li><a href="/notes/java-spring/exception-handling-validation/"><span class="n">21</span><span class="t">예외 처리와 검증 — @ControllerAdvice·Bean Validation</span><span class="s">컨트롤러에서 try-catch와 if 검증을 걷어내고, 글로벌 핸들러와 검증 어노테이션으로 오류 응답을 한 형식으로 통일하는 방법</span></a></li>
+<li><a href="/notes/java-spring/cors-security-oauth2-jwt/"><span class="n">22</span><span class="t">CORS와 Spring Security — OAuth2·JWT</span><span class="s">CORS 허용 헤더, SecurityFilterChain 인증·인가, 그리고 JWT를 공개 키로 검증하는 OAuth2 Resource Server 구성을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/openapi-docs/"><span class="n">23</span><span class="t">API 문서화 — Springdoc OpenAPI</span><span class="s">Springdoc이 컨트롤러 코드에서 OpenAPI 명세를 생성하는 원리와 어노테이션 보강·보안 스키마·운영 노출 통제 방법</span></a></li></ol></section>
+<section class="part-group"><h2>데이터</h2><ol class="toc"><li><a href="/notes/java-spring/jdbc-jdbctemplate/"><span class="n">24</span><span class="t">JDBC·DataSource·JdbcTemplate</span><span class="s">JDBC 표준 위에 DataSource로 커넥션을 풀링하고 JdbcTemplate으로 보일러플레이트와 예외를 제거하는 구조</span></a></li>
+<li><a href="/notes/java-spring/transactional-locking/"><span class="n">25</span><span class="t">@Transactional 원리와 낙관/비관 락</span><span class="s">@Transactional은 원자성만 보장하며 동시 수정 충돌은 @Version 낙관적 락이나 @Lock 비관적 락으로 따로 막는다.</span></a></li>
+<li><a href="/notes/java-spring/jpa-hibernate-spring-data/"><span class="n">26</span><span class="t">JPA·Hibernate·Spring Data JPA — Entity와 Repository</span><span class="s">JPA는 표준, Hibernate는 구현체, Spring Data JPA는 Repository 추상화이며 코드의 두 축은 @Entity와 JpaRepository다.</span></a></li>
+<li><a href="/notes/java-spring/jpa-relations-n-plus-1/"><span class="n">27</span><span class="t">연관관계·N+1·값 객체</span><span class="s">외래 키를 가진 쪽이 연관관계의 주인이며, 모든 관계를 LAZY로 두고 Fetch Join으로 N+1을 끊고, 식별자 없는 값은 @Embeddable로 묶는다.</span></a></li>
+<li><a href="/notes/java-spring/jpa-queries-querydsl-auditing/"><span class="n">28</span><span class="t">쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</span><span class="s">단순 조건은 메서드 이름, 조인은 @Query, 동적 조건은 QueryDSL로 나누고 생성·수정 이력은 Auditing에 맡긴다</span></a></li>
+<li><a href="/notes/java-spring/persistence-context-lazy-loading/"><span class="n">29</span><span class="t">영속성 컨텍스트와 LazyLoading</span><span class="s">영속성 컨텍스트는 트랜잭션 범위의 1차 캐시이며, LazyInitializationException과 N+1은 이 범위를 벗어난 지연 로딩에서 발생한다</span></a></li>
+<li><a href="/notes/java-spring/caching-cacheable-redis/"><span class="n">30</span><span class="t">캐싱 — @Cacheable과 Spring Data Redis</span><span class="s">@Cacheable·@CachePut·@CacheEvict로 메서드 결과를 캐싱하고, Redis 연동 시 TTL·직렬화·자기 호출 함정을 어떻게 다루는가</span></a></li></ol></section>
+<section class="part-group"><h2>운영·통합</h2><ol class="toc"><li><a href="/notes/java-spring/logging-logback-slf4j/"><span class="n">31</span><span class="t">로깅 — Logback·SLF4J</span><span class="s">코드는 SLF4J 파사드만 의존하고 Logback이 출력을 맡는 구조에서 레벨·롤링·MDC 추적 ID를 어떻게 잡는가</span></a></li>
+<li><a href="/notes/java-spring/events-async-scheduling/"><span class="n">32</span><span class="t">이벤트·비동기·스케줄링</span><span class="s">부가 작업을 도메인 이벤트로 분리하고 @Async 스레드 풀과 @Scheduled 분산 락으로 안전하게 운영하는 방법</span></a></li>
+<li><a href="/notes/java-spring/http-client-restclient/"><span class="n">33</span><span class="t">HTTP 클라이언트 — RestClient</span><span class="s">Spring 6.1+ 동기 호출 표준 RestClient의 빌더·상태 코드 매핑·타임아웃·인터셉터·테스트 패턴을 정리한다</span></a></li>
+<li><a href="/notes/java-spring/testing-mockmvc-testcontainers/"><span class="n">34</span><span class="t">테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</span><span class="s">슬라이스·통합·실제 DB 테스트를 어떤 기준으로 나누고, Testcontainers와 Flyway로 운영과 같은 환경을 재현하는가</span></a></li>
+<li><a href="/notes/java-spring/actuator-micrometer/"><span class="n">35</span><span class="t">Actuator와 Micrometer</span><span class="s">Actuator 엔드포인트로 상태를 노출하고 Micrometer로 메트릭·트레이스를 수집해 운영 가시성을 확보하는 방법</span></a></li>
+<li><a href="/notes/java-spring/dto-mapping-mapstruct/"><span class="n">36</span><span class="t">DTO 매핑 — MapStruct</span><span class="s">Entity와 DTO 사이 변환 코드를 컴파일 시점에 생성해 반복과 누락을 없애는 MapStruct 표준 패턴</span></a></li>
+<li><a href="/notes/java-spring/deploy-docker-buildpack/"><span class="n">37</span><span class="t">배포 — Docker·Buildpack</span><span class="s">Spring Boot 앱을 컨테이너 이미지로 만드는 두 경로(Buildpack·Dockerfile)와 Compose·Kubernetes 운영 시 확인할 지점을 정리한다.</span></a></li>
+<li><a href="/notes/java-spring/msa-spring-kafka-gateway/"><span class="n">38</span><span class="t">MSA 입문 — Spring Kafka·Cloud Gateway</span><span class="s">서비스를 쪼갠 뒤 안쪽은 Kafka 이벤트로, 바깥쪽은 Gateway 단일 진입점으로 잇는 최소 구성을 정리한다</span></a></li>
+<li><a href="/notes/java-spring/spring-ai/"><span class="n">39</span><span class="t">Spring AI</span><span class="s">ChatClient·PromptTemplate·VectorStore로 LLM 호출과 RAG를 Spring 방식으로 통합하는 법</span></a></li>
+<li><a href="/notes/java-spring/best-practices/"><span class="n">40</span><span class="t">베스트 프랙티스 정리</span><span class="s">Spring Boot 3 실무 규칙을 DI·프록시·보안·성능·테스트 축으로 압축하고, 가장 자주 틀리는 패턴의 원인을 정리한다.</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

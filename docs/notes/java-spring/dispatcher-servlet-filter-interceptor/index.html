@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>요청 처리 흐름 — DispatcherServlet·Filter·Interceptor · Java / Spring</title>
+  <meta name="description" content="HTTP 요청이 Tomcat에서 컨트롤러까지 거치는 단계와 Filter·Interceptor가 갈리는 지점을 정리한다.">
+  <meta property="og:title" content="요청 처리 흐름 — DispatcherServlet·Filter·Interceptor · Java / Spring">
+  <meta property="og:description" content="HTTP 요청이 Tomcat에서 컨트롤러까지 거치는 단계와 Filter·Interceptor가 갈리는 지점을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/dispatcher-servlet-filter-interceptor/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Web MVC</p>
+  <h1>요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</h1>
+  <p class="summary">HTTP 요청이 Tomcat에서 컨트롤러까지 거치는 단계와 Filter·Interceptor가 갈리는 지점을 정리한다.</p>
+  <div class="content">
+<p><code>@RestController</code>에 메서드를 두면 URL 요청이 그 메서드로 도착한다. 이 과정을 모르면 인증·로깅·Trace ID 부여 같은 공통 처리를 어디에 둘지 판단할 수 없어 컨트롤러마다 같은 코드가 복제되고, 예외가 <code>@ControllerAdvice</code>에 잡히지 않는 현상의 원인을 찾지 못한다. 요청이 거치는 단계와 각 단계가 Spring 안인지 밖인지 알면 두 문제가 함께 풀린다.</p>
+<h2>핵심 개념</h2>
+<h3>DispatcherServlet — 단일 진입점</h3>
+<p>DispatcherServlet은 Spring MVC의 프런트 컨트롤러다. <code>jakarta.servlet.http.HttpServlet</code>의 서브클래스이며 Spring Boot가 기동 시 자동 생성해 <code>/</code> 전체에 매핑한다. 내장 Tomcat이 받은 요청은 Servlet Filter 체인을 지나 이 서블릿으로 들어오고, 이후 흐름은 다음 순서다.</p>
+<ol>
+<li>HandlerMapping이 URL·HTTP 메서드 조합으로 핸들러(컨트롤러 메서드)를 찾는다. 핸들러에 연결된 Interceptor 목록도 이때 결정된다.</li>
+<li>Interceptor의 <code>preHandle</code>이 순서대로 실행된다.</li>
+<li>HandlerAdapter가 <code>@PathVariable</code>·<code>@RequestParam</code>·<code>@RequestBody</code> 등을 해석해 매개변수를 채우고 메서드를 호출한다.</li>
+<li>반환값을 HttpMessageConverter(기본 JSON 구현은 Jackson)가 직렬화하거나, 뷰 이름이면 ViewResolver가 템플릿을 찾아 렌더링한다.</li>
+<li><code>postHandle</code>·<code>afterCompletion</code>이 역순으로 실행되고, Filter 체인의 후처리를 거쳐 Tomcat이 응답을 보낸다.</li>
+</ol>
+<p>개발자가 작성하는 것은 3단계의 컨트롤러 메서드뿐이다. <code>@RestController</code>는 <code>@Controller</code>에 <code>@ResponseBody</code>가 결합된 것으로 반환값이 항상 응답 본문이 되고, <code>@Controller</code>의 문자열 반환값은 뷰 이름으로 해석된다. 같은 URL·메서드 조합이 두 핸들러에 매핑되면 HandlerMapping이 테이블을 만드는 기동 시점에 실패한다.</p>
+<h3>Filter와 Interceptor의 경계</h3>
+<p>둘 다 요청 전후에 공통 처리를 끼워 넣지만 위치가 다르다. Filter는 Servlet 명세(<code>jakarta.servlet.Filter</code>)의 일부로 DispatcherServlet 바깥, 서블릿 컨테이너 단계에서 실행된다. HandlerInterceptor는 Spring MVC 전용으로 DispatcherServlet 안에서 핸들러가 결정된 뒤 실행된다. 나머지 차이는 이 위치에서 파생된다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>Filter</th>
+<th>HandlerInterceptor</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>적용 범위</td>
+<td>모든 요청. 정적 자원 포함</td>
+<td>핸들러가 매핑된 요청</td>
+</tr>
+<tr>
+<td>접근 정보</td>
+<td><code>ServletRequest</code>·<code>ServletResponse</code></td>
+<td>위에 더해 <code>HandlerMethod</code>·<code>ModelAndView</code></td>
+</tr>
+<tr>
+<td>본문 가공</td>
+<td>Wrapper로 가능</td>
+<td>어렵다</td>
+</tr>
+<tr>
+<td>예외 처리</td>
+<td><code>@ControllerAdvice</code>가 잡지 못한다</td>
+<td><code>@ControllerAdvice</code>가 잡는다</td>
+</tr>
+<tr>
+<td>등록</td>
+<td><code>@Component</code> 또는 <code>FilterRegistrationBean</code></td>
+<td><code>WebMvcConfigurer.addInterceptors</code></td>
+</tr>
+</tbody></table>
+<p>본문을 다루거나 정적 자원까지 포함해야 하면 Filter, 어느 컨트롤러가 호출되는지에 따라 분기해야 하면 Interceptor, HTTP와 무관한 메서드 단위 처리는 AOP다. Spring Security는 Filter 체인 위에 구축되어 있고, CORS Preflight 응답과 Trace ID 부여도 모든 요청에 걸려야 하므로 Filter가 맡는다.</p>
+<h2>코드</h2>
+<p>요청마다 Trace ID를 발급해 MDC와 응답 헤더에 넣는 Filter다. <code>OncePerRequestFilter</code>를 상속하면 forward·error 디스패치에서 중복 실행되지 않고 캐스팅도 필요 없다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.servlet.FilterChain;
+<span class="hljs-keyword">import</span> jakarta.servlet.ServletException;
+<span class="hljs-keyword">import</span> jakarta.servlet.http.HttpServletRequest;
+<span class="hljs-keyword">import</span> jakarta.servlet.http.HttpServletResponse;
+<span class="hljs-keyword">import</span> org.slf4j.MDC;
+<span class="hljs-keyword">import</span> org.springframework.core.annotation.Order;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+<span class="hljs-keyword">import</span> org.springframework.web.filter.OncePerRequestFilter;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.UUID;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@Order(1)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TraceIdFilter</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">OncePerRequestFilter</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">void</span> <span class="hljs-title function_">doFilterInternal</span><span class="hljs-params">(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain chain)</span> <span class="hljs-keyword">throws</span> ServletException, IOException {
+        <span class="hljs-type">String</span> <span class="hljs-variable">traceId</span> <span class="hljs-operator">=</span> UUID.randomUUID().toString();
+        MDC.put(<span class="hljs-string">&quot;traceId&quot;</span>, traceId);
+        response.setHeader(<span class="hljs-string">&quot;X-Trace-Id&quot;</span>, traceId);
+        <span class="hljs-keyword">try</span> {
+            chain.doFilter(request, response);
+        } <span class="hljs-keyword">finally</span> {
+            MDC.remove(<span class="hljs-string">&quot;traceId&quot;</span>);
+        }
+    }
+}</code></pre>
+<p>핸들러 메서드의 커스텀 어노테이션을 읽어 권한을 검사하는 Interceptor다. <code>handler</code>가 <code>HandlerMethod</code>인지 확인해야 정적 자원 핸들러에서 <code>ClassCastException</code>이 나지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.servlet.http.HttpServletRequest;
+<span class="hljs-keyword">import</span> jakarta.servlet.http.HttpServletResponse;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+<span class="hljs-keyword">import</span> org.springframework.web.method.HandlerMethod;
+<span class="hljs-keyword">import</span> org.springframework.web.servlet.HandlerInterceptor;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AdminOnlyInterceptor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">HandlerInterceptor</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">preHandle</span><span class="hljs-params">(HttpServletRequest request,
+                             HttpServletResponse response,
+                             Object handler)</span> {
+        <span class="hljs-keyword">if</span> (!(handler <span class="hljs-keyword">instanceof</span> HandlerMethod method)
+                || !method.hasMethodAnnotation(AdminOnly.class)) {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        }
+        <span class="hljs-keyword">if</span> (!<span class="hljs-string">&quot;admin&quot;</span>.equals(request.getHeader(<span class="hljs-string">&quot;X-Role&quot;</span>))) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+    }
+}</code></pre>
+<p>Interceptor는 <code>WebMvcConfigurer</code>로 경로 패턴과 함께 등록한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+<span class="hljs-keyword">import</span> org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">WebConfig</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">WebMvcConfigurer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AdminOnlyInterceptor adminOnlyInterceptor;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">WebConfig</span><span class="hljs-params">(AdminOnlyInterceptor adminOnlyInterceptor)</span> {
+        <span class="hljs-built_in">this</span>.adminOnlyInterceptor = adminOnlyInterceptor;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">addInterceptors</span><span class="hljs-params">(InterceptorRegistry registry)</span> {
+        registry.addInterceptor(adminOnlyInterceptor)
+                .addPathPatterns(<span class="hljs-string">&quot;/api/**&quot;</span>)
+                .excludePathPatterns(<span class="hljs-string">&quot;/api/auth/**&quot;</span>, <span class="hljs-string">&quot;/api/public/**&quot;</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Filter에서 던진 예외는 <code>@ControllerAdvice</code>에 도달하지 않는다.</strong> 서블릿 컨테이너의 에러 처리로 넘어가 응답 형식이 API 규약과 달라진다. Filter 안에서 직접 JSON을 쓰거나 <code>HandlerExceptionResolver</code>를 주입해 위임한다.</li>
+<li><strong><code>@Component</code> Filter를 <code>FilterRegistrationBean</code>으로 다시 등록하면 두 번 실행된다.</strong> 경로나 순서를 제어하려면 <code>@Component</code>를 떼고 <code>FilterRegistrationBean</code>만 남긴다.</li>
+<li><strong>요청 본문을 Filter에서 읽으면 컨트롤러는 빈 본문을 받는다.</strong> <code>InputStream</code>은 한 번만 소비된다. <code>ContentCachingRequestWrapper</code>·<code>ContentCachingResponseWrapper</code>로 감싸 체인에 넘기고, 응답은 <code>copyBodyToResponse()</code>를 호출해야 클라이언트에 전달된다.</li>
+<li><strong>Spring Boot 3부터 경로 매칭 기본값이 <code>PathPatternParser</code>다.</strong> <code>/**</code>는 패턴 끝에서만 허용되어 중간에 <code>/**/</code>가 들어간 패턴은 기동 시 실패한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/controller-request-binding/</li>
+<li>/notes/java-spring/exception-handling-validation/</li>
+<li>/notes/java-spring/aop-spel/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · DispatcherServlet, HandlerMapping, Filter, HandlerInterceptor, Spring MVC</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/layered-architecture/"><small>이전</small>계층 설계 — 서비스 레이어 분리</a>
+  <a class="next" href="/notes/java-spring/controller-request-binding/"><small>다음</small>Controller와 요청 바인딩</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

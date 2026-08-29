@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>계층 설계 — 서비스 레이어 분리 · Java / Spring</title>
+  <meta name="description" content="Controller·Service·Repository 3계층의 책임과 의존 방향, 비즈니스 로직과 트랜잭션 경계를 서비스에 두는 이유">
+  <meta property="og:title" content="계층 설계 — 서비스 레이어 분리 · Java / Spring">
+  <meta property="og:description" content="Controller·Service·Repository 3계층의 책임과 의존 방향, 비즈니스 로직과 트랜잭션 경계를 서비스에 두는 이유">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/layered-architecture/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>계층 설계 — 서비스 레이어 분리</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Spring 코어</p>
+  <h1>계층 설계 — 서비스 레이어 분리</h1>
+  <p class="summary">Controller·Service·Repository 3계층의 책임과 의존 방향, 비즈니스 로직과 트랜잭션 경계를 서비스에 두는 이유</p>
+  <div class="content">
+<p>요청을 받고, 값을 검증하고, DB에서 조회하고, 계산하고, 저장하고, 응답을 만드는 일을 컨트롤러 메서드 하나에 전부 넣어도 코드는 동작한다. 문제는 동작 이후에 드러난다. 같은 로직을 배치 작업이나 메시지 컨슈머에서 재사용하려면 HTTP 없이 호출할 방법이 없고, 비즈니스 규칙만 단위 테스트하려 해도 매번 HTTP 요청을 흉내 내야 하며, 어디까지가 하나의 트랜잭션인지 경계가 흐려진다. 레이어드 아키텍처는 이런 비대한 컨트롤러(fat controller)를 막기 위해 책임을 세 겹으로 나누는 구조다.</p>
+<h2>핵심 개념</h2>
+<h3>세 계층의 책임</h3>
+<table>
+<thead>
+<tr>
+<th align="left">계층</th>
+<th align="left">책임</th>
+<th align="left">어노테이션</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Controller</td>
+<td align="left">HTTP 요청 수신, 파라미터 바인딩, 서비스 호출, 응답 변환</td>
+<td align="left"><code>@RestController</code></td>
+</tr>
+<tr>
+<td align="left">Service</td>
+<td align="left">비즈니스 규칙, 여러 Repository 조합, 트랜잭션 경계</td>
+<td align="left"><code>@Service</code></td>
+</tr>
+<tr>
+<td align="left">Repository</td>
+<td align="left">영속화와 조회</td>
+<td align="left"><code>@Repository</code></td>
+</tr>
+</tbody></table>
+<p>원칙은 각 계층이 자기 일만 한다는 것이다. 컨트롤러는 판단하지 않고, 서비스는 HTTP를 모르며, 리포지토리는 비즈니스 규칙을 모른다. 로직을 어디에 둘지 판단하는 기준은 하나다. HTTP 없이도 호출되어야 하는 코드라면 서비스 계층이다.</p>
+<h3>서비스 계층이 맡는 세 가지</h3>
+<p>서비스는 비즈니스 규칙(잔액이 부족하면 거부한다), 여러 리포지토리의 조합(포인트와 주문을 함께 다룬다), 트랜잭션 경계(이 묶음은 한 단위로 성공하거나 실패한다)를 담당한다. <code>@Transactional</code>을 서비스 메서드에 붙이는 것이 표준인 이유가 여기에 있다. 트랜잭션은 비즈니스 한 단위를 묶는 것이고, 그 단위가 정의되는 곳이 서비스이기 때문이다. 컨트롤러에 <code>@Transactional</code>을 붙이면 응답 직렬화나 예외 변환까지 트랜잭션 안에 끌려 들어가 경계가 불명확해진다.</p>
+<h3>스테레오타입 어노테이션</h3>
+<p><code>@Service</code>는 내부적으로 <code>@Component</code>를 메타 어노테이션으로 가진다. 컴포넌트 스캔 대상이 된다는 점에서 기능은 같고, 차이는 역할을 이름으로 드러낸다는 점이다. <code>@Controller</code>·<code>@Service</code>·<code>@Repository</code>를 묶어 스테레오타입 어노테이션이라 부른다. <code>@Repository</code>만은 부가 기능이 하나 있다. <code>PersistenceExceptionTranslationPostProcessor</code>가 이 어노테이션이 붙은 Bean을 대상으로 JPA·JDBC 등 기술별 예외를 Spring의 <code>DataAccessException</code> 계층으로 변환한다.</p>
+<h3>인터페이스 도입 기준</h3>
+<p>과거에는 <code>OrderService</code> 인터페이스와 <code>OrderServiceImpl</code> 구현체를 항상 쌍으로 만들었다. 현재는 구현이 여러 개로 갈릴 가능성이 있을 때만 인터페이스를 두는 것이 일반적이다. 결제를 카드·계좌이체로 교체해야 한다면 인터페이스가 의미를 갖지만, 구현체가 하나뿐인 서비스에 인터페이스를 강제하면 파일만 늘어난다. Spring은 인터페이스가 없어도 CGLIB 프록시로 <code>@Transactional</code>을 적용하므로, 인터페이스가 AOP의 전제 조건도 아니다.</p>
+<h3>의존 방향</h3>
+<p>의존은 <code>Controller → Service → Repository</code> 한 방향으로만 흐른다. 컨트롤러는 서비스를 알지만 서비스는 컨트롤러를 모르고, 서비스는 리포지토리를 알지만 리포지토리는 서비스를 모른다. 이 방향이 역전되거나 계층 안에서 서로를 호출하면 순환 의존이 생기고, Spring Boot는 기본 설정에서 순환 참조를 기동 실패로 처리한다. 화살표가 한 방향인지 확인하는 것이 구조 건전성을 보는 가장 빠른 점검이다.</p>
+<h2>코드</h2>
+<p>모든 책임을 한 곳에 몰아넣은 컨트롤러다. 검증·포인트 차감·저장·응답 변환이 HTTP 진입점에 묶여 있어 재사용과 테스트가 불가능하다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PointRepository pointRepository;
+
+    <span class="hljs-meta">@PostMapping(&quot;/orders&quot;)</span>
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> OrderRequest req)</span> {
+        <span class="hljs-keyword">if</span> (req.amount() &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;금액 오류&quot;</span>);
+
+        <span class="hljs-type">Point</span> <span class="hljs-variable">point</span> <span class="hljs-operator">=</span> pointRepository.findByUserId(req.userId())
+                .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">NoSuchElementException</span>(<span class="hljs-string">&quot;포인트 없음&quot;</span>));
+        <span class="hljs-keyword">if</span> (point.getBalance() &lt; req.amount()) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;잔액 부족&quot;</span>);
+        point.setBalance(point.getBalance() - req.amount());
+
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orderRepository.save(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(req.userId(), req.amount()));
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(order.getId(), point.getBalance());
+    }
+}</code></pre>
+<p>비즈니스 규칙과 트랜잭션 경계를 서비스로 옮긴 형태다. 잔액 검사는 도메인 객체 <code>Point.use()</code>로 내려가고, 서비스는 리포지토리 두 개를 조합해 한 트랜잭션으로 묶는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PointRepository pointRepository;
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">placeOrder</span><span class="hljs-params">(Long userId, <span class="hljs-type">int</span> amount)</span> {
+        <span class="hljs-keyword">if</span> (amount &lt;= <span class="hljs-number">0</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;금액 오류&quot;</span>);
+
+        <span class="hljs-type">Point</span> <span class="hljs-variable">point</span> <span class="hljs-operator">=</span> pointRepository.findByUserId(userId)
+                .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">NoSuchElementException</span>(<span class="hljs-string">&quot;포인트 없음&quot;</span>));
+        point.use(amount);   <span class="hljs-comment">// 잔액 부족 시 도메인 객체가 예외를 던진다</span>
+
+        <span class="hljs-keyword">return</span> orderRepository.save(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(userId, amount));
+    }
+}</code></pre>
+<p>컨트롤러는 요청 DTO를 풀어 서비스에 넘기고 결과를 응답 DTO로 바꾸는 일만 남는다. 서비스 시그니처에 HTTP 타입이 없으므로 배치나 테스트에서 그대로 호출할 수 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderService orderService;
+
+    <span class="hljs-meta">@PostMapping(&quot;/orders&quot;)</span>
+    <span class="hljs-meta">@ResponseStatus(HttpStatus.CREATED)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> <span class="hljs-meta">@Valid</span> OrderRequest req)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orderService.placeOrder(req.userId(), req.amount());
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(order.getId());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>서비스 시그니처에 HTTP 타입이 들어온다.</strong> <code>HttpServletRequest</code>나 <code>ResponseEntity</code>가 서비스 메서드에 등장하면 계층 경계가 무너진 신호다. 헤더·쿠키·세션 처리는 컨트롤러에서 끝내고 서비스에는 순수한 값과 도메인 타입만 넘긴다.</li>
+<li><strong>컨트롤러가 다른 컨트롤러를 호출한다.</strong> 공통 로직이 필요하면 컨트롤러 간 호출이 아니라 서비스로 내려서 두 컨트롤러가 같은 서비스를 쓰도록 한다. 컨트롤러 간 호출은 HTTP 컨텍스트 의존과 순환 참조를 동시에 만든다.</li>
+<li><strong>리포지토리에 판단이 들어간다.</strong> 잔액 부족 여부 같은 규칙은 리포지토리가 아니라 서비스나 도메인 객체의 몫이다. 리포지토리는 저장·조회 메서드만 노출한다.</li>
+<li><strong>서비스가 서비스를 호출하다 순환한다.</strong> 서비스 간 호출 자체는 허용되지만 <code>A → B → A</code> 형태가 생기면 기동이 실패한다. 공통 부분을 제3의 서비스로 추출하거나, 이벤트로 결합을 끊는다.</li>
+<li><strong><code>@Transactional</code> 내부 호출은 프록시를 타지 않는다.</strong> 같은 클래스 안에서 <code>this.method()</code>로 부르면 트랜잭션 어드바이스가 적용되지 않는다. 트랜잭션 경계가 필요한 메서드는 외부 Bean에서 호출되도록 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/bean-registration-injection/">Bean 등록과 주입 — 어노테이션·@Component·@Configuration</a></li>
+<li><a href="/notes/java-spring/transactional-locking/">@Transactional 원리와 낙관/비관 락</a></li>
+<li><a href="/notes/java-spring/controller-request-binding/">Controller와 요청 바인딩</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring, Layered Architecture, Service Layer, @Service, @Transactional</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/aop-spel/"><small>이전</small>AOP와 SpEL</a>
+  <a class="next" href="/notes/java-spring/dispatcher-servlet-filter-interceptor/"><small>다음</small>요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

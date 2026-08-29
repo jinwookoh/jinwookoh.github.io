@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MSA 입문 — Spring Kafka·Cloud Gateway · Java / Spring</title>
+  <meta name="description" content="서비스를 쪼갠 뒤 안쪽은 Kafka 이벤트로, 바깥쪽은 Gateway 단일 진입점으로 잇는 최소 구성을 정리한다">
+  <meta property="og:title" content="MSA 입문 — Spring Kafka·Cloud Gateway · Java / Spring">
+  <meta property="og:description" content="서비스를 쪼갠 뒤 안쪽은 Kafka 이벤트로, 바깥쪽은 Gateway 단일 진입점으로 잇는 최소 구성을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/msa-spring-kafka-gateway/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>MSA 입문 — Spring Kafka·Cloud Gateway</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>MSA 입문 — Spring Kafka·Cloud Gateway</h1>
+  <p class="summary">서비스를 쪼갠 뒤 안쪽은 Kafka 이벤트로, 바깥쪽은 Gateway 단일 진입점으로 잇는 최소 구성을 정리한다</p>
+  <div class="content">
+<p>모놀리식은 기능 하나를 고쳐도 전체를 재배포해야 하고, 한 기능에만 부하가 몰려도 전체를 확장해야 한다. 서비스를 도메인 단위로 쪼개면 새 문제가 둘 생긴다. 서비스끼리 REST로 직접 호출하면 수신 서비스가 내려간 순간 호출한 쪽도 실패하고, 클라이언트는 늘어난 서비스 주소를 전부 알아야 하며 인증·rate limit 같은 공통 처리가 서비스마다 중복된다. 앞은 Kafka 비동기 메시징으로, 뒤는 Spring Cloud Gateway 단일 진입점으로 푼다.</p>
+<h2>핵심 개념</h2>
+<p>마이크로서비스는 각 서비스가 자기 데이터베이스와 배포 주기를 독점하는 구조다. DB를 공유하면 한 스키마에 묶여 모놀리식의 단점이 돌아오므로 데이터 공유는 API나 이벤트로만 한다. 운영 원칙은 12-Factor App으로 정리되며, 그중 설정 외부화와 무상태 프로세스가 지켜져야 같은 이미지를 환경마다 설정만 바꿔 띄우고 스케일아웃할 수 있다.</p>
+<p>Kafka는 메시지를 디스크에 보존하는 분산 이벤트 스트리밍 플랫폼이다. Topic은 메시지 분류 단위, Partition은 토픽의 물리적 분할이자 병렬 처리 단위, Offset은 파티션 안의 읽기 위치다. Consumer Group 안에서 한 파티션은 정확히 한 소비자만 담당하므로, 소비자 수가 파티션 수를 넘으면 초과분은 놀게 되고 처리량을 올리려면 파티션 수부터 늘려야 한다. 같은 키는 항상 같은 파티션으로 가므로 주문 ID를 키로 쓰면 그 주문의 메시지 순서가 보장된다. 클러스터 메타데이터는 KRaft가 관리한다.</p>
+<p>Spring Kafka에서는 <code>KafkaTemplate</code>이 Producer, <code>@KafkaListener</code>가 Consumer, <code>NewTopic</code> 빈이 토픽 프로비저닝, <code>@RetryableTopic</code>이 재시도·DLT를 담당하며 <code>spring.kafka.*</code> 설정만으로 자동 구성된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left">REST (동기)</th>
+<th align="left">Kafka (비동기)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">결합도</td>
+<td align="left">수신자 URL을 알아야 함</td>
+<td align="left">토픽 이름만 공유</td>
+</tr>
+<tr>
+<td align="left">수신자 장애 시</td>
+<td align="left">발신자도 실패</td>
+<td align="left">브로커에 남아 복구 후 처리</td>
+</tr>
+<tr>
+<td align="left">응답</td>
+<td align="left">즉시</td>
+<td align="left">별도 응답 토픽 필요</td>
+</tr>
+<tr>
+<td align="left">적합한 경우</td>
+<td align="left">즉각 응답이 필요한 조회</td>
+<td align="left">높은 처리량, 느슨한 결합</td>
+</tr>
+</tbody></table>
+<p>여러 서비스에 걸친 트랜잭션은 2PC 대신 Saga 패턴으로 처리한다. 각 서비스가 로컬 트랜잭션을 커밋하고 이벤트를 발행하며, 뒤 단계가 실패하면 앞 단계를 되돌리는 보상 트랜잭션을 발행한다. 이벤트로 협업하는 Choreography와 중앙 코디네이터가 지휘하는 Orchestration으로 나뉜다.</p>
+<p>Spring Cloud Gateway는 Route·Predicate·Filter로 구성된다. Route는 요청 패턴과 대상 URI의 매핑 단위, Predicate는 경로·메서드·헤더로 매칭 여부를 판단하는 조건, Filter는 매칭된 요청과 응답을 가공하는 단계다. 한 Route의 Predicate 여러 개는 AND로 결합되고, <code>default-filters</code>는 모든 Route에 적용된다. 기본 스타터 <code>spring-cloud-starter-gateway</code>는 WebFlux 기반이라 <code>spring-boot-starter-web</code>과 한 컨텍스트에 두면 기동하지 않는다. MVC 스택이 필요하면 <code>spring-cloud-starter-gateway-server-webmvc</code>를 대신 쓴다.</p>
+<h2>코드</h2>
+<p>Kafka 설정은 환경 변수로 주입한다. <code>acks=all</code>과 멱등 프로듀서로 중복 발행을 막고 오프셋은 수동 커밋한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">bootstrap-servers:</span> <span class="hljs-string">${KAFKA_BROKERS:localhost:9092}</span>
+    <span class="hljs-attr">producer:</span>
+      <span class="hljs-attr">key-serializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringSerializer</span>
+      <span class="hljs-attr">value-serializer:</span> <span class="hljs-string">org.springframework.kafka.support.serializer.JsonSerializer</span>
+      <span class="hljs-attr">acks:</span> <span class="hljs-string">all</span>
+      <span class="hljs-attr">properties:</span>
+        <span class="hljs-attr">enable.idempotence:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">compression.type:</span> <span class="hljs-string">zstd</span>
+    <span class="hljs-attr">consumer:</span>
+      <span class="hljs-attr">group-id:</span> <span class="hljs-string">${spring.application.name}</span>
+      <span class="hljs-attr">auto-offset-reset:</span> <span class="hljs-string">earliest</span>
+      <span class="hljs-attr">enable-auto-commit:</span> <span class="hljs-literal">false</span>
+      <span class="hljs-attr">key-deserializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringDeserializer</span>
+      <span class="hljs-attr">value-deserializer:</span> <span class="hljs-string">org.springframework.kafka.support.serializer.JsonDeserializer</span>
+      <span class="hljs-attr">properties:</span>
+        <span class="hljs-attr">spring.json.trusted.packages:</span> <span class="hljs-string">com.example.order.event</span>
+    <span class="hljs-attr">listener:</span>
+      <span class="hljs-attr">ack-mode:</span> <span class="hljs-string">MANUAL</span>
+      <span class="hljs-attr">concurrency:</span> <span class="hljs-number">3</span></code></pre>
+<p>토픽 이름은 상수로 관리하고 <code>NewTopic</code> 빈으로 프로비저닝한다. 소비 측은 <code>@RetryableTopic</code>으로 재시도 토픽과 DLT를 자동 생성해 실패를 격리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderCreatedEvent</span><span class="hljs-params">(UUID orderId, String customerRef, BigDecimal amount)</span> {}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">KafkaTopicConfig</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">ORDER_CREATED</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;order-created&quot;</span>;
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">NewTopic</span> <span class="hljs-title function_">orderCreatedTopic</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> TopicBuilder.name(ORDER_CREATED)
+                .partitions(<span class="hljs-number">3</span>)
+                .replicas(<span class="hljs-number">3</span>)
+                .config(TopicConfig.RETENTION_MS_CONFIG, <span class="hljs-string">&quot;604800000&quot;</span>)
+                .build();
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEventPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(OrderEventPublisher.class);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, OrderCreatedEvent&gt; kafkaTemplate;
+
+    OrderEventPublisher(KafkaTemplate&lt;String, OrderCreatedEvent&gt; kafkaTemplate) {
+        <span class="hljs-built_in">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">publish</span><span class="hljs-params">(OrderCreatedEvent event)</span> {
+        kafkaTemplate.send(KafkaTopicConfig.ORDER_CREATED, event.orderId().toString(), event)
+                .whenComplete((result, ex) -&gt; {
+                    <span class="hljs-keyword">if</span> (ex != <span class="hljs-literal">null</span>) {
+                        log.error(<span class="hljs-string">&quot;send failed: orderId={}&quot;</span>, event.orderId(), ex);
+                        <span class="hljs-keyword">return</span>;
+                    }
+                    <span class="hljs-type">RecordMetadata</span> <span class="hljs-variable">meta</span> <span class="hljs-operator">=</span> result.getRecordMetadata();
+                    log.debug(<span class="hljs-string">&quot;sent: partition={}, offset={}&quot;</span>, meta.partition(), meta.offset());
+                });
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">InventoryListener</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> InventoryService inventoryService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, Object&gt; kafkaTemplate;
+
+    InventoryListener(InventoryService inventoryService, KafkaTemplate&lt;String, Object&gt; kafkaTemplate) {
+        <span class="hljs-built_in">this</span>.inventoryService = inventoryService;
+        <span class="hljs-built_in">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="hljs-meta">@RetryableTopic(
+            attempts = &quot;3&quot;,
+            backoff = @Backoff(delay = 1000, multiplier = 2.0),
+            dltTopicSuffix = &quot;-dlt&quot;)</span>
+    <span class="hljs-meta">@KafkaListener(topics = KafkaTopicConfig.ORDER_CREATED)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onOrderCreated</span><span class="hljs-params">(OrderCreatedEvent event, Acknowledgment ack)</span> {
+        <span class="hljs-keyword">try</span> {
+            inventoryService.reserve(event.orderId(), event.amount());
+            kafkaTemplate.send(<span class="hljs-string">&quot;inventory-reserved&quot;</span>, event.orderId().toString(), event);
+        } <span class="hljs-keyword">catch</span> (InsufficientInventoryException e) {
+            <span class="hljs-comment">// 보상 트랜잭션: 재시도 대상이 아니므로 취소 이벤트를 발행하고 정상 종료한다</span>
+            kafkaTemplate.send(<span class="hljs-string">&quot;order-cancelled&quot;</span>, event.orderId().toString(),
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderCancelledEvent</span>(event.orderId(), <span class="hljs-string">&quot;insufficient inventory&quot;</span>));
+        }
+        ack.acknowledge();
+    }
+
+    <span class="hljs-meta">@DltHandler</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onDlt</span><span class="hljs-params">(OrderCreatedEvent event,
+                      <span class="hljs-meta">@Header(KafkaHeaders.EXCEPTION_MESSAGE)</span> String reason)</span> {
+        <span class="hljs-comment">// 영구 실패: 알림·수동 조치 대상으로 기록한다</span>
+    }
+}</code></pre>
+<p>라우팅은 YAML로 선언하고, 서킷 브레이커·재시도·rate limit 같은 횡단 관심사를 한 곳에 모은다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">cloud:</span>
+    <span class="hljs-attr">gateway:</span>
+      <span class="hljs-attr">default-filters:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-string">AddRequestHeader=X-Gateway-Trace,</span> <span class="hljs-string">${random.uuid}</span>
+      <span class="hljs-attr">routes:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">id:</span> <span class="hljs-string">product-service</span>
+          <span class="hljs-attr">uri:</span> <span class="hljs-string">http://product-service:8080</span>
+          <span class="hljs-attr">predicates:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">Path=/api/v3/product/**</span>
+          <span class="hljs-attr">filters:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">StripPrefix=2</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">id:</span> <span class="hljs-string">order-service</span>
+          <span class="hljs-attr">uri:</span> <span class="hljs-string">http://order-service:8080</span>
+          <span class="hljs-attr">predicates:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">Path=/api/v3/order/**</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">Method=GET,POST</span>
+          <span class="hljs-attr">filters:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">StripPrefix=2</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">CircuitBreaker</span>
+              <span class="hljs-attr">args:</span>
+                <span class="hljs-attr">name:</span> <span class="hljs-string">orderBreaker</span>
+                <span class="hljs-attr">fallbackUri:</span> <span class="hljs-string">forward:/fallback/order</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">Retry</span>
+              <span class="hljs-attr">args:</span>
+                <span class="hljs-attr">retries:</span> <span class="hljs-number">3</span>
+                <span class="hljs-attr">statuses:</span> <span class="hljs-string">BAD_GATEWAY,SERVICE_UNAVAILABLE</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">RequestRateLimiter</span>
+              <span class="hljs-attr">args:</span>
+                <span class="hljs-attr">redis-rate-limiter.replenishRate:</span> <span class="hljs-number">10</span>
+                <span class="hljs-attr">redis-rate-limiter.burstCapacity:</span> <span class="hljs-number">20</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>group-id</code>와 <code>auto-offset-reset</code>.</strong> 그룹 ID가 없으면 오프셋이 추적되지 않아 재시작 시 읽기 시작점이 보장되지 않는다. <code>auto-offset-reset</code>은 커밋된 오프셋이 없을 때만 적용되며, 기본값 <code>latest</code>는 그 사이 발행된 메시지를 건너뛴다.</li>
+<li><strong>JSON 역직렬화 실패.</strong> <code>JsonDeserializer</code>는 <code>spring.json.trusted.packages</code>에 없는 타입을 거부하므로 <code>*</code> 대신 이벤트 패키지를 명시한다. 이벤트 클래스는 record를 쓰거나 기본 생성자를 둔다. 역직렬화 오류는 <code>ErrorHandlingDeserializer</code>로 감싸지 않으면 같은 레코드에서 무한 반복된다.</li>
+<li><strong>보상 트랜잭션과 재시도의 구분.</strong> 재고 부족처럼 확정된 실패를 예외로 던지면 재시도 끝에 DLT로 가고 취소 이벤트는 발행되지 않는다. 일시적 장애만 예외로 전파하고 확정 실패는 보상 이벤트 발행 후 정상 커밋한다.</li>
+<li><strong>Aggregator 상태를 로컬 메모리에 두는 문제.</strong> 분할 결과를 주문 단위로 모을 때 인스턴스별 <code>ConcurrentHashMap</code>에 버퍼를 두면 각자 부분 결과만 보게 되어 집계가 끝나지 않는다. 집계 상태는 DB·Redis나 Kafka Streams 상태 저장소에 둔다.</li>
+<li><strong><code>StripPrefix</code> 세그먼트 수.</strong> <code>/api/v3/order/123</code>을 백엔드에 <code>/order/123</code>으로 보내려면 <code>StripPrefix=2</code>다. 값이 틀리면 백엔드가 404를 돌려주며 라우팅 장애의 가장 흔한 원인이다. OR 조건이 필요하면 Route를 나눈다.</li>
+<li><strong>게이트웨이의 단일 장애점.</strong> 게이트웨이는 무상태이므로 인스턴스를 여러 개 띄우고 앞에 로드밸런서나 Kubernetes Service를 둔다. <code>RequestRateLimiter</code>는 Redis가 없으면 동작하지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>이벤트·비동기·스케줄링 → /notes/java-spring/events-async-scheduling/</li>
+<li>배포 — Docker·Buildpack → /notes/java-spring/deploy-docker-buildpack/</li>
+<li>Actuator와 Micrometer → /notes/java-spring/actuator-micrometer/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · MSA, Spring Kafka, Spring Cloud Gateway, Saga, 12-Factor</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/deploy-docker-buildpack/"><small>이전</small>배포 — Docker·Buildpack</a>
+  <a class="next" href="/notes/java-spring/spring-ai/"><small>다음</small>Spring AI</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

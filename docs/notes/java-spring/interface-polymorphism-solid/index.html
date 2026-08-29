@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인터페이스·다형성·SOLID · Java / Spring</title>
+  <meta name="description" content="인터페이스와 다형성이 구현체 교체를 가능하게 하고, SOLID 5원칙이 그 교체를 안전하게 만드는 규칙임을 정리한다.">
+  <meta property="og:title" content="인터페이스·다형성·SOLID · Java / Spring">
+  <meta property="og:description" content="인터페이스와 다형성이 구현체 교체를 가능하게 하고, SOLID 5원칙이 그 교체를 안전하게 만드는 규칙임을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/interface-polymorphism-solid/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>인터페이스·다형성·SOLID</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>인터페이스·다형성·SOLID</h1>
+  <p class="summary">인터페이스와 다형성이 구현체 교체를 가능하게 하고, SOLID 5원칙이 그 교체를 안전하게 만드는 규칙임을 정리한다.</p>
+  <div class="content">
+<p>구체 클래스에 직접 의존하는 코드는 변경에 취약하다. 결제 방식을 문자열로 분기하는 <code>if-else</code>는 새 방식이 추가될 때마다 검증된 메서드를 다시 수정해야 하고, 알림 서비스가 <code>new EmailService()</code>를 직접 생성하면 SMS 채널을 붙이는 순간 상위 로직까지 손대야 한다. 테스트에서 게이트웨이를 가짜 구현으로 바꾸는 것도 불가능하다. 인터페이스와 다형성은 이런 결합을 끊는 언어 차원의 수단이고, SOLID는 그 수단을 어느 방향으로 써야 변경 비용이 줄어드는지 정리한 원칙이다.</p>
+<h2>핵심 개념</h2>
+<p><strong>인터페이스</strong>는 메서드 시그니처만 정의한 계약이다. 메서드는 기본적으로 <code>public abstract</code>, 필드는 <code>public static final</code>이다. Java 8부터 <code>default</code>·<code>static</code> 메서드로 본문을 가질 수 있고, Java 9부터 <code>private</code> 메서드도 허용되므로 &quot;인터페이스에는 본문이 없다&quot;는 설명은 Java 7 이전에만 맞다. 클래스는 <code>implements</code>로 여러 인터페이스를 구현할 수 있지만 <code>extends</code>는 하나만 가능하다. 두 부모의 같은 메서드 중 어느 쪽을 따를지 모호해지는 다이아몬드 문제 때문이다. 두 인터페이스의 <code>default</code> 메서드가 충돌하면 컴파일 오류가 나고 구현 클래스가 오버라이드해서 해소해야 한다.</p>
+<p><strong>다형성</strong>은 상위 타입 변수 하나가 서로 다른 구현체를 담고, 호출 시점에 실제 객체의 메서드가 실행되는 성질이다. 매개변수 타입을 인터페이스로 잡으면 새 구현체를 추가해도 호출부는 바뀌지 않는다. <code>@Override</code>는 시그니처 일치를 컴파일러가 검증하게 해 오타로 인한 오버로딩 실수를 막는다.</p>
+<p><strong>추상 클래스</strong>는 공통 상태와 구현을 공유하면서 일부를 하위 클래스에 위임할 때 쓴다. 공유할 필드나 구현이 없다면 인터페이스가 우선이다.</p>
+<p><strong>SOLID</strong>는 위 수단을 사용하는 다섯 가지 규칙이다. 관통하는 목표는 하나다. 변경 한 번이 무관한 코드를 깨뜨리지 않게 하는 것이다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">원칙</th>
+<th align="left">핵심 질문</th>
+<th align="left">위반 신호</th>
+<th align="left">처방</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">SRP 단일 책임</td>
+<td align="left">변경 이유가 하나인가</td>
+<td align="left">클래스 설명에 &quot;그리고&quot;가 들어간다</td>
+<td align="left">변경 이유별로 클래스 분리</td>
+</tr>
+<tr>
+<td align="left">OCP 개방-폐쇄</td>
+<td align="left">새 타입 추가 시 기존 코드를 고치는가</td>
+<td align="left">타입 문자열로 <code>if-else</code>·<code>switch</code> 증가</td>
+<td align="left">인터페이스 + 다형성</td>
+</tr>
+<tr>
+<td align="left">LSP 리스코프 치환</td>
+<td align="left">자식을 부모 자리에 넣어도 안전한가</td>
+<td align="left">오버라이드에서 <code>UnsupportedOperationException</code></td>
+<td align="left">상속 관계 재검토, 인터페이스 분리</td>
+</tr>
+<tr>
+<td align="left">ISP 인터페이스 분리</td>
+<td align="left">안 쓰는 메서드에 의존하는가</td>
+<td align="left">빈 구현, 예외만 던지는 메서드</td>
+<td align="left">작은 인터페이스 여러 개</td>
+</tr>
+<tr>
+<td align="left">DIP 의존성 역전</td>
+<td align="left">상위 모듈이 구체 클래스를 직접 생성하는가</td>
+<td align="left">필드에서 <code>new ConcreteClass()</code></td>
+<td align="left">추상화에 의존 + 외부 주입</td>
+</tr>
+</tbody></table>
+<p>SRP의 &quot;책임&quot;은 메서드 개수가 아니라 변경 이유다. 같은 이유로 함께 바뀌는 코드는 한 클래스에 둔다. ISP는 같은 기준을 인터페이스에 적용한 것이다. LSP는 하위 타입이 상위 타입보다 엄격한 사전 조건을 요구하거나 약한 사후 조건을 보장해서는 안 된다는 뜻이다. 직사각형을 상속한 정사각형이 <code>setWidth</code> 호출 시 높이까지 바꾸는 사례가 고전적이며, 여기서 상속보다 컴포지션을 선호하라는 지침이 나온다. DIP는 원칙이고 의존성 주입(DI)은 구현 기법이다. Spring은 인터페이스 타입 생성자 매개변수에 등록된 구현체를 주입해 주지만, 인터페이스 설계가 잘못되면 프레임워크가 있어도 결합은 그대로다.</p>
+<p>다섯 원칙은 한 흐름이다. DIP가 인터페이스를 도입하게 하고, ISP가 그것을 작게 나누고, OCP가 구현체 추가로 확장하게 하며, LSP가 새 구현체의 계약 준수를 강제하고, 그 결과 SRP가 지켜진다.</p>
+<h2>코드</h2>
+<p>결제 수단을 인터페이스로 추상화하고, <code>sealed</code>로 허용 구현체를 명시하며, <code>default</code> 메서드로 공통 검증을 공유한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">PaymentMethod</span> <span class="hljs-keyword">permits</span> CardPayment, BankTransferPayment {
+
+    <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(<span class="hljs-type">long</span> amount)</span>;
+
+    <span class="hljs-keyword">default</span> <span class="hljs-type">void</span> <span class="hljs-title function_">validate</span><span class="hljs-params">(<span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-keyword">if</span> (amount &lt;= <span class="hljs-number">0</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;amount must be positive: &quot;</span> + amount);
+        }
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CardPayment</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">PaymentMethod</span> {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(<span class="hljs-type">long</span> amount)</span> {
+        validate(amount);
+        System.out.println(<span class="hljs-string">&quot;card: &quot;</span> + amount);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BankTransferPayment</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">PaymentMethod</span> {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(<span class="hljs-type">long</span> amount)</span> {
+        validate(amount);
+        System.out.println(<span class="hljs-string">&quot;bank transfer: &quot;</span> + amount);
+    }
+}</code></pre>
+<p>Spring 서비스는 인터페이스에만 의존하고 생성자 주입을 받는다. 구현체가 바뀌어도 이 클래스는 수정되지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentMethod paymentMethod;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(PaymentMethod paymentMethod)</span> {
+        <span class="hljs-built_in">this</span>.paymentMethod = paymentMethod;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">placeOrder</span><span class="hljs-params">(<span class="hljs-type">long</span> amount)</span> {
+        paymentMethod.pay(amount);
+    }
+}</code></pre>
+<p>LSP·ISP를 함께 적용한 예다. 읽기와 쓰기를 별도 계약으로 나누면 읽기 전용 구현체가 <code>write()</code>를 예외로 막을 필요가 없어진다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">ReadableStore</span> {
+    <span class="hljs-type">String</span> <span class="hljs-title function_">read</span><span class="hljs-params">(String key)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">WritableStore</span> {
+    <span class="hljs-type">void</span> <span class="hljs-title function_">write</span><span class="hljs-params">(String key, String value)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ReadOnlyStore</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ReadableStore</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> java.util.Map&lt;String, String&gt; data;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ReadOnlyStore</span><span class="hljs-params">(java.util.Map&lt;String, String&gt; data)</span> {
+        <span class="hljs-built_in">this</span>.data = java.util.Map.copyOf(data);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">read</span><span class="hljs-params">(String key)</span> {
+        <span class="hljs-keyword">return</span> data.get(key);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">InMemoryStore</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ReadableStore</span>, WritableStore {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> java.util.<span class="hljs-type">Map</span>&lt;String, String&gt; <span class="hljs-variable">data</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">java</span>.util.concurrent.ConcurrentHashMap&lt;&gt;();
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">read</span><span class="hljs-params">(String key)</span> {
+        <span class="hljs-keyword">return</span> data.get(key);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">write</span><span class="hljs-params">(String key, String value)</span> {
+        data.put(key, value);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>구현체가 둘 이상이면 주입이 실패한다.</strong> 단일 타입으로 주입하면 <code>NoUniqueBeanDefinitionException</code>이 발생한다. <code>@Primary</code>, <code>@Qualifier</code>, 또는 <code>Map&lt;String, PaymentMethod&gt;</code>로 전부 받아 런타임에 선택하는 방식 중 하나를 명시한다.</li>
+<li><strong>구현체가 하나뿐인 인터페이스는 비용만 남긴다.</strong> Mockito는 구체 클래스도 모킹하므로 테스트가 인터페이스를 강제하지 않는다. 교체 지점이 실제로 존재할 때 추출한다.</li>
+<li><strong><code>default</code> 메서드는 상태를 가질 수 없다.</strong> 필드가 필요한 공통 구현을 억지로 넣으면 각 구현체에 getter를 강요하게 된다. 그 시점에는 추상 클래스나 컴포지션으로 옮긴다.</li>
+<li><strong>필드 주입은 순환 참조와 테스트 문제를 숨긴다.</strong> <code>@Autowired</code> 필드 주입은 단위 테스트에서 의존성을 넣기 어렵고, Spring Boot 2.6부터 순환 참조가 기본 금지된다. 생성자 주입으로 통일하고 <code>final</code>을 붙인다.</li>
+<li><strong>모든 분기를 다형성으로 바꾸면 과도한 추상화가 된다.</strong> 새 타입이 실제로 추가되는 분기만 OCP 대상이다. 상속 계층이 세 단계를 넘으면 LSP 위반이 늘어나므로 그 전에 컴포지션으로 전환한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/java-overview-oop/">자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥</a></li>
+<li><a href="/notes/java-spring/bean-registration-injection/">Bean 등록과 주입 — 어노테이션·@Component·@Configuration</a></li>
+<li><a href="/notes/java-spring/design-patterns-creational-structural/">디자인 패턴 — 생성·구조</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Java, Interface, Polymorphism, SOLID, DI</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/java-overview-oop/"><small>이전</small>자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥</a>
+  <a class="next" href="/notes/java-spring/collections-generics-optional/"><small>다음</small>컬렉션·제네릭·Optional</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

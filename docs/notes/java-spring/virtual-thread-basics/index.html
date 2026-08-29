@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Virtual Thread — 원리·API·Pinning · Java / Spring</title>
+  <meta name="description" content="Virtual Thread가 Carrier 위에서 mount·unmount하는 원리, 생성 API 4가지, synchronized가 일으키는 Pinning의 원인과 대응을 정리한다.">
+  <meta property="og:title" content="Virtual Thread — 원리·API·Pinning · Java / Spring">
+  <meta property="og:description" content="Virtual Thread가 Carrier 위에서 mount·unmount하는 원리, 생성 API 4가지, synchronized가 일으키는 Pinning의 원인과 대응을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/virtual-thread-basics/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>Virtual Thread — 원리·API·Pinning</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 자바 기초·모던 자바</p>
+  <h1>Virtual Thread — 원리·API·Pinning</h1>
+  <p class="summary">Virtual Thread가 Carrier 위에서 mount·unmount하는 원리, 생성 API 4가지, synchronized가 일으키는 Pinning의 원인과 대응을 정리한다.</p>
+  <div class="content">
+<p>전통적인 Java 스레드(Platform Thread)는 OS 커널 스레드와 1:1로 대응한다. 스레드마다 1~2MB의 스택을 고정 예약하고 컨텍스트 스위칭 비용이 크므로 동시 요청 1만 개를 스레드 1만 개로 받는 설계는 성립하지 않았다. 고정 크기 스레드 풀이 표준이 됐지만 처리량이 풀 크기에 묶이고, 요청 시간의 대부분인 I/O 대기 동안 스레드는 놀면서 슬롯을 점유한다. 이를 피하려면 CompletableFuture나 Reactor 같은 논블로킹 모델로 옮겨야 했는데, 코드가 콜백 체인으로 바뀌고 JDBC 같은 블로킹 라이브러리를 그대로 쓸 수 없었다. Java 21에서 정식화된 Virtual Thread(JEP 444)는 블로킹 코드를 그대로 두고 논블로킹 수준의 처리량을 얻기 위한 답이다.</p>
+<h2>핵심 개념</h2>
+<p>Virtual Thread는 OS 스레드가 아니라 JVM이 관리하는 힙 객체다. 실제 실행은 Carrier Thread라 부르는 Platform Thread가 맡고, Carrier 풀은 기본적으로 코어 수만큼의 병렬도를 가진 ForkJoinPool이다. Virtual Thread는 실행 시 Carrier에 mount되고, <code>Thread.sleep</code>·소켓 I/O·<code>LockSupport.park</code>·<code>ReentrantLock</code> 대기처럼 JDK가 블로킹 지점으로 인식하는 호출을 만나면 unmount된다. 이때 스택 프레임은 힙에 저장되고 Carrier는 즉시 다른 Virtual Thread를 실행한다. I/O가 끝나면 스택을 복원해 다시 mount되는데, 이 저장·복원이 JVM 내부 Continuation 메커니즘이며 사용자 코드가 직접 다루지 않는다.</p>
+<p>재개 시 같은 Carrier에서 실행된다는 보장은 없다. ForkJoinPool의 work stealing 때문이다. 다만 <code>ThreadLocal</code>은 Virtual Thread 단위로 유지되므로 Carrier가 바뀌어도 값은 보존된다.</p>
+<p>Platform Thread가 고정 스택을 미리 잡는 것과 달리 Virtual Thread의 스택은 unmount 상태에서 실제 사용량만큼(대개 수 KB) 힙에 남고 GC 대상이 되므로 수십만~수백만 개를 동시에 유지할 수 있다. 다만 늘어나는 것은 I/O 대기 중의 동시성이지 병렬성이 아니다. CPU 집약 작업은 여전히 코어 수에 묶인다.</p>
+<p>Virtual Thread는 별도 클래스가 아니라 <code>java.lang.Thread</code>의 구현이므로 <code>join</code>·<code>interrupt</code>·<code>getState</code>가 그대로 동작한다. 다른 점은 항상 daemon이고, 우선순위가 무시되며, 기본 이름이 빈 문자열이라는 것이다. 가벼우므로 풀링하지 않고 작업마다 새로 만드는 것이 표준이다.</p>
+<h2>코드</h2>
+<p>단순 실행은 <code>startVirtualThread</code>, 이름·예외 핸들러가 필요하면 <code>Thread.ofVirtual()</code> 빌더, ExecutorService 연동은 <code>factory()</code>를 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">Thread</span> <span class="hljs-variable">simple</span> <span class="hljs-operator">=</span> Thread.startVirtualThread(() -&gt;
+        System.out.println(Thread.currentThread()));
+simple.join();
+
+Thread.Builder.<span class="hljs-type">OfVirtual</span> <span class="hljs-variable">builder</span> <span class="hljs-operator">=</span> Thread.ofVirtual()
+        .name(<span class="hljs-string">&quot;worker-&quot;</span>, <span class="hljs-number">0</span>)   <span class="hljs-comment">// worker-0, worker-1, ...</span>
+        .uncaughtExceptionHandler((t, e) -&gt; log.error(<span class="hljs-string">&quot;{} failed&quot;</span>, t.getName(), e));
+
+<span class="hljs-type">Thread</span> <span class="hljs-variable">vt</span> <span class="hljs-operator">=</span> builder.unstarted(() -&gt; callExternalApi());
+vt.start();
+vt.join();
+
+<span class="hljs-type">ThreadFactory</span> <span class="hljs-variable">factory</span> <span class="hljs-operator">=</span> Thread.ofVirtual().name(<span class="hljs-string">&quot;vt-&quot;</span>, <span class="hljs-number">0</span>).factory();</code></pre>
+<p>운영 코드의 표준은 <code>Executors.newVirtualThreadPerTaskExecutor()</code>다. Java 19부터 <code>ExecutorService</code>가 <code>AutoCloseable</code>이므로 try-with-resources를 벗어날 때 <code>shutdown</code> 후 모든 작업 완료를 기다린다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">try</span> (<span class="hljs-type">ExecutorService</span> <span class="hljs-variable">executor</span> <span class="hljs-operator">=</span> Executors.newVirtualThreadPerTaskExecutor()) {
+    <span class="hljs-type">List</span>&lt;Future&lt;String&gt;&gt; <span class="hljs-variable">futures</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;();
+    <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">10_000</span>; i++) {
+        <span class="hljs-type">int</span> <span class="hljs-variable">id</span> <span class="hljs-operator">=</span> i;
+        futures.add(executor.submit(() -&gt; httpClient.get(<span class="hljs-string">&quot;/api/items/&quot;</span> + id)));
+    }
+    <span class="hljs-keyword">for</span> (Future&lt;String&gt; f : futures) {
+        process(f.get());   <span class="hljs-comment">// 블로킹 호출이지만 Virtual Thread는 unmount된다</span>
+    }
+}</code></pre>
+<p><code>CompletableFuture</code>는 executor를 지정하지 않으면 <code>ForkJoinPool.commonPool()</code>에서 실행되므로 Virtual Thread executor를 명시한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">try</span> (<span class="hljs-type">var</span> <span class="hljs-variable">executor</span> <span class="hljs-operator">=</span> Executors.newVirtualThreadPerTaskExecutor()) {
+    <span class="hljs-type">CompletableFuture</span>&lt;String&gt; <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> CompletableFuture.supplyAsync(() -&gt; fetchUser(), executor);
+    <span class="hljs-type">CompletableFuture</span>&lt;String&gt; <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> CompletableFuture.supplyAsync(() -&gt; fetchOrder(), executor);
+    <span class="hljs-type">String</span> <span class="hljs-variable">merged</span> <span class="hljs-operator">=</span> user.thenCombine(order, (u, o) -&gt; u + o).join();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p><strong>Pinning — <code>synchronized</code> 안에서의 블로킹.</strong> Java 21~23에서 <code>synchronized</code> 블록·메서드 안에서 I/O나 <code>Object.wait()</code>를 만나면 unmount되지 못하고 Carrier에 고정된다. 이 상태가 동시에 여러 건 발생하면 Carrier 수만큼만 처리되어 Platform Thread 풀과 같아진다. 블로킹 호출을 감싸는 락은 <code>ReentrantLock</code> + try-finally로, <code>wait/notify</code>는 <code>Condition</code>으로 바꾼다. Java 24(JEP 491)부터 <code>synchronized</code> 안에서도 unmount되므로 업그레이드가 근본 해결책이다.</p>
+<p><strong>JNI와 CPU 집약 코드.</strong> 네이티브 프레임이 스택에 있으면 unmount할 수 없다. 네이티브 대기가 길거나 CPU 연산이 긴 작업은 Platform Thread 풀로 분리한다.</p>
+<p><strong>파일 I/O는 unmount되지 않는다.</strong> 파일 I/O는 Carrier를 점유한 채 블로킹하며, JVM이 Carrier 풀을 일시적으로 늘려 보상한다(<code>jdk.virtualThreadScheduler.maxPoolSize</code>, 기본 256). 파일 I/O 비중이 큰 작업은 이 한도를 함께 검토한다.</p>
+<p><strong>Pinning 탐지.</strong> Java 21~23은 <code>-Djdk.tracePinnedThreads=full|short</code>로 Pinning 지점의 스택을 출력하는데 로그량이 커 개발·스테이징에서만 켠다. Java 24부터 이 옵션은 제거되고 JFR의 <code>jdk.VirtualThreadPinned</code> 이벤트로 대체된다.</p>
+<p><strong>의존성과 커넥션 풀.</strong> 오래된 JDBC 드라이버·HTTP 클라이언트·로거는 내부 <code>synchronized</code>로 Pinning을 유발하므로 PostgreSQL JDBC 42.7+, HikariCP 5.x+ 같은 버전으로 올린다. DB 커넥션은 유한하므로 풀 크기는 DB가 감당할 수준으로 두고 나머지는 풀에서 대기하게 한다.</p>
+<p><strong>ThreadLocal과 ScopedValue.</strong> 수백만 스레드가 각각 ThreadLocal 값을 들면 메모리가 급증한다. 요청 범위 컨텍스트 전달은 <code>ScopedValue</code>(Java 21 Preview, Java 25 정식)로 옮긴다.</p>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/modern-java/</li>
+<li>/notes/java-spring/virtual-thread-practice/</li>
+<li>/notes/java-spring/events-async-scheduling/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Virtual Thread, Project Loom, Carrier Thread, Pinning, ReentrantLock</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/modern-java/"><small>이전</small>Modern Java 9~21 핵심</a>
+  <a class="next" href="/notes/java-spring/virtual-thread-practice/"><small>다음</small>Virtual Thread — 실전·Spring Boot·Structured Concurrency</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

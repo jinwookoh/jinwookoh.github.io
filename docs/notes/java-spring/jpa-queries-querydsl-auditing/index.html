@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing · Java / Spring</title>
+  <meta name="description" content="단순 조건은 메서드 이름, 조인은 @Query, 동적 조건은 QueryDSL로 나누고 생성·수정 이력은 Auditing에 맡긴다">
+  <meta property="og:title" content="쿼리 — 메서드 이름·@Query·QueryDSL·Auditing · Java / Spring">
+  <meta property="og:description" content="단순 조건은 메서드 이름, 조인은 @Query, 동적 조건은 QueryDSL로 나누고 생성·수정 이력은 Auditing에 맡긴다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jpa-queries-querydsl-auditing/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</h1>
+  <p class="summary">단순 조건은 메서드 이름, 조인은 @Query, 동적 조건은 QueryDSL로 나누고 생성·수정 이력은 Auditing에 맡긴다</p>
+  <div class="content">
+<p><code>JpaRepository</code>의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 <code>(:status IS NULL OR o.status = :status)</code> 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. <code>created_at</code>·<code>updated_at</code>을 서비스 코드에서 손으로 채우면 누락이 생긴다. 쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>메서드 이름 쿼리</h3>
+<p><code>findByStatusAndAmountGreaterThan(String, int)</code> 같은 메서드를 선언하면 Spring Data JPA가 시작 시 이름을 파싱해 JPQL을 생성한다. 접두어는 <code>find</code>·<code>count</code>·<code>exists</code>·<code>delete</code>, 조건은 <code>LessThan</code>·<code>GreaterThan</code>·<code>Between</code>·<code>Like</code>·<code>Containing</code>·<code>In</code>·<code>IsNull</code>, 결합은 <code>And</code>·<code>Or</code>, 정렬·제한은 <code>OrderBy…Desc</code>·<code>Top&lt;N&gt;</code>이다. 조건이 서너 개를 넘으면 <code>@Query</code>로 넘긴다.</p>
+<h3>@Query — JPQL과 네이티브 SQL</h3>
+<p>JPQL은 테이블이 아니라 엔티티 클래스와 필드를 대상으로 하며 Hibernate가 방언에 맞춰 SQL로 변환한다. <code>nativeQuery = true</code>는 DB 고유 함수를 쓰는 대신 DB에 종속된다. 파라미터는 <code>:name</code>으로 바인딩하며 Spring Boot 3의 <code>-parameters</code> 옵션 덕에 <code>@Param</code>을 생략할 수 있다. <code>UPDATE</code>·<code>DELETE</code>는 <code>@Modifying</code>과 트랜잭션이 필요하다.</p>
+<h3>페이징과 프로젝션</h3>
+<p><code>Pageable</code>을 받으면 <code>offset</code>·<code>limit</code>과 count 쿼리가 함께 실행되어 <code>Page&lt;T&gt;</code>로 돌아온다. 컨트롤러의 <code>Pageable</code> 매개변수는 <code>?page=0&amp;size=20&amp;sort=createdAt,desc</code>에서 자동 변환되고 <code>@PageableDefault</code>로 기본값을 정한다. 전체 개수가 필요 없으면 <code>Slice&lt;T&gt;</code>를 쓴다. 프로젝션은 getter만 가진 인터페이스를 반환 타입으로 쓰거나 JPQL의 <code>SELECT new 패키지.DTO(...)</code> 생성자 표현식으로 필요한 컬럼만 조회한다.</p>
+<h3>QueryDSL</h3>
+<p>어노테이션 프로세서가 엔티티마다 <code>QOrder</code> 같은 Q 클래스를 생성하고, 필드를 자바 표현식으로 참조하므로 오타가 컴파일 오류가 된다. 핵심은 <code>where(...)</code>에 넘긴 <code>BooleanExpression</code>이 null이면 조건에서 제외된다는 점이다. 조건마다 null을 돌려주는 메서드를 나열하면 동적 검색이 분기문 없이 표현되고, <code>OrderSpecifier</code>로 정렬도 런타임에 바꾼다. Spring Data와는 커스텀 인터페이스 + <code>Impl</code> 접미사 구현체 규칙으로 결합한다.</p>
+<h3>Auditing</h3>
+<p><code>@EnableJpaAuditing</code>을 켜고 <code>@MappedSuperclass</code> + <code>@EntityListeners(AuditingEntityListener.class)</code>를 붙인 부모 클래스에 <code>@CreatedDate</code>·<code>@LastModifiedDate</code>·<code>@CreatedBy</code>·<code>@LastModifiedBy</code> 필드를 두면 INSERT·UPDATE가 나가는 시점에 값이 채워진다. 작성자는 <code>AuditorAware&lt;T&gt;</code> 빈이 돌려준다. 시각 타입은 단일 시간대라면 <code>LocalDateTime</code>, 여러 시간대라면 <code>Instant</code>를 쓴다.</p>
+<h2>코드</h2>
+<p>메서드 이름 쿼리, JPQL, 네이티브 SQL, 벌크 수정, 프로젝션을 한 리포지토리에 선언한 예다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Order, Long&gt;, OrderQueryRepository {
+
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findByStatusAndAmountGreaterThanOrderByCreatedAtDesc</span><span class="hljs-params">(OrderStatus status, <span class="hljs-type">long</span> amount)</span>;
+
+    <span class="hljs-type">Optional</span>&lt;Order&gt; <span class="hljs-title function_">findByOrderNumber</span><span class="hljs-params">(String orderNumber)</span>;
+
+    <span class="hljs-type">Page</span>&lt;Order&gt; <span class="hljs-title function_">findByStatus</span><span class="hljs-params">(OrderStatus status, Pageable pageable)</span>;
+
+    <span class="hljs-meta">@Query(&quot;SELECT o FROM Order o JOIN FETCH o.user u WHERE u.email = :email&quot;)</span>
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findByUserEmail</span><span class="hljs-params">(String email)</span>;
+
+    <span class="hljs-meta">@Query(value = &quot;SELECT * FROM orders WHERE created_at &gt; NOW() - INTERVAL &#x27;7 days&#x27;&quot;,
+           nativeQuery = true)</span>
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findRecent</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-meta">@Modifying(clearAutomatically = true)</span>
+    <span class="hljs-meta">@Query(&quot;UPDATE Order o SET o.status = &#x27;EXPIRED&#x27; WHERE o.expiresAt &lt; CURRENT_TIMESTAMP&quot;)</span>
+    <span class="hljs-type">int</span> <span class="hljs-title function_">expireOldOrders</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-meta">@Query(&quot;SELECT new com.example.order.OrderSummary(o.id, o.status, o.amount) &quot; +
+           &quot;FROM Order o WHERE o.status = :status&quot;)</span>
+    <span class="hljs-type">List</span>&lt;OrderSummary&gt; <span class="hljs-title function_">findSummaries</span><span class="hljs-params">(OrderStatus status)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderSummary</span><span class="hljs-params">(Long id, OrderStatus status, <span class="hljs-type">long</span> amount)</span> {}</code></pre>
+<p>QueryDSL 구현체다. null 조건은 <code>where</code>에서 제외되고, 페이징은 내용 쿼리와 count 쿼리를 분리해 <code>PageImpl</code>로 조립한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">QueryDslConfig</span> {
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">JPAQueryFactory</span> <span class="hljs-title function_">jpaQueryFactory</span><span class="hljs-params">(EntityManager em)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JPAQueryFactory</span>(em);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderQueryRepository</span> {
+    <span class="hljs-type">Page</span>&lt;Order&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(OrderSearchCondition cond, Pageable pageable)</span>;
+}
+
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderQueryRepositoryImpl</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OrderQueryRepository</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">QOrder</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> QOrder.order;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">QUser</span> <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> QUser.user;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JPAQueryFactory queryFactory;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Page</span>&lt;Order&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(OrderSearchCondition cond, Pageable pageable)</span> {
+        <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-variable">content</span> <span class="hljs-operator">=</span> queryFactory
+                .selectFrom(order)
+                .join(order.user, user).fetchJoin()
+                .where(statusEq(cond.status()),
+                       createdAtBetween(cond.from(), cond.to()),
+                       amountGoe(cond.minAmount()),
+                       userIdEq(cond.userId()))
+                .orderBy(orderSpec(cond.sortBy()))
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        <span class="hljs-type">Long</span> <span class="hljs-variable">total</span> <span class="hljs-operator">=</span> queryFactory
+                .select(order.count())
+                .from(order)
+                .where(statusEq(cond.status()),
+                       createdAtBetween(cond.from(), cond.to()),
+                       amountGoe(cond.minAmount()),
+                       userIdEq(cond.userId()))
+                .fetchOne();
+
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">PageImpl</span>&lt;&gt;(content, pageable, total == <span class="hljs-literal">null</span> ? <span class="hljs-number">0</span> : total);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">BooleanExpression</span> <span class="hljs-title function_">statusEq</span><span class="hljs-params">(OrderStatus status)</span> {
+        <span class="hljs-keyword">return</span> status == <span class="hljs-literal">null</span> ? <span class="hljs-literal">null</span> : order.status.eq(status);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">BooleanExpression</span> <span class="hljs-title function_">createdAtBetween</span><span class="hljs-params">(LocalDateTime from, LocalDateTime to)</span> {
+        <span class="hljs-keyword">if</span> (from == <span class="hljs-literal">null</span> &amp;&amp; to == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+        <span class="hljs-keyword">if</span> (from == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> order.createdAt.loe(to);
+        <span class="hljs-keyword">if</span> (to == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> order.createdAt.goe(from);
+        <span class="hljs-keyword">return</span> order.createdAt.between(from, to);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">BooleanExpression</span> <span class="hljs-title function_">amountGoe</span><span class="hljs-params">(Long min)</span> {
+        <span class="hljs-keyword">return</span> min == <span class="hljs-literal">null</span> ? <span class="hljs-literal">null</span> : order.amount.goe(min);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">BooleanExpression</span> <span class="hljs-title function_">userIdEq</span><span class="hljs-params">(Long userId)</span> {
+        <span class="hljs-keyword">return</span> userId == <span class="hljs-literal">null</span> ? <span class="hljs-literal">null</span> : order.user.id.eq(userId);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">OrderSpecifier</span>&lt;?&gt; <span class="hljs-title function_">orderSpec</span><span class="hljs-params">(String sortBy)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;amount&quot;</span>.equals(sortBy) ? order.amount.desc() : order.createdAt.desc();
+    }
+}</code></pre>
+<p>Auditing 설정이다. 부모 클래스와 <code>AuditorAware</code> 빈을 두고 엔티티는 상속만 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableJpaAuditing</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">JpaAuditingConfig</span> {
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">AuditorAware</span>&lt;String&gt; <span class="hljs-title function_">auditorAware</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> () -&gt; Optional.ofNullable(SecurityContextHolder.getContext().getAuthentication())
+                .filter(Authentication::isAuthenticated)
+                .filter(a -&gt; !(a <span class="hljs-keyword">instanceof</span> AnonymousAuthenticationToken))
+                .map(Authentication::getName);
+    }
+}
+
+<span class="hljs-meta">@MappedSuperclass</span>
+<span class="hljs-meta">@EntityListeners(AuditingEntityListener.class)</span>
+<span class="hljs-meta">@Getter</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BaseEntity</span> {
+
+    <span class="hljs-meta">@CreatedDate</span>
+    <span class="hljs-meta">@Column(nullable = false, updatable = false)</span>
+    <span class="hljs-keyword">private</span> Instant createdAt;
+
+    <span class="hljs-meta">@LastModifiedDate</span>
+    <span class="hljs-meta">@Column(nullable = false)</span>
+    <span class="hljs-keyword">private</span> Instant updatedAt;
+
+    <span class="hljs-meta">@CreatedBy</span>
+    <span class="hljs-meta">@Column(updatable = false)</span>
+    <span class="hljs-keyword">private</span> String createdBy;
+
+    <span class="hljs-meta">@LastModifiedBy</span>
+    <span class="hljs-keyword">private</span> String updatedBy;
+}
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;)</span>
+<span class="hljs-meta">@Getter</span>
+<span class="hljs-meta">@NoArgsConstructor(access = AccessLevel.PROTECTED)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">BaseEntity</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@Enumerated(EnumType.STRING)</span>
+    <span class="hljs-keyword">private</span> OrderStatus status;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> amount;
+
+    <span class="hljs-meta">@ManyToOne(fetch = FetchType.LAZY)</span>
+    <span class="hljs-keyword">private</span> User user;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>@Modifying</code> 벌크 쿼리와 1차 캐시 불일치.</strong> 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다. <code>clearAutomatically = true</code>를 준다. Auditing도 타지 않는다.</li>
+<li><strong>count 쿼리 비용.</strong> <code>Page&lt;T&gt;</code>는 매 요청마다 count 쿼리를 실행한다. count 쿼리에서는 fetch join을 빼고, 전체 개수가 필요 없으면 <code>Slice&lt;T&gt;</code>로 대체한다.</li>
+<li><strong>컬렉션 fetch join과 페이징.</strong> <code>@OneToMany</code>를 fetch join한 채 <code>limit</code>을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(<code>HHH90003004</code> 경고). 컬렉션은 <code>default_batch_fetch_size</code>로 푼다.</li>
+<li><strong>Q 클래스 생성 실패.</strong> <code>QOrder cannot be resolved</code>는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. Spring Boot 3에서는 <code>querydsl-jpa</code>·<code>querydsl-apt</code>에 <code>jakarta</code> classifier가 필요하다.</li>
+<li><strong>Auditing이 비는 경우.</strong> <code>@EnableJpaAuditing</code>이나 부모 클래스의 <code>@EntityListeners</code>가 빠지면 null이 들어간다. <code>AuditorAware</code>가 익명 인증을 거르지 않으면 <code>createdBy</code>에 <code>anonymousUser</code>가 기록된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/jpa-hibernate-spring-data/">JPA·Hibernate·Spring Data JPA — Entity와 Repository</a></li>
+<li><a href="/notes/java-spring/jpa-relations-n-plus-1/">연관관계·N+1·값 객체</a></li>
+<li><a href="/notes/java-spring/persistence-context-lazy-loading/">영속성 컨텍스트와 LazyLoading</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Data JPA, JPQL, QueryDSL, Auditing, Pageable</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/jpa-relations-n-plus-1/"><small>이전</small>연관관계·N+1·값 객체</a>
+  <a class="next" href="/notes/java-spring/persistence-context-lazy-loading/"><small>다음</small>영속성 컨텍스트와 LazyLoading</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

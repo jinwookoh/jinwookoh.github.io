@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API 문서화 — Springdoc OpenAPI · Java / Spring</title>
+  <meta name="description" content="Springdoc이 컨트롤러 코드에서 OpenAPI 명세를 생성하는 원리와 어노테이션 보강·보안 스키마·운영 노출 통제 방법">
+  <meta property="og:title" content="API 문서화 — Springdoc OpenAPI · Java / Spring">
+  <meta property="og:description" content="Springdoc이 컨트롤러 코드에서 OpenAPI 명세를 생성하는 원리와 어노테이션 보강·보안 스키마·운영 노출 통제 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/openapi-docs/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>API 문서화 — Springdoc OpenAPI</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · Web MVC</p>
+  <h1>API 문서화 — Springdoc OpenAPI</h1>
+  <p class="summary">Springdoc이 컨트롤러 코드에서 OpenAPI 명세를 생성하는 원리와 어노테이션 보강·보안 스키마·운영 노출 통제 방법</p>
+  <div class="content">
+<p>API 문서를 손으로 작성하면 코드와 문서가 어긋나는 순간이 반드시 온다. 필드가 추가되거나 응답 코드가 바뀌어도 문서는 그대로 남고, 프론트엔드는 문서대로 구현했다가 실제 응답과 다르다는 사실을 런타임에 발견한다. 해결책은 문서를 코드에서 생성하는 것이다. Spring Boot 3에서는 Springdoc OpenAPI가 컨트롤러와 DTO를 분석해 OpenAPI 3 명세를 만들고 Swagger UI로 렌더링한다.</p>
+<h2>핵심 개념</h2>
+<p>OpenAPI는 REST API의 엔드포인트·파라미터·요청/응답 구조를 기계가 읽을 수 있는 형식으로 기술하는 표준이다. Swagger 프로젝트에서 출발해 OpenAPI Initiative로 이관되면서 명세 이름은 OpenAPI가 되었고, Swagger는 도구군의 이름으로 남았다.</p>
+<p>Springdoc은 핸들러 매핑과 DTO 클래스를 분석해 OpenAPI 명세를 생성하는 라이브러리다. Spring Boot 3(Jakarta 네임스페이스)에서는 Springdoc 2.x를 써야 한다. SpringFox는 2020년 이후 유지보수가 멈춰 Boot 3와 호환되지 않는다.</p>
+<p><code>springdoc-openapi-starter-webmvc-ui</code> 의존성을 추가하면 다음 엔드포인트가 활성화된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">엔드포인트</th>
+<th align="left">역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>/v3/api-docs</code></td>
+<td align="left">OpenAPI 명세 JSON</td>
+</tr>
+<tr>
+<td align="left"><code>/v3/api-docs.yaml</code></td>
+<td align="left">OpenAPI 명세 YAML</td>
+</tr>
+<tr>
+<td align="left"><code>/swagger-ui.html</code></td>
+<td align="left">Swagger UI (실제 리소스는 <code>/swagger-ui/**</code>)</td>
+</tr>
+</tbody></table>
+<p>WebFlux 프로젝트는 <code>springdoc-openapi-starter-webflux-ui</code>를 쓴다.</p>
+<p>별도 어노테이션 없이도 URL 경로, HTTP 메서드, <code>@PathVariable</code>·<code>@RequestParam</code>·<code>@RequestBody</code> 매개변수, 반환 타입에서 유도한 응답 스키마, <code>@ResponseStatus</code>, DTO의 Bean Validation 제약(<code>@NotNull</code>·<code>@Min</code>·<code>@Max</code>)이 자동 추출된다. 부족한 정보는 <code>io.swagger.v3.oas.annotations</code> 패키지의 어노테이션으로 보강한다.</p>
+<ul>
+<li><code>@Tag</code> — 컨트롤러 단위 그룹 이름</li>
+<li><code>@Operation</code> — 메서드 단위 요약·설명</li>
+<li><code>@Parameter</code> — 매개변수 설명·예시</li>
+<li><code>@ApiResponse</code> — 응답 코드별 설명·스키마, <code>@ExampleObject</code>로 JSON 예시</li>
+<li><code>@Schema</code> — DTO 필드의 설명·예시·제약</li>
+<li><code>@SecurityScheme</code> — JWT·OAuth2 같은 인증 방식</li>
+</ul>
+<p>코드 우선(Code-First)은 구현과 문서가 항상 일치하지만 명세가 최소 정보에 머물고 Breaking Change 사전 감지가 어렵다. 명세 우선(Spec-First)은 명세 파일을 계약으로 삼아 제공자·소비자가 병렬 개발한다. Springdoc은 코드 우선 도구지만 생성된 명세를 저장소에 커밋해 diff로 검토하면 명세 우선의 장점을 일부 가져올 수 있다.</p>
+<h2>코드</h2>
+<p>컨트롤러와 DTO에 어노테이션을 보강한 예제다. <code>@Schema</code>의 <code>required</code> 속성은 2.x에서 deprecated이므로 <code>requiredMode</code>를 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/v1/orders&quot;)</span>
+<span class="hljs-meta">@Tag(name = &quot;Order&quot;, description = &quot;주문 관리 API&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderService orderService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderController</span><span class="hljs-params">(OrderService orderService)</span> {
+        <span class="hljs-built_in">this</span>.orderService = orderService;
+    }
+
+    <span class="hljs-meta">@Operation(summary = &quot;주문 단건 조회&quot;, description = &quot;본인 주문만 조회할 수 있다.&quot;)</span>
+    <span class="hljs-meta">@ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;성공&quot;,
+            content = @Content(
+                schema = @Schema(implementation = OrderResponse.class),
+                examples = @ExampleObject(value = &quot;&quot;&quot;
+                    {&quot;id&quot;: 123, &quot;amount&quot;: 10000, &quot;status&quot;: &quot;PENDING&quot;}
+                    &quot;&quot;&quot;))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;권한 없음&quot;, content = @Content),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;주문 없음&quot;, content = @Content)
+    })</span>
+    <span class="hljs-meta">@GetMapping(&quot;/{id}&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">get</span><span class="hljs-params">(
+            <span class="hljs-meta">@Parameter(description = &quot;주문 ID&quot;, example = &quot;123&quot;)</span> <span class="hljs-meta">@PathVariable</span> Long id)</span> {
+        <span class="hljs-keyword">return</span> orderService.findById(id);
+    }
+
+    <span class="hljs-meta">@Operation(summary = &quot;주문 생성&quot;)</span>
+    <span class="hljs-meta">@ApiResponse(responseCode = &quot;201&quot;, description = &quot;생성됨&quot;)</span>
+    <span class="hljs-meta">@PostMapping</span>
+    <span class="hljs-meta">@ResponseStatus(HttpStatus.CREATED)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(<span class="hljs-meta">@Valid</span> <span class="hljs-meta">@RequestBody</span> OrderRequest request)</span> {
+        <span class="hljs-keyword">return</span> orderService.create(request);
+    }
+}
+
+<span class="hljs-meta">@Schema(description = &quot;주문 생성 요청&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderRequest</span><span class="hljs-params">(
+        @Schema(description = &quot;상품 ID&quot;, example = &quot;1&quot;, requiredMode = Schema.RequiredMode.REQUIRED)</span>
+        <span class="hljs-meta">@NotNull</span> Long productId,
+
+        <span class="hljs-meta">@Schema(description = &quot;수량&quot;, example = &quot;2&quot;, minimum = &quot;1&quot;, maximum = &quot;100&quot;)</span>
+        <span class="hljs-meta">@Min(1)</span> <span class="hljs-meta">@Max(100)</span> <span class="hljs-type">int</span> quantity
+) {}</code></pre>
+<p>API 메타 정보와 JWT 보안 스키마를 정의하고 외부용·관리자용 문서를 그룹으로 분리하는 설정이다. <code>@OpenAPIDefinition</code>의 <code>@SecurityRequirement</code>는 전역 적용되며, Swagger UI에 Authorize 버튼이 생겨 입력한 토큰이 이후 요청 헤더에 자동으로 붙는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@OpenAPIDefinition(
+    info = @Info(title = &quot;Shop API&quot;, version = &quot;1.0.0&quot;, description = &quot;쇼핑몰 백엔드 API&quot;),
+    security = @SecurityRequirement(name = &quot;bearerAuth&quot;)
+)</span>
+<span class="hljs-meta">@SecurityScheme(
+    name = &quot;bearerAuth&quot;,
+    type = SecuritySchemeType.HTTP,
+    scheme = &quot;bearer&quot;,
+    bearerFormat = &quot;JWT&quot;
+)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OpenApiConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">GroupedOpenApi</span> <span class="hljs-title function_">publicApi</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> GroupedOpenApi.builder()
+                .group(<span class="hljs-string">&quot;public&quot;</span>)
+                .pathsToMatch(<span class="hljs-string">&quot;/api/v1/**&quot;</span>)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">GroupedOpenApi</span> <span class="hljs-title function_">adminApi</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> GroupedOpenApi.builder()
+                .group(<span class="hljs-string">&quot;admin&quot;</span>)
+                .pathsToMatch(<span class="hljs-string">&quot;/api/admin/**&quot;</span>)
+                .build();
+    }
+}</code></pre>
+<p>Spring Security 적용 시 문서 엔드포인트를 허용하는 설정이다. <code>/swagger-ui.html</code>은 <code>/swagger-ui/index.html</code>로 리다이렉트되고 CSS·JS를 <code>/swagger-ui/**</code>에서 받으므로 와일드카드까지 열어야 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableWebSecurity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SecurityConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">SecurityFilterChain</span> <span class="hljs-title function_">filterChain</span><span class="hljs-params">(HttpSecurity http)</span> <span class="hljs-keyword">throws</span> Exception {
+        http
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers(<span class="hljs-string">&quot;/v3/api-docs/**&quot;</span>, <span class="hljs-string">&quot;/swagger-ui/**&quot;</span>, <span class="hljs-string">&quot;/swagger-ui.html&quot;</span>)
+                    .hasRole(<span class="hljs-string">&quot;ADMIN&quot;</span>)
+                .anyRequest().authenticated())
+            .oauth2ResourceServer(oauth2 -&gt; oauth2.jwt(Customizer.withDefaults()));
+        <span class="hljs-keyword">return</span> http.build();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p><strong>Swagger UI가 빈 화면이거나 깨져서 뜬다.</strong> Security에서 <code>/swagger-ui.html</code>만 허용하고 <code>/swagger-ui/**</code>와 <code>/v3/api-docs/**</code>를 막은 경우다. 메인 HTML은 열리지만 정적 리소스와 명세 JSON 요청이 401·403으로 떨어진다.</p>
+<p><strong>운영 환경에 문서가 그대로 노출된다.</strong> <code>application-prod.yml</code>에서 <code>springdoc.api-docs.enabled=false</code>, <code>springdoc.swagger-ui.enabled=false</code>로 끄거나 관리자 권한으로 제한한다.</p>
+<p><strong>응답 타입이 <code>ResponseEntity&lt;?&gt;</code>나 <code>Object</code>면 스키마가 비어 있다.</strong> 반환 타입을 구체적으로 선언하거나 <code>@ApiResponse</code>의 <code>@Content</code>로 명시한다. <code>@ControllerAdvice</code>의 공통 에러 응답도 같은 방식으로 등록해야 문서에 나타난다.</p>
+<p><strong>문서와 실제 응답이 다시 어긋난다.</strong> <code>@ApiResponse</code>의 상태 코드나 <code>@ExampleObject</code>의 JSON은 사람이 쓴 것이라 실제 동작과 달라질 수 있다. 통합 테스트에 <code>OpenApiValidationFilter</code>(swagger-request-validator)를 끼워 응답이 <code>/v3/api-docs</code> 명세를 준수하는지 검증하면 빌드 단계에서 잡힌다. 이 라이브러리는 Boot 의존성 관리 대상이 아니므로 버전을 명시한다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/controller-request-binding/">Controller와 요청 바인딩</a></li>
+<li><a href="/notes/java-spring/exception-handling-validation/">예외 처리와 검증 — @ControllerAdvice·Bean Validation</a></li>
+<li><a href="/notes/java-spring/cors-security-oauth2-jwt/">CORS와 Spring Security — OAuth2·JWT</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Springdoc, OpenAPI, Swagger UI, API 문서화, Spring Boot</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/cors-security-oauth2-jwt/"><small>이전</small>CORS와 Spring Security — OAuth2·JWT</a>
+  <a class="next" href="/notes/java-spring/jdbc-jdbctemplate/"><small>다음</small>JDBC·DataSource·JdbcTemplate</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

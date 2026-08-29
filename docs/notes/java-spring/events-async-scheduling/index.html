@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>이벤트·비동기·스케줄링 · Java / Spring</title>
+  <meta name="description" content="부가 작업을 도메인 이벤트로 분리하고 @Async 스레드 풀과 @Scheduled 분산 락으로 안전하게 운영하는 방법">
+  <meta property="og:title" content="이벤트·비동기·스케줄링 · Java / Spring">
+  <meta property="og:description" content="부가 작업을 도메인 이벤트로 분리하고 @Async 스레드 풀과 @Scheduled 분산 락으로 안전하게 운영하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/events-async-scheduling/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>이벤트·비동기·스케줄링</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>이벤트·비동기·스케줄링</h1>
+  <p class="summary">부가 작업을 도메인 이벤트로 분리하고 @Async 스레드 풀과 @Scheduled 분산 락으로 안전하게 운영하는 방법</p>
+  <div class="content">
+<p>주문 완료 서비스가 이메일 발송, SMS 발송, 재고 차감, 포인트 적립을 직접 호출하면 세 가지 문제가 생긴다. <code>OrderService</code>가 협력 서비스를 모두 알아야 하므로 부가 작업이 늘 때마다 핵심 클래스를 수정하게 되고, 부가 작업이 응답 경로에 동기로 놓여 외부 호출 시간이 그대로 응답 지연이 되며, 이메일 발송 실패가 주문 트랜잭션 롤백으로 번진다. 여기에 새벽 집계나 주기 폴링 같은 반복 작업까지 더해지면 이벤트·비동기·스케줄링을 하나의 실행 모델로 이해해야 운영 사고를 피할 수 있다.</p>
+<h2>핵심 개념</h2>
+<h3>ApplicationEvent와 리스너</h3>
+<p>발행자는 <code>ApplicationEventPublisher.publishEvent()</code>로 사건을 알리고, 수신자는 <code>@EventListener</code> 메서드의 매개변수 타입으로 받을 이벤트를 결정한다. 이벤트 객체는 <code>ApplicationEvent</code>를 상속할 필요 없이 record면 충분하다. 이름은 <code>OrderCompletedEvent</code>처럼 비즈니스 사건을 표현하고, <code>DatabaseUpdatedEvent</code> 같은 구현 관점의 이름은 피한다.</p>
+<p>기본 <code>@EventListener</code>는 발행자와 같은 스레드에서 동기 실행되며 발행자의 트랜잭션에 참여한다. 따라서 리스너의 예외가 발행자를 롤백시키고, 리스너 소요 시간이 응답 시간에 더해진다.</p>
+<p><code>@TransactionalEventListener</code>는 리스너를 트랜잭션 단계에 묶는다. <code>phase</code>는 <code>BEFORE_COMMIT</code>, <code>AFTER_COMMIT</code>(기본값), <code>AFTER_ROLLBACK</code>, <code>AFTER_COMPLETION</code> 네 가지다. 활성 트랜잭션이 없으면 호출되지 않으며, 트랜잭션 밖에서도 실행하려면 <code>fallbackExecution = true</code>를 지정한다. <code>AFTER_COMMIT</code>에서 DB 쓰기를 하려면 <code>REQUIRES_NEW</code>로 새 트랜잭션을 열어야 한다.</p>
+<h3>@Async와 CompletableFuture</h3>
+<p><code>@EnableAsync</code>를 활성화하면 <code>@Async</code> 메서드는 프록시를 거쳐 별도 스레드에서 실행된다. 반환 타입은 <code>void</code> 또는 <code>CompletableFuture&lt;T&gt;</code>다. <code>CompletableFuture</code>는 <code>thenApply</code>(변환), <code>thenCompose</code>(비동기 체이닝), <code>thenCombine</code>(결합), <code>allOf</code>/<code>anyOf</code>(다중 대기), <code>exceptionally</code>/<code>handle</code>(예외 처리)로 흐름을 조합한다.</p>
+<p>Spring Boot 3.x는 <code>spring.task.execution.*</code> 속성으로 <code>ThreadPoolTaskExecutor</code>를 자동 구성한다. 기본값은 core 8, max와 queue 무제한이므로 운영에서는 값을 명시한다. Boot 3.2 이상에서 <code>spring.threads.virtual.enabled=true</code>를 주면 <code>@Async</code>와 <code>@Scheduled</code> 모두 가상 스레드에서 실행된다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>ApplicationEvent</th>
+<th>Kafka·RabbitMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>범위</td>
+<td>같은 JVM</td>
+<td>여러 프로세스·서버</td>
+</tr>
+<tr>
+<td>영속성</td>
+<td>없음, 프로세스 종료 시 유실</td>
+<td>브로커가 보관</td>
+</tr>
+<tr>
+<td>재시도</td>
+<td>직접 구현</td>
+<td>내장</td>
+</tr>
+<tr>
+<td>적합한 용도</td>
+<td>단일 서비스 내 모듈 분리</td>
+<td>서비스 간 통신, 전달 보장</td>
+</tr>
+</tbody></table>
+<h3>@Scheduled</h3>
+<p><code>@EnableScheduling</code> 후 <code>@Scheduled</code>를 붙인 void·무인자 메서드가 주기 실행된다. <code>fixedRate</code>는 직전 실행 시작 시점, <code>fixedDelay</code>는 직전 실행 종료 시점 기준으로 다음 실행을 잡는다. <code>cron</code>은 초·분·시·일·월·요일 6자리로 Linux cron의 5자리와 다르다. 스케줄러는 기본 스레드 1개로 순차 실행하므로 <code>spring.task.scheduling.pool.size</code>를 늘리거나 <code>@Async</code>를 조합해야 긴 작업이 다른 스케줄을 막지 않는다.</p>
+<h2>코드</h2>
+<p>커밋 확정 후 비동기로 이메일을 보내는 도메인 이벤트 구성이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderCompletedEvent</span><span class="hljs-params">(Long orderId, Long userId, String email, <span class="hljs-type">int</span> amount)</span> {}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository repository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApplicationEventPublisher publisher;
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">completeOrder</span><span class="hljs-params">(Long orderId)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> repository.findById(orderId).orElseThrow();
+        order.complete();
+        publisher.publishEvent(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderCompletedEvent</span>(
+                order.getId(), order.getUserId(), order.getEmail(), order.getAmount()));
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEmailListener</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> EmailService emailService;
+
+    <span class="hljs-meta">@Async</span>
+    <span class="hljs-meta">@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onOrderCompleted</span><span class="hljs-params">(OrderCompletedEvent event)</span> {
+        emailService.sendOrderConfirm(event.email(), event.orderId());
+    }
+}</code></pre>
+<p>이메일 전용 풀을 분리한 실행기 설정과, 외부 API 세 곳을 병렬 호출하는 조합 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableAsync</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AsyncConfig</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">AsyncConfigurer</span> {
+
+    <span class="hljs-meta">@Bean(&quot;emailExecutor&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ThreadPoolTaskExecutor</span> <span class="hljs-title function_">emailExecutor</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">ThreadPoolTaskExecutor</span> <span class="hljs-variable">executor</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ThreadPoolTaskExecutor</span>();
+        executor.setCorePoolSize(<span class="hljs-number">4</span>);
+        executor.setMaxPoolSize(<span class="hljs-number">16</span>);
+        executor.setQueueCapacity(<span class="hljs-number">200</span>);
+        executor.setThreadNamePrefix(<span class="hljs-string">&quot;email-&quot;</span>);
+        executor.setRejectedExecutionHandler(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ThreadPoolExecutor</span>.CallerRunsPolicy());
+        <span class="hljs-keyword">return</span> executor;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">AsyncUncaughtExceptionHandler</span> <span class="hljs-title function_">getAsyncUncaughtExceptionHandler</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> (ex, method, params) -&gt;
+                log.error(<span class="hljs-string">&quot;async failure in {}&quot;</span>, method.getName(), ex);
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DashboardService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserApi userApi;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderApi orderApi;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentApi paymentApi;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Dashboard</span> <span class="hljs-title function_">fetch</span><span class="hljs-params">(Long userId)</span> {
+        <span class="hljs-type">CompletableFuture</span>&lt;User&gt; <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> userApi.getUserAsync(userId);
+        <span class="hljs-type">CompletableFuture</span>&lt;List&lt;Order&gt;&gt; <span class="hljs-variable">orders</span> <span class="hljs-operator">=</span> orderApi.getOrdersAsync(userId);
+        <span class="hljs-type">CompletableFuture</span>&lt;List&lt;Payment&gt;&gt; <span class="hljs-variable">payments</span> <span class="hljs-operator">=</span> paymentApi.getPaymentsAsync(userId);
+
+        <span class="hljs-keyword">return</span> CompletableFuture.allOf(user, orders, payments)
+                .thenApply(v -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">Dashboard</span>(user.join(), orders.join(), payments.join()))
+                .exceptionally(ex -&gt; Dashboard.fallback(userId))
+                .join();
+    }
+}</code></pre>
+<p>다중 인스턴스에서 한 번만 실행되도록 ShedLock을 적용한 스케줄러다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@ConditionalOnProperty(name = &quot;scheduler.enabled&quot;, havingValue = &quot;true&quot;)</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ReportScheduler</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ReportService reportService;
+
+    <span class="hljs-meta">@Scheduled(cron = &quot;0 0 3 * * *&quot;, zone = &quot;Asia/Seoul&quot;)</span>
+    <span class="hljs-meta">@SchedulerLock(name = &quot;dailyReport&quot;, lockAtLeastFor = &quot;1m&quot;, lockAtMostFor = &quot;30m&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">generateDailyReport</span><span class="hljs-params">()</span> {
+        reportService.generate(LocalDate.now(ZoneId.of(<span class="hljs-string">&quot;Asia/Seoul&quot;</span>)).minusDays(<span class="hljs-number">1</span>));
+    }
+
+    <span class="hljs-meta">@Scheduled(fixedDelay = 30_000, initialDelay = 10_000)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pollQueue</span><span class="hljs-params">()</span> {
+        reportService.drainPending();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>자가 호출은 프록시를 우회한다.</strong> <code>@Async</code>와 <code>@Transactional</code>은 프록시 기반이므로 같은 클래스 안에서 <code>this.method()</code>로 호출하면 적용되지 않는다. 비동기 메서드는 별도 빈으로 분리한다.</li>
+<li><strong>비동기 리스너에서 지연 로딩은 실패한다.</strong> <code>@Async</code> 스레드는 발행자의 영속성 컨텍스트를 공유하지 않아 lazy 연관을 건드리면 <code>LazyInitializationException</code>이 난다. 이벤트에는 엔티티 대신 필요한 값을 담는다.</li>
+<li><strong>무제한 큐는 장애를 늦게 드러낸다.</strong> Boot 기본 실행기는 queue가 무제한이라 유입이 처리량을 넘으면 메모리가 서서히 차오른다. queue 용량·max 크기·거부 정책을 명시하고, 실패 특성이 다른 작업은 풀을 분리한다.</li>
+<li><strong><code>@Async void</code>의 예외는 사라진다.</strong> 호출자가 받을 수 없으므로 <code>AsyncUncaughtExceptionHandler</code>로 로그와 알림을 남긴다. <code>CompletableFuture</code> 반환이면 <code>exceptionally</code>나 <code>handle</code>로 처리한다.</li>
+<li><strong>스케줄러는 인스턴스 수만큼 실행된다.</strong> 서버 3대면 새벽 집계가 3번 돈다. ShedLock으로 락을 잡거나 배치 인스턴스를 분리하고, <code>lockAtMostFor</code>는 작업 최대 시간보다 길게 잡는다. cron에는 <code>zone</code>을 명시해 컨테이너의 UTC 기본값과 어긋나지 않게 하고, 실패해도 다음 스케줄은 진행되므로 예외 로깅과 알림을 붙인다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/transactional-locking/</li>
+<li>/notes/java-spring/persistence-context-lazy-loading/</li>
+<li>/notes/java-spring/msa-spring-kafka-gateway/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · ApplicationEvent, @Async, CompletableFuture, @Scheduled, ShedLock</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/logging-logback-slf4j/"><small>이전</small>로깅 — Logback·SLF4J</a>
+  <a class="next" href="/notes/java-spring/http-client-restclient/"><small>다음</small>HTTP 클라이언트 — RestClient</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

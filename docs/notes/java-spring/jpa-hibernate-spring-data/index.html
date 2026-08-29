@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JPA·Hibernate·Spring Data JPA — Entity와 Repository · Java / Spring</title>
+  <meta name="description" content="JPA는 표준, Hibernate는 구현체, Spring Data JPA는 Repository 추상화이며 코드의 두 축은 @Entity와 JpaRepository다.">
+  <meta property="og:title" content="JPA·Hibernate·Spring Data JPA — Entity와 Repository · Java / Spring">
+  <meta property="og:description" content="JPA는 표준, Hibernate는 구현체, Spring Data JPA는 Repository 추상화이며 코드의 두 축은 @Entity와 JpaRepository다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jpa-hibernate-spring-data/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>JPA·Hibernate·Spring Data JPA — Entity와 Repository</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 데이터</p>
+  <h1>JPA·Hibernate·Spring Data JPA — Entity와 Repository</h1>
+  <p class="summary">JPA는 표준, Hibernate는 구현체, Spring Data JPA는 Repository 추상화이며 코드의 두 축은 @Entity와 JpaRepository다.</p>
+  <div class="content">
+<p>JdbcTemplate만으로 데이터 접근 계층을 만들면 테이블마다 SQL 문자열, RowMapper, 객체 간 참조를 잇는 코드가 반복된다. 자바 객체는 참조·상속·컬렉션으로 그래프를 이루지만 관계형 DB는 테이블·행·외래 키의 평면 구조이므로 이 불일치를 매번 손으로 메워야 한다. 그 작업을 자동화하는 것이 ORM이고, 자바에서는 JPA·Hibernate·Spring Data JPA 세 층이 역할을 나눠 맡는다.</p>
+<h2>핵심 개념</h2>
+<p><strong>JPA(Jakarta Persistence API)</strong> 는 자바 ORM의 표준 규격이다. 2006년 Java EE 5에서 시작해 현재는 Jakarta EE 산하이며 패키지는 <code>jakarta.persistence.*</code>다. <code>@Entity</code>·<code>@Id</code>·<code>@Column</code> 같은 어노테이션과 <code>EntityManager</code> 인터페이스만 정의하고, SQL 생성이나 캐싱 방식은 정의하지 않는다.</p>
+<p><strong>Hibernate</strong> 는 JPA 표준의 구현체다. 2001년에 JPA보다 먼저 등장했고 JPA 표준이 Hibernate를 모델로 설계되었다. SQL 생성·실행·결과 매핑·1차 캐시를 실제로 처리한다. EclipseLink 같은 다른 구현체도 있지만 Spring Boot의 기본은 Hibernate다.</p>
+<p><strong>Spring Data JPA</strong> 는 JPA 위에 얹힌 Spring의 추상화 계층이다. <code>JpaRepository</code>를 상속한 인터페이스만 선언하면 시작 시점에 프록시 구현체를 만들어 Bean으로 등록하고, 기본 CRUD와 메서드 이름 기반 쿼리를 제공한다. JPA 구현체가 아니며 내부에서 <code>EntityManager</code>를 호출한다. 층을 위에서부터 나열하면 Spring Data JPA → JPA → Hibernate → JDBC/DataSource → DB이고, <code>spring-boot-starter-data-jpa</code> 하나에 세 층이 모두 포함된다.</p>
+<h3>Entity</h3>
+<p><code>@Entity</code>가 붙은 클래스는 JPA 관리 대상이 되고 인스턴스 하나가 행 하나에 대응한다. 조건은 세 가지다. <code>@Entity</code> 선언, JPA가 리플렉션으로 객체를 만들 때 쓰는 인자 없는 생성자, <code>@Id</code> 식별자 필드다. <code>@Table</code>은 클래스명과 테이블명이 다를 때, <code>@Column</code>은 컬럼명·<code>nullable</code>·<code>length</code>·<code>unique</code>·<code>updatable</code>을 지정한다.</p>
+<p><code>@GeneratedValue</code> 전략은 <code>IDENTITY</code>(AUTO_INCREMENT 위임), <code>SEQUENCE</code>(DB 시퀀스), <code>TABLE</code>(별도 키 테이블), <code>AUTO</code>(방언에 따라 선택), 그리고 JPA 3.1에 추가된 <code>UUID</code> 다섯 가지다. MySQL은 시퀀스가 없어 <code>IDENTITY</code> 또는 <code>UUID</code>를 쓰고, PostgreSQL·Oracle은 <code>SEQUENCE</code>가 배치 INSERT에 유리하다.</p>
+<h3>Repository</h3>
+<p>Spring Data 3.x의 <code>JpaRepository&lt;T, ID&gt;</code>는 <code>ListCrudRepository</code>와 <code>ListPagingAndSortingRepository</code>를 상속하고 <code>flush()</code>·<code>saveAndFlush()</code>·<code>deleteAllInBatch()</code> 같은 JPA 특화 메서드를 더한다. 3.x부터 <code>PagingAndSortingRepository</code>는 <code>CrudRepository</code>를 상속하지 않으므로 페이징과 CRUD를 함께 쓰려면 <code>JpaRepository</code>를 상속한다.</p>
+<p><code>save()</code>는 식별자가 없는 새 객체면 <code>persist</code>, 식별자가 있는 준영속 객체면 <code>merge</code>를 호출한다. 영속 상태의 Entity는 커밋 시 변경 감지로 UPDATE가 나가므로 <code>save()</code>를 다시 부를 필요가 없다. <code>@Repository</code>는 필수가 아니며 컴포넌트 스캔 범위 안의 하위 인터페이스는 자동으로 Bean이 된다.</p>
+<h2>코드</h2>
+<p>의존성과 JPA 설정이다. <code>ddl-auto</code>는 운영에서 <code>validate</code> 또는 <code>none</code>으로 두고 스키마 변경은 Flyway·Liquibase로 관리한다.</p>
+<pre><code class="hljs language-groovy">dependencies {
+    implementation <span class="hljs-string">&#x27;org.springframework.boot:spring-boot-starter-data-jpa&#x27;</span>
+    runtimeOnly <span class="hljs-string">&#x27;org.postgresql:postgresql&#x27;</span>
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">hibernate:</span>
+      <span class="hljs-attr">ddl-auto:</span> <span class="hljs-string">validate</span>
+    <span class="hljs-attr">open-in-view:</span> <span class="hljs-literal">false</span>
+    <span class="hljs-attr">properties:</span>
+      <span class="hljs-attr">hibernate:</span>
+        <span class="hljs-attr">default_batch_fetch_size:</span> <span class="hljs-number">100</span></code></pre>
+<p><code>orders</code> 테이블에 매핑되는 Entity다. 생성자는 protected로 제한하고 상태 변경은 의미 있는 메서드로 노출한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.persistence.*;
+<span class="hljs-keyword">import</span> java.time.LocalDateTime;
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@Column(name = &quot;product_id&quot;, nullable = false)</span>
+    <span class="hljs-keyword">private</span> Long productId;
+
+    <span class="hljs-meta">@Column(nullable = false)</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> amount;
+
+    <span class="hljs-meta">@Enumerated(EnumType.STRING)</span>
+    <span class="hljs-meta">@Column(length = 20, nullable = false)</span>
+    <span class="hljs-keyword">private</span> OrderStatus status;
+
+    <span class="hljs-meta">@Column(name = &quot;created_at&quot;, nullable = false, updatable = false)</span>
+    <span class="hljs-keyword">private</span> LocalDateTime createdAt;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Order</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Order</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> amount)</span> {
+        <span class="hljs-built_in">this</span>.productId = productId;
+        <span class="hljs-built_in">this</span>.amount = amount;
+        <span class="hljs-built_in">this</span>.status = OrderStatus.CREATED;
+        <span class="hljs-built_in">this</span>.createdAt = LocalDateTime.now();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">()</span> {
+        <span class="hljs-built_in">this</span>.status = OrderStatus.CANCELLED;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Long</span> <span class="hljs-title function_">getId</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> id; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Long</span> <span class="hljs-title function_">getProductId</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> productId; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getAmount</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> amount; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">getStatus</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> status; }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">equals</span><span class="hljs-params">(Object o)</span> {
+        <span class="hljs-keyword">return</span> o <span class="hljs-keyword">instanceof</span> Order other &amp;&amp; id != <span class="hljs-literal">null</span> &amp;&amp; id.equals(other.id);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">hashCode</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> getClass().hashCode(); }
+}</code></pre>
+<p>Repository 인터페이스와 서비스다. 서비스는 Entity를 밖으로 내보내지 않고 record DTO로 변환해 반환한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Order, Long&gt; {
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findByStatus</span><span class="hljs-params">(OrderStatus status)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderResponse</span><span class="hljs-params">(Long id, Long productId, <span class="hljs-type">int</span> amount, OrderStatus status)</span> {
+    <span class="hljs-keyword">static</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">from</span><span class="hljs-params">(Order o)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderResponse</span>(o.getId(), o.getProductId(), o.getAmount(), o.getStatus());
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@Transactional(readOnly = true)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(OrderRepository orderRepository)</span> {
+        <span class="hljs-built_in">this</span>.orderRepository = orderRepository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">find</span><span class="hljs-params">(Long id)</span> {
+        <span class="hljs-keyword">return</span> orderRepository.findById(id)
+                .map(OrderResponse::from)
+                .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">NoSuchElementException</span>(<span class="hljs-string">&quot;order &quot;</span> + id));
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> amount)</span> {
+        <span class="hljs-keyword">return</span> OrderResponse.from(orderRepository.save(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(productId, amount)));
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">(Long id)</span> {
+        orderRepository.findById(id).orElseThrow().cancel();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>ddl-auto: update</code>를 운영에 남기는 실수.</strong> Entity 필드 추가가 곧바로 운영 DB의 ALTER TABLE로 이어지고, 컬럼 삭제·타입 변경은 반영되지 않아 스키마가 서서히 어긋난다.</li>
+<li><strong><code>@Enumerated</code> 기본값은 <code>ORDINAL</code>이다.</strong> enum 순서 번호가 저장되므로 상수 사이에 값을 끼워 넣으면 기존 데이터의 의미가 바뀐다. enum 필드는 항상 <code>EnumType.STRING</code>을 명시한다.</li>
+<li><strong>Lombok <code>@Data</code>를 Entity에 쓰면 안 된다.</strong> 전체 필드 기반 <code>equals</code>는 영속화 전후로 결과가 바뀌고 연관 필드가 섞이면 지연 로딩과 순환 호출을 유발한다. 식별자 기반으로 직접 구현하고 <code>hashCode</code>는 상수로 두어 id 부여 전후에도 <code>Set</code> 안에서 안정되게 한다.</li>
+<li><strong>Entity를 컨트롤러 응답으로 직접 반환하면</strong> 트랜잭션 종료 후 Jackson이 지연 로딩 getter를 호출해 <code>LazyInitializationException</code>이 나고, 비밀번호 같은 내부 컬럼이 API에 노출된다. <code>open-in-view</code>를 <code>false</code>로 두고 서비스 안에서 DTO로 변환한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/java-spring/jdbc-jdbctemplate/">JDBC·DataSource·JdbcTemplate</a></li>
+<li><a href="/notes/java-spring/jpa-relations-n-plus-1/">연관관계·N+1·값 객체</a></li>
+<li><a href="/notes/java-spring/persistence-context-lazy-loading/">영속성 컨텍스트와 LazyLoading</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · JPA, Hibernate, Spring Data JPA, Entity, JpaRepository</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/transactional-locking/"><small>이전</small>@Transactional 원리와 낙관/비관 락</a>
+  <a class="next" href="/notes/java-spring/jpa-relations-n-plus-1/"><small>다음</small>연관관계·N+1·값 객체</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>배포 — Docker·Buildpack · Java / Spring</title>
+  <meta name="description" content="Spring Boot 앱을 컨테이너 이미지로 만드는 두 경로(Buildpack·Dockerfile)와 Compose·Kubernetes 운영 시 확인할 지점을 정리한다.">
+  <meta property="og:title" content="배포 — Docker·Buildpack · Java / Spring">
+  <meta property="og:description" content="Spring Boot 앱을 컨테이너 이미지로 만드는 두 경로(Buildpack·Dockerfile)와 Compose·Kubernetes 운영 시 확인할 지점을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/deploy-docker-buildpack/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/java-spring/">Java / Spring</a><span class="sep">›</span><span>배포 — Docker·Buildpack</span></nav>
+    <article class="post">
+  <p class="part">Java / Spring · 운영·통합</p>
+  <h1>배포 — Docker·Buildpack</h1>
+  <p class="summary">Spring Boot 앱을 컨테이너 이미지로 만드는 두 경로(Buildpack·Dockerfile)와 Compose·Kubernetes 운영 시 확인할 지점을 정리한다.</p>
+  <div class="content">
+<p>JAR 파일을 서버에 복사해 <code>java -jar</code>로 띄우는 방식은 실행 환경을 서버마다 손으로 맞춰야 한다. JDK 버전, OS 라이브러리, 환경 변수, 포트 설정이 한 곳이라도 다르면 로컬에서 통과한 코드가 서버에서 실패하고, 원인을 찾으려면 두 환경의 차이를 하나씩 대조해야 한다. 인스턴스를 여러 개 띄우거나 새 버전으로 교체할 때도 같은 작업이 반복된다. 컨테이너는 애플리케이션과 실행 환경을 하나의 불변 이미지로 묶어 이 차이를 없애고, Spring Boot는 빌드 플러그인만으로 그 이미지를 만드는 경로를 제공한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>이미지와 컨테이너.</strong> 이미지는 OS 라이브러리·JRE·애플리케이션·설정을 레이어로 쌓은 읽기 전용 템플릿이고, 컨테이너는 그 이미지 위에 쓰기 가능한 레이어를 얹어 실행한 인스턴스다. 하나의 이미지로 여러 컨테이너를 동시에 띄울 수 있으며, 컨테이너 내부에 기록한 데이터는 컨테이너가 삭제되면 함께 사라진다. 영속화가 필요한 데이터는 Volume이나 외부 저장소에 둔다.</p>
+<p><strong>Layered JAR.</strong> Spring Boot 실행 가능 JAR은 의존성 JAR을 중첩해 담는 fat JAR이라 통째로 이미지에 넣으면 코드 한 줄이 바뀌어도 수십 MB짜리 레이어가 다시 만들어진다. 이를 피하기 위해 Boot는 JAR을 <code>dependencies</code>, <code>spring-boot-loader</code>, <code>snapshot-dependencies</code>, <code>application</code> 네 레이어로 나누는 구조를 기본으로 제공한다. 변경 빈도가 낮은 순서로 COPY하면 Docker 빌드 캐시가 앞 레이어를 재사용한다. 레이어 추출은 Boot 3.3부터 <code>-Djarmode=tools</code>가 기본이고 기존 <code>layertools</code>는 제거 예정이다.</p>
+<p><strong>Buildpack.</strong> Cloud Native Buildpacks는 Dockerfile 없이 소스에서 OCI 이미지를 만드는 표준이며, Spring Boot Maven/Gradle 플러그인은 Paketo Buildpacks를 내장한다. <code>spring-boot:build-image</code> 또는 <code>bootBuildImage</code>를 실행하면 플러그인이 JAR을 패키징하고, 빌드팩이 자바 버전을 감지해 JRE 베이스 이미지를 고른 뒤 Layered JAR을 레이어로 배치하고 로컬 Docker 데몬에 이미지를 등록한다. JVM 메모리 계산기, 빌드 메타데이터 라벨, 비 root 실행이 기본으로 들어간다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left">Buildpack</th>
+<th align="left">Dockerfile</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">정의 파일</td>
+<td align="left">불필요</td>
+<td align="left">직접 작성</td>
+</tr>
+<tr>
+<td align="left">베이스 이미지·보안 패치</td>
+<td align="left">빌더 갱신으로 일괄</td>
+<td align="left">이미지마다 수동</td>
+</tr>
+<tr>
+<td align="left">레이어 최적화</td>
+<td align="left">자동</td>
+<td align="left">직접 설계</td>
+</tr>
+<tr>
+<td align="left">커스터마이징</td>
+<td align="left">환경 변수 범위</td>
+<td align="left">제한 없음</td>
+</tr>
+<tr>
+<td align="left">빌드 속도</td>
+<td align="left">첫 빌드 느림</td>
+<td align="left">캐시 활용 시 빠름</td>
+</tr>
+</tbody></table>
+<p>판단 기준은 단순하다. OS 패키지 추가나 베이스 이미지 교체 같은 요구가 없으면 Buildpack을 쓰고, 그 요구가 생기면 Dockerfile로 내려간다.</p>
+<p><strong>Compose와 Kubernetes.</strong> Compose는 단일 호스트의 여러 컨테이너를 하나의 YAML로 정의하고, Kubernetes는 여러 호스트에 걸쳐 복제·롤링 업데이트·자동 복구를 담당한다. Kubernetes에서 실제로 다루는 오브젝트는 Pod, Deployment, Service, ConfigMap·Secret 네 가지다. Actuator의 <code>/actuator/health/liveness</code>와 <code>/actuator/health/readiness</code>는 Kubernetes Probe와 맞물리며, Kubernetes 환경을 감지하면 자동 활성화된다.</p>
+<h2>코드</h2>
+<p>Maven 플러그인에 이미지 이름과 JVM 버전을 지정한다. 실행은 <code>./mvnw spring-boot:build-image</code>, Gradle은 <code>./gradlew bootBuildImage</code>다.</p>
+<pre><code class="hljs language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">plugin</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">groupId</span>&gt;</span>org.springframework.boot<span class="hljs-tag">&lt;/<span class="hljs-name">groupId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">artifactId</span>&gt;</span>spring-boot-maven-plugin<span class="hljs-tag">&lt;/<span class="hljs-name">artifactId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">configuration</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">image</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">name</span>&gt;</span>acme/${project.artifactId}:${project.version}<span class="hljs-tag">&lt;/<span class="hljs-name">name</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">env</span>&gt;</span>
+                <span class="hljs-tag">&lt;<span class="hljs-name">BP_JVM_VERSION</span>&gt;</span>21<span class="hljs-tag">&lt;/<span class="hljs-name">BP_JVM_VERSION</span>&gt;</span>
+            <span class="hljs-tag">&lt;/<span class="hljs-name">env</span>&gt;</span>
+            <span class="hljs-tag">&lt;<span class="hljs-name">publish</span>&gt;</span>false<span class="hljs-tag">&lt;/<span class="hljs-name">publish</span>&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">image</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">configuration</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">plugin</span>&gt;</span></code></pre>
+<p>Dockerfile이 필요한 경우의 멀티 스테이지 빌드. <code>jarmode=tools</code>로 레이어를 추출하고 변경 빈도 순으로 복사한다.</p>
+<pre><code class="hljs language-dockerfile"><span class="hljs-keyword">FROM</span> eclipse-temurin:<span class="hljs-number">21</span>-jdk-alpine AS builder
+<span class="hljs-keyword">WORKDIR</span><span class="language-bash"> /app</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> .mvn/ .mvn</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> mvnw pom.xml ./</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> ./mvnw dependency:go-offline</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> src ./src</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> ./mvnw clean package -DskipTests \
+    &amp;&amp; java -Djarmode=tools -jar target/*.jar extract --layers --destination target/extracted</span>
+
+<span class="hljs-keyword">FROM</span> eclipse-temurin:<span class="hljs-number">21</span>-jre-alpine
+<span class="hljs-keyword">WORKDIR</span><span class="language-bash"> /app</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> addgroup -S spring &amp;&amp; adduser -S spring -G spring</span>
+<span class="hljs-keyword">USER</span> spring:spring
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=builder /app/target/extracted/dependencies/ ./</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=builder /app/target/extracted/spring-boot-loader/ ./</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=builder /app/target/extracted/snapshot-dependencies/ ./</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=builder /app/target/extracted/application/ ./</span>
+<span class="hljs-keyword">HEALTHCHECK</span><span class="language-bash"> --interval=30s --<span class="hljs-built_in">timeout</span>=10s --start-period=60s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:8080/actuator/health || <span class="hljs-built_in">exit</span> 1</span>
+<span class="hljs-keyword">EXPOSE</span> <span class="hljs-number">8080</span>
+<span class="hljs-keyword">ENTRYPOINT</span><span class="language-bash"> [<span class="hljs-string">&quot;java&quot;</span>, <span class="hljs-string">&quot;org.springframework.boot.loader.launch.JarLauncher&quot;</span>]</span></code></pre>
+<p>Compose로 DB와 앱을 함께 띄운다. 앱은 DB의 healthcheck 통과 후 시작하고, 설정은 환경 변수로 주입한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">services:</span>
+  <span class="hljs-attr">mysql:</span>
+    <span class="hljs-attr">image:</span> <span class="hljs-string">mysql:8.4</span>
+    <span class="hljs-attr">environment:</span>
+      <span class="hljs-attr">MYSQL_ROOT_PASSWORD:</span> <span class="hljs-string">${MYSQL_ROOT_PASSWORD}</span>
+      <span class="hljs-attr">MYSQL_DATABASE:</span> <span class="hljs-string">restdb</span>
+    <span class="hljs-attr">volumes:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">mysql_data:/var/lib/mysql</span>
+    <span class="hljs-attr">healthcheck:</span>
+      <span class="hljs-attr">test:</span> [<span class="hljs-string">&quot;CMD&quot;</span>, <span class="hljs-string">&quot;mysqladmin&quot;</span>, <span class="hljs-string">&quot;ping&quot;</span>, <span class="hljs-string">&quot;-h&quot;</span>, <span class="hljs-string">&quot;localhost&quot;</span>]
+      <span class="hljs-attr">interval:</span> <span class="hljs-string">10s</span>
+      <span class="hljs-attr">timeout:</span> <span class="hljs-string">5s</span>
+      <span class="hljs-attr">retries:</span> <span class="hljs-number">5</span>
+
+  <span class="hljs-attr">app:</span>
+    <span class="hljs-attr">image:</span> <span class="hljs-string">acme/myapp:0.0.1-SNAPSHOT</span>
+    <span class="hljs-attr">depends_on:</span>
+      <span class="hljs-attr">mysql:</span>
+        <span class="hljs-attr">condition:</span> <span class="hljs-string">service_healthy</span>
+    <span class="hljs-attr">ports:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;8080:8080&quot;</span>
+    <span class="hljs-attr">environment:</span>
+      <span class="hljs-attr">SPRING_DATASOURCE_URL:</span> <span class="hljs-string">jdbc:mysql://mysql:3306/restdb</span>
+      <span class="hljs-attr">SPRING_PROFILES_ACTIVE:</span> <span class="hljs-string">${SPRING_PROFILES_ACTIVE:-dev}</span>
+
+<span class="hljs-attr">volumes:</span>
+  <span class="hljs-attr">mysql_data:</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>컨테이너 안의 <code>localhost</code>는 자기 자신이다.</strong> 같은 네트워크의 다른 컨테이너는 서비스 이름으로 접근해야 한다. <code>jdbc:mysql://localhost:3306</code>을 이미지에 넣고 Compose로 띄우면 연결이 거부된다.</li>
+<li><strong><code>depends_on</code>은 시작 순서만 보장한다.</strong> DB 프로세스가 떴어도 연결을 받을 준비는 안 됐을 수 있으므로 <code>condition: service_healthy</code>와 healthcheck를 함께 둔다. <code>docker compose stop</code>은 중지만, <code>down</code>은 삭제, <code>down -v</code>는 볼륨까지 삭제라는 차이도 실수가 잦다.</li>
+<li><strong>Buildpack 빌드는 Docker 데몬이 떠 있어야 한다.</strong> CI 러너에 Docker가 없으면 <code>build-image</code>가 실패하고, 첫 빌드는 빌더 이미지 다운로드로 수 분이 걸린다. Apple Silicon에서 amd64로 배포한다면 <code>imagePlatform</code>을 명시한다.</li>
+<li><strong>Probe의 <code>initialDelaySeconds</code>가 짧으면 기동 중인 Pod가 재시작된다.</strong> liveness 실패는 재시작, readiness 실패는 트래픽 차단이므로 JVM 기동 시간에 맞춰 liveness를 더 길게 잡거나 <code>startupProbe</code>를 둔다.</li>
+<li><strong>비밀 값을 Dockerfile <code>ENV</code>나 ConfigMap에 넣지 않는다.</strong> 둘 다 암호화되지 않는다. 런타임 환경 변수나 Secret으로 주입하고, Pod에는 <code>requests</code>·<code>limits</code>를 지정해 한 컨테이너의 자원 독점을 막는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li>/notes/java-spring/build-and-project-setup/</li>
+<li>/notes/java-spring/actuator-micrometer/</li>
+<li>/notes/java-spring/msa-spring-kafka-gateway/</li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Docker, Buildpack, Layered JAR, Docker Compose, Kubernetes</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/java-spring/dto-mapping-mapstruct/"><small>이전</small>DTO 매핑 — MapStruct</a>
+  <a class="next" href="/notes/java-spring/msa-spring-kafka-gateway/"><small>다음</small>MSA 입문 — Spring Kafka·Cloud Gateway</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
