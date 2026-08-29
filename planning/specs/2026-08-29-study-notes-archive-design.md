@@ -1,11 +1,11 @@
 # 기술 노트 아카이브 설계 (Study Notes Archive)
 
 작성일: 2026-08-29
-상태: 설계 확정 대기 (사용자 리뷰)
+상태: 확정 (2026-08-29, 루트 235편 재집계 반영)
 
 ## 1. 목적
 
-`~/Project/Coupang/posts/study/`에 쌓인 강의 노트 약 330편을 **포트폴리오용 기술 노트 약 165편**으로 통합·재작성하고,
+`~/Project/Coupang/posts/study/`에 쌓인 강의 노트 약 580편(시리즈 폴더 9개 + 루트 235편)을 **포트폴리오용 기술 노트 약 230편**으로 통합·재작성하고,
 포트폴리오 사이트(https://jinwookoh.github.io)의 아카이브로 발행한다.
 
 - 독자: 채용 담당자, 동료 개발자. "개념을 얼마나 명확히 정리하는 사람인가"를 보여주는 자산.
@@ -13,32 +13,37 @@
 
 ## 2. 범위
 
-### 포함 — 통합 시리즈 10개 (원본 → 목표 편수)
+### 포함 — 통합 시리즈 13개 (원본 → 목표 편수)
 
 | # | 시리즈 slug | 이름 | 원본 | 목표 |
 |---|---|---|---|---|
-| 1 | `java-spring` | Java / Spring | spring 62 + 루트 16 + 타 시리즈 4 = 82 | 33 |
-| 2 | `spring-batch` | Spring Batch | 48 | 20 |
-| 3 | `kafka` | Kafka | data-infra 80~130 + 보강 2 + 루트 13 = 66 | 24 |
-| 4 | `redis` | Redis | data-infra 47~79 + 보강 2 + 루트 8 = 43 | 16 |
-| 5 | `postgresql` | PostgreSQL | data-infra 1~46 = 46 | 20 |
-| 6 | `elasticsearch` | Elasticsearch | 38 + 보강 2 = 40 | 20 |
-| 7 | `observability` | 관측성 | micrometer 9 + grafana 9 + ES 30·34 + spring 57 = 20 | 10 |
-| 8 | `experimentation` | 실험·분석 (Statsig + GA4) | statsig 9 + 루트 A/B 2 + ga 9 = 20 | 10 |
-| 9 | `braze` | Braze | 8 | 5 |
-| 10 | `aws` | AWS | 루트 SAA 13 + S3 7 + DVA 1 = 21 | 12 |
+| 1 | `java-spring` | Java / Spring | spring 62 + 루트 spring 16 + java-fp 6 + vt 8 + oop/solid 2 + design-patterns 4 + 타 시리즈 Spring 글 4 = 102 | 40 |
+| 2 | `reactive-spring` | Reactive Spring | 루트 reactive 15 + webflux 15 + reactive-redis 7 + rsocket 9 + grpc 10 + graphql 7 = 63 | 24 |
+| 3 | `kafka` | Kafka | data-infra 80~130 (51) + 보강 2 + 루트 kafka 입문·마스터 28 + connect 5 = 86 | 26 |
+| 4 | `redis` | Redis | data-infra 47~79 (33) + 보강 2 + 루트 redis 9 = 44 | 16 |
+| 5 | `postgresql` | DB 원리와 PostgreSQL | data-infra 1~46 (46) + 루트 db-eng 8 = 54 | 24 |
+| 6 | `elasticsearch` | Elasticsearch | 38 + 보강 2 + 루트 es 10 = 50 | 20 |
+| 7 | `spring-batch` | Spring Batch | 48 + 루트 8 = 56 | 20 |
+| 8 | `observability` | 관측성 | micrometer 9 + grafana 9 + ES 30·34 + spring 57 = 20 | 10 |
+| 9 | `experimentation` | 실험·분석 (Statsig · GA4 · A/B · 통계) | statsig 9 + ga 9 + 루트 ab-test 7 + ga4 7 + prob-stats 6 = 38 | 15 |
+| 10 | `sns-project` | 실전 프로젝트: SNS 마이크로서비스 | 루트 javaex-sns 7 | 5 |
+| 11 | `infra` | 인프라: Kubernetes · Consul | 루트 k8s 10 + consul 7 = 17 | 10 |
+| 12 | `aws` | AWS | 루트 saa 14 + dva 12 + s3 7 = 33 | 15 |
+| 13 | `braze` | Braze | 8 | 5 |
 
-작업 순서: 1 → 3 → 4 → 5 → 6 → 2 → 7 → 8 → 9 → 10.
+작업 순서: 1 → 3 → 4 → 5 → 6 → 2 → 7 → 10 → 8 → 9 → 11 → 12 → 13.
 
-### Java / Spring 목차 (33편, 확정)
+### Java / Spring 목차 (40편, 확정)
 
-Part 1 자바 기초: (1) 개관·JVM·인터페이스·다형성 ← spring 1,3 · (2) 컬렉션·제네릭·Optional ← 5,6,8 · (3) 예외·Stream·람다 ← 7,9 · (4) 빌드·프로젝트 구성 ← 10,12,13
-Part 2 Spring 코어: (5) Framework와 Boot 자동 구성 ← 11, 보강-자동구성, 루트 Spring Boot 입문 · (6) IoC/DI·ApplicationContext·Bean ← 14,15,16,17 · (7) Bean 등록·주입 ← 4,18,19 · (8) Scope·생명주기 ← 20,21 · (9) AOP·SpEL ← 22,23,24 · (10) 서비스 레이어 분리 ← 보강
-Part 3 Web MVC: (11) DispatcherServlet·Filter/Interceptor ← 25,26 · (12) Controller·바인딩 ← 27,28,29 · (13) ArgumentResolver·업로드·페이징 ← 30,31, 루트 Multipart·Pageable · (14) 예외 처리·검증 ← 33,34,35 · (15) CORS·Security·OAuth2·JWT ← 32,37, 루트 Security · (16) OpenAPI 문서화 ← 59, 루트 OpenAPI
-Part 4 데이터: (17) JDBC·JdbcTemplate ← 41,42 · (18) @Transactional·락 ← 43, 보강-락 · (19) JPA·Hibernate·Spring Data JPA ← 44,45, 루트 Data JPA · (20) 연관관계·N+1·값 객체 ← 46,47, 루트 JPA 관계 매핑 · (21) 쿼리·QueryDSL·Auditing ← 48,49,50 · (22) 영속성 컨텍스트·LazyLoading ← 51 · (23) 캐싱·Spring Data Redis ← 56, 루트 @Cacheable, 루트 Spring Data Redis, data-infra 73
-Part 5 운영·통합: (24) 로깅 ← 36 · (25) 이벤트·비동기·스케줄링 ← 38,39,55 · (26) RestClient·WebClient ← 40, 루트 RestClient · (27) 테스트 ← 52,53,54, 루트 Flyway·Testcontainers, 루트 MVC REST · (28) Actuator·Micrometer ← 57, 루트 Actuator, micrometer 5 · (29) MapStruct·Docker ← 58, 루트 Docker · (30) WebFlux ← 루트 WebFlux · (31) Spring Kafka·Cloud Gateway ← 루트 MSA+Kafka, 루트 Gateway, data-infra 130 · (32) Spring AI ← 루트 OpenAPI·Spring AI · (33) 베스트 프랙티스 ← 루트 Spring Professional
+Part 1 자바 기초·모던 자바 (10): (1) 개관·JVM·객체와 클래스·OOP 4기둥 ← spring 1,2, 루트 oop-principles · (2) 인터페이스·다형성·SOLID ← spring 3, 루트 solid-principles · (3) 컬렉션·제네릭·Optional ← 5,6,8 · (4) 예외 처리 ← 7 · (5) 람다·함수형 인터페이스·Stream ← 9, 루트 java-fp-lambda, java-fp-functional-interfaces, java-fp-stream, java-fp-basics · (6) Modern Java 9~21 핵심 ← 루트 java-fp-modern, java-fp-virtual-threads · (7) Virtual Thread 원리·API·Pinning ← 루트 vt-concurrency-basics, vt-virtual-thread, vt-api, vt-pinning · (8) Virtual Thread 실전·Spring Boot·Structured Concurrency ← 루트 vt-patterns, vt-performance, vt-spring-boot, vt-structured-concurrency · (9) 디자인 패턴 — 생성·구조 ← 루트 design-patterns-creational, design-patterns-structural · (10) 디자인 패턴 — 행위·조합 ← 루트 design-patterns-behavioral, design-patterns-combinations
+Part 2 Spring 코어 (7): (11) 빌드·프로젝트 구성 — Maven/Gradle, start.spring.io, application.yml·Profiles ← 10,12,13 · (12) Framework와 Boot 자동 구성 ← 11, 60(보강-자동구성), 루트 spring-boot-basics · (13) IoC/DI·ApplicationContext·Bean ← 14,15,16,17 · (14) Bean 등록·주입 ← 4,18,19 · (15) Scope·생명주기 ← 20,21 · (16) AOP·SpEL ← 22,23,24 · (17) 계층 설계 — 서비스 레이어 ← 61(보강)
+Part 3 Web MVC (6): (18) DispatcherServlet·Filter/Interceptor ← 25,26 · (19) Controller·요청 바인딩 ← 27,28,29 · (20) ArgumentResolver·업로드·페이징 ← 30,31, 루트 spring-mvc-features · (21) 예외 처리·검증 ← 33,34,35 · (22) CORS·Security·OAuth2·JWT ← 32,37, 루트 spring-security · (23) OpenAPI 문서화 ← 59, 루트 spring-openapi-ai(OpenAPI 부분)
+Part 4 데이터 (7): (24) JDBC·JdbcTemplate ← 41,42 · (25) @Transactional·낙관/비관 락 ← 43, 62(보강-락) · (26) JPA·Hibernate·Spring Data JPA ← 44,45, 루트 spring-data-jpa · (27) 연관관계·N+1·값 객체 ← 46,47, 루트 spring-jpa-relationships · (28) 쿼리·QueryDSL·Auditing ← 48,49,50 · (29) 영속성 컨텍스트·LazyLoading ← 51 · (30) 캐싱 — @Cacheable·Spring Data Redis ← 56, 루트 spring-caching-events, 루트 redis-spring-data, data-infra 73
+Part 5 운영·통합 (10): (31) 로깅 ← 36 · (32) 이벤트·비동기·스케줄링 ← 38,39,55 · (33) HTTP 클라이언트 — RestClient ← 40, 루트 spring-rest-client · (34) 테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway ← 52,53,54, 루트 spring-database-advanced, 루트 spring-mvc-rest · (35) Actuator·Micrometer ← 57, 루트 spring-observability, micrometer 5 · (36) DTO 매핑 — MapStruct ← 58 · (37) 배포 — Docker·Buildpack ← 루트 spring-containers-deployment, spring-cloud-gateway-build(Buildpack 부분) · (38) MSA 입문 — Spring Kafka·Cloud Gateway ← 루트 spring-microservices-kafka, spring-cloud-gateway-build(Gateway 부분), data-infra 130 · (39) Spring AI ← 루트 spring-openapi-ai(AI 부분) · (40) 베스트 프랙티스 ← 루트 spring-certification-best-practices
 
-나머지 9개 시리즈의 세부 목차는 각 시리즈 착수 시 같은 형식(목표 글 ← 원본 목록)의 매핑 파일로 확정한다.
+WebFlux·WebClient·리액티브 계열은 `reactive-spring` 시리즈로 보낸다 (루트 spring-webflux-basics, spring-webflux-advanced 포함).
+
+나머지 12개 시리즈의 세부 목차는 각 시리즈 착수 시 같은 형식(목표 글 ← 원본 목록)의 매핑 파일로 확정한다.
 
 ### 제외
 
@@ -89,7 +94,7 @@ Jekyll을 쓰지 않는 이유: 로컬 Ruby 2.6으로 빌드 불가, Node는 있
 
 ### 페이지
 
-- `/notes/` — 10개 시리즈 카드(이름·설명·편수). 프로필 `index.html` 상단 내비와 푸터 "Coming soon"을 이 링크로 교체.
+- `/notes/` — 13개 시리즈 카드(이름·설명·편수). 프로필 `index.html` 상단 내비와 푸터 "Coming soon"을 이 링크로 교체.
 - `/notes/<series>/` — Part 제목 아래 순서대로 글 목록(제목·요약).
 - `/notes/<series>/<slug>/` — 본문. 상단 breadcrumb(Notes › 시리즈), 하단 이전/다음 글, 본문 h2 목차 없음(글이 짧음).
 - 디자인: 프로필의 시트 디자인(F)과 같은 토큰(네이비·회색 바탕·Pretendard). 코드 블록은 highlight.js 테마를 라이트/다크 둘 다 지정.
@@ -113,6 +118,6 @@ Jekyll을 쓰지 않는 이유: 로컬 Ruby 2.6으로 빌드 불가, Node는 있
 
 ## 7. 완료 기준
 
-- 10개 시리즈 165편(±10%)이 `/notes/`에서 열리고 내부 링크가 모두 살아 있다.
+- 13개 시리즈 230편(±10%)이 `/notes/`에서 열리고 내부 링크가 모두 살아 있다.
 - 빌드 검증이 0 에러로 통과한다.
 - 프로필 페이지에서 Notes로 진입 가능, 모바일에서 본문·코드가 가로 스크롤 없이 읽힌다.
