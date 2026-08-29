@@ -7,7 +7,7 @@
   --accent: #0f766e;
   --accent-soft: #ccfbf1;
   --tag: #f5f5f4;
-  --maxw: 880px;
+  --maxw: 1100px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -56,7 +56,7 @@ a:hover { text-decoration: underline; }
 .hero .eyebrow { color: var(--accent); font-weight: 600; font-size: 14px; letter-spacing: .02em; margin-bottom: 12px; }
 .hero h1 { font-size: clamp(32px, 6vw, 48px); font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
 .hero h1 small { display: block; font-size: .5em; font-weight: 500; color: var(--muted); margin-top: 6px; }
-.hero .lead { font-size: 18px; color: var(--muted); max-width: 640px; margin: 20px 0 28px; }
+.hero .lead { font-size: 18px; color: var(--muted); max-width: 760px; margin: 20px 0 28px; }
 .links { display: flex; flex-wrap: wrap; gap: 10px; }
 .links a {
   display: inline-flex; align-items: center; gap: 8px;
@@ -76,11 +76,12 @@ section h2 span { color: var(--muted); font-weight: 400; font-size: 15px; margin
 
 /* Highlights */
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+@media (min-width: 1000px) { .grid { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
 .card {
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px;
 }
-.card .num { font-size: 28px; font-weight: 800; color: var(--accent); letter-spacing: -.02em; line-height: 1; margin-bottom: 8px; }
+.card .num { font-size: 26px; font-weight: 800; color: var(--accent); letter-spacing: -.02em; line-height: 1; margin-bottom: 8px; }
 .card h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
 .card p { font-size: 14px; color: var(--muted); }
 
