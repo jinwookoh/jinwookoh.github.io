@@ -1,0 +1,6 @@
+name: Braze
+description: 고객 참여 플랫폼 Braze의 데이터 모델·SDK와 REST API·메시지 채널·Liquid 개인화·Canvas 운영.
+order: 13
+parts:
+  - 개념과 통합
+  - 메시징과 운영

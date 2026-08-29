@@ -1,0 +1,6 @@
+name: 인프라 — Kubernetes · Consul
+description: Kubernetes의 아키텍처·워크로드·네트워킹·스토리지·보안·운영과 Consul 서비스 디스커버리·KV·서비스 메시.
+order: 11
+parts:
+  - Kubernetes
+  - Consul
