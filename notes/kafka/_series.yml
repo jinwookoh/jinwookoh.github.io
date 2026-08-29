@@ -1,0 +1,12 @@
+name: Kafka
+description: 이벤트 스트리밍의 기본 개념부터 설계 원리·클라이언트·운영·보안·Connect·Streams·Spring 통합까지.
+order: 2
+parts:
+  - 기초
+  - 설계와 내부
+  - 클라이언트
+  - 운영
+  - 보안
+  - Connect
+  - Streams
+  - Spring과 패턴
