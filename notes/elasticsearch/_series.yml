@@ -1,0 +1,11 @@
+name: Elasticsearch
+description: 분산 검색 엔진의 핵심 개념·Lucene 내부·매핑과 분석기·Query DSL·집계·벡터 검색·수집·클러스터 운영·Spring 통합까지.
+order: 5
+parts:
+  - 기초
+  - 인덱스와 매핑
+  - 검색
+  - 집계와 고급 검색
+  - 수집
+  - 운영
+  - 통합과 클라우드
