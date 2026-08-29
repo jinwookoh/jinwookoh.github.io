@@ -184,6 +184,6 @@ public class RagService {
 
 ## 관련 글
 
-- /notes/java-spring/http-client-restclient/
-- /notes/java-spring/caching-cacheable-redis/
-- /notes/java-spring/testing-mockmvc-testcontainers/
+- [HTTP 클라이언트 — RestClient](/notes/java-spring/http-client-restclient/)
+- [캐싱 — @Cacheable과 Spring Data Redis](/notes/java-spring/caching-cacheable-redis/)
+- [테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway](/notes/java-spring/testing-mockmvc-testcontainers/)

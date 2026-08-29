@@ -30,6 +30,12 @@ export function validateSite(site) {
         const href = m[1].endsWith('/') ? m[1] : m[1] + '/';
         if (!known.has(href)) errors.push(`${at}: 깨진 내부 링크 ${m[1]}`);
       }
+      const rel = p.body.split(/^## 관련 글/m)[1];
+      if (rel !== undefined) {
+        for (const line of rel.split('\n')) {
+          if (/\/notes\//.test(line) && !/\]\(\/notes\//.test(line)) errors.push(`${at}: 관련 글에 제목 없는 맨주소 링크: ${line.trim()}`);
+        }
+      }
       const n = countBodyChars(p.body);
       if (n < MIN || n > MAX) warnings.push(`${at}: 본문 ${n}글자 (권장 ${MIN}~${MAX})`);
     }

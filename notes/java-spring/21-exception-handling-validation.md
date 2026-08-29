@@ -174,6 +174,6 @@ public class UniqueEmailValidator implements ConstraintValidator<UniqueEmail, St
 
 ## 관련 글
 
-- 예외 처리 — /notes/java-spring/exception-handling/
-- Controller와 요청 바인딩 — /notes/java-spring/controller-request-binding/
-- CORS와 Spring Security — OAuth2·JWT — /notes/java-spring/cors-security-oauth2-jwt/
+- [예외 처리](/notes/java-spring/exception-handling/)
+- [Controller와 요청 바인딩](/notes/java-spring/controller-request-binding/)
+- [CORS와 Spring Security — OAuth2·JWT](/notes/java-spring/cors-security-oauth2-jwt/)

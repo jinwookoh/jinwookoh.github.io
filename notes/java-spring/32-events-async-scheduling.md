@@ -154,6 +154,6 @@ public class ReportScheduler {
 
 ## 관련 글
 
-- /notes/java-spring/transactional-locking/
-- /notes/java-spring/persistence-context-lazy-loading/
-- /notes/java-spring/msa-spring-kafka-gateway/
+- [@Transactional 원리와 낙관/비관 락](/notes/java-spring/transactional-locking/)
+- [영속성 컨텍스트와 LazyLoading](/notes/java-spring/persistence-context-lazy-loading/)
+- [MSA 입문 — Spring Kafka·Cloud Gateway](/notes/java-spring/msa-spring-kafka-gateway/)

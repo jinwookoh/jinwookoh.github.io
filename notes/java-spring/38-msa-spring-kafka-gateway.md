@@ -184,6 +184,6 @@ spring:
 
 ## 관련 글
 
-- 이벤트·비동기·스케줄링 → /notes/java-spring/events-async-scheduling/
-- 배포 — Docker·Buildpack → /notes/java-spring/deploy-docker-buildpack/
-- Actuator와 Micrometer → /notes/java-spring/actuator-micrometer/
+- [이벤트·비동기·스케줄링](/notes/java-spring/events-async-scheduling/)
+- [배포 — Docker·Buildpack](/notes/java-spring/deploy-docker-buildpack/)
+- [Actuator와 Micrometer](/notes/java-spring/actuator-micrometer/)

@@ -48,3 +48,8 @@ test('body length outside 1200..3000 is a warning, not an error', () => {
   assert.equal(r.errors.length, 0);
   assert.ok(r.warnings.some(w => w.includes('글자')));
 });
+
+test('bare URL in related section is an error', () => {
+  const r = validateSite(site([post(), post({ slug: 'b', file: 'notes/demo/02-b.md', order: 2, body: '본문 '.repeat(400) + '\n\n## 관련 글\n\n- /notes/demo/a/\n' })]));
+  assert.ok(r.errors.some(e => e.includes('맨주소')));
+});

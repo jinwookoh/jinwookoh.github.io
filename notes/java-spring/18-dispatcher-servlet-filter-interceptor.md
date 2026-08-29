@@ -139,6 +139,6 @@ public class WebConfig implements WebMvcConfigurer {
 
 ## 관련 글
 
-- /notes/java-spring/controller-request-binding/
-- /notes/java-spring/exception-handling-validation/
-- /notes/java-spring/aop-spel/
+- [Controller와 요청 바인딩](/notes/java-spring/controller-request-binding/)
+- [예외 처리와 검증 — @ControllerAdvice·Bean Validation](/notes/java-spring/exception-handling-validation/)
+- [AOP와 SpEL](/notes/java-spring/aop-spel/)

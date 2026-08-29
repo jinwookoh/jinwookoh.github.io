@@ -117,6 +117,6 @@ public class GlobalExceptionHandler {
 
 ## 관련 글
 
-- /notes/java-spring/collections-generics-optional/
-- /notes/java-spring/exception-handling-validation/
-- /notes/java-spring/transactional-locking/
+- [컬렉션·제네릭·Optional](/notes/java-spring/collections-generics-optional/)
+- [예외 처리와 검증 — @ControllerAdvice·Bean Validation](/notes/java-spring/exception-handling-validation/)
+- [@Transactional 원리와 낙관/비관 락](/notes/java-spring/transactional-locking/)

@@ -82,6 +82,6 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
 ## 관련 글
 
-- /notes/java-spring/modern-java/
-- /notes/java-spring/virtual-thread-practice/
-- /notes/java-spring/events-async-scheduling/
+- [Modern Java 9~21 핵심](/notes/java-spring/modern-java/)
+- [Virtual Thread — 실전·Spring Boot·Structured Concurrency](/notes/java-spring/virtual-thread-practice/)
+- [이벤트·비동기·스케줄링](/notes/java-spring/events-async-scheduling/)

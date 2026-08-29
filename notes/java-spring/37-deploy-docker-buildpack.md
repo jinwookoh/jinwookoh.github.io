@@ -119,6 +119,6 @@ volumes:
 
 ## 관련 글
 
-- /notes/java-spring/build-and-project-setup/
-- /notes/java-spring/actuator-micrometer/
-- /notes/java-spring/msa-spring-kafka-gateway/
+- [빌드·프로젝트 구성 — Maven/Gradle·start.spring.io·Profiles](/notes/java-spring/build-and-project-setup/)
+- [Actuator와 Micrometer](/notes/java-spring/actuator-micrometer/)
+- [MSA 입문 — Spring Kafka·Cloud Gateway](/notes/java-spring/msa-spring-kafka-gateway/)

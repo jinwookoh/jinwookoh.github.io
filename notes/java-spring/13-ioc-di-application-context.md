@@ -113,6 +113,6 @@ public class ShopApplication {
 
 ## 관련 글
 
-- /notes/java-spring/spring-framework-boot-autoconfig/
-- /notes/java-spring/bean-registration-injection/
-- /notes/java-spring/bean-scope-lifecycle/
+- [Spring Framework와 Boot 자동 구성](/notes/java-spring/spring-framework-boot-autoconfig/)
+- [Bean 등록과 주입 — 어노테이션·@Component·@Configuration](/notes/java-spring/bean-registration-injection/)
+- [Bean Scope와 생명주기](/notes/java-spring/bean-scope-lifecycle/)

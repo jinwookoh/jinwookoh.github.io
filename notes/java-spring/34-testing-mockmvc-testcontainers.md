@@ -141,6 +141,6 @@ spring:
 
 ## 관련 글
 
-- /notes/java-spring/exception-handling-validation/
-- /notes/java-spring/transactional-locking/
-- /notes/java-spring/jpa-hibernate-spring-data/
+- [예외 처리와 검증 — @ControllerAdvice·Bean Validation](/notes/java-spring/exception-handling-validation/)
+- [@Transactional 원리와 낙관/비관 락](/notes/java-spring/transactional-locking/)
+- [JPA·Hibernate·Spring Data JPA — Entity와 Repository](/notes/java-spring/jpa-hibernate-spring-data/)

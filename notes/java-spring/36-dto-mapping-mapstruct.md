@@ -118,6 +118,6 @@ public class OrderService {
 
 ## 관련 글
 
-- /notes/java-spring/layered-architecture/
-- /notes/java-spring/persistence-context-lazy-loading/
-- /notes/java-spring/jpa-relations-n-plus-1/
+- [계층 설계 — 서비스 레이어 분리](/notes/java-spring/layered-architecture/)
+- [영속성 컨텍스트와 LazyLoading](/notes/java-spring/persistence-context-lazy-loading/)
+- [연관관계·N+1·값 객체](/notes/java-spring/jpa-relations-n-plus-1/)

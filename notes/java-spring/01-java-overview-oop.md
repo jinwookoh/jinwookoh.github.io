@@ -156,6 +156,6 @@ class Checkout {
 
 ## 관련 글
 
-- /notes/java-spring/interface-polymorphism-solid/
-- /notes/java-spring/modern-java/
-- /notes/java-spring/ioc-di-application-context/
+- [인터페이스·다형성·SOLID](/notes/java-spring/interface-polymorphism-solid/)
+- [Modern Java 9~21 핵심](/notes/java-spring/modern-java/)
+- [IoC/DI와 ApplicationContext — Bean이란](/notes/java-spring/ioc-di-application-context/)

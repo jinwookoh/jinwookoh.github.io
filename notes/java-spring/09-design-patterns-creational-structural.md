@@ -184,6 +184,6 @@ public record Glyph(char ch, int x, int y, GlyphStyle style) {}
 
 ## 관련 글
 
-- 인터페이스·다형성·SOLID — /notes/java-spring/interface-polymorphism-solid/
-- 디자인 패턴 — 행위·조합 — /notes/java-spring/design-patterns-behavioral/
-- AOP와 SpEL — /notes/java-spring/aop-spel/
+- [인터페이스·다형성·SOLID](/notes/java-spring/interface-polymorphism-solid/)
+- [디자인 패턴 — 행위·조합](/notes/java-spring/design-patterns-behavioral/)
+- [AOP와 SpEL](/notes/java-spring/aop-spel/)
