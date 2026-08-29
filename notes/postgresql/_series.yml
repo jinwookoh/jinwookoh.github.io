@@ -1,0 +1,11 @@
+name: DB 원리와 PostgreSQL
+description: 데이터베이스 내부 구조·트랜잭션·복제 원리에서 PostgreSQL의 SQL·DDL/DML·인덱스·MVCC·운영까지.
+order: 4
+parts:
+  - DB 원리
+  - 시작
+  - SQL 기초
+  - DDL과 DML
+  - 타입·인덱스·성능
+  - 동시성
+  - 운영
