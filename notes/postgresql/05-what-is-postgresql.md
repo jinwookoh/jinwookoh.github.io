@@ -1,0 +1,150 @@
+---
+title: "PostgreSQL이란 — MySQL과의 비교·아키텍처·관계형 모델"
+series: postgresql
+part: "시작"
+order: 5
+summary: "PostgreSQL이 무엇이고 MySQL과 어디서 갈리는지, 프로세스 모델과 4단계 계층, 관계형 모델의 토대를 정리한다"
+tags: [PostgreSQL, MySQL, MVCC, JSONB, 관계형 모델]
+sources: [data-infra/2026-05-17-pg-intro.md, data-infra/2026-05-17-pg-architecture.md, data-infra/2026-05-17-pg-concepts.md]
+updated: 2026-08-29
+---
+
+영속화 계층이 없으면 애플리케이션 상태는 프로세스 메모리에 머물고 재시작·장애·스케일 아웃 어느 상황에서도 살아남지 못한다. JPA가 SQL을 생성해 주더라도 그 SQL은 특정 RDBMS 위에서 실행되며, 저장소의 동작을 모르면 느린 쿼리 진단·인덱스 설계·대용량 운영 어느 것도 할 수 없다.
+
+## 핵심 개념
+
+### PostgreSQL의 정체
+
+PostgreSQL은 객체 관계형 데이터베이스(ORDBMS)다. 1986년 UC Berkeley의 POSTGRES 프로젝트에서 출발해 1996년 SQL 지원을 추가하며 현재 이름을 얻었다. 라이선스는 MIT와 유사하게 허용적이며 특정 기업이 소유하지 않는다. 특성은 ACID 트랜잭션, 높은 SQL 표준 준수도, MVCC 기반 동시성, 그리고 풍부한 데이터 타입과 인덱스로 대표되는 확장성으로 압축된다.
+
+MVCC(Multi-Version Concurrency Control)는 같은 행의 여러 버전을 유지해 읽기가 쓰기를 막지 않게 한다. 각 트랜잭션은 자기 시점의 스냅샷을 보고, 갱신은 기존 버전을 덮어쓰는 대신 새 버전을 추가한다. JSONB는 JSON을 이진 형식으로 저장해 GIN 인덱스와 `@>` 같은 연산자로 내부 키를 직접 질의하게 하며, 별도 문서 저장소 없이 관계형과 반정형 데이터를 한 시스템에 둔다.
+
+### MySQL과의 비교
+
+| 항목 | PostgreSQL | MySQL(InnoDB) |
+|---|---|---|
+| 소유 | 커뮤니티, PostgreSQL 라이선스 | Oracle, GPL + 상용 이중 라이선스 |
+| SQL 표준 | 준수도 높음 | 방언이 많음 |
+| 동시성 | MVCC + 스냅샷 격리 | MVCC + 갭 락 중심 |
+| JSON | JSONB, GIN 인덱스, 연산자 풍부 | JSON 타입, 생성 컬럼 인덱스 |
+| 인덱스 | B-Tree·Hash·GIN·GiST·SP-GiST·BRIN | B-Tree·Hash·Full-text |
+| 복제 | 물리(스트리밍)·논리 모두 | binlog 기반 |
+| 강점 | 복잡한 쿼리·분석·확장 | 단순 읽기 위주 워크로드 |
+
+윈도우 함수·CTE·LATERAL JOIN·범위 타입은 PostgreSQL에서 자연스럽고 MySQL에서는 없거나 뒤늦게 추가됐다. 단순 KV 조회나 대량 시계열은 전용 저장소가 맞다.
+
+### 클라이언트·서버와 프로세스 모델
+
+클라이언트가 TCP 5432로 접속하면 부모 프로세스 postmaster가 `pg_hba.conf` 규칙으로 인증한 뒤 backend 프로세스를 fork한다. 클라이언트와 backend는 1:1이며, 옆에서 WAL writer·checkpointer·autovacuum launcher 같은 보조 프로세스가 상시 동작한다. MySQL의 스레드 모델과 달리 연결마다 프로세스를 두므로 연결 풀이 사실상 필수다. 데이터·인덱스 페이지는 `shared_buffers`에 캐시되고, 모든 변경은 데이터 파일보다 먼저 `pg_wal`의 WAL에 기록된다.
+
+### 4단계 계층
+
+데이터는 Cluster → Database → Schema → Table 순서로 묶인다. Cluster는 서버 인스턴스 하나이자 `PGDATA` 디렉토리 하나로, 분산 시스템의 클러스터와 무관하다. Database는 클러스터 안에서 서로 격리되어 다른 데이터베이스의 테이블을 직접 조회할 수 없다. Schema는 데이터베이스 안의 네임스페이스로 기본값은 `public`이다. JDBC URL은 클러스터와 데이터베이스를 지정하고, 스키마는 `search_path`가 결정하며, `@Entity`는 테이블에 대응한다.
+
+### 관계형 모델
+
+토대는 1970년 E. F. Codd의 관계형 모델이다. 한 행은 한 개체에 대한 사실이며 한 셀에는 단일 값만 둔다. 기본 키는 행을 고유하게 식별하는 열로 테이블당 하나이며, 바뀔 수 있는 자연 키보다 IDENTITY 정수나 UUID가 안전하다. 외래 키는 다른 테이블의 기본 키를 참조해 존재하지 않는 참조를 DB 수준에서 거부한다. 관계는 1:1(기본 키가 곧 외래 키), 1:N(N쪽에 외래 키), N:M(중간 테이블)으로 분해된다. `NULL = NULL`은 참이 아니라 NULL이므로 `IS NULL`로만 비교하고, `COUNT(col)`은 NULL을 제외한다. 정규화는 같은 사실을 한 곳에만 두는 원칙으로 실무에서는 3NF까지 적용한다.
+
+## 코드
+
+기본 키·외래 키·NULL·N:M·JSONB를 한 스키마에 담은 DDL과 대표 질의다.
+
+```sql
+CREATE TABLE users (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name       TEXT NOT NULL,
+    email      TEXT UNIQUE,                 -- NULL 허용, 값이 있으면 유일
+    profile    JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE orders (
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users(id),
+    amount     INTEGER NOT NULL CHECK (amount > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE tags (
+    id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE user_tags (
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    tag_id  BIGINT NOT NULL REFERENCES tags(id),
+    PRIMARY KEY (user_id, tag_id)
+);
+
+CREATE INDEX users_profile_gin ON users USING GIN (profile);
+
+INSERT INTO orders (user_id, amount) VALUES (999, 10000);
+-- ERROR: insert or update on table "orders" violates foreign key constraint
+
+SELECT COUNT(*), COUNT(email) FROM users;                 -- 전체 행 수, email이 있는 행 수
+SELECT id FROM users WHERE email IS NULL;                 -- = NULL 은 항상 UNKNOWN
+SELECT id FROM users WHERE profile @> '{"plan":"pro"}';   -- GIN 인덱스 사용
+```
+
+Spring Boot 3.x에서 클러스터·데이터베이스·스키마를 지정하고 HikariCP 풀 크기로 backend 프로세스 수를 통제하는 설정이다.
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/myappdb?currentSchema=app
+    username: app
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000
+  jpa:
+    open-in-view: false
+```
+
+`orders`의 1:N 관계를 Jakarta Persistence 엔티티로 매핑한다. 외래 키는 DB에 두고 엔티티는 지연 로딩 참조만 유지한다.
+
+```java
+import jakarta.persistence.*;
+import java.time.OffsetDateTime;
+
+@Entity
+@Table(name = "orders")
+public class Order {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    @Column(nullable = false)
+    private int amount;
+
+    @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    protected Order() {}
+
+    public Order(User user, int amount) {
+        this.user = user;
+        this.amount = amount;
+    }
+}
+```
+
+## 실무에서 걸리는 지점
+
+- **연결 수가 곧 프로세스 수다.** 풀 없이 요청마다 접속하면 backend 프로세스가 수백 개로 늘어난다. HikariCP와 PgBouncer를 함께 두고 총 연결 수를 `max_connections` 이하로 설계한다.
+- **"데이터베이스"라는 단어의 층위.** 클러스터와 그 안의 한 데이터베이스를 같은 단어로 부르므로 마이그레이션·복구 논의에서 어느 단계인지 먼저 고정한다. 다른 데이터베이스는 `postgres_fdw`나 별도 연결로만 접근한다.
+- **public 스키마에 모든 객체를 두는 습관.** 이름 충돌과 권한 분리가 어려워지므로 스키마를 일찍 나누고 `search_path`를 명시한다.
+- **콤마 구분 문자열과 자연 키.** `'red,blue'` 같은 셀은 별도 테이블이나 배열 타입으로 분리한다. 이메일을 기본 키로 잡으면 변경 시 참조하는 외래 키가 함께 깨진다.
+- **`pg_hba.conf` 기본값 방치.** 모든 호스트에 `trust`가 열린 채 운영에 올리면 안 된다. IP 화이트리스트와 `scram-sha-256`으로 고정한다.
+
+## 관련 글
+
+- [설치와 psql 접속](/notes/postgresql/install-psql/)
+- [MVCC·격리 수준·락](/notes/postgresql/mvcc-isolation-locking/)
+- [데이터 타입과 JSONB](/notes/postgresql/data-types-jsonb/)
