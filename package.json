@@ -1,0 +1,15 @@
+{
+  "name": "jinwookoh-notes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build/build.mjs",
+    "test": "node --test build/test/*.test.mjs"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "highlight.js": "^11.10.0",
+    "js-yaml": "^4.1.0",
+    "marked": "^14.1.0"
+  }
+}

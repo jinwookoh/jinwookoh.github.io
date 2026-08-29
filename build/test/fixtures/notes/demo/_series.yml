@@ -1,0 +1,5 @@
+name: 데모 시리즈
+description: 테스트용 시리즈.
+parts:
+  - 기초
+  - 심화
