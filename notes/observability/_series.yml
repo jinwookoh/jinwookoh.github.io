@@ -1,0 +1,9 @@
+name: 관측성
+description: Micrometer 메트릭 모델부터 Prometheus·Loki·Tempo 수집·저장, Grafana 시각화·알림, IaC·OpenTelemetry 연동과 운영 함정까지.
+order: 9
+parts:
+  - 개념
+  - 메트릭
+  - 수집과 저장
+  - 시각화와 알림
+  - 운영
