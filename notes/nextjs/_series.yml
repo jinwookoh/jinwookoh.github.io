@@ -1,0 +1,8 @@
+name: Next.js
+description: App Router의 렌더링 모델, Server/Client Components, 데이터 페칭과 캐싱, Server Actions, Route Handler, 성능과 배포.
+order: 16
+parts:
+  - 기초
+  - 데이터
+  - 기능
+  - 운영

@@ -1,0 +1,7 @@
+name: TypeScript
+description: 타입 시스템과 컴파일 파이프라인, 제네릭·유니온·유틸리티 타입, 모듈과 빌드 설정, strict 모드 실무 패턴.
+order: 14
+parts:
+  - 기초
+  - 타입 시스템
+  - 빌드와 실무

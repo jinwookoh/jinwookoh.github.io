@@ -1,0 +1,8 @@
+name: NestJS
+description: 모듈·컨트롤러·프로바이더와 DI, Pipe·Guard·Interceptor, 데이터베이스와 큐, 마이크로서비스, 테스트와 배포 — Spring 개발자 관점.
+order: 15
+parts:
+  - 기초
+  - 요청 처리
+  - 데이터와 인프라
+  - 운영

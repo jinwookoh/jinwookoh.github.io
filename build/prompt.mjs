@@ -16,25 +16,29 @@ const row = rows.find(r => r.order === order);
 if (!row) { console.error(`order ${order} not in mapping`); process.exit(2); }
 
 const resolve = s => s.replace(/^S\//, 'spring/').replace(/^R\//, '');
-const fulltext = row.sources.map(s => {
-  const rel = resolve(s);
-  const txt = fs.readFileSync(path.join(STUDY, rel), 'utf8');
-  return `\n\n----- 원본: ${rel} -----\n${txt}`;
-}).join('');
+const isUrl = s => /^https?:\/\//.test(s);
+const docsMode = row.sources.every(isUrl);
+const fulltext = docsMode
+  ? row.sources.map(u => `- ${u}`).join('\n')
+  : row.sources.map(s => {
+      const rel = resolve(s);
+      const txt = fs.readFileSync(path.join(STUDY, rel), 'utf8');
+      return `\n\n----- 원본: ${rel} -----\n${txt}`;
+    }).join('');
 
 const toc = rows.map(r => `- ${r.order}. ${r.title} → /notes/${series}/${r.slug}/`).join('\n');
 const nn = String(order).padStart(2, '0');
 const outPath = `notes/${series}/${nn}-${row.slug}.md`;
 const today = new Date().toISOString().slice(0, 10);
 
-const tpl = fs.readFileSync(path.join(root, 'planning/prompts/rewrite-post.md'), 'utf8');
+const tpl = fs.readFileSync(path.join(root, 'planning/prompts', docsMode ? 'rewrite-post-docs.md' : 'rewrite-post.md'), 'utf8');
 const out = tpl
   .replaceAll('{OUT_PATH}', outPath)
   .replaceAll('{TITLE}', row.title)
   .replaceAll('{SERIES}', series)
   .replaceAll('{PART}', row.part)
   .replaceAll('{ORDER}', String(order))
-  .replaceAll('{SOURCES}', row.sources.map(resolve).join(', '))
+  .replaceAll('{SOURCES}', row.sources.map(x => isUrl(x) ? x : resolve(x)).join(', '))
   .replaceAll('{TODAY}', today)
   .replaceAll('{TOC}', toc)
   .replaceAll('{SOURCES_FULLTEXT}', fulltext);
