@@ -85,7 +85,7 @@ const TodoList = memo(function TodoList({
     <ul>
       {items.map((t) => (
         <li key={t.id} onClick={() => onToggle(t.id)}>
-          {t.done ? "✔ " : ""}{t.text}
+          {t.done ? "[완료] " : ""}{t.text}
         </li>
       ))}
     </ul>

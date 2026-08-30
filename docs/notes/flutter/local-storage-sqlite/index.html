@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로컬 저장 — SharedPreferences·SQLite·파일 · Flutter</title>
+  <meta name="description" content="설정값은 shared_preferences, 구조화 데이터는 sqflite, 큰 덩어리는 path_provider 파일로 나눠 저장한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="로컬 저장 — SharedPreferences·SQLite·파일 · Flutter">
+  <meta property="og:description" content="설정값은 shared_preferences, 구조화 데이터는 sqflite, 큰 덩어리는 path_provider 파일로 나눠 저장한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/local-storage-sqlite/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/flutter/">Flutter</a><span class="sep">›</span><span>로컬 저장 — SharedPreferences·SQLite·파일</span></nav>
+    <article class="post">
+  <p class="part">Flutter · 데이터와 플랫폼</p>
+  <h1>로컬 저장 — SharedPreferences·SQLite·파일</h1>
+  <p class="summary">설정값은 shared_preferences, 구조화 데이터는 sqflite, 큰 덩어리는 path_provider 파일로 나눠 저장한다</p>
+  <div class="content">
+<p>앱이 메모리에만 상태를 들고 있으면 프로세스가 종료되는 순간 모든 것이 사라진다. 사용자가 고른 테마, 로그인 토큰, 마지막으로 보던 화면, 오프라인에서 봐야 하는 목록까지 매번 서버에서 다시 받아야 하고, 네트워크가 끊기면 아무것도 보여줄 수 없다. Flutter는 저장할 데이터의 성격에 따라 세 가지 수단을 제공한다. 작은 키-값은 <code>shared_preferences</code>, 관계형 조회가 필요한 데이터는 <code>sqflite</code>, 그 외 텍스트·바이너리 덩어리는 <code>path_provider</code>와 <code>dart:io</code>로 직접 파일에 쓴다.</p>
+<h2>핵심 개념</h2>
+<p>세 방식은 저장 위치와 접근 방식이 다르다.</p>
+<table>
+<thead>
+<tr>
+<th>수단</th>
+<th>데이터 형태</th>
+<th>지원 타입</th>
+<th>적합한 용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>shared_preferences</td>
+<td>키-값</td>
+<td>int·double·bool·String·List&lt;String&gt;</td>
+<td>설정, 플래그, 소량 캐시</td>
+</tr>
+<tr>
+<td>sqflite</td>
+<td>관계형 테이블</td>
+<td>SQL 스키마</td>
+<td>목록·검색·정렬이 필요한 데이터</td>
+</tr>
+<tr>
+<td>path_provider + File</td>
+<td>임의 바이트</td>
+<td>제한 없음</td>
+<td>다운로드 파일, 로그, JSON 덤프</td>
+</tr>
+</tbody></table>
+<p><code>shared_preferences</code>는 플랫폼별 네이티브 저장소(Android의 SharedPreferences, iOS의 NSUserDefaults)를 감싼 플러그인이다. <code>getInstance()</code>는 비동기이며 한 번 로드한 뒤 값을 메모리에 캐시하므로 이후의 getter는 동기로 동작한다. 기본 타입만 넣을 수 있고, 저장된 값의 타입과 다른 getter를 호출하면 예외가 난다. 대량 데이터용으로 설계된 것이 아니며, 공식 문서도 영속성을 완전히 보장하지 않는다고 명시한다.</p>
+<p><code>sqflite</code>는 기기 내장 SQLite를 사용한다. <code>openDatabase</code>에 파일 경로와 <code>version</code>, <code>onCreate</code> 콜백을 넘기면 첫 실행 때 스키마를 만들고, 이후 버전을 올리면 <code>onUpgrade</code>에서 마이그레이션을 수행한다. <code>insert</code>·<code>query</code>·<code>update</code>·<code>delete</code> 헬퍼는 SQL을 직접 쓰지 않고도 CRUD를 처리하며, 조건은 <code>where</code>와 <code>whereArgs</code>로 파라미터 바인딩한다. 반환값은 <code>List&lt;Map&lt;String, Object?&gt;&gt;</code>이므로 모델 클래스의 <code>toMap</code>·<code>fromMap</code>으로 변환하는 계층이 필요하다.</p>
+<p>파일 저장은 <code>path_provider</code>로 플랫폼별 디렉터리를 얻는 데서 시작한다. <code>getTemporaryDirectory()</code>는 OS가 언제든 비울 수 있는 캐시 영역이고, <code>getApplicationDocumentsDirectory()</code>는 앱 삭제 전까지 유지되는 영역이다. 경로를 얻은 뒤에는 <code>dart:io</code>의 <code>File</code>로 <code>writeAsString</code>·<code>readAsString</code>·<code>writeAsBytes</code>를 호출한다.</p>
+<p>Spring/Java 관점에서 보면 <code>shared_preferences</code>는 <code>java.util.prefs.Preferences</code>나 프로퍼티 파일에 가깝고, <code>sqflite</code>는 JPA 없이 <code>JdbcTemplate</code>으로 SQLite를 다루는 것에 대응한다. <code>onCreate</code>·<code>onUpgrade</code> 버전 관리는 Flyway의 버전 마이그레이션과 같은 역할을 한다.</p>
+<h2>코드</h2>
+<p>카운터 값을 키-값 저장소에 읽고 쓰는 최소 예제다. 저장이 완료되기 전에 화면을 갱신하지 않도록 <code>await</code>를 붙인다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:shared_preferences/shared_preferences.dart&#x27;</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">CounterStore</span> </span>{
+  <span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> _key = <span class="hljs-string">&#x27;counter&#x27;</span>;
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-built_in">int</span>&gt; <span class="hljs-title function_">load</span>() <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> prefs = <span class="hljs-keyword">await</span> <span class="hljs-title class_">SharedPreferences</span>.<span class="hljs-title function_">getInstance</span>();
+    <span class="hljs-keyword">return</span> prefs.<span class="hljs-title function_">getInt</span>(_key) ?? <span class="hljs-number">0</span>;
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt; <span class="hljs-title function_">save</span>(<span class="hljs-built_in">int</span> value) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> prefs = <span class="hljs-keyword">await</span> <span class="hljs-title class_">SharedPreferences</span>.<span class="hljs-title function_">getInstance</span>();
+    <span class="hljs-keyword">await</span> prefs.<span class="hljs-title function_">setInt</span>(_key, value);
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt; <span class="hljs-title function_">clear</span>() <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> prefs = <span class="hljs-keyword">await</span> <span class="hljs-title class_">SharedPreferences</span>.<span class="hljs-title function_">getInstance</span>();
+    <span class="hljs-keyword">await</span> prefs.<span class="hljs-title function_">remove</span>(_key);
+  }
+}</code></pre>
+<p><code>sqflite</code>로 테이블을 만들고 CRUD를 수행하는 저장소 클래스다. 데이터베이스 핸들은 한 번만 열어 재사용하고, 조건절은 반드시 <code>whereArgs</code>로 바인딩한다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:path/path.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:sqflite/sqflite.dart&#x27;</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Dog</span> </span>{
+  <span class="hljs-keyword">final</span> <span class="hljs-built_in">int</span> id;
+  <span class="hljs-keyword">final</span> <span class="hljs-title class_">String</span> name;
+  <span class="hljs-keyword">final</span> <span class="hljs-built_in">int</span> age;
+
+  <span class="hljs-keyword">const</span> <span class="hljs-title class_">Dog</span>({<span class="hljs-keyword">required</span> <span class="hljs-keyword">this</span>.id, <span class="hljs-keyword">required</span> <span class="hljs-keyword">this</span>.name, <span class="hljs-keyword">required</span> <span class="hljs-keyword">this</span>.age});
+
+  <span class="hljs-title class_">Map</span>&lt;<span class="hljs-title class_">String</span>, <span class="hljs-title class_">Object</span>?&gt; <span class="hljs-title function_">toMap</span>() =&gt; {<span class="hljs-string">&#x27;id&#x27;</span>: id, <span class="hljs-string">&#x27;name&#x27;</span>: name, <span class="hljs-string">&#x27;age&#x27;</span>: age};
+
+  <span class="hljs-keyword">factory</span> <span class="hljs-title class_">Dog</span>.<span class="hljs-title function_">fromMap</span>(<span class="hljs-title class_">Map</span>&lt;<span class="hljs-title class_">String</span>, <span class="hljs-title class_">Object</span>?&gt; m) =&gt;
+      <span class="hljs-title class_">Dog</span>(id: m[<span class="hljs-string">&#x27;id&#x27;</span>] <span class="hljs-keyword">as</span> <span class="hljs-built_in">int</span>, name: m[<span class="hljs-string">&#x27;name&#x27;</span>] <span class="hljs-keyword">as</span> <span class="hljs-title class_">String</span>, age: m[<span class="hljs-string">&#x27;age&#x27;</span>] <span class="hljs-keyword">as</span> <span class="hljs-built_in">int</span>);
+}
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">DogRepository</span> </span>{
+  <span class="hljs-title class_">Database</span>? _db;
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-title class_">Database</span>&gt; <span class="hljs-keyword">get</span> _database <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">return</span> _db ??= <span class="hljs-keyword">await</span> <span class="hljs-title function_">openDatabase</span>(
+      <span class="hljs-title function_">join</span>(<span class="hljs-keyword">await</span> <span class="hljs-title function_">getDatabasesPath</span>(), <span class="hljs-string">&#x27;doggie.db&#x27;</span>),
+      version: <span class="hljs-number">2</span>,
+      onCreate: (db, version) =&gt; db.<span class="hljs-title function_">execute</span>(
+        <span class="hljs-string">&#x27;CREATE TABLE dogs(id INTEGER PRIMARY KEY, name TEXT, age INTEGER)&#x27;</span>,
+      ),
+      onUpgrade: (db, oldVersion, newVersion) <span class="hljs-keyword">async</span> {
+        <span class="hljs-keyword">if</span> (oldVersion &lt; <span class="hljs-number">2</span>) {
+          <span class="hljs-keyword">await</span> db.<span class="hljs-title function_">execute</span>(<span class="hljs-string">&#x27;ALTER TABLE dogs ADD COLUMN breed TEXT&#x27;</span>);
+        }
+      },
+    );
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt; <span class="hljs-title function_">insert</span>(<span class="hljs-title class_">Dog</span> dog) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> db = <span class="hljs-keyword">await</span> _database;
+    <span class="hljs-keyword">await</span> db.<span class="hljs-title function_">insert</span>(<span class="hljs-string">&#x27;dogs&#x27;</span>, dog.<span class="hljs-title function_">toMap</span>(),
+        conflictAlgorithm: <span class="hljs-title class_">ConflictAlgorithm</span>.replace);
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-title class_">List</span>&lt;<span class="hljs-title class_">Dog</span>&gt;&gt; <span class="hljs-title function_">findAll</span>() <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> db = <span class="hljs-keyword">await</span> _database;
+    <span class="hljs-keyword">final</span> rows = <span class="hljs-keyword">await</span> db.<span class="hljs-title function_">query</span>(<span class="hljs-string">&#x27;dogs&#x27;</span>, orderBy: <span class="hljs-string">&#x27;age DESC&#x27;</span>);
+    <span class="hljs-keyword">return</span> rows.<span class="hljs-title function_">map</span>(<span class="hljs-title class_">Dog</span>.fromMap).<span class="hljs-title function_">toList</span>();
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt; <span class="hljs-title function_">update</span>(<span class="hljs-title class_">Dog</span> dog) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> db = <span class="hljs-keyword">await</span> _database;
+    <span class="hljs-keyword">await</span> db.<span class="hljs-title function_">update</span>(<span class="hljs-string">&#x27;dogs&#x27;</span>, dog.<span class="hljs-title function_">toMap</span>(), where: <span class="hljs-string">&#x27;id = ?&#x27;</span>, whereArgs: [dog.id]);
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt; <span class="hljs-title function_">delete</span>(<span class="hljs-built_in">int</span> id) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> db = <span class="hljs-keyword">await</span> _database;
+    <span class="hljs-keyword">await</span> db.<span class="hljs-title function_">delete</span>(<span class="hljs-string">&#x27;dogs&#x27;</span>, where: <span class="hljs-string">&#x27;id = ?&#x27;</span>, whereArgs: [id]);
+  }
+}</code></pre>
+<p>문서 디렉터리에 텍스트 파일을 쓰고 읽는 예제다. 파일이 없을 때 <code>readAsString</code>이 예외를 던지므로 기본값으로 복구한다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;dart:io&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:path_provider/path_provider.dart&#x27;</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">NoteFile</span> </span>{
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-title class_">File</span>&gt; <span class="hljs-keyword">get</span> _file <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> dir = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getApplicationDocumentsDirectory</span>();
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">File</span>(<span class="hljs-string">&#x27;<span class="hljs-subst">${dir.path}</span>/note.txt&#x27;</span>);
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt; <span class="hljs-title function_">write</span>(<span class="hljs-title class_">String</span> text) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">final</span> file = <span class="hljs-keyword">await</span> _file;
+    <span class="hljs-keyword">await</span> file.<span class="hljs-title function_">writeAsString</span>(text, flush: <span class="hljs-keyword">true</span>);
+  }
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-title class_">String</span>&gt; <span class="hljs-title function_">read</span>() <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> (<span class="hljs-keyword">await</span> _file).<span class="hljs-title function_">readAsString</span>();
+    } <span class="hljs-keyword">on</span> <span class="hljs-title class_">FileSystemException</span> {
+      <span class="hljs-keyword">return</span> <span class="hljs-string">&#x27;&#x27;</span>;
+    }
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>shared_preferences에 큰 JSON을 넣는 관행.</strong> 문자열로 직렬화한 목록 전체를 키 하나에 넣으면 앱 시작 시 파일 전체를 메모리에 올리고, 값 하나를 바꿔도 전체를 다시 쓴다. 수백 KB를 넘어가면 sqflite나 파일로 옮긴다. 토큰 같은 민감값은 평문으로 저장되므로 <code>flutter_secure_storage</code> 계열로 분리한다.</li>
+<li><strong>플랫폼 지원 범위.</strong> <code>sqflite</code>는 Android·iOS·macOS만 지원한다. 웹이나 Windows·Linux 데스크톱을 타깃에 넣으면 <code>sqflite_common_ffi</code> 같은 대체 구현으로 팩토리를 교체해야 하고, <code>dart:io</code> 기반 파일 접근은 웹에서 아예 동작하지 않는다.</li>
+<li><strong>스키마 버전 관리 누락.</strong> <code>version</code>을 올리지 않고 <code>onCreate</code>의 SQL만 고치면 기존 설치 기기에서는 아무 변화가 없다. 컬럼 추가는 반드시 <code>onUpgrade</code>의 버전 분기로 처리하고, 첫 배포부터 마이그레이션 함수를 버전별로 누적한다.</li>
+<li><strong>데이터베이스 핸들 중복 오픈.</strong> 호출마다 <code>openDatabase</code>를 실행하면 파일 핸들이 늘어나고 동시 쓰기 시 잠금 오류가 난다. 싱글턴 또는 DI 컨테이너에서 한 번만 열고, 대량 삽입은 <code>batch()</code>나 <code>transaction()</code>으로 묶어 디스크 동기화 횟수를 줄인다.</li>
+<li><strong>캐시 디렉터리와 문서 디렉터리 혼동.</strong> <code>getTemporaryDirectory()</code>에 둔 파일은 저장 공간 부족 시 OS가 지운다. 반대로 재생성 가능한 캐시를 문서 디렉터리에 두면 iOS에서 iCloud 백업 대상이 되어 심사나 용량 문제가 생긴다. 파일의 수명에 따라 디렉터리를 고른다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/flutter/networking-json-serialization/">네트워크·JSON 직렬화</a></li>
+<li><a href="/notes/flutter/state-management-provider-riverpod/">상태 관리 — setState·InheritedWidget·Provider·Riverpod</a></li>
+<li><a href="/notes/flutter/platform-channels-native/">플랫폼 채널과 네이티브 연동·권한</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Flutter, shared_preferences, sqflite, path_provider, 로컬 저장</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/flutter/networking-json-serialization/"><small>이전</small>네트워크·JSON 직렬화</a>
+  <a class="next" href="/notes/flutter/platform-channels-native/"><small>다음</small>플랫폼 채널과 네이티브 연동·권한</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

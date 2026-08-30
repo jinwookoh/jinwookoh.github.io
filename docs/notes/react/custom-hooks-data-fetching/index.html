@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>커스텀 훅과 데이터 페칭 (TanStack Query) · React</title>
+  <meta name="description" content="반복되는 훅 로직은 커스텀 훅으로 추출하고, 서버 데이터는 TanStack Query에 맡겨 캐시·재요청·상태 관리를 컴포넌트 밖으로 뺀다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="커스텀 훅과 데이터 페칭 (TanStack Query) · React">
+  <meta property="og:description" content="반복되는 훅 로직은 커스텀 훅으로 추출하고, 서버 데이터는 TanStack Query에 맡겨 캐시·재요청·상태 관리를 컴포넌트 밖으로 뺀다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/react/custom-hooks-data-fetching/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/react/">React</a><span class="sep">›</span><span>커스텀 훅과 데이터 페칭 (TanStack Query)</span></nav>
+    <article class="post">
+  <p class="part">React · 기능</p>
+  <h1>커스텀 훅과 데이터 페칭 (TanStack Query)</h1>
+  <p class="summary">반복되는 훅 로직은 커스텀 훅으로 추출하고, 서버 데이터는 TanStack Query에 맡겨 캐시·재요청·상태 관리를 컴포넌트 밖으로 뺀다.</p>
+  <div class="content">
+<p>useEffect 안에서 fetch를 호출하고 useState로 데이터·로딩·에러를 따로 들고 있는 코드는 화면이 몇 개만 늘어나도 같은 패턴이 복제된다. 그 과정에서 언마운트 뒤 setState, 요청 순서 뒤바뀜(race), 같은 API를 컴포넌트마다 다시 호출하는 중복 요청, 화면을 다시 열었을 때 오래된 데이터가 남는 문제가 각자 다른 방식으로 처리된다. 로직 재사용 단위가 없고, 서버 데이터의 수명 주기를 관리하는 주체가 없기 때문이다. 전자는 커스텀 훅이, 후자는 TanStack Query가 맡는다.</p>
+<h2>핵심 개념</h2>
+<p>커스텀 훅은 <code>use</code>로 시작하는 이름을 가진 일반 함수다. 내부에서 다른 훅을 호출할 수 있고, 컴포넌트는 그 훅을 호출해 상태와 함수만 받는다. 중요한 점은 공유되는 것이 상태 자체가 아니라 상태를 다루는 로직이라는 것이다. 같은 커스텀 훅을 두 컴포넌트에서 호출하면 각각 독립된 상태가 만들어진다. 상태를 공유하려면 Context로 끌어올려야 한다. 이름 규칙은 관습이 아니라 계약에 가깝다. 린터가 <code>use</code> 접두어를 보고 훅 호출 규칙(최상위에서만, 조건문 밖에서만)을 검사하기 때문이다. 훅을 호출하지 않는 함수에는 <code>use</code>를 붙이지 않는다.</p>
+<p>TanStack Query는 서버 상태를 다루는 라이브러리다. 서버 상태는 클라이언트가 소유하지 않고, 비동기로 읽어 오며, 다른 사용자가 바꿀 수 있어 언제든 오래된 값이 될 수 있다는 점에서 UI 상태와 성격이 다르다. 핵심 단위는 쿼리이며, 쿼리는 <code>queryKey</code>와 <code>queryFn</code>으로 정의한다. 키는 직렬화 가능한 배열이고 캐시의 식별자다. 같은 키를 쓰는 컴포넌트가 여러 개여도 요청은 중복 제거되고 캐시 한 곳을 바라본다. <code>queryFn</code>은 Promise를 반환하고 실패 시 throw해야 한다. fetch API는 HTTP 오류에서 reject하지 않으므로 응답 상태를 확인해 직접 던져야 한다.</p>
+<p>쿼리 결과는 두 축으로 표현된다. <code>status</code>(<code>pending</code>·<code>error</code>·<code>success</code>)는 데이터 존재 여부를, <code>fetchStatus</code>(<code>fetching</code>·<code>paused</code>·<code>idle</code>)는 네트워크 활동 여부를 나타낸다. v5에서 <code>isLoading</code>은 &quot;데이터가 없고 지금 가져오는 중&quot;이라는 파생값이고, 최초 데이터 없음은 <code>isPending</code>이다. 캐시된 데이터는 <code>staleTime</code>이 지나면 stale로 표시되고, 마운트·창 포커스·네트워크 복구 시점에 백그라운드에서 다시 가져온다. 화면에서는 기존 데이터가 그대로 보이고 새 데이터로 교체되는 stale-while-revalidate 방식이다. 사용되지 않는 캐시는 <code>gcTime</code>이 지나면 수거된다.</p>
+<p>Spring/Java에 빗대면 커스텀 훅은 재사용 가능한 로직을 묶은 컴포넌트 클래스 없는 서비스 메서드에 가깝고, TanStack Query는 Spring Cache의 <code>@Cacheable</code>과 TTL 기반 캐시 무효화를 클라이언트에 옮겨 놓은 것에 해당한다. <code>queryKey</code>가 캐시 키, <code>staleTime</code>이 TTL 역할을 한다.</p>
+<h2>코드</h2>
+<p>localStorage와 동기화되는 상태를 커스텀 훅으로 추출한 예다. 컴포넌트는 <code>useState</code>와 동일한 형태로 사용한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { useState, useEffect } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> useLocalStorage&lt;T&gt;(<span class="hljs-attr">key</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">initial</span>: T) {
+  <span class="hljs-keyword">const</span> [value, setValue] = useState&lt;T&gt;(<span class="hljs-function">() =&gt;</span> {
+    <span class="hljs-keyword">const</span> raw = <span class="hljs-variable language_">localStorage</span>.<span class="hljs-title function_">getItem</span>(key);
+    <span class="hljs-keyword">return</span> raw !== <span class="hljs-literal">null</span> ? (<span class="hljs-title class_">JSON</span>.<span class="hljs-title function_">parse</span>(raw) <span class="hljs-keyword">as</span> T) : initial;
+  });
+
+  <span class="hljs-title function_">useEffect</span>(<span class="hljs-function">() =&gt;</span> {
+    <span class="hljs-variable language_">localStorage</span>.<span class="hljs-title function_">setItem</span>(key, <span class="hljs-title class_">JSON</span>.<span class="hljs-title function_">stringify</span>(value));
+  }, [key, value]);
+
+  <span class="hljs-keyword">return</span> [value, setValue] <span class="hljs-keyword">as</span> <span class="hljs-keyword">const</span>;
+}</code></pre>
+<p>TanStack Query v5 기본 사용이다. <code>QueryClientProvider</code>를 루트에 두고, 컴포넌트에서 <code>useQuery</code>를 객체 인자로 호출한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">QueryClient</span>, <span class="hljs-title class_">QueryClientProvider</span>, useQuery } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@tanstack/react-query&#x27;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">User</span> = { <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>; <span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span> };
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">fetchUser</span>(<span class="hljs-params"><span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span></span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">User</span>&gt; {
+  <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">`/api/users/<span class="hljs-subst">${id}</span>`</span>);
+  <span class="hljs-keyword">if</span> (!res.<span class="hljs-property">ok</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`HTTP <span class="hljs-subst">${res.status}</span>`</span>);
+  <span class="hljs-keyword">return</span> res.<span class="hljs-title function_">json</span>();
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">UserCard</span>(<span class="hljs-params">{ id }: { id: <span class="hljs-built_in">number</span> }</span>) {
+  <span class="hljs-keyword">const</span> { data, isPending, isError, error, isFetching } = <span class="hljs-title function_">useQuery</span>({
+    <span class="hljs-attr">queryKey</span>: [<span class="hljs-string">&#x27;user&#x27;</span>, id],
+    <span class="hljs-attr">queryFn</span>: <span class="hljs-function">() =&gt;</span> <span class="hljs-title function_">fetchUser</span>(id),
+    <span class="hljs-attr">staleTime</span>: <span class="hljs-number">60_000</span>,
+  });
+
+  <span class="hljs-keyword">if</span> (isPending) <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>불러오는 중<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>;
+  <span class="hljs-keyword">if</span> (isError) <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>오류: {error.message}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>;
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>
+      {data.name} {isFetching &amp;&amp; &#x27;(갱신 중)&#x27;}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>
+  );
+}
+
+<span class="hljs-keyword">const</span> queryClient = <span class="hljs-keyword">new</span> <span class="hljs-title class_">QueryClient</span>({
+  <span class="hljs-attr">defaultOptions</span>: { <span class="hljs-attr">queries</span>: { <span class="hljs-attr">staleTime</span>: <span class="hljs-number">30_000</span>, <span class="hljs-attr">gcTime</span>: <span class="hljs-number">5</span> * <span class="hljs-number">60_000</span> } },
+});
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">App</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">QueryClientProvider</span> <span class="hljs-attr">client</span>=<span class="hljs-string">{queryClient}</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">UserCard</span> <span class="hljs-attr">id</span>=<span class="hljs-string">{1}</span> /&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">QueryClientProvider</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>쿼리 정의 자체를 커스텀 훅으로 감싸면 키와 fetch 함수가 한 곳에 모이고, 호출부는 도메인 API처럼 읽힌다. <code>enabled</code>로 인자가 준비되기 전 요청을 막는다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { useQuery } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@tanstack/react-query&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">useUser</span>(<span class="hljs-params"><span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span> | <span class="hljs-literal">undefined</span></span>) {
+  <span class="hljs-keyword">return</span> <span class="hljs-title function_">useQuery</span>({
+    <span class="hljs-attr">queryKey</span>: [<span class="hljs-string">&#x27;user&#x27;</span>, id],
+    <span class="hljs-attr">queryFn</span>: <span class="hljs-function">() =&gt;</span> <span class="hljs-title function_">fetchUser</span>(id!),
+    <span class="hljs-attr">enabled</span>: id !== <span class="hljs-literal">undefined</span>,
+  });
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>queryKey에 모든 의존 값을 넣어야 한다.</strong> 페이지 번호나 필터가 <code>queryFn</code>에는 쓰이는데 키에 빠져 있으면 다른 조건의 결과가 같은 캐시로 섞인다. 키는 함수 인자의 전부를 담는다는 원칙으로 설계한다.</li>
+<li><strong>staleTime 기본값은 0이다.</strong> 기본 설정에서는 마운트·포커스마다 재요청이 일어나 API 호출량이 예상보다 커진다. 도메인별로 허용 가능한 최신성에 맞춰 <code>staleTime</code>을 명시하고, <code>refetchOnWindowFocus</code>를 전역에서 조정한다.</li>
+<li><strong>커스텀 훅은 상태를 공유하지 않는다.</strong> 같은 훅을 두 곳에서 부르면 두 개의 상태가 생긴다. TanStack Query는 키 기준으로 캐시를 공유하므로 이 문제가 없지만, 순수 <code>useState</code> 기반 커스텀 훅을 전역 상태처럼 오해해 버그가 생긴다.</li>
+<li><strong>Effect 기반 fetch를 그대로 훅에 옮기기만 하면 문제는 남는다.</strong> race와 언마운트 후 setState는 추출로 해결되지 않는다. 직접 구현한다면 취소 플래그나 AbortController를 넣어야 하고, 대개는 라이브러리에 위임하는 쪽이 비용이 낮다.</li>
+<li><strong>v5에서 <code>isLoading</code>의 의미가 바뀌었다.</strong> v4의 <code>isLoading</code>은 v5의 <code>isPending</code>에 해당한다. 마이그레이션 시 로딩 분기 조건을 확인하지 않으면 데이터 없는 상태에서 빈 화면이 렌더된다. <code>useQuery</code>는 객체 인자 시그니처만 지원한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/react/usestate-useeffect/">useState·useEffect — 상태와 부수 효과</a></li>
+<li><a href="/notes/react/context-usereducer-state-design/">Context·useReducer·상태 설계</a></li>
+<li><a href="/notes/react/react19-actions-use-server-components/">React 19 — Actions·use·Server Components</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · React, Custom Hooks, TanStack Query, Data Fetching, Caching</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/react/context-usereducer-state-design/"><small>이전</small>Context·useReducer·상태 설계</a>
+  <a class="next" href="/notes/react/forms-validation/"><small>다음</small>폼 — 제어/비제어 컴포넌트와 검증</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

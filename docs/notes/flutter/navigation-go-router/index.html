@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>내비게이션 — Navigator·go_router · Flutter</title>
+  <meta name="description" content="명령형 Navigator와 선언적 go_router의 차이, 그리고 딥링크·리다이렉트·탭 셸을 URL 기반으로 다루는 방법을 정리한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="내비게이션 — Navigator·go_router · Flutter">
+  <meta property="og:description" content="명령형 Navigator와 선언적 go_router의 차이, 그리고 딥링크·리다이렉트·탭 셸을 URL 기반으로 다루는 방법을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/navigation-go-router/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/flutter/">Flutter</a><span class="sep">›</span><span>내비게이션 — Navigator·go_router</span></nav>
+    <article class="post">
+  <p class="part">Flutter · 위젯과 상태</p>
+  <h1>내비게이션 — Navigator·go_router</h1>
+  <p class="summary">명령형 Navigator와 선언적 go_router의 차이, 그리고 딥링크·리다이렉트·탭 셸을 URL 기반으로 다루는 방법을 정리한다.</p>
+  <div class="content">
+<p>화면이 서너 개인 앱은 <code>Navigator.push</code>만으로 충분하다. 문제는 앱이 커지면서 생긴다. 푸시 알림이나 웹 URL로 상세 화면에 바로 들어가야 하고, 미로그인 사용자는 어느 경로로 오든 로그인 화면으로 보내야 하며, 하단 탭마다 독립 스택을 유지해야 한다. 명령형 API로는 현재 스택 상태가 코드 곳곳의 호출 이력에 흩어져 있어 이런 요구를 일관되게 처리하기 어렵다. 경로를 URL로 정의하고 그로부터 스택을 계산하는 방식이 필요해지는 지점이다.</p>
+<h2>핵심 개념</h2>
+<p>Flutter의 내비게이션 API는 두 층으로 나뉜다.</p>
+<p><strong>Navigator 1.0(명령형)</strong> 은 <code>Navigator.of(context).push(...)</code>, <code>pop()</code> 으로 스택을 직접 조작한다. <code>MaterialApp</code>이 루트 <code>Navigator</code>를 만들고 각 화면은 <code>Route</code> 객체로 쌓인다. <code>pushNamed</code> 방식은 딥링크 진입 시 중간 스택을 복원하지 못해 공식 문서도 새 프로젝트에는 권장하지 않는다.</p>
+<p><strong>Router API(선언적)</strong> 는 <code>RouterDelegate</code>·<code>RouteInformationParser</code> 조합으로 앱 상태에서 페이지 목록을 계산한다. URL·뒤로가기·딥링크가 한 경로로 수렴하지만 직접 구현하면 보일러플레이트가 많다.</p>
+<p><strong>go_router</strong>는 Router API 위에 얹힌 공식 지원 패키지로, 라우트 정의만 하면 파서와 델리게이트를 대신 만든다.</p>
+<table>
+<thead>
+<tr>
+<th>요소</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GoRouter</code></td>
+<td>라우트 트리·리다이렉트·에러 화면 설정. <code>MaterialApp.router(routerConfig:)</code>에 넘긴다</td>
+</tr>
+<tr>
+<td><code>GoRoute</code></td>
+<td><code>path</code>와 <code>builder</code> 한 쌍. <code>routes:</code>로 중첩해 <code>/users/:id</code> 계층을 만든다</td>
+</tr>
+<tr>
+<td><code>ShellRoute</code></td>
+<td>하위 라우트를 공통 UI(앱바·바텀바) 안에 렌더링한다</td>
+</tr>
+<tr>
+<td><code>StatefulShellRoute</code></td>
+<td>탭별 독립 <code>Navigator</code> 스택을 유지·보존한다</td>
+</tr>
+<tr>
+<td><code>redirect</code></td>
+<td>라우팅 직전에 경로를 바꾸는 훅</td>
+</tr>
+<tr>
+<td><code>refreshListenable</code></td>
+<td>외부 <code>Listenable</code> 변경 시 리다이렉트를 재평가한다</td>
+</tr>
+</tbody></table>
+<p>이동 API는 두 가지다. <code>context.go(&#39;/a/b&#39;)</code>는 라우트 트리에 맞춰 스택을 재구성하고, <code>context.push(&#39;/x&#39;)</code>는 현재 스택 위에 화면 하나를 추가한다.</p>
+<p><strong>딥링크</strong>는 OS가 URL을 앱에 전달하는 메커니즘이다. Android는 <code>AndroidManifest.xml</code>의 intent-filter, iOS는 Universal Links(<code>apple-app-site-association</code>)와 <code>Info.plist</code>의 <code>FlutterDeepLinkingEnabled</code>를 설정한다. 들어온 URL은 Router API로 전달되므로 go_router 라우트만 맞으면 추가 코드 없이 화면이 열린다. 자체 스킴(<code>myapp://</code>)은 누구나 등록할 수 있어 공식 문서는 App Links·Universal Links를 권장한다.</p>
+<p>Spring 기준으로 <code>GoRoute</code>의 <code>path</code>·<code>:id</code>·중첩 구조는 <code>@RequestMapping</code> 계층과 <code>@PathVariable</code>에, <code>redirect</code>는 Security Filter의 인증 리다이렉트에 대응한다.</p>
+<h2>코드</h2>
+<p>라우트 트리와 인증 리다이렉트를 정의하고 <code>MaterialApp.router</code>에 연결한다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/material.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:go_router/go_router.dart&#x27;</span>;
+
+<span class="hljs-keyword">final</span> authState = <span class="hljs-title class_">ValueNotifier</span>&lt;<span class="hljs-built_in">bool</span>&gt;(<span class="hljs-keyword">false</span>); <span class="hljs-comment">// 로그인 여부</span>
+
+<span class="hljs-keyword">final</span> router = <span class="hljs-title class_">GoRouter</span>(
+  initialLocation: <span class="hljs-string">&#x27;/&#x27;</span>,
+  refreshListenable: authState,
+  redirect: (context, state) {
+    <span class="hljs-keyword">final</span> loggedIn = authState.value;
+    <span class="hljs-keyword">final</span> goingToLogin = state.matchedLocation == <span class="hljs-string">&#x27;/login&#x27;</span>;
+    <span class="hljs-keyword">if</span> (!loggedIn &amp;&amp; !goingToLogin) {
+      <span class="hljs-keyword">return</span> <span class="hljs-string">&#x27;/login?from=<span class="hljs-subst">${Uri.encodeComponent(state.uri.toString())}</span>&#x27;</span>;
+    }
+    <span class="hljs-keyword">if</span> (loggedIn &amp;&amp; goingToLogin) <span class="hljs-keyword">return</span> <span class="hljs-string">&#x27;/&#x27;</span>;
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">null</span>; <span class="hljs-comment">// 그대로 진행</span>
+  },
+  routes: [
+    <span class="hljs-title class_">GoRoute</span>(
+      path: <span class="hljs-string">&#x27;/&#x27;</span>,
+      builder: (context, state) =&gt; <span class="hljs-keyword">const</span> <span class="hljs-title class_">HomeScreen</span>(),
+      routes: [
+        <span class="hljs-title class_">GoRoute</span>(
+          path: <span class="hljs-string">&#x27;users/:id&#x27;</span>,
+          builder: (context, state) =&gt;
+              <span class="hljs-title class_">UserScreen</span>(id: state.pathParameters[<span class="hljs-string">&#x27;id&#x27;</span>]!),
+        ),
+      ],
+    ),
+    <span class="hljs-title class_">GoRoute</span>(
+      path: <span class="hljs-string">&#x27;/login&#x27;</span>,
+      builder: (context, state) =&gt;
+          <span class="hljs-title class_">LoginScreen</span>(from: state.uri.queryParameters[<span class="hljs-string">&#x27;from&#x27;</span>]),
+    ),
+  ],
+  errorBuilder: (context, state) =&gt; <span class="hljs-title class_">NotFoundScreen</span>(uri: state.uri),
+);
+
+<span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span>() =&gt; <span class="hljs-title function_">runApp</span>(<span class="hljs-title class_">MaterialApp</span>.<span class="hljs-title function_">router</span>(routerConfig: router));</code></pre>
+<p>화면 안에서는 <code>BuildContext</code> 확장 메서드로 이동한다. <code>go</code>는 <code>/users/42</code>의 부모인 <code>/</code>까지 스택을 구성하므로 딥링크로 들어와도 뒤로가기가 홈으로 돌아간다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">HomeScreen</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">StatelessWidget</span> </span>{
+  <span class="hljs-keyword">const</span> <span class="hljs-title class_">HomeScreen</span>({<span class="hljs-keyword">super</span>.key});
+
+  <span class="hljs-meta">@override</span>
+  <span class="hljs-title class_">Widget</span> <span class="hljs-title function_">build</span>(<span class="hljs-title class_">BuildContext</span> context) {
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">Scaffold</span>(
+      body: <span class="hljs-title class_">ListView</span>(
+        children: [
+          <span class="hljs-title class_">ListTile</span>(
+            title: <span class="hljs-keyword">const</span> <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;User 42&#x27;</span>),
+            onTap: () =&gt; context.<span class="hljs-title function_">go</span>(<span class="hljs-string">&#x27;/users/42&#x27;</span>),
+          ),
+          <span class="hljs-title class_">ListTile</span>(
+            title: <span class="hljs-keyword">const</span> <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;설정(모달)&#x27;</span>),
+            onTap: () <span class="hljs-keyword">async</span> {
+              <span class="hljs-keyword">final</span> saved = <span class="hljs-keyword">await</span> context.push&lt;<span class="hljs-built_in">bool</span>&gt;(<span class="hljs-string">&#x27;/settings&#x27;</span>);
+              <span class="hljs-keyword">if</span> (saved == <span class="hljs-keyword">true</span> &amp;&amp; context.mounted) {
+                <span class="hljs-title class_">ScaffoldMessenger</span>.<span class="hljs-title function_">of</span>(context)
+                    .<span class="hljs-title function_">showSnackBar</span>(<span class="hljs-keyword">const</span> <span class="hljs-title class_">SnackBar</span>(content: <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;저장됨&#x27;</span>)));
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}</code></pre>
+<p>탭별 독립 스택은 <code>StatefulShellRoute.indexedStack</code>으로 만든다. 각 브랜치가 자체 <code>Navigator</code>를 가져 탭을 오가도 하위 화면이 보존된다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">final</span> tabRouter = <span class="hljs-title class_">GoRouter</span>(
+  initialLocation: <span class="hljs-string">&#x27;/feed&#x27;</span>,
+  routes: [
+    <span class="hljs-title class_">StatefulShellRoute</span>.<span class="hljs-title function_">indexedStack</span>(
+      builder: (context, state, navigationShell) =&gt; <span class="hljs-title class_">Scaffold</span>(
+        body: navigationShell,
+        bottomNavigationBar: <span class="hljs-title class_">NavigationBar</span>(
+          selectedIndex: navigationShell.currentIndex,
+          onDestinationSelected: (i) =&gt; navigationShell.<span class="hljs-title function_">goBranch</span>(
+            i,
+            initialLocation: i == navigationShell.currentIndex,
+          ),
+          destinations: <span class="hljs-keyword">const</span> [
+            <span class="hljs-title class_">NavigationDestination</span>(icon: <span class="hljs-title class_">Icon</span>(<span class="hljs-title class_">Icons</span>.home), label: <span class="hljs-string">&#x27;Feed&#x27;</span>),
+            <span class="hljs-title class_">NavigationDestination</span>(icon: <span class="hljs-title class_">Icon</span>(<span class="hljs-title class_">Icons</span>.person), label: <span class="hljs-string">&#x27;Me&#x27;</span>),
+          ],
+        ),
+      ),
+      branches: [
+        <span class="hljs-title class_">StatefulShellBranch</span>(routes: [
+          <span class="hljs-title class_">GoRoute</span>(
+            path: <span class="hljs-string">&#x27;/feed&#x27;</span>,
+            builder: (_, __) =&gt; <span class="hljs-keyword">const</span> <span class="hljs-title class_">FeedScreen</span>(),
+            routes: [
+              <span class="hljs-title class_">GoRoute</span>(
+                path: <span class="hljs-string">&#x27;:postId&#x27;</span>,
+                builder: (_, s) =&gt; <span class="hljs-title class_">PostScreen</span>(id: s.pathParameters[<span class="hljs-string">&#x27;postId&#x27;</span>]!),
+              ),
+            ],
+          ),
+        ]),
+        <span class="hljs-title class_">StatefulShellBranch</span>(routes: [
+          <span class="hljs-title class_">GoRoute</span>(path: <span class="hljs-string">&#x27;/me&#x27;</span>, builder: (_, __) =&gt; <span class="hljs-keyword">const</span> <span class="hljs-title class_">ProfileScreen</span>()),
+        ]),
+      ],
+    ),
+  ],
+);</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>go</code>와 <code>push</code>를 섞어 쓰면 스택이 예측 불가능해진다.</strong> <code>push</code>로 쌓은 화면 위에서 <code>go</code>를 호출하면 스택이 재구성되어 사용자 이력이 사라진다. URL이 바뀌는 이동은 <code>go</code>, 결과를 돌려받는 일시적 화면은 <code>push</code>로 기준을 정해 둔다.</li>
+<li><strong><code>redirect</code>는 매 이동마다 실행되므로 무거운 작업을 넣지 않는다.</strong> 인증 상태는 메모리에서 동기적으로 판정하고 변화는 <code>refreshListenable</code>로 알린다. 리다이렉트가 서로를 가리키면 <code>redirectLimit</code>(기본 5) 초과로 에러 화면에 떨어진다.</li>
+<li><strong>딥링크 장애는 플랫폼 설정 누락이 대부분이다.</strong> Android는 <code>adb shell am start -a android.intent.action.VIEW -d &lt;url&gt;</code>, iOS는 <code>xcrun simctl openurl booted &lt;url&gt;</code>로 검증한다. Universal Links는 도메인에 AASA 파일이 배포되어야 하므로 로컬만으로는 확인이 끝나지 않는다.</li>
+<li><strong><code>GoRouter</code>를 <code>build</code> 안에서 만들면 안 된다.</strong> 리빌드마다 새 라우터가 생겨 스택이 초기화된다. 전역 또는 Riverpod 싱글턴으로 한 번만 생성한다.</li>
+<li><strong>웹은 <code>usePathUrlStrategy()</code>와 서버 설정이 한 세트다.</strong> 이를 호출해야 <code>#/</code> 없는 경로가 되며, 서버가 모든 경로를 <code>index.html</code>로 돌려줘야 새로고침 시 404가 나지 않는다. 전환 애니메이션은 <code>pageBuilder</code>에서 <code>CustomTransitionPage</code>를 반환해 바꾼다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/flutter/state-management-provider-riverpod/">상태 관리 — setState·InheritedWidget·Provider·Riverpod</a></li>
+<li><a href="/notes/flutter/widgets-layout/">위젯과 레이아웃 — Stateless/Stateful·Row/Column/Stack</a></li>
+<li><a href="/notes/flutter/platform-channels-native/">플랫폼 채널과 네이티브 연동·권한</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Flutter, Navigator, go_router, deep linking, ShellRoute</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/flutter/state-management-provider-riverpod/"><small>이전</small>상태 관리 — setState·InheritedWidget·Provider·Riverpod</a>
+  <a class="next" href="/notes/flutter/networking-json-serialization/"><small>다음</small>네트워크·JSON 직렬화</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

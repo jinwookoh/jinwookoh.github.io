@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>라우팅(React Router)과 코드 분할 · React</title>
+  <meta name="description" content="React Router로 URL과 컴포넌트 트리를 대응시키고, lazy·Suspense·route.lazy로 번들을 라우트 단위로 쪼개는 방법을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="라우팅(React Router)과 코드 분할 · React">
+  <meta property="og:description" content="React Router로 URL과 컴포넌트 트리를 대응시키고, lazy·Suspense·route.lazy로 번들을 라우트 단위로 쪼개는 방법을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/react/routing-code-splitting/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/react/">React</a><span class="sep">›</span><span>라우팅(React Router)과 코드 분할</span></nav>
+    <article class="post">
+  <p class="part">React · 기능</p>
+  <h1>라우팅(React Router)과 코드 분할</h1>
+  <p class="summary">React Router로 URL과 컴포넌트 트리를 대응시키고, lazy·Suspense·route.lazy로 번들을 라우트 단위로 쪼개는 방법을 정리한다</p>
+  <div class="content">
+<p>SPA는 HTML 한 장을 받아 화면 전환을 브라우저 안에서 처리한다. 라우터가 없으면 URL과 화면이 분리되어 새로고침·뒤로가기·링크 공유가 깨진다. 조건문으로 흉내내다 보면 중첩 레이아웃·경로 파라미터·404까지 라우터를 재구현하게 된다. 한편 화면이 늘어나면 모든 페이지 코드가 하나의 번들에 묶여 첫 로딩이 느려진다. 라우팅과 코드 분할은 이 두 문제를 라우트라는 같은 단위로 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>라우트 트리와 Outlet</h3>
+<p>React Router 7은 <code>react-router</code> 패키지 하나에서 <code>BrowserRouter</code>, <code>Routes</code>, <code>Route</code>, <code>Outlet</code>, <code>Link</code>, <code>useParams</code>를 제공한다. 라우트는 트리로 선언하고, 부모 컴포넌트가 <code>&lt;Outlet /&gt;</code>을 그리는 자리에 매칭된 자식 라우트가 들어간다. 경로는 자동으로 합쳐져 <code>dashboard</code> 아래 <code>settings</code>는 <code>/dashboard/settings</code>가 된다.</p>
+<table>
+<thead>
+<tr>
+<th>종류</th>
+<th>선언</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>index 라우트</td>
+<td><code>&lt;Route index /&gt;</code></td>
+<td>부모 경로 그대로일 때 기본으로 보여줄 자식</td>
+</tr>
+<tr>
+<td>layout 라우트</td>
+<td><code>path</code> 없는 <code>&lt;Route element={...}&gt;</code></td>
+<td>URL 세그먼트를 추가하지 않고 레이아웃만 공유</td>
+</tr>
+<tr>
+<td>동적 세그먼트</td>
+<td><code>teams/:teamId</code></td>
+<td><code>useParams()</code>로 값을 읽는다</td>
+</tr>
+<tr>
+<td>선택 세그먼트</td>
+<td><code>:lang?/categories</code></td>
+<td>있어도 되고 없어도 되는 세그먼트</td>
+</tr>
+<tr>
+<td>splat</td>
+<td><code>files/*</code></td>
+<td>나머지 경로 전체를 <code>params[&quot;*&quot;]</code>로 받는다</td>
+</tr>
+</tbody></table>
+<p>Spring MVC로 보면 <code>&lt;Route path&gt;</code>는 <code>@RequestMapping</code> 경로 패턴, <code>:teamId</code>는 <code>@PathVariable</code>이다. 다만 서버는 핸들러 하나를 고르는 반면 React Router는 매칭된 라우트 체인 전체를 중첩 렌더링한다.</p>
+<h3>Declarative 모드와 Data 모드</h3>
+<p><code>BrowserRouter</code>·<code>Routes</code>·<code>Route</code> 조합은 JSX로 라우트를 선언하는 declarative 모드다. 별개로 <code>createBrowserRouter</code>에 라우트 객체 배열을 넘기고 <code>RouterProvider</code>로 렌더링하는 data 모드가 있다. 라우트 객체에는 <code>Component</code> 외에 <code>loader</code>(렌더링 전 데이터 준비), <code>action</code>(폼 제출 등 변경 처리), <code>ErrorBoundary</code>, <code>shouldRevalidate</code>, <code>middleware</code>, 코드 분할용 <code>lazy</code>를 붙일 수 있다. action이 정상 종료되면 loader가 자동으로 재실행되어 화면이 동기화된다. <code>middleware</code>는 Spring의 HandlerInterceptor와 같은 자리다.</p>
+<h3>lazy와 Suspense</h3>
+<p><code>React.lazy(load)</code>는 <code>import()</code>를 감싼 함수를 받아 처음 렌더링될 때까지 모듈 로딩을 미루는 컴포넌트를 반환한다. 로딩 중에는 suspend되어 가장 가까운 <code>&lt;Suspense fallback&gt;</code>이 대신 그려진다. 번들러는 동적 <code>import()</code>를 별도 청크로 분리하므로 라우트 컴포넌트를 <code>lazy</code>로 감싸는 것만으로 라우트 단위 코드 분할이 된다.</p>
+<p>Suspense는 경계 안의 자식들을 한 번에 드러내며, 경계를 중첩하면 점진적 로딩이 된다. 이미 보이는 화면을 fallback으로 덮지 않으려면 <code>startTransition</code> 안에서 상태를 바꾼다.</p>
+<p>Data 모드의 <code>route.lazy</code>는 컴포넌트와 loader·action을 한 청크로 묶어 라우트가 매칭될 때 가져온다. 렌더링 시점이 아니라 매칭 시점에 로딩을 시작하므로 폭포수(waterfall)가 줄어든다.</p>
+<h2>코드</h2>
+<p>Declarative 모드로 레이아웃·index·동적 세그먼트·splat을 한 트리에 선언한 예제다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">BrowserRouter</span>, <span class="hljs-title class_">Routes</span>, <span class="hljs-title class_">Route</span>, <span class="hljs-title class_">Outlet</span>, <span class="hljs-title class_">Link</span>, useParams } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react-router&quot;</span>;
+<span class="hljs-keyword">import</span> { createRoot } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react-dom/client&quot;</span>;
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">AppLayout</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">nav</span>&gt;</span><span class="hljs-tag">&lt;<span class="hljs-name">Link</span> <span class="hljs-attr">to</span>=<span class="hljs-string">&quot;/&quot;</span>&gt;</span>Home<span class="hljs-tag">&lt;/<span class="hljs-name">Link</span>&gt;</span> <span class="hljs-tag">&lt;<span class="hljs-name">Link</span> <span class="hljs-attr">to</span>=<span class="hljs-string">&quot;/teams/42&quot;</span>&gt;</span>Team 42<span class="hljs-tag">&lt;/<span class="hljs-name">Link</span>&gt;</span><span class="hljs-tag">&lt;/<span class="hljs-name">nav</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Outlet</span> /&gt;</span>
+    <span class="hljs-tag">&lt;/&gt;</span></span>
+  );
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">Team</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> { teamId } = useParams&lt;{ <span class="hljs-attr">teamId</span>: <span class="hljs-built_in">string</span> }&gt;();
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">h1</span>&gt;</span>Team {teamId}<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span></span>;
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">NotFound</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> { <span class="hljs-string">&quot;*&quot;</span>: rest } = <span class="hljs-title function_">useParams</span>();
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>No route for /{rest}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>;
+}
+
+<span class="hljs-title function_">createRoot</span>(<span class="hljs-variable language_">document</span>.<span class="hljs-title function_">getElementById</span>(<span class="hljs-string">&quot;root&quot;</span>)!).<span class="hljs-title function_">render</span>(
+  <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">BrowserRouter</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">Routes</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Route</span> <span class="hljs-attr">element</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">AppLayout</span> /&gt;</span>}&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">Route</span> <span class="hljs-attr">index</span> <span class="hljs-attr">element</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">h1</span>&gt;</span>Home<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span>} /&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">Route</span> <span class="hljs-attr">path</span>=<span class="hljs-string">&quot;teams/:teamId&quot;</span> <span class="hljs-attr">element</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">Team</span> /&gt;</span>} /&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">Route</span> <span class="hljs-attr">path</span>=<span class="hljs-string">&quot;*&quot;</span> <span class="hljs-attr">element</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">NotFound</span> /&gt;</span>} /&gt;
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Route</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">Routes</span>&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">BrowserRouter</span>&gt;</span></span>,
+);</code></pre>
+<p><code>React.lazy</code>와 <code>Suspense</code>로 무거운 페이지를 별도 청크로 분리한 예제다. <code>lazy</code> 호출은 모듈 최상위에 두고, 대상 모듈은 default export여야 한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { lazy, <span class="hljs-title class_">Suspense</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react&quot;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Routes</span>, <span class="hljs-title class_">Route</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react-router&quot;</span>;
+
+<span class="hljs-keyword">const</span> <span class="hljs-title class_">Reports</span> = <span class="hljs-title function_">lazy</span>(<span class="hljs-function">() =&gt;</span> <span class="hljs-keyword">import</span>(<span class="hljs-string">&quot;./pages/Reports&quot;</span>)); <span class="hljs-comment">// export default function Reports()</span>
+<span class="hljs-keyword">const</span> <span class="hljs-title class_">Settings</span> = <span class="hljs-title function_">lazy</span>(<span class="hljs-function">() =&gt;</span> <span class="hljs-keyword">import</span>(<span class="hljs-string">&quot;./pages/Settings&quot;</span>));
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">App</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Suspense</span> <span class="hljs-attr">fallback</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">p</span>&gt;</span>Loading…<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}&gt;
+      <span class="hljs-tag">&lt;<span class="hljs-name">Routes</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">Route</span> <span class="hljs-attr">path</span>=<span class="hljs-string">&quot;reports&quot;</span> <span class="hljs-attr">element</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">Reports</span> /&gt;</span>} /&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">Route</span> <span class="hljs-attr">path</span>=<span class="hljs-string">&quot;settings&quot;</span> <span class="hljs-attr">element</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">Settings</span> /&gt;</span>} /&gt;
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Routes</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">Suspense</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>Data 모드에서 <code>route.lazy</code>로 컴포넌트와 loader를 함께 분할하고, 라우트 단위 에러 경계를 두는 예제다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { createBrowserRouter, <span class="hljs-title class_">RouterProvider</span>, useLoaderData, useRouteError } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react-router&quot;</span>;
+
+<span class="hljs-comment">// pages/orders.tsx</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">loader</span>(<span class="hljs-params">{ params }: { params: { orderId?: <span class="hljs-built_in">string</span> } }</span>) {
+  <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">`/api/orders/<span class="hljs-subst">${params.orderId}</span>`</span>);
+  <span class="hljs-keyword">if</span> (!res.<span class="hljs-property">ok</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Response</span>(<span class="hljs-string">&quot;Not Found&quot;</span>, { <span class="hljs-attr">status</span>: <span class="hljs-number">404</span> });
+  <span class="hljs-keyword">return</span> res.<span class="hljs-title function_">json</span>() <span class="hljs-keyword">as</span> <span class="hljs-title class_">Promise</span>&lt;{ <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">total</span>: <span class="hljs-built_in">number</span> }&gt;;
+}
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Component</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> order = useLoaderData&lt;<span class="hljs-keyword">typeof</span> loader&gt;();
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>Order {order.id}: {order.total}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>;
+}
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">ErrorBoundary</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> error = <span class="hljs-title function_">useRouteError</span>();
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>Failed: {String(error)}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>;
+}
+
+<span class="hljs-comment">// router.tsx</span>
+<span class="hljs-keyword">const</span> router = <span class="hljs-title function_">createBrowserRouter</span>([
+  {
+    <span class="hljs-attr">path</span>: <span class="hljs-string">&quot;/&quot;</span>,
+    <span class="hljs-title class_">Component</span>: <span class="hljs-title class_">AppLayout</span>,
+    <span class="hljs-attr">children</span>: [
+      { <span class="hljs-attr">index</span>: <span class="hljs-literal">true</span>, <span class="hljs-title class_">Component</span>: <span class="hljs-title class_">Home</span> },
+      { <span class="hljs-attr">path</span>: <span class="hljs-string">&quot;orders/:orderId&quot;</span>, <span class="hljs-attr">lazy</span>: <span class="hljs-function">() =&gt;</span> <span class="hljs-keyword">import</span>(<span class="hljs-string">&quot;./pages/orders&quot;</span>) },
+    ],
+  },
+]);
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">App</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">RouterProvider</span> <span class="hljs-attr">router</span>=<span class="hljs-string">{router}</span> /&gt;</span></span>;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>서버 fallback 설정.</strong> <code>BrowserRouter</code>는 History API를 쓰므로 <code>/teams/42</code>를 새로고침하면 서버가 그 경로를 받는다. Nginx·S3·Spring 정적 핸들러가 없는 경로를 <code>index.html</code>로 돌려주지 않으면 배포 후 404가 난다.</li>
+<li><strong>lazy를 컴포넌트 안에서 선언.</strong> 렌더링마다 새 lazy 컴포넌트가 만들어져 재마운트되고 상태가 초기화된다. 모듈 최상위에서 한 번만 호출한다.</li>
+<li><strong>Suspense 경계 위치.</strong> 최상위에 경계 하나만 두면 라우트 전환 때 화면 전체가 스피너로 바뀐다. 레이아웃 아래 <code>Outlet</code> 주변에 경계를 두어 내비게이션은 유지하고 콘텐츠 영역만 교체되게 한다.- <strong>suspend된 트리의 상태 손실.</strong> 처음 마운트되기 전에 suspend된 컴포넌트는 그동안의 상태 변경이 버려지고 데이터 도착 후 처음부터 다시 렌더링된다. 로딩 중 입력을 받는 UI는 경계 바깥에 둔다.</li>
+<li><strong>배포 후 청크 로딩 실패.</strong> 새 버전을 배포하면 이전 해시의 청크가 사라져 열어둔 탭에서 라우트 이동 시 <code>import()</code>가 실패한다. 이 오류는 가장 가까운 Error Boundary로 전달되므로 청크 오류를 감지하면 전체 새로고침을 유도한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/react/custom-hooks-data-fetching/">커스텀 훅과 데이터 페칭 (TanStack Query)</a></li>
+<li><a href="/notes/react/react19-actions-use-server-components/">React 19 — Actions·use·Server Components</a></li>
+<li><a href="/notes/react/testing-typescript-deployment/">테스트(Testing Library)·TypeScript·배포</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · React Router, code splitting, lazy, Suspense, SPA</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/react/forms-validation/"><small>이전</small>폼 — 제어/비제어 컴포넌트와 검증</a>
+  <a class="next" href="/notes/react/react19-actions-use-server-components/"><small>다음</small>React 19 — Actions·use·Server Components</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

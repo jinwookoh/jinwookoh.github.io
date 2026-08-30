@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>테스트(Testing Library)·TypeScript·배포 · React</title>
+  <meta name="description" content="React 앱을 사용자 관점 테스트·정적 타입·프로덕션 빌드로 안정적으로 운영하는 기준을 정리한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="테스트(Testing Library)·TypeScript·배포 · React">
+  <meta property="og:description" content="React 앱을 사용자 관점 테스트·정적 타입·프로덕션 빌드로 안정적으로 운영하는 기준을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/react/testing-typescript-deployment/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/react/">React</a><span class="sep">›</span><span>테스트(Testing Library)·TypeScript·배포</span></nav>
+    <article class="post">
+  <p class="part">React · 최신과 운영</p>
+  <h1>테스트(Testing Library)·TypeScript·배포</h1>
+  <p class="summary">React 앱을 사용자 관점 테스트·정적 타입·프로덕션 빌드로 안정적으로 운영하는 기준을 정리한다.</p>
+  <div class="content">
+<p>컴포넌트가 늘어나면 리팩터링 후 어디가 깨졌는지 눈으로 확인하는 방식은 한계에 이른다. props 이름을 바꿨는데 호출부 하나를 빠뜨리면 런타임에야 드러나고, 내부 구현에 묶인 테스트는 DOM 구조를 조금만 바꿔도 실패한다. 빌드 산출물과 환경 변수 처리를 모르면 개발 서버에서는 되던 것이 배포 후 동작하지 않는다. 이 세 문제를 각각 Testing Library, TypeScript, Vite 프로덕션 빌드가 맡는다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Testing Library</strong>는 사용자가 쓰는 방식으로 테스트한다는 원칙을 API로 강제한다. 컴포넌트 state에 접근하는 수단을 주지 않고, 렌더된 DOM을 접근성 기준으로 조회한다. 쿼리 우선순위는 <code>getByRole</code> → <code>getByLabelText</code> → <code>getByText</code> → <code>getByTestId</code> 순이다. <code>getBy*</code>는 없으면 즉시 예외, <code>queryBy*</code>는 <code>null</code> 반환, <code>findBy*</code>는 나타날 때까지 기다리는 Promise다. 상호작용은 <code>fireEvent</code>보다 <code>@testing-library/user-event</code>를 쓴다. 클릭 하나에도 pointerdown·focus·click이 브라우저 순서대로 발생한다. Spring의 <code>@WebMvcTest</code> + MockMvc처럼 HTTP 경계에서 검증하는 위치에 해당한다.</p>
+<p><strong>Vitest</strong>는 Vite 설정을 그대로 공유하는 테스트 러너다. alias·플러그인·환경 변수 처리가 테스트에도 동일하게 적용되어 Jest처럼 변환기를 따로 맞출 필요가 없다. DOM 테스트는 <code>environment: &#39;jsdom&#39;</code>을 지정하고, watch 모드는 모듈 그래프로 영향받는 테스트만 다시 돌린다.</p>
+<p><strong>TypeScript</strong>는 <code>.tsx</code> 확장자로 JSX와 함께 쓰며 타입은 <code>@types/react</code>·<code>@types/react-dom</code>에서 온다. props는 인터페이스로 선언하고, 자식은 <code>React.ReactNode</code>, 이벤트 핸들러는 <code>React.MouseEvent&lt;HTMLButtonElement&gt;</code> 같은 제네릭 이벤트 타입을 쓴다. 훅은 초기값에서 추론하지만 <code>useState&lt;User | null&gt;(null)</code>처럼 추론이 안 되면 명시한다. <code>useReducer</code>의 액션을 판별 유니온으로 정의하면 <code>switch</code> 분기마다 payload가 좁혀진다. Java의 sealed interface + pattern matching switch에 대응한다.</p>
+<p><strong>Vite 프로덕션 빌드</strong>는 <code>vite build</code>가 Rollup 기반으로 트리 셰이킹·코드 분할·해시 파일명을 적용해 <code>dist/</code>에 정적 산출물을 만든다. 기본 타깃은 <code>baseline-widely-available</code>이며 구형 브라우저는 별도 플러그인으로 대응한다. 환경 변수는 <code>VITE_</code> 접두사가 붙은 것만 번들에 주입되고 <code>import.meta.env</code>로 읽는다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>역할</th>
+<th>Spring/Java 대응</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Testing Library</td>
+<td>렌더 결과를 사용자 관점에서 검증</td>
+<td>MockMvc 기반 슬라이스 테스트</td>
+</tr>
+<tr>
+<td>Vitest</td>
+<td>러너·단언·모킹·커버리지</td>
+<td>JUnit 5 + Mockito</td>
+</tr>
+<tr>
+<td>TypeScript</td>
+<td>props·state·이벤트 정적 타입</td>
+<td>Java 제네릭·sealed interface</td>
+</tr>
+<tr>
+<td>vite build</td>
+<td>번들·분할·해시·환경 변수 주입</td>
+<td>Gradle bootJar + 프로파일</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>Vitest를 jsdom 환경으로 설정하고 jest-dom 매처를 전역 등록한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// vite.config.ts</span>
+<span class="hljs-comment">/// &lt;reference types=&quot;vitest/config&quot; /&gt;</span>
+<span class="hljs-keyword">import</span> { defineConfig } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;vite&#x27;</span>;
+<span class="hljs-keyword">import</span> react <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@vitejs/plugin-react&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-title function_">defineConfig</span>({
+  <span class="hljs-attr">plugins</span>: [<span class="hljs-title function_">react</span>()],
+  <span class="hljs-attr">test</span>: {
+    <span class="hljs-attr">environment</span>: <span class="hljs-string">&#x27;jsdom&#x27;</span>,
+    <span class="hljs-attr">globals</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-attr">setupFiles</span>: [<span class="hljs-string">&#x27;./src/test/setup.ts&#x27;</span>],
+    <span class="hljs-attr">coverage</span>: { <span class="hljs-attr">provider</span>: <span class="hljs-string">&#x27;v8&#x27;</span>, <span class="hljs-attr">reporter</span>: [<span class="hljs-string">&#x27;text&#x27;</span>, <span class="hljs-string">&#x27;html&#x27;</span>] },
+  },
+});
+
+<span class="hljs-comment">// src/test/setup.ts</span>
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;@testing-library/jest-dom/vitest&#x27;</span>;</code></pre>
+<p>타입이 붙은 카운터 컴포넌트와 이를 사용자 관점에서 검증하는 테스트다. <code>role</code>과 접근 가능한 이름으로 버튼을 찾고, <code>userEvent</code>로 실제 클릭 순서를 재현한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// Counter.tsx</span>
+<span class="hljs-keyword">import</span> { useReducer } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Action</span> = { <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;increment&#x27;</span> } | { <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;reset&#x27;</span>; <span class="hljs-attr">to</span>: <span class="hljs-built_in">number</span> };
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">reducer</span>(<span class="hljs-params"><span class="hljs-attr">count</span>: <span class="hljs-built_in">number</span>, <span class="hljs-attr">action</span>: <span class="hljs-title class_">Action</span></span>): <span class="hljs-built_in">number</span> {
+  <span class="hljs-keyword">switch</span> (action.<span class="hljs-property">type</span>) {
+    <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;increment&#x27;</span>: <span class="hljs-keyword">return</span> count + <span class="hljs-number">1</span>;
+    <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;reset&#x27;</span>: <span class="hljs-keyword">return</span> action.<span class="hljs-property">to</span>;
+  }
+}
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">CounterProps</span> { <span class="hljs-attr">initial</span>?: <span class="hljs-built_in">number</span>; <span class="hljs-attr">label</span>: <span class="hljs-built_in">string</span> }
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Counter</span>(<span class="hljs-params">{ initial = <span class="hljs-number">0</span>, label }: <span class="hljs-title class_">CounterProps</span></span>) {
+  <span class="hljs-keyword">const</span> [count, dispatch] = <span class="hljs-title function_">useReducer</span>(reducer, initial);
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">section</span> <span class="hljs-attr">aria-label</span>=<span class="hljs-string">{label}</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">output</span>&gt;</span>{count}<span class="hljs-tag">&lt;/<span class="hljs-name">output</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">onClick</span>=<span class="hljs-string">{()</span> =&gt;</span> dispatch({ type: &#x27;increment&#x27; })}&gt;증가<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">onClick</span>=<span class="hljs-string">{()</span> =&gt;</span> dispatch({ type: &#x27;reset&#x27;, to: initial })}&gt;초기화<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">section</span>&gt;</span></span>
+  );
+}
+
+<span class="hljs-comment">// Counter.test.tsx</span>
+<span class="hljs-keyword">import</span> { render, screen } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@testing-library/react&#x27;</span>;
+<span class="hljs-keyword">import</span> userEvent <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@testing-library/user-event&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Counter</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./Counter&#x27;</span>;
+
+<span class="hljs-title function_">it</span>(<span class="hljs-string">&#x27;클릭한 만큼 증가하고 초기화하면 초기값으로 돌아간다&#x27;</span>, <span class="hljs-title function_">async</span> () =&gt; {
+  <span class="hljs-keyword">const</span> user = userEvent.<span class="hljs-title function_">setup</span>();
+  <span class="hljs-title function_">render</span>(<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Counter</span> <span class="hljs-attr">initial</span>=<span class="hljs-string">{3}</span> <span class="hljs-attr">label</span>=<span class="hljs-string">&quot;카운터&quot;</span> /&gt;</span></span>);
+
+  <span class="hljs-keyword">await</span> user.<span class="hljs-title function_">click</span>(screen.<span class="hljs-title function_">getByRole</span>(<span class="hljs-string">&#x27;button&#x27;</span>, { <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;증가&#x27;</span> }));
+  <span class="hljs-keyword">await</span> user.<span class="hljs-title function_">click</span>(screen.<span class="hljs-title function_">getByRole</span>(<span class="hljs-string">&#x27;button&#x27;</span>, { <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;증가&#x27;</span> }));
+  <span class="hljs-title function_">expect</span>(screen.<span class="hljs-title function_">getByRole</span>(<span class="hljs-string">&#x27;status&#x27;</span>)).<span class="hljs-title function_">toHaveTextContent</span>(<span class="hljs-string">&#x27;5&#x27;</span>);
+
+  <span class="hljs-keyword">await</span> user.<span class="hljs-title function_">click</span>(screen.<span class="hljs-title function_">getByRole</span>(<span class="hljs-string">&#x27;button&#x27;</span>, { <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;초기화&#x27;</span> }));
+  <span class="hljs-title function_">expect</span>(screen.<span class="hljs-title function_">getByRole</span>(<span class="hljs-string">&#x27;status&#x27;</span>)).<span class="hljs-title function_">toHaveTextContent</span>(<span class="hljs-string">&#x27;3&#x27;</span>);
+});</code></pre>
+<p>비동기 데이터는 <code>findBy*</code>로 등장을 기다리고, 네트워크는 <code>vi.fn</code>으로 대체한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { render, screen } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@testing-library/react&#x27;</span>;
+<span class="hljs-keyword">import</span> { vi } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;vitest&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">UserCard</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./UserCard&#x27;</span>;
+
+<span class="hljs-title function_">it</span>(<span class="hljs-string">&#x27;로딩 후 사용자 이름을 표시한다&#x27;</span>, <span class="hljs-title function_">async</span> () =&gt; {
+  <span class="hljs-keyword">const</span> fetchUser = vi.<span class="hljs-title function_">fn</span>().<span class="hljs-title function_">mockResolvedValue</span>({ <span class="hljs-attr">id</span>: <span class="hljs-number">1</span>, <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;오진욱&#x27;</span> });
+  <span class="hljs-title function_">render</span>(<span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">UserCard</span> <span class="hljs-attr">id</span>=<span class="hljs-string">{1}</span> <span class="hljs-attr">fetchUser</span>=<span class="hljs-string">{fetchUser}</span> /&gt;</span></span>);
+
+  <span class="hljs-title function_">expect</span>(screen.<span class="hljs-title function_">getByText</span>(<span class="hljs-string">&#x27;불러오는 중&#x27;</span>)).<span class="hljs-title function_">toBeInTheDocument</span>();
+  <span class="hljs-title function_">expect</span>(<span class="hljs-keyword">await</span> screen.<span class="hljs-title function_">findByRole</span>(<span class="hljs-string">&#x27;heading&#x27;</span>, { <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;오진욱&#x27;</span> })).<span class="hljs-title function_">toBeInTheDocument</span>();
+  <span class="hljs-title function_">expect</span>(fetchUser).<span class="hljs-title function_">toHaveBeenCalledWith</span>(<span class="hljs-number">1</span>);
+});</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>getByTestId</code> 남용.</strong> <code>data-testid</code>를 기본으로 쓰면 접근성 결함이 걸러지지 않고 마크업 변경마다 테스트를 고치게 된다. 다른 쿼리가 불가능할 때만 쓴다.</li>
+<li><strong><code>act</code> 경고.</strong> <code>userEvent</code>·<code>findBy*</code>·<code>waitFor</code>는 내부에서 <code>act</code>를 감싸므로 직접 호출할 일이 거의 없다. 경고가 남으면 <code>await</code>가 빠진 비동기 작업이 있다는 신호다. <code>findBy*</code> 기본 타임아웃은 1초다.</li>
+<li><strong>Provider 의존.</strong> <code>render</code>의 <code>wrapper</code> 옵션으로 Provider를 주입하는 <code>renderWithProviders</code>를 만든다. QueryClient는 테스트마다 새로 만들고 <code>retry: false</code>로 설정해야 캐시와 재시도가 테스트 간에 새지 않는다.</li>
+<li><strong>타입 검사와 번들의 분리.</strong> Vite와 Vitest는 esbuild로 타입을 지우기만 하고 검사하지 않는다. <code>tsc -b &amp;&amp; vite build</code>처럼 CI에 검사 단계를 넣지 않으면 타입 오류가 있는 코드가 그대로 배포된다.</li>
+<li><strong>환경 변수와 <code>base</code> 경로.</strong> <code>VITE_</code> 접두사가 붙은 값은 공개 번들에 노출되므로 비밀 키를 넣으면 안 된다. 서브 경로 배포 시 <code>base</code>를 빠뜨리면 자산 요청이 404가 나고, SPA는 서버에서 모든 경로를 <code>index.html</code>로 fallback 시켜야 새로고침이 동작한다.</li>
+<li><strong>청크와 캐시.</strong> <code>manualChunks</code>로 vendor를 분리하지 않으면 작은 수정에도 번들 해시가 바뀌어 캐시가 무효화된다. 500kB 경고는 라우트 단위 <code>lazy</code> 분할이 안 되어 있다는 신호다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/react/react19-actions-use-server-components/">React 19 — Actions·use·Server Components</a></li>
+<li><a href="/notes/react/routing-code-splitting/">라우팅(React Router)과 코드 분할</a></li>
+<li><a href="/notes/react/custom-hooks-data-fetching/">커스텀 훅과 데이터 페칭 (TanStack Query)</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · React, Testing Library, Vitest, TypeScript, Vite</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/react/react19-actions-use-server-components/"><small>이전</small>React 19 — Actions·use·Server Components</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

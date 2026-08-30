@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>폼 — 제어/비제어 컴포넌트와 검증 · React</title>
+  <meta name="description" content="입력값의 소유자를 React 상태로 둘지 DOM에 둘지 정하는 기준과, React 19 form action·useActionState로 검증·제출을 처리하는 방법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="폼 — 제어/비제어 컴포넌트와 검증 · React">
+  <meta property="og:description" content="입력값의 소유자를 React 상태로 둘지 DOM에 둘지 정하는 기준과, React 19 form action·useActionState로 검증·제출을 처리하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/react/forms-validation/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/react/">React</a><span class="sep">›</span><span>폼 — 제어/비제어 컴포넌트와 검증</span></nav>
+    <article class="post">
+  <p class="part">React · 기능</p>
+  <h1>폼 — 제어/비제어 컴포넌트와 검증</h1>
+  <p class="summary">입력값의 소유자를 React 상태로 둘지 DOM에 둘지 정하는 기준과, React 19 form action·useActionState로 검증·제출을 처리하는 방법</p>
+  <div class="content">
+<p><code>&lt;input&gt;</code>은 브라우저가 자체적으로 값을 들고 있는 요소이고, React 컴포넌트도 상태를 갖는다. 누가 값의 주인인지 정하지 않으면 타이핑해도 글자가 안 바뀌는 입력창, 초기값이 나중에 덮어써지는 버그가 생긴다. 제출 처리도 <code>preventDefault</code>·로딩 플래그·에러 상태·초기화 코드를 폼마다 반복하게 된다. React 19는 폼 제출을 프레임워크 차원의 개념으로 끌어올려 이 반복을 줄였다.</p>
+<h2>핵심 개념</h2>
+<h3>제어 컴포넌트와 비제어 컴포넌트</h3>
+<p>React는 <code>&lt;input&gt;</code>에 값을 넘기는 방식에 따라 두 모드를 구분한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>제어(controlled)</th>
+<th>비제어(uncontrolled)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>값의 소유자</td>
+<td>React 상태</td>
+<td>DOM 노드</td>
+</tr>
+<tr>
+<td>사용 prop</td>
+<td><code>value</code> + <code>onChange</code></td>
+<td><code>defaultValue</code> (필요 시 <code>ref</code>)</td>
+</tr>
+<tr>
+<td>읽는 시점</td>
+<td>매 렌더마다 상태로 접근</td>
+<td>제출 시 <code>ref.current.value</code> 또는 <code>FormData</code></td>
+</tr>
+<tr>
+<td>적합한 경우</td>
+<td>입력 즉시 반응(포맷팅·실시간 검증·연동 필드)</td>
+<td>단순 제출 폼, 파일 입력, 대형 폼</td>
+</tr>
+</tbody></table>
+<p><code>value</code>를 넘기는 순간 그 입력은 제어 컴포넌트가 된다. <code>onChange</code>로 상태를 갱신하지 않으면 React가 같은 값을 다시 밀어 넣으므로 화면이 고정된다. <code>value</code>가 <code>undefined</code>였다가 문자열이 되면 비제어에서 제어로 바뀌는 셈이라 경고가 난다. <code>checkbox</code>·<code>radio</code>는 <code>checked</code>/<code>defaultChecked</code>로 같은 규칙을 따르고, <code>&lt;input type=&quot;file&quot;&gt;</code>은 값을 프로그램이 설정할 수 없으므로 항상 비제어다.</p>
+<p>Spring MVC로 치면 제어 컴포넌트는 <code>@ModelAttribute</code> 바인딩 객체를 매 요청마다 뷰에 되돌리는 방식, 비제어 컴포넌트는 <code>getParameter</code>로 제출 시점에만 꺼내 쓰는 방식에 가깝다.</p>
+<h3><code>&lt;form action&gt;</code>과 Actions</h3>
+<p>React 19부터 <code>&lt;form&gt;</code>의 <code>action</code> prop에 URL 대신 함수를 넘길 수 있다. 제출 시 React가 기본 네비게이션을 막고 <code>FormData</code>를 그 함수에 전달하며, 완료되면 비제어 필드를 초기화한다. 이 함수가 Action이며 비동기여도 된다. <code>&lt;button formAction={fn}&gt;</code>으로 버튼마다 다른 Action을 붙일 수 있고, Server Components 환경에서는 <code>&#39;use server&#39;</code> 함수를 바로 넘긴다.</p>
+<h3><code>useActionState</code></h3>
+<p>Action의 결과(검증 에러, 성공 메시지)를 보여 주려면 상태가 필요하다. <code>useActionState(action, initialState)</code>는 <code>[state, formAction, isPending]</code>을 돌려준다. 감싸진 <code>action</code>은 <code>(prevState, formData)</code>로 호출되고 반환값이 다음 <code>state</code>가 된다. <code>isPending</code>이 실행 중 여부를 알려 주므로 로딩 플래그가 따로 필요 없다. 하위 컴포넌트에서 제출 상태만 필요하면 <code>react-dom</code>의 <code>useFormStatus</code>를 쓴다. Spring의 <code>BindingResult</code>가 검증 결과를 뷰로 되돌리는 흐름과 대응된다.</p>
+<h3>검증의 층위</h3>
+<p>검증은 HTML 속성(<code>required</code>, <code>pattern</code>, <code>minLength</code>)으로 브라우저가 막는 층, 클라이언트 코드 층, 서버 층으로 나뉜다. 첫째는 UI 통제가 어렵고, 둘째는 UX용이지 보안이 아니며, 셋째는 생략할 수 없다. Action 안에서 검증하면 둘째·셋째 층이 코드 경로를 공유해 규칙이 갈라지는 문제가 줄어든다.</p>
+<h2>코드</h2>
+<p>제어 컴포넌트로 입력 즉시 포맷을 강제하는 예다. 숫자 외 문자를 걸러내는 로직이 <code>onChange</code>에 있어 상태와 화면이 항상 일치한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { useState } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">PhoneInput</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> [phone, setPhone] = <span class="hljs-title function_">useState</span>(<span class="hljs-string">&#x27;&#x27;</span>);
+
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">label</span>&gt;</span>
+      전화번호
+      <span class="hljs-tag">&lt;<span class="hljs-name">input</span>
+        <span class="hljs-attr">type</span>=<span class="hljs-string">&quot;tel&quot;</span>
+        <span class="hljs-attr">value</span>=<span class="hljs-string">{phone}</span>
+        <span class="hljs-attr">onChange</span>=<span class="hljs-string">{(e)</span> =&gt;</span> setPhone(e.target.value.replace(/\D/g, &#x27;&#x27;).slice(0, 11))}
+        inputMode=&quot;numeric&quot;
+      /&gt;
+    <span class="hljs-tag">&lt;/<span class="hljs-name">label</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>비제어 필드를 <code>useActionState</code>와 결합한 회원가입 폼이다. 검증 실패 시 에러 객체를 반환하고, 성공하면 React가 필드를 비운다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { useActionState } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> { useFormStatus } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react-dom&#x27;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">FormState</span> = { <span class="hljs-attr">errors</span>: <span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">string</span>&gt;; <span class="hljs-attr">message</span>?: <span class="hljs-built_in">string</span> };
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">signUp</span>(<span class="hljs-params"><span class="hljs-attr">_prev</span>: <span class="hljs-title class_">FormState</span>, <span class="hljs-attr">formData</span>: <span class="hljs-title class_">FormData</span></span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">FormState</span>&gt; {
+  <span class="hljs-keyword">const</span> email = <span class="hljs-title class_">String</span>(formData.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;email&#x27;</span>) ?? <span class="hljs-string">&#x27;&#x27;</span>);
+  <span class="hljs-keyword">const</span> password = <span class="hljs-title class_">String</span>(formData.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;password&#x27;</span>) ?? <span class="hljs-string">&#x27;&#x27;</span>);
+  <span class="hljs-keyword">const</span> <span class="hljs-attr">errors</span>: <span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">string</span>&gt; = {};
+
+  <span class="hljs-keyword">if</span> (!<span class="hljs-regexp">/^[^@\s]+@[^@\s]+\.[^@\s]+$/</span>.<span class="hljs-title function_">test</span>(email)) errors.<span class="hljs-property">email</span> = <span class="hljs-string">&#x27;이메일 형식이 아니다&#x27;</span>;
+  <span class="hljs-keyword">if</span> (password.<span class="hljs-property">length</span> &lt; <span class="hljs-number">8</span>) errors.<span class="hljs-property">password</span> = <span class="hljs-string">&#x27;8자 이상이어야 한다&#x27;</span>;
+  <span class="hljs-keyword">if</span> (<span class="hljs-title class_">Object</span>.<span class="hljs-title function_">keys</span>(errors).<span class="hljs-property">length</span>) <span class="hljs-keyword">return</span> { errors };
+
+  <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">&#x27;/api/sign-up&#x27;</span>, {
+    <span class="hljs-attr">method</span>: <span class="hljs-string">&#x27;POST&#x27;</span>,
+    <span class="hljs-attr">headers</span>: { <span class="hljs-string">&#x27;Content-Type&#x27;</span>: <span class="hljs-string">&#x27;application/json&#x27;</span> },
+    <span class="hljs-attr">body</span>: <span class="hljs-title class_">JSON</span>.<span class="hljs-title function_">stringify</span>({ email, password }),
+  });
+  <span class="hljs-keyword">if</span> (!res.<span class="hljs-property">ok</span>) <span class="hljs-keyword">return</span> { <span class="hljs-attr">errors</span>: { <span class="hljs-attr">form</span>: <span class="hljs-string">&#x27;가입에 실패했다&#x27;</span> } };
+  <span class="hljs-keyword">return</span> { <span class="hljs-attr">errors</span>: {}, <span class="hljs-attr">message</span>: <span class="hljs-string">&#x27;가입 완료&#x27;</span> };
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">SubmitButton</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> { pending } = <span class="hljs-title function_">useFormStatus</span>();
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">type</span>=<span class="hljs-string">&quot;submit&quot;</span> <span class="hljs-attr">disabled</span>=<span class="hljs-string">{pending}</span>&gt;</span>{pending ? &#x27;처리 중&#x27; : &#x27;가입&#x27;}<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span></span>;
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">SignUpForm</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> [state, formAction, isPending] = <span class="hljs-title function_">useActionState</span>(signUp, { <span class="hljs-attr">errors</span>: {} });
+
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">form</span> <span class="hljs-attr">action</span>=<span class="hljs-string">{formAction}</span> <span class="hljs-attr">aria-busy</span>=<span class="hljs-string">{isPending}</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">input</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;email&quot;</span> <span class="hljs-attr">type</span>=<span class="hljs-string">&quot;email&quot;</span> <span class="hljs-attr">required</span> <span class="hljs-attr">defaultValue</span>=<span class="hljs-string">&quot;&quot;</span> /&gt;</span>
+      {state.errors.email &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">p</span> <span class="hljs-attr">role</span>=<span class="hljs-string">&quot;alert&quot;</span>&gt;</span>{state.errors.email}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}
+      <span class="hljs-tag">&lt;<span class="hljs-name">input</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;password&quot;</span> <span class="hljs-attr">type</span>=<span class="hljs-string">&quot;password&quot;</span> <span class="hljs-attr">minLength</span>=<span class="hljs-string">{8}</span> <span class="hljs-attr">required</span> /&gt;</span>
+      {state.errors.password &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">p</span> <span class="hljs-attr">role</span>=<span class="hljs-string">&quot;alert&quot;</span>&gt;</span>{state.errors.password}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}
+      {state.errors.form &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">p</span> <span class="hljs-attr">role</span>=<span class="hljs-string">&quot;alert&quot;</span>&gt;</span>{state.errors.form}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}
+      {state.message &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>{state.message}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}
+      <span class="hljs-tag">&lt;<span class="hljs-name">SubmitButton</span> /&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">form</span>&gt;</span></span>
+  );
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>제어 컴포넌트의 리렌더 비용.</strong> 필드 30개가 하나의 객체 상태에 묶여 있으면 한 글자마다 폼 전체가 다시 그려진다. 필드별로 쪼개거나 즉시 반응이 필요 없는 필드는 비제어로 돌린다. React Hook Form이 기본을 비제어로 잡는 이유다.</li>
+<li><strong>제어와 비제어의 전환 경고.</strong> 서버 데이터로 초기화할 때 <code>value={user?.name}</code>이 <code>undefined</code>가 되는 경우가 흔하다. <code>?? &#39;&#39;</code>로 막거나 데이터가 준비된 뒤 <code>key</code>로 폼을 다시 생성한다.</li>
+<li><strong>Action 실패 후 값 손실.</strong> <code>&lt;form action&gt;</code>은 결과와 무관하게 제출이 끝나면 비제어 필드를 초기화한다. 입력값을 유지하려면 반환 상태에 실어 <code>defaultValue</code>로 되돌리거나 해당 필드만 제어 컴포넌트로 둔다.</li>
+<li><strong>중복 제출.</strong> <code>isPending</code> 동안 버튼을 비활성화해도 Enter 연타나 네트워크 재시도는 막지 못한다. 서버에서 멱등 키를 받는 편이 안전하다.</li>
+<li><strong>에러 표시 시점.</strong> 타이핑 중 즉시 에러를 띄우면 화면 낭독기가 매 글자마다 알림을 읽는다. 검증은 <code>blur</code>나 제출 시점에 하고, 에러 문구는 <code>aria-describedby</code>로 입력과 연결한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/react/props-state-events/">Props·State·이벤트</a></li>
+<li><a href="/notes/react/useref-usememo-usecallback-performance/">useRef·useMemo·useCallback과 렌더링 성능</a></li>
+<li><a href="/notes/react/react19-actions-use-server-components/">React 19 — Actions·use·Server Components</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · React, controlled component, uncontrolled component, useActionState, form validation</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/react/custom-hooks-data-fetching/"><small>이전</small>커스텀 훅과 데이터 페칭 (TanStack Query)</a>
+  <a class="next" href="/notes/react/routing-code-splitting/"><small>다음</small>라우팅(React Router)과 코드 분할</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>플랫폼 채널과 네이티브 연동·권한 · Flutter</title>
+  <meta name="description" content="Dart 코드가 못 건드리는 OS 기능은 MethodChannel·EventChannel·플러그인으로 네이티브에 위임하고, 권한은 플랫폼 쪽에서 처리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="플랫폼 채널과 네이티브 연동·권한 · Flutter">
+  <meta property="og:description" content="Dart 코드가 못 건드리는 OS 기능은 MethodChannel·EventChannel·플러그인으로 네이티브에 위임하고, 권한은 플랫폼 쪽에서 처리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/platform-channels-native/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/flutter/">Flutter</a><span class="sep">›</span><span>플랫폼 채널과 네이티브 연동·권한</span></nav>
+    <article class="post">
+  <p class="part">Flutter · 데이터와 플랫폼</p>
+  <h1>플랫폼 채널과 네이티브 연동·권한</h1>
+  <p class="summary">Dart 코드가 못 건드리는 OS 기능은 MethodChannel·EventChannel·플러그인으로 네이티브에 위임하고, 권한은 플랫폼 쪽에서 처리한다</p>
+  <div class="content">
+<p>Flutter는 자체 렌더링 엔진으로 화면을 그리기 때문에 UI 층에서는 OS에 의존하지 않는다. 그 대가로 배터리 잔량, 블루투스, 생체 인증, 카메라 권한 같은 OS 기능에는 Dart 표준 라이브러리만으로 접근할 수 없다. 이 경계를 넘는 통로가 플랫폼 채널이다. 채널이 없으면 플러그인이 지원하지 않는 API는 포기해야 한다.</p>
+<h2>핵심 개념</h2>
+<p>플랫폼 채널은 이름이 붙은 비동기 메시지 파이프다. Dart 쪽이 클라이언트, 네이티브 쪽(Kotlin/Java, Swift/Objective-C, C++)이 호스트 역할을 하며 메시지는 바이너리로 직렬화되어 오간다. Spring 기준으로 보면 프로세스 안에서 동작하는 RPC 스텁에 해당하고, 메서드 이름 문자열이 URL, 코덱이 HttpMessageConverter에 해당한다.</p>
+<p>채널은 용도에 따라 세 종류로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th>채널</th>
+<th>방향</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MethodChannel</td>
+<td>요청·응답</td>
+<td>네이티브 함수 호출, 가장 흔한 형태</td>
+</tr>
+<tr>
+<td>EventChannel</td>
+<td>네이티브 → Dart 스트림</td>
+<td>센서·위치·연결 상태처럼 계속 흘러오는 이벤트</td>
+</tr>
+<tr>
+<td>BasicMessageChannel</td>
+<td>양방향 메시지</td>
+<td>코덱을 직접 지정하는 저수준 통신</td>
+</tr>
+</tbody></table>
+<p>기본 코덱 <code>StandardMessageCodec</code>은 null·bool·int·double·String·List·Map·바이트 배열을 자동 변환한다. 이 범위를 벗어나는 객체는 직접 Map으로 풀어 보내야 한다.</p>
+<p>스레드 규칙이 중요하다. 채널 핸들러는 기본적으로 플랫폼 메인 스레드(Android UI 스레드, iOS 메인 스레드)에서 실행된다. 무거운 작업을 핸들러 안에서 그대로 돌리면 네이티브 UI가 멈추므로, <code>makeBackgroundTaskQueue()</code>로 생성한 TaskQueue를 채널에 넘겨 백그라운드에서 처리하거나 핸들러 안에서 별도 스레드로 넘기고 결과만 메인 스레드로 되돌린다. Dart 쪽도 마찬가지로 루트 isolate 외의 isolate에서는 <code>BackgroundIsolateBinaryMessenger.ensureInitialized</code>를 먼저 호출해야 채널을 쓸 수 있다.</p>
+<p>메서드 이름을 문자열로 맞추는 방식은 타입 검사를 받지 못한다. Pigeon은 Dart로 인터페이스를 선언하면 양쪽 코드를 생성해 주는 도구로, 문자열 오타와 타입 불일치를 컴파일 단계에서 잡는다.</p>
+<p>앱 코드에 직접 채널을 박는 대신 플러그인 패키지로 분리하면 여러 앱에서 재사용할 수 있다. 플러그인은 pubspec의 <code>flutter.plugin.platforms</code>에 플랫폼별 <code>pluginClass</code>를 선언하고, 규모가 커지면 앱 대면 패키지·플랫폼 인터페이스·플랫폼별 구현 패키지로 나누는 연합(federated) 구조를 택한다. 플랫폼 인터페이스와 구현의 관계는 Spring의 서비스 인터페이스와 프로파일별 빈에 대응한다. 순수 C 라이브러리를 부를 때는 채널 대신 <code>dart:ffi</code> 기반 FFI 패키지가 권장된다.</p>
+<p>권한은 채널이 다루는 대표 사례다. Flutter 프레임워크에는 권한 API가 없으며, AndroidManifest와 Info.plist에 사용 목적을 선언한 뒤 네이티브에서 런타임 요청을 수행하고 결과를 채널로 돌려주는 구조다.</p>
+<h2>코드</h2>
+<p>Dart 쪽에서 채널을 열고 네이티브 메서드를 호출한다. 실패는 <code>PlatformException</code>으로 도착한다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/services.dart&#x27;</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">BatteryService</span> </span>{
+  <span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> _channel = <span class="hljs-title class_">MethodChannel</span>(<span class="hljs-string">&#x27;samples.flutter.dev/battery&#x27;</span>);
+
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-built_in">int?</span>&gt; <span class="hljs-title function_">level</span>() <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> _channel.invokeMethod&lt;<span class="hljs-built_in">int</span>&gt;(<span class="hljs-string">&#x27;getBatteryLevel&#x27;</span>);
+    } <span class="hljs-keyword">on</span> <span class="hljs-title class_">PlatformException</span> <span class="hljs-keyword">catch</span> (e) {
+      <span class="hljs-comment">// e.code == &#x27;UNAVAILABLE&#x27; 등 네이티브가 지정한 코드</span>
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">null</span>;
+    } <span class="hljs-keyword">on</span> <span class="hljs-title class_">MissingPluginException</span> {
+      <span class="hljs-comment">// 해당 플랫폼에 핸들러가 등록되지 않은 경우</span>
+      <span class="hljs-keyword">return</span> <span class="hljs-keyword">null</span>;
+    }
+  }
+}</code></pre>
+<p>Android 쪽 핸들러는 <code>configureFlutterEngine</code>에서 같은 이름의 채널에 등록한다. 모르는 메서드는 <code>notImplemented()</code>로 응답한다.</p>
+<pre><code class="hljs language-kotlin"><span class="hljs-keyword">class</span> <span class="hljs-title class_">MainActivity</span> : <span class="hljs-type">FlutterActivity</span>() {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">val</span> channelName = <span class="hljs-string">&quot;samples.flutter.dev/battery&quot;</span>
+
+  <span class="hljs-keyword">override</span> <span class="hljs-function"><span class="hljs-keyword">fun</span> <span class="hljs-title">configureFlutterEngine</span><span class="hljs-params">(flutterEngine: <span class="hljs-type">FlutterEngine</span>)</span></span> {
+    <span class="hljs-keyword">super</span>.configureFlutterEngine(flutterEngine)
+    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+      .setMethodCallHandler { call, result -&gt;
+        <span class="hljs-keyword">when</span> (call.method) {
+          <span class="hljs-string">&quot;getBatteryLevel&quot;</span> -&gt; {
+            <span class="hljs-keyword">val</span> bm = getSystemService(Context.BATTERY_SERVICE) <span class="hljs-keyword">as</span> BatteryManager
+            <span class="hljs-keyword">val</span> level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            <span class="hljs-keyword">if</span> (level &gt;= <span class="hljs-number">0</span>) result.success(level)
+            <span class="hljs-keyword">else</span> result.error(<span class="hljs-string">&quot;UNAVAILABLE&quot;</span>, <span class="hljs-string">&quot;Battery level not available.&quot;</span>, <span class="hljs-literal">null</span>)
+          }
+          <span class="hljs-keyword">else</span> -&gt; result.notImplemented()
+        }
+      }
+  }
+}</code></pre>
+<p>네이티브 이벤트를 스트림으로 받을 때는 EventChannel을 쓴다. Dart는 <code>receiveBroadcastStream()</code>으로 구독하고, 네이티브는 <code>StreamHandler</code>의 <code>onListen</code>/<code>onCancel</code>에서 리스너를 붙였다 뗀다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ConnectivityWatcher</span> </span>{
+  <span class="hljs-keyword">static</span> <span class="hljs-keyword">const</span> _events = <span class="hljs-title class_">EventChannel</span>(<span class="hljs-string">&#x27;samples.flutter.dev/connectivity&#x27;</span>);
+
+  <span class="hljs-title class_">Stream</span>&lt;<span class="hljs-built_in">bool</span>&gt; <span class="hljs-keyword">get</span> online =&gt;
+      _events.<span class="hljs-title function_">receiveBroadcastStream</span>().<span class="hljs-title function_">map</span>((e) =&gt; e <span class="hljs-keyword">as</span> <span class="hljs-built_in">bool</span>);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>핸들러를 메인 스레드에서 동기로 오래 돌리면 네이티브 UI가 끊긴다. 파일 I/O나 네트워크는 TaskQueue나 코루틴으로 빼고, <code>result</code>는 정확히 한 번만 호출한다. 빠뜨리면 Dart 쪽 Future가 영원히 대기한다.</li>
+<li>채널 이름과 메서드 이름은 문자열이라 오타가 런타임에야 드러난다. 플랫폼 하나에 핸들러 등록을 빠뜨리면 <code>MissingPluginException</code>이 발생한다. 채널이 서너 개를 넘어가면 Pigeon으로 넘기는 편이 유지보수 비용이 낮다.</li>
+<li>숫자 타입이 플랫폼마다 다르게 도착한다. Dart의 int가 값 크기에 따라 <code>Int</code>와 <code>Long</code>으로 갈리므로 Kotlin에서 <code>as Int</code> 캐스팅이 간헐적으로 실패한다. <code>Number</code>로 받아 변환하는 편이 안전하다.</li>
+<li>Android 플랫폼 뷰는 렌더링 방식 선택이 성능을 좌우한다. 하이브리드 컴포지션은 접근성과 표시 정확도가 완전하지만 래스터 스레드가 플랫폼 스레드와 합쳐져 프레임이 떨어지고, 텍스처 레이어 방식(<code>AndroidView</code>)은 Flutter 성능은 유지되나 빠른 스크롤에서 끊기고 SurfaceView 접근성이 깨진다.</li>
+<li>권한은 거부 이후 흐름까지 설계해야 한다. Android 13 이상의 알림 권한, iOS의 &quot;다시 묻지 않음&quot; 상태처럼 OS 버전별 분기가 많고, 설정 화면으로 보내는 경로도 채널을 통해야 한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/flutter/networking-json-serialization/">네트워크·JSON 직렬화</a></li>
+<li><a href="/notes/flutter/local-storage-sqlite/">로컬 저장 — SharedPreferences·SQLite·파일</a></li>
+<li><a href="/notes/flutter/build-deploy-performance/">빌드·배포·성능 프로파일링</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Flutter, Platform Channel, MethodChannel, Plugin, Pigeon</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/flutter/local-storage-sqlite/"><small>이전</small>로컬 저장 — SharedPreferences·SQLite·파일</a>
+  <a class="next" href="/notes/flutter/testing/"><small>다음</small>테스트 — 단위·위젯·통합</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

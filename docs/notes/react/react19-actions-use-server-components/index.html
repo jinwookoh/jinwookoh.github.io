@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>React 19 — Actions·use·Server Components · React</title>
+  <meta name="description" content="폼 제출·비동기 상태·서버 렌더링을 React 19가 Actions, use, Server Components로 어떻게 언어 차원에서 흡수했는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="React 19 — Actions·use·Server Components · React">
+  <meta property="og:description" content="폼 제출·비동기 상태·서버 렌더링을 React 19가 Actions, use, Server Components로 어떻게 언어 차원에서 흡수했는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/react/react19-actions-use-server-components/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/react/">React</a><span class="sep">›</span><span>React 19 — Actions·use·Server Components</span></nav>
+    <article class="post">
+  <p class="part">React · 최신과 운영</p>
+  <h1>React 19 — Actions·use·Server Components</h1>
+  <p class="summary">폼 제출·비동기 상태·서버 렌더링을 React 19가 Actions, use, Server Components로 어떻게 언어 차원에서 흡수했는지 정리한다</p>
+  <div class="content">
+<p>React 18까지 폼 제출은 <code>isPending</code>·<code>error</code>·낙관적 값을 <code>useState</code>로 따로 들고 <code>try/catch/finally</code>로 정리해야 했다. 데이터 페칭은 <code>useEffect</code>에서 시작해 로딩 플래그를 세웠고, 렌더링에만 쓰는 라이브러리도 클라이언트 번들에 실려 갔다. React 19는 이를 Actions, <code>use</code>, Server Components로 프레임워크 안에 들여왔다. 서버에서 렌더링하고, 서버 함수를 폼에 연결하고, 그 결과 Promise를 컴포넌트가 직접 읽는 하나의 흐름이다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Actions</strong>는 트랜지션 안에서 실행되는 비동기 함수다. <code>useTransition</code>의 <code>startTransition</code>에 <code>async</code> 함수를 넘기면 React가 pending을 추적하고 완료 시점에 <code>isPending</code>을 내린다. 에러는 가장 가까운 Error Boundary로 가며, 완료 전까지 이전 UI를 유지한다. <code>&lt;form action={fn}&gt;</code>도 같은 메커니즘이며 성공하면 비제어 필드가 초기화된다.</p>
+<p>폼과 짝을 이루는 훅이 셋 추가됐다.</p>
+<table>
+<thead>
+<tr>
+<th>훅</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>useActionState(fn, initialState)</code></td>
+<td>Action의 반환값을 상태로 보관하고 <code>[state, formAction, isPending]</code>을 돌려준다. 이전 상태가 Action 첫 인자로 들어온다</td>
+</tr>
+<tr>
+<td><code>useFormStatus()</code></td>
+<td>부모 <code>&lt;form&gt;</code>의 <code>pending</code>·<code>data</code>·<code>method</code>를 자식에서 읽는다. props 드릴링 없이 제출 버튼을 비활성화할 때 쓴다</td>
+</tr>
+<tr>
+<td><code>useOptimistic(state, updateFn)</code></td>
+<td>Action이 끝나기 전 UI에 먼저 반영할 값을 만든다. 실패하거나 완료되면 실제 상태로 되돌아간다</td>
+</tr>
+</tbody></table>
+<p>**<code>use</code>**는 Promise나 Context를 렌더링 중에 읽는 API다. 훅과 달리 조건문·반복문 안에서 호출할 수 있다. Promise를 넘기면 resolve까지 가장 가까운 <code>&lt;Suspense&gt;</code> fallback을 보여주고, reject되면 Error Boundary가 잡는다.</p>
+<p><strong>Server Components</strong>는 빌드 또는 요청 시점에 서버에서만 실행된다. 브라우저 번들에 포함되지 않고 파일 시스템·DB에 직접 접근할 수 있는 대신, 상태·이펙트·이벤트 핸들러를 쓸 수 없다. 상호작용이 필요한 지점만 <code>&#39;use client&#39;</code> 파일로 분리하면 그 아래가 클라이언트 경계가 된다. Server가 기본값이고 Client가 명시 대상이다.</p>
+<p><strong>Server Functions</strong>는 <code>&#39;use server&#39;</code>로 표시한 함수로, 클라이언트에서 호출하면 React가 네트워크 요청을 만들어 서버에서 실행한다. 폼 <code>action</code>에 넘기면 JavaScript 로드 전에도 제출이 동작한다. Spring 기준으로 Server Component는 Thymeleaf 템플릿이 컴포넌트 트리로 바뀐 것이고, Server Function은 <code>@PostMapping</code> 핸들러를 폼에 직접 바인딩한 형태다.</p>
+<p>그 외 <code>ref</code>가 일반 prop이 되어 <code>forwardRef</code>가 불필요해진 점, <code>&lt;Context&gt;</code> 직접 렌더링, <code>&lt;title&gt;</code>·<code>&lt;meta&gt;</code>를 어디서 렌더링해도 <code>&lt;head&gt;</code>로 끌어올리는 기능, <code>preload</code>·<code>preinit</code> 리소스 API가 추가됐다.</p>
+<h2>코드</h2>
+<p>Server Function을 <code>useActionState</code>와 <code>useFormStatus</code>로 연결한 폼이다. 검증 실패 메시지는 Action의 반환값으로 돌아온다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/comments/actions.ts</span>
+<span class="hljs-string">&#x27;use server&#x27;</span>;
+
+<span class="hljs-keyword">import</span> { z } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;zod&#x27;</span>;
+<span class="hljs-keyword">import</span> { db } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@/lib/db&#x27;</span>;
+
+<span class="hljs-keyword">const</span> schema = z.<span class="hljs-title function_">object</span>({ <span class="hljs-attr">body</span>: z.<span class="hljs-title function_">string</span>().<span class="hljs-title function_">min</span>(<span class="hljs-number">1</span>).<span class="hljs-title function_">max</span>(<span class="hljs-number">500</span>) });
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">type</span> <span class="hljs-title class_">CommentState</span> = { <span class="hljs-attr">error</span>?: <span class="hljs-built_in">string</span>; <span class="hljs-attr">savedId</span>?: <span class="hljs-built_in">number</span> };
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">addComment</span>(<span class="hljs-params">
+  <span class="hljs-attr">prev</span>: <span class="hljs-title class_">CommentState</span>,
+  <span class="hljs-attr">formData</span>: <span class="hljs-title class_">FormData</span>,
+</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">CommentState</span>&gt; {
+  <span class="hljs-keyword">const</span> parsed = schema.<span class="hljs-title function_">safeParse</span>({ <span class="hljs-attr">body</span>: formData.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;body&#x27;</span>) });
+  <span class="hljs-keyword">if</span> (!parsed.<span class="hljs-property">success</span>) <span class="hljs-keyword">return</span> { <span class="hljs-attr">error</span>: <span class="hljs-string">&#x27;1~500자로 입력해야 한다&#x27;</span> };
+  <span class="hljs-keyword">const</span> row = <span class="hljs-keyword">await</span> db.<span class="hljs-property">comment</span>.<span class="hljs-title function_">create</span>({ <span class="hljs-attr">data</span>: parsed.<span class="hljs-property">data</span> });
+  <span class="hljs-keyword">return</span> { <span class="hljs-attr">savedId</span>: row.<span class="hljs-property">id</span> };
+}</code></pre>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/comments/CommentForm.tsx</span>
+<span class="hljs-string">&#x27;use client&#x27;</span>;
+
+<span class="hljs-keyword">import</span> { useActionState } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> { useFormStatus } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react-dom&#x27;</span>;
+<span class="hljs-keyword">import</span> { addComment, <span class="hljs-keyword">type</span> <span class="hljs-title class_">CommentState</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./actions&#x27;</span>;
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">SubmitButton</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> { pending } = <span class="hljs-title function_">useFormStatus</span>();
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">disabled</span>=<span class="hljs-string">{pending}</span>&gt;</span>{pending ? &#x27;저장 중&#x27; : &#x27;등록&#x27;}<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span></span>;
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">CommentForm</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> [state, formAction, isPending] = useActionState&lt;<span class="hljs-title class_">CommentState</span>, <span class="hljs-title class_">FormData</span>&gt;(
+    addComment,
+    {},
+  );
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">form</span> <span class="hljs-attr">action</span>=<span class="hljs-string">{formAction}</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">textarea</span> <span class="hljs-attr">name</span>=<span class="hljs-string">&quot;body&quot;</span> <span class="hljs-attr">disabled</span>=<span class="hljs-string">{isPending}</span> /&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">SubmitButton</span> /&gt;</span>
+      {state.error &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">p</span> <span class="hljs-attr">role</span>=<span class="hljs-string">&quot;alert&quot;</span>&gt;</span>{state.error}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}
+      {state.savedId &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>#{state.savedId} 저장 완료<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">form</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>Server Component에서 fetch를 시작하고 Promise를 그대로 넘겨 Client Component가 <code>use</code>로 읽는다. 서버는 응답을 기다리지 않고 스트리밍을 시작한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/products/[id]/page.tsx  (Server Component)</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Suspense</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Reviews</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./Reviews&#x27;</span>;
+<span class="hljs-keyword">import</span> { getProduct, getReviews } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@/lib/catalog&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Page</span>(<span class="hljs-params">{ params }: { params: <span class="hljs-built_in">Promise</span>&lt;{ id: <span class="hljs-built_in">string</span> }&gt; }</span>) {
+  <span class="hljs-keyword">const</span> { id } = <span class="hljs-keyword">await</span> params;
+  <span class="hljs-keyword">const</span> product = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getProduct</span>(id);          <span class="hljs-comment">// 핵심 데이터는 await</span>
+  <span class="hljs-keyword">const</span> reviewsPromise = <span class="hljs-title function_">getReviews</span>(id);         <span class="hljs-comment">// 부가 데이터는 await 없이 전달</span>
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">article</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">h1</span>&gt;</span>{product.name}<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Suspense</span> <span class="hljs-attr">fallback</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">p</span>&gt;</span>리뷰 불러오는 중<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">Reviews</span> <span class="hljs-attr">reviewsPromise</span>=<span class="hljs-string">{reviewsPromise}</span> /&gt;</span>
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Suspense</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">article</span>&gt;</span></span>
+  );
+}</code></pre>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/products/[id]/Reviews.tsx</span>
+<span class="hljs-string">&#x27;use client&#x27;</span>;
+
+<span class="hljs-keyword">import</span> { use } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-keyword">type</span> { <span class="hljs-title class_">Review</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@/lib/catalog&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Reviews</span>(<span class="hljs-params">{ reviewsPromise }: { reviewsPromise: <span class="hljs-built_in">Promise</span>&lt;Review[]&gt; }</span>) {
+  <span class="hljs-keyword">const</span> reviews = <span class="hljs-title function_">use</span>(reviewsPromise);
+  <span class="hljs-keyword">if</span> (reviews.<span class="hljs-property">length</span> === <span class="hljs-number">0</span>) <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>아직 리뷰가 없다<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>;
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">ul</span>&gt;</span>
+      {reviews.map((r) =&gt; <span class="hljs-tag">&lt;<span class="hljs-name">li</span> <span class="hljs-attr">key</span>=<span class="hljs-string">{r.id}</span>&gt;</span>{r.body}<span class="hljs-tag">&lt;/<span class="hljs-name">li</span>&gt;</span>)}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">ul</span>&gt;</span></span>
+  );
+}</code></pre>
+<p><code>useOptimistic</code>으로 좋아요 카운트를 즉시 반영하는 예다. Action이 실패하면 React가 낙관적 값을 버리고 props의 실제 값으로 돌아간다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-string">&#x27;use client&#x27;</span>;
+
+<span class="hljs-keyword">import</span> { useOptimistic, startTransition } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> { toggleLike } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./actions&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">LikeButton</span>(<span class="hljs-params">{ postId, likes }: { postId: <span class="hljs-built_in">string</span>; likes: <span class="hljs-built_in">number</span> }</span>) {
+  <span class="hljs-keyword">const</span> [optimisticLikes, addOptimistic] = <span class="hljs-title function_">useOptimistic</span>(
+    likes,
+    <span class="hljs-function">(<span class="hljs-params">current, <span class="hljs-attr">delta</span>: <span class="hljs-built_in">number</span></span>) =&gt;</span> current + delta,
+  );
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">button</span>
+      <span class="hljs-attr">onClick</span>=<span class="hljs-string">{()</span> =&gt;</span>
+        startTransition(async () =&gt; {
+          addOptimistic(1);
+          await toggleLike(postId);
+        })
+      }
+    &gt;
+      좋아요 {optimisticLikes}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span></span>
+  );
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Server Function은 공개 HTTP 엔드포인트다.</strong> <code>&#39;use server&#39;</code> 파일에서 export한 함수는 누구나 호출할 수 있다. Controller에서 하던 인증 확인과 입력 검증을 함수 안에서 그대로 수행해야 한다.</li>
+<li><strong>렌더 중 생성한 Promise를 <code>use</code>에 넘기면 무한 로딩에 빠진다.</strong> 매 렌더마다 새 Promise가 만들어져 suspend가 반복된다. Server Component에서 만들어 props로 넘기거나 <code>cache</code>·TanStack Query를 거친 Promise만 전달한다.</li>
+<li><strong>Server에서 Client로 넘기는 props는 직렬화 가능해야 한다.</strong> 함수·클래스 인스턴스·Symbol은 넘길 수 없고 Server Function만 참조로 전달된다. Prisma의 <code>Decimal</code> 같은 타입이 섞이면 경계에서 에러가 난다.</li>
+<li><strong><code>useActionState</code>의 Action은 첫 인자로 이전 상태를 받는다.</strong> 일반 폼 <code>action</code>과 시그니처가 달라 같은 함수를 두 곳에 재사용하면 인자가 어긋난다.</li>
+<li><strong><code>&#39;use client&#39;</code>를 너무 위쪽에 두면 Server Components 이점이 사라진다.</strong> 레이아웃 최상단에 붙이면 하위 트리 전부가 클라이언트 번들에 포함된다. 버튼·입력 같은 최소 단위만 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/react/custom-hooks-data-fetching/">커스텀 훅과 데이터 페칭 (TanStack Query)</a></li>
+<li><a href="/notes/react/forms-validation/">폼 — 제어/비제어 컴포넌트와 검증</a></li>
+<li><a href="/notes/react/testing-typescript-deployment/">테스트(Testing Library)·TypeScript·배포</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · React 19, Actions, use, Server Components, Server Actions</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/react/routing-code-splitting/"><small>이전</small>라우팅(React Router)과 코드 분할</a>
+  <a class="next" href="/notes/react/testing-typescript-deployment/"><small>다음</small>테스트(Testing Library)·TypeScript·배포</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

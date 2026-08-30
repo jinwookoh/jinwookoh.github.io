@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>상태 관리 — setState·InheritedWidget·Provider·Riverpod · Flutter</title>
+  <meta name="description" content="상태를 어디에 두고 누가 다시 그릴지를 setState·InheritedWidget·Provider·Riverpod 단계별로 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="상태 관리 — setState·InheritedWidget·Provider·Riverpod · Flutter">
+  <meta property="og:description" content="상태를 어디에 두고 누가 다시 그릴지를 setState·InheritedWidget·Provider·Riverpod 단계별로 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/state-management-provider-riverpod/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/flutter/">Flutter</a><span class="sep">›</span><span>상태 관리 — setState·InheritedWidget·Provider·Riverpod</span></nav>
+    <article class="post">
+  <p class="part">Flutter · 위젯과 상태</p>
+  <h1>상태 관리 — setState·InheritedWidget·Provider·Riverpod</h1>
+  <p class="summary">상태를 어디에 두고 누가 다시 그릴지를 setState·InheritedWidget·Provider·Riverpod 단계별로 정리한다</p>
+  <div class="content">
+<p>Flutter의 위젯은 불변이고, 상태가 바뀌면 그 상태를 읽는 서브트리를 다시 만든다. 화면 한 곳에서만 쓰는 값은 <code>setState</code>로 충분하지만, 로그인 정보나 장바구니처럼 여러 화면이 공유하는 값을 <code>setState</code>로 다루면 생성자 인자로 상태와 콜백을 몇 단계씩 내려보내게 되고, 값이 바뀔 때 어느 위젯이 다시 그려지는지도 흐려진다. 상태 관리 도구는 상태의 위치와 리빌드 범위를 명시적으로 다루기 위한 장치다.</p>
+<h2>핵심 개념</h2>
+<h3>임시 상태와 앱 상태</h3>
+<p>공식 문서는 상태를 둘로 나눈다. 임시 상태는 탭 인덱스, 입력값, 애니메이션 진행도처럼 위젯 하나 안에서 끝나는 값으로 <code>State</code> 객체에 두고 <code>setState</code>로 갱신한다. 앱 상태는 세션, 장바구니처럼 여러 화면이 함께 읽고 쓰는 값으로, 그것을 쓰는 위젯들보다 위쪽에 올려 두고 아래에서 읽어 내려간다.</p>
+<h3>setState와 InheritedWidget</h3>
+<p><code>setState</code>는 <code>State</code>의 필드를 바꾼 뒤 그 <code>State</code>가 소유한 서브트리 전체를 다음 프레임에 다시 빌드하도록 표시한다. 리빌드 단위가 크고, 상태가 위젯에 묶여 다른 화면에서 접근할 수 없다.</p>
+<p><code>InheritedWidget</code>은 트리 위쪽에 값을 두고 하위 위젯이 <code>BuildContext</code>로 가장 가까운 조상을 찾아 읽는 내장 메커니즘이다. <code>dependOnInheritedWidgetOfExactType</code>로 읽으면 의존이 등록되어, <code>updateShouldNotify</code>가 <code>true</code>일 때 그 값을 읽은 위젯만 리빌드된다. 값을 갱신하려면 <code>StatefulWidget</code>으로 감싸 새 인스턴스를 만들어야 해서 직접 쓰는 일은 드물다.</p>
+<h3>Provider와 ChangeNotifier</h3>
+<p><code>provider</code> 패키지는 <code>InheritedWidget</code>을 감싼 얇은 계층이다. <code>ChangeNotifier</code>는 상태를 담는 일반 클래스로, 변경 후 <code>notifyListeners()</code>를 호출하면 리스너가 실행된다. <code>ChangeNotifierProvider</code>는 인스턴스를 생성해 트리에 공급하고 위젯이 사라질 때 <code>dispose</code>까지 호출한다. <code>Consumer&lt;T&gt;</code>나 <code>context.watch&lt;T&gt;()</code>는 값을 읽으면서 의존을 등록해 값이 바뀌면 그 위젯만 리빌드하고, 메서드만 호출할 때는 <code>context.read&lt;T&gt;()</code>를 쓴다.</p>
+<p>Spring으로 대응시키면 <code>ChangeNotifierProvider</code>는 빈을 등록하는 <code>@Configuration</code>, <code>context.read&lt;T&gt;()</code>는 <code>ApplicationContext.getBean(T.class)</code>에 가깝다.</p>
+<h3>Riverpod</h3>
+<p>Provider는 타입으로 값을 찾기 때문에 같은 타입의 provider를 둘 수 없고, 공급자가 없으면 런타임에 <code>ProviderNotFoundException</code>이 난다. Riverpod는 provider를 위젯 트리가 아닌 전역 상수로 선언해 이를 해결한다. 저장소는 앱 루트의 <code>ProviderScope</code>이고, 위젯은 <code>ConsumerWidget</code>의 <code>WidgetRef</code>로, provider끼리는 <code>Ref</code>로 서로를 읽는다.</p>
+<p>Riverpod 3.x에서는 상태와 변경 로직을 <code>Notifier</code> 서브클래스의 <code>build()</code>와 메서드로 묶고 <code>NotifierProvider</code>로 노출한다. 비동기 초기화는 <code>AsyncNotifier</code>가 맡고 상태가 <code>AsyncValue</code>로 감싸진다. <code>@riverpod</code> 코드 생성을 쓰면 화면을 벗어날 때 자동 폐기되는 <code>autoDispose</code>가 기본이다. Spring 관점에서 <code>ProviderScope</code>는 <code>ApplicationContext</code>, provider는 지연 초기화 싱글턴 빈, <code>ProviderScope(overrides:)</code>는 테스트에서 빈을 교체하는 <code>@MockBean</code>에 해당한다.</p>
+<h2>코드</h2>
+<p><code>provider</code>로 장바구니를 앱 상태로 올리고, 총액 텍스트만 리빌드되게 한 예제다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/material.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:provider/provider.dart&#x27;</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">CartModel</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">ChangeNotifier</span> </span>{
+  <span class="hljs-keyword">final</span> <span class="hljs-title class_">List</span>&lt;<span class="hljs-title class_">String</span>&gt; _items = [];
+
+  <span class="hljs-title class_">List</span>&lt;<span class="hljs-title class_">String</span>&gt; <span class="hljs-keyword">get</span> items =&gt; <span class="hljs-title class_">List</span>.<span class="hljs-title function_">unmodifiable</span>(_items);
+  <span class="hljs-built_in">int</span> <span class="hljs-keyword">get</span> total =&gt; _items.length * <span class="hljs-number">1000</span>;
+
+  <span class="hljs-keyword">void</span> <span class="hljs-title function_">add</span>(<span class="hljs-title class_">String</span> item) {
+    _items.<span class="hljs-title function_">add</span>(item);
+    <span class="hljs-title function_">notifyListeners</span>();
+  }
+}
+
+<span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span>() {
+  <span class="hljs-title function_">runApp</span>(
+    <span class="hljs-title class_">ChangeNotifierProvider</span>(
+      create: (_) =&gt; <span class="hljs-title class_">CartModel</span>(),
+      child: <span class="hljs-keyword">const</span> <span class="hljs-title class_">MaterialApp</span>(home: <span class="hljs-title class_">CartPage</span>()),
+    ),
+  );
+}
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">CartPage</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">StatelessWidget</span> </span>{
+  <span class="hljs-keyword">const</span> <span class="hljs-title class_">CartPage</span>({<span class="hljs-keyword">super</span>.key});
+
+  <span class="hljs-meta">@override</span>
+  <span class="hljs-title class_">Widget</span> <span class="hljs-title function_">build</span>(<span class="hljs-title class_">BuildContext</span> context) {
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">Scaffold</span>(
+      appBar: <span class="hljs-title class_">AppBar</span>(
+        title: <span class="hljs-title class_">Consumer</span>&lt;<span class="hljs-title class_">CartModel</span>&gt;(
+          builder: (_, cart, __) =&gt; <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;합계 <span class="hljs-subst">${cart.total}</span>원&#x27;</span>),
+        ),
+      ),
+      body: <span class="hljs-title class_">Center</span>(
+        child: <span class="hljs-title class_">ElevatedButton</span>(
+          onPressed: () =&gt; context.read&lt;<span class="hljs-title class_">CartModel</span>&gt;().<span class="hljs-title function_">add</span>(<span class="hljs-string">&#x27;apple&#x27;</span>),
+          child: <span class="hljs-keyword">const</span> <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;담기&#x27;</span>),
+        ),
+      ),
+    );
+  }
+}</code></pre>
+<p>같은 기능을 Riverpod 3.x의 <code>Notifier</code>로 옮긴 예제다. provider는 전역 상수이고 파생 상태는 <code>ref.watch</code>로 연결한다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/material.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter_riverpod/flutter_riverpod.dart&#x27;</span>;
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">CartNotifier</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">Notifier</span>&lt;<span class="hljs-title">List</span>&lt;<span class="hljs-title">String</span>&gt;&gt; </span>{
+  <span class="hljs-meta">@override</span>
+  <span class="hljs-title class_">List</span>&lt;<span class="hljs-title class_">String</span>&gt; <span class="hljs-title function_">build</span>() =&gt; <span class="hljs-keyword">const</span> [];
+
+  <span class="hljs-keyword">void</span> <span class="hljs-title function_">add</span>(<span class="hljs-title class_">String</span> item) =&gt; state = [...state, item];
+}
+
+<span class="hljs-keyword">final</span> cartProvider = <span class="hljs-title class_">NotifierProvider</span>&lt;<span class="hljs-title class_">CartNotifier</span>, <span class="hljs-title class_">List</span>&lt;<span class="hljs-title class_">String</span>&gt;&gt;(
+  <span class="hljs-title class_">CartNotifier</span>.<span class="hljs-keyword">new</span>,
+);
+
+<span class="hljs-keyword">final</span> cartTotalProvider = <span class="hljs-title class_">Provider</span>&lt;<span class="hljs-built_in">int</span>&gt;((ref) {
+  <span class="hljs-keyword">return</span> ref.<span class="hljs-title function_">watch</span>(cartProvider).length * <span class="hljs-number">1000</span>;
+});
+
+<span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span>() {
+  <span class="hljs-title function_">runApp</span>(<span class="hljs-keyword">const</span> <span class="hljs-title class_">ProviderScope</span>(child: <span class="hljs-title class_">MaterialApp</span>(home: <span class="hljs-title class_">CartPage</span>())));
+}
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">CartPage</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">ConsumerWidget</span> </span>{
+  <span class="hljs-keyword">const</span> <span class="hljs-title class_">CartPage</span>({<span class="hljs-keyword">super</span>.key});
+
+  <span class="hljs-meta">@override</span>
+  <span class="hljs-title class_">Widget</span> <span class="hljs-title function_">build</span>(<span class="hljs-title class_">BuildContext</span> context, <span class="hljs-title class_">WidgetRef</span> ref) {
+    <span class="hljs-keyword">final</span> total = ref.<span class="hljs-title function_">watch</span>(cartTotalProvider);
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">Scaffold</span>(
+      appBar: <span class="hljs-title class_">AppBar</span>(title: <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;합계 <span class="hljs-subst">$total</span>원&#x27;</span>)),
+      body: <span class="hljs-title class_">Center</span>(
+        child: <span class="hljs-title class_">ElevatedButton</span>(
+          onPressed: () =&gt; ref.<span class="hljs-title function_">read</span>(cartProvider.notifier).<span class="hljs-title function_">add</span>(<span class="hljs-string">&#x27;apple&#x27;</span>),
+          child: <span class="hljs-keyword">const</span> <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;담기&#x27;</span>),
+        ),
+      ),
+    );
+  }
+}</code></pre>
+<p>비동기 초기화는 <code>AsyncNotifier</code>로 처리하고 위젯은 <code>AsyncValue</code>를 패턴 매칭으로 분기한다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ProfileNotifier</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">AsyncNotifier</span>&lt;<span class="hljs-title">String</span>&gt; </span>{
+  <span class="hljs-meta">@override</span>
+  <span class="hljs-title class_">Future</span>&lt;<span class="hljs-title class_">String</span>&gt; <span class="hljs-title function_">build</span>() <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">await</span> <span class="hljs-title class_">Future</span>&lt;<span class="hljs-keyword">void</span>&gt;.<span class="hljs-title function_">delayed</span>(<span class="hljs-keyword">const</span> <span class="hljs-title class_">Duration</span>(milliseconds: <span class="hljs-number">300</span>));
+    <span class="hljs-keyword">return</span> <span class="hljs-string">&#x27;jinwoo&#x27;</span>;
+  }
+}
+
+<span class="hljs-keyword">final</span> profileProvider =
+    <span class="hljs-title class_">AsyncNotifierProvider</span>&lt;<span class="hljs-title class_">ProfileNotifier</span>, <span class="hljs-title class_">String</span>&gt;(<span class="hljs-title class_">ProfileNotifier</span>.<span class="hljs-keyword">new</span>);
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ProfileView</span> <span class="hljs-keyword">extends</span> <span class="hljs-title">ConsumerWidget</span> </span>{
+  <span class="hljs-keyword">const</span> <span class="hljs-title class_">ProfileView</span>({<span class="hljs-keyword">super</span>.key});
+
+  <span class="hljs-meta">@override</span>
+  <span class="hljs-title class_">Widget</span> <span class="hljs-title function_">build</span>(<span class="hljs-title class_">BuildContext</span> context, <span class="hljs-title class_">WidgetRef</span> ref) {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">switch</span> (ref.<span class="hljs-title function_">watch</span>(profileProvider)) {
+      <span class="hljs-title class_">AsyncData</span>(:<span class="hljs-keyword">final</span> value) =&gt; <span class="hljs-title class_">Text</span>(value),
+      <span class="hljs-title class_">AsyncError</span>(:<span class="hljs-keyword">final</span> error) =&gt; <span class="hljs-title class_">Text</span>(<span class="hljs-string">&#x27;오류: <span class="hljs-subst">$error</span>&#x27;</span>),
+      _ =&gt; <span class="hljs-keyword">const</span> <span class="hljs-title class_">CircularProgressIndicator</span>(),
+    };
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>build</code> 안에서 <code>read</code>로 읽은 값은 바뀌어도 위젯이 갱신되지 않는다. 표시할 값은 <code>watch</code>, 핸들러 안에서 한 번 쓰는 값은 <code>read</code>로 구분한다.</li>
+<li><code>notifyListeners()</code>는 어떤 필드가 바뀌었는지 구분하지 않아 모델이 커지면 무관한 위젯까지 리빌드된다. <code>context.select</code>나 <code>ref.watch(provider.select(...))</code>로 필요한 필드만 구독한다.</li>
+<li><code>autoDispose</code> provider를 <code>ref.read</code>로만 읽으면 구독자가 없다고 판단해 즉시 폐기되고 다음 접근 때 재초기화된다. 유지가 필요하면 <code>ref.keepAlive()</code>를 쓴다.</li>
+<li><code>Notifier.build()</code>는 의존 provider가 바뀔 때마다 다시 실행되어 상태가 초기값으로 돌아간다. 입력 중인 값이 사라지는 버그의 흔한 원인이므로 <code>watch</code>할 대상과 <code>listen</code>으로 처리할 이벤트를 구분한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/flutter/widgets-layout/">위젯과 레이아웃 — Stateless/Stateful·Row/Column/Stack</a></li>
+<li><a href="/notes/flutter/navigation-go-router/">내비게이션 — Navigator·go_router</a></li>
+<li><a href="/notes/flutter/testing/">테스트 — 단위·위젯·통합</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Flutter, State Management, Provider, Riverpod, ChangeNotifier</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/flutter/widgets-layout/"><small>이전</small>위젯과 레이아웃 — Stateless/Stateful·Row/Column/Stack</a>
+  <a class="next" href="/notes/flutter/navigation-go-router/"><small>다음</small>내비게이션 — Navigator·go_router</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

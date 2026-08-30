@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>테스트 — 단위·위젯·통합 · Flutter</title>
+  <meta name="description" content="단위·위젯·통합 세 층위를 어떤 기준으로 나누고, 각 층에서 무엇을 어떻게 검증하는지 정리한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="테스트 — 단위·위젯·통합 · Flutter">
+  <meta property="og:description" content="단위·위젯·통합 세 층위를 어떤 기준으로 나누고, 각 층에서 무엇을 어떻게 검증하는지 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/testing/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/flutter/">Flutter</a><span class="sep">›</span><span>테스트 — 단위·위젯·통합</span></nav>
+    <article class="post">
+  <p class="part">Flutter · 운영</p>
+  <h1>테스트 — 단위·위젯·통합</h1>
+  <p class="summary">단위·위젯·통합 세 층위를 어떤 기준으로 나누고, 각 층에서 무엇을 어떻게 검증하는지 정리한다.</p>
+  <div class="content">
+<p>Flutter 앱은 화면 하나에 비즈니스 로직, 위젯 트리, 플랫폼 연동이 함께 얽힌다. 자동화된 테스트가 없으면 기능을 하나 고칠 때마다 시뮬레이터를 띄워 손으로 화면을 눌러 보는 수밖에 없고, 화면 수가 늘어날수록 회귀 확인 비용이 선형으로 증가한다. 특히 상태 관리 코드나 JSON 파싱처럼 UI와 무관한 로직까지 화면을 통해서만 검증하게 되면 실패 원인을 좁히는 데 시간이 오래 걸린다. Flutter는 단위·위젯·통합 세 층위의 테스트를 제공하며, 각 층위가 검증하는 범위와 실행 비용이 다르다.</p>
+<h2>핵심 개념</h2>
+<p>Flutter 테스트는 검증 범위에 따라 세 종류로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th>종류</th>
+<th>검증 대상</th>
+<th>실행 환경</th>
+<th>속도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>단위 테스트</td>
+<td>함수·클래스·메서드</td>
+<td>Dart VM</td>
+<td>빠름</td>
+</tr>
+<tr>
+<td>위젯 테스트</td>
+<td>위젯 한 개 또는 작은 트리</td>
+<td>헤드리스 렌더링 환경</td>
+<td>중간</td>
+</tr>
+<tr>
+<td>통합 테스트</td>
+<td>앱 전체 또는 큰 흐름</td>
+<td>실제 기기·에뮬레이터</td>
+<td>느림</td>
+</tr>
+</tbody></table>
+<p><strong>단위 테스트</strong>는 <code>package:test</code>(Flutter에서는 <code>flutter_test</code>가 이를 재노출한다) 기반으로 순수 Dart 코드를 검증한다. 외부 의존성은 mock으로 대체하며, <code>mockito</code>나 <code>mocktail</code> 같은 패키지를 쓴다. Spring의 JUnit + Mockito 단위 테스트와 대응된다.</p>
+<p><strong>위젯 테스트</strong>는 <code>flutter_test</code>의 <code>testWidgets</code>와 <code>WidgetTester</code>를 사용한다. 실제 기기 없이 테스트 전용 바인딩(<code>TestWidgetsFlutterBinding</code>) 위에서 위젯을 빌드하고, <code>Finder</code>로 트리에서 요소를 찾은 뒤 <code>Matcher</code>로 검증한다. <code>tester.pump()</code>는 프레임 하나를 진행시키고, <code>pumpAndSettle()</code>은 애니메이션이 끝날 때까지 프레임을 반복한다. 테스트 안에서는 시간이 자동으로 흐르지 않으므로 프레임을 직접 밀어야 한다는 점이 핵심이다. Spring MVC의 <code>MockMvc</code>로 컨트롤러 계층만 슬라이스 테스트하는 방식과 비슷한 위치에 있다.</p>
+<p><strong>통합 테스트</strong>는 <code>integration_test</code> 패키지를 사용한다. 테스트 코드는 위젯 테스트와 같은 <code>testWidgets</code> API를 쓰지만, <code>IntegrationTestWidgetsFlutterBinding.ensureInitialized()</code>로 바인딩을 바꾸면 실제 기기에서 앱 전체를 구동하며 검증한다. 프로젝트 루트의 <code>integration_test/</code> 디렉터리에 두고 <code>flutter test integration_test</code>로 실행한다. 웹은 <code>chromedriver</code>를 띄우고 <code>flutter drive</code>로 돌린다. Spring의 <code>@SpringBootTest</code> + Testcontainers 수준의 E2E에 해당한다.</p>
+<p>세 층위 모두 <code>flutter test</code> 명령으로 실행되며, <code>test/</code> 디렉터리 아래 <code>_test.dart</code>로 끝나는 파일이 대상이다. <code>--coverage</code> 옵션으로 lcov 커버리지를 얻을 수 있다.</p>
+<h2>코드</h2>
+<p>단위 테스트. <code>Counter</code> 클래스의 증감 로직만 검증하며, 위젯이나 바인딩에 의존하지 않는다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-comment">// test/counter_test.dart</span>
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter_test/flutter_test.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:my_app/counter.dart&#x27;</span>;
+
+<span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span>() {
+  <span class="hljs-title function_">group</span>(<span class="hljs-string">&#x27;Counter&#x27;</span>, () {
+    <span class="hljs-title function_">test</span>(<span class="hljs-string">&#x27;초기값은 0이다&#x27;</span>, () {
+      <span class="hljs-title function_">expect</span>(<span class="hljs-title class_">Counter</span>().value, <span class="hljs-number">0</span>);
+    });
+
+    <span class="hljs-title function_">test</span>(<span class="hljs-string">&#x27;increment 후 값이 1 증가한다&#x27;</span>, () {
+      <span class="hljs-keyword">final</span> counter = <span class="hljs-title class_">Counter</span>()..<span class="hljs-title function_">increment</span>();
+      <span class="hljs-title function_">expect</span>(counter.value, <span class="hljs-number">1</span>);
+    });
+
+    <span class="hljs-title function_">test</span>(<span class="hljs-string">&#x27;decrement는 0 아래로 내려가지 않는다&#x27;</span>, () {
+      <span class="hljs-keyword">final</span> counter = <span class="hljs-title class_">Counter</span>()..<span class="hljs-title function_">decrement</span>();
+      <span class="hljs-title function_">expect</span>(counter.value, <span class="hljs-number">0</span>);
+    });
+  });
+}</code></pre>
+<p>위젯 테스트. <code>MyWidget</code>이 title과 message를 렌더링하는지 확인한다. <code>MaterialApp</code>으로 감싸야 <code>Directionality</code>와 테마가 주입된다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-comment">// test/my_widget_test.dart</span>
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/material.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter_test/flutter_test.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:my_app/my_widget.dart&#x27;</span>;
+
+<span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span>() {
+  <span class="hljs-title function_">testWidgets</span>(<span class="hljs-string">&#x27;title과 message를 표시한다&#x27;</span>, (<span class="hljs-title class_">WidgetTester</span> tester) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">pumpWidget</span>(
+      <span class="hljs-keyword">const</span> <span class="hljs-title class_">MaterialApp</span>(home: <span class="hljs-title class_">MyWidget</span>(title: <span class="hljs-string">&#x27;T&#x27;</span>, message: <span class="hljs-string">&#x27;M&#x27;</span>)),
+    );
+
+    <span class="hljs-title function_">expect</span>(find.<span class="hljs-title function_">text</span>(<span class="hljs-string">&#x27;T&#x27;</span>), findsOneWidget);
+    <span class="hljs-title function_">expect</span>(find.<span class="hljs-title function_">text</span>(<span class="hljs-string">&#x27;M&#x27;</span>), findsOneWidget);
+    <span class="hljs-title function_">expect</span>(find.<span class="hljs-title function_">byType</span>(<span class="hljs-title class_">FloatingActionButton</span>), findsNothing);
+  });
+
+  <span class="hljs-title function_">testWidgets</span>(<span class="hljs-string">&#x27;버튼을 누르면 카운트가 증가한다&#x27;</span>, (tester) <span class="hljs-keyword">async</span> {
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">pumpWidget</span>(<span class="hljs-keyword">const</span> <span class="hljs-title class_">MaterialApp</span>(home: <span class="hljs-title class_">CounterPage</span>()));
+
+    <span class="hljs-title function_">expect</span>(find.<span class="hljs-title function_">text</span>(<span class="hljs-string">&#x27;0&#x27;</span>), findsOneWidget);
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">tap</span>(find.<span class="hljs-title function_">byIcon</span>(<span class="hljs-title class_">Icons</span>.add));
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">pump</span>();
+    <span class="hljs-title function_">expect</span>(find.<span class="hljs-title function_">text</span>(<span class="hljs-string">&#x27;1&#x27;</span>), findsOneWidget);
+  });
+}</code></pre>
+<p>통합 테스트. 바인딩 초기화 한 줄이 다르고, 나머지는 위젯 테스트와 같은 API를 쓴다.</p>
+<pre><code class="hljs language-dart"><span class="hljs-comment">// integration_test/app_test.dart</span>
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/material.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter_test/flutter_test.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:integration_test/integration_test.dart&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:my_app/main.dart&#x27;</span> <span class="hljs-keyword">as</span> app;
+
+<span class="hljs-keyword">void</span> <span class="hljs-title function_">main</span>() {
+  <span class="hljs-title class_">IntegrationTestWidgetsFlutterBinding</span>.<span class="hljs-title function_">ensureInitialized</span>();
+
+  <span class="hljs-title function_">testWidgets</span>(<span class="hljs-string">&#x27;앱 실행 후 카운터를 두 번 올린다&#x27;</span>, (tester) <span class="hljs-keyword">async</span> {
+    app.<span class="hljs-title function_">main</span>();
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">pumpAndSettle</span>();
+
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">tap</span>(find.<span class="hljs-title function_">byKey</span>(<span class="hljs-keyword">const</span> <span class="hljs-title class_">Key</span>(<span class="hljs-string">&#x27;increment&#x27;</span>)));
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">tap</span>(find.<span class="hljs-title function_">byKey</span>(<span class="hljs-keyword">const</span> <span class="hljs-title class_">Key</span>(<span class="hljs-string">&#x27;increment&#x27;</span>)));
+    <span class="hljs-keyword">await</span> tester.<span class="hljs-title function_">pumpAndSettle</span>();
+
+    <span class="hljs-title function_">expect</span>(find.<span class="hljs-title function_">text</span>(<span class="hljs-string">&#x27;2&#x27;</span>), findsOneWidget);
+  });
+}</code></pre>
+<pre><code class="hljs language-plaintext">flutter test                          # 단위·위젯
+flutter test integration_test         # 연결된 기기에서 통합 테스트</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>pump</code>와 <code>pumpAndSettle</code> 혼동.</strong> <code>pumpAndSettle</code>은 프레임이 안정될 때까지 기다리므로 무한 반복 애니메이션(<code>CircularProgressIndicator</code> 등)이 있으면 타임아웃으로 실패한다. 이 경우 <code>pump(Duration)</code>으로 시간을 명시적으로 진행시켜야 한다.</li>
+<li><strong>실제 비동기 대기 불가.</strong> 위젯 테스트는 <code>FakeAsync</code> 위에서 돌기 때문에 <code>Future.delayed</code>나 실제 네트워크 호출은 완료되지 않는다. HTTP 클라이언트나 저장소는 반드시 mock으로 주입하고, 지연이 필요하면 <code>tester.pump(Duration)</code>으로 가짜 시간을 밀어야 한다.</li>
+<li><strong>플랫폼 채널 호출.</strong> <code>SharedPreferences</code>, <code>path_provider</code> 같은 플러그인은 테스트 환경에 네이티브 구현이 없다. <code>SharedPreferences.setMockInitialValues()</code>처럼 플러그인이 제공하는 mock을 쓰거나, <code>TestDefaultBinaryMessenger</code>로 메서드 채널 핸들러를 직접 등록해야 한다.</li>
+<li><strong>Finder가 여러 개를 찾는 문제.</strong> <code>find.text(&#39;0&#39;)</code>이 리스트 안 여러 항목에 매칭되면 <code>tap</code>이 실패한다. 테스트 대상 위젯에 <code>Key</code>를 붙이고 <code>find.byKey</code>로 좁히는 편이 안정적이다. 접근성 라벨 기준의 <code>find.bySemanticsLabel</code>도 대안이다.</li>
+<li><strong>통합 테스트 CI 비용.</strong> 통합 테스트는 에뮬레이터 부팅이 필요해 수십 초에서 수 분이 걸린다. 핵심 사용자 흐름 몇 개로 범위를 제한하고, 나머지는 위젯 테스트로 내려 보내는 편이 유지 비용을 낮춘다. 골든 테스트(<code>matchesGoldenFile</code>)는 OS·폰트 렌더링 차이로 CI와 로컬 결과가 달라질 수 있으므로 실행 환경을 고정해야 한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/flutter/state-management-provider-riverpod/">상태 관리 — setState·InheritedWidget·Provider·Riverpod</a></li>
+<li><a href="/notes/flutter/platform-channels-native/">플랫폼 채널과 네이티브 연동·권한</a></li>
+<li><a href="/notes/flutter/build-deploy-performance/">빌드·배포·성능 프로파일링</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Flutter, flutter_test, WidgetTester, integration_test, Dart</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/flutter/platform-channels-native/"><small>이전</small>플랫폼 채널과 네이티브 연동·권한</a>
+  <a class="next" href="/notes/flutter/build-deploy-performance/"><small>다음</small>빌드·배포·성능 프로파일링</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
