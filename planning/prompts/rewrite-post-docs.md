@@ -2,7 +2,7 @@
 
 너는 아래 주제에 대해 공식 문서를 근거로 포트폴리오 사이트용 기술 노트 1편을 새로 쓴다. 참고 URL은 필요하면 WebFetch로 읽어 최신 API·권장 방식을 확인한다(외부 링크는 본문에 넣지 않는다). 결과는 마크다운 파일 하나로 저장한다.
 
-독자는 Java/Spring 백엔드 경험이 있는 개발자다. `## 핵심 개념` 안에 Spring/Java의 대응 개념을 한두 줄로 짚어 준다(예: NestJS Module ≈ Spring @Configuration, Guard ≈ Security Filter, Next.js Route Handler ≈ @RestController). 코드 기준: TypeScript 5.x, Node 22, Next.js 15 App Router, NestJS 11.
+독자는 Java/Spring 백엔드 경험이 있는 개발자다. `## 핵심 개념` 안에 Spring/Java의 대응 개념을 한두 줄로 짚어 준다(예: NestJS Module ≈ Spring @Configuration, Guard ≈ Security Filter, Next.js Route Handler ≈ @RestController). 코드 기준: TypeScript 5.x, Node 22, Next.js 15 App Router, NestJS 11, React 19, Flutter 3.x·Dart 3.x.
 
 ## 출력 파일
 `{OUT_PATH}`
@@ -27,11 +27,11 @@ updated: {TODAY}
 - 구조 (h2 제목은 내용에 맞게 바꿔도 되지만 순서는 유지):
   1. 첫 문단: 왜 필요한가 — 이 기술이 없을 때 생기는 문제 (제목 없이 본문 시작)
   2. `## 핵심 개념` — 개념·동작 원리. 표는 비교가 필요할 때만.
-  3. `## 코드` — 실제 동작하는 TypeScript 예제 1~3개. 각 코드 앞에 한 줄 설명.
+  3. `## 코드` — 해당 기술의 언어(TypeScript·Dart 등)로 실제 동작하는 예제 1~3개. 각 코드 앞에 한 줄 설명.
   4. `## 실무에서 걸리는 지점` — 함정·성능·운영 이슈 3~5개, 각 항목 1~3문장.
   5. `## 관련 글` — 같은 시리즈 글만 1~3개. 반드시 `- [글 제목](/notes/{SERIES}/<slug>/)` 형식의 마크다운 링크로 쓴다(맨주소·화살표·대시 연결 금지). 제목과 slug는 아래 목차에 있는 것만 쓴다.
 - 절대 넣지 말 것: smartlifen4n.com 링크, 쿠팡·제휴·위젯 문구, 이미지, 외부 링크(공식 문서 링크도 넣지 않는다).
-- 구버전 방식(Next.js Pages Router 전용 API, NestJS v9 이전 시그니처, TypeScript 4.x 문법)을 최신 기준인 것처럼 쓰지 않는다.
+- 구버전 방식(Next.js Pages Router 전용 API, NestJS v9 이전 시그니처, TypeScript 4.x 문법, React 클래스 컴포넌트 중심 설명, Flutter null safety 이전 코드)을 최신 기준인 것처럼 쓰지 않는다.
 
 ## 시리즈 목차 (관련 글 링크용)
 {TOC}

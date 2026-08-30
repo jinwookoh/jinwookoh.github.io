@@ -1,0 +1,8 @@
+name: React
+description: 컴포넌트와 렌더링 모델, Hooks, 상태 설계, 데이터 페칭, 폼·라우팅, React 19의 Actions와 Server Components, 테스트와 배포.
+order: 17
+parts:
+  - 기초
+  - Hooks와 상태
+  - 기능
+  - 최신과 운영
