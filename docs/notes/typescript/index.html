@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TypeScript · Notes</title>
+  <meta name="description" content="타입 시스템과 컴파일 파이프라인, 제네릭·유니온·유틸리티 타입, 모듈과 빌드 설정, strict 모드 실무 패턴.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="TypeScript · Notes">
+  <meta property="og:description" content="타입 시스템과 컴파일 파이프라인, 제네릭·유니온·유틸리티 타입, 모듈과 빌드 설정, strict 모드 실무 패턴.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/typescript/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>TypeScript</span></nav>
+    <header class="series-head"><h1>TypeScript</h1><p>타입 시스템과 컴파일 파이프라인, 제네릭·유니온·유틸리티 타입, 모듈과 빌드 설정, strict 모드 실무 패턴.</p><p class="count">8편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/typescript/why-typescript/"><span class="n">1</span><span class="t">왜 TypeScript인가 — 타입 시스템과 컴파일 파이프라인</span><span class="s">TypeScript는 JavaScript에 정적 타입 검사를 얹어 실행 전에 오류를 잡고, 컴파일 시 타입을 지워 순수 JS를 내보낸다.</span></a></li>
+<li><a href="/notes/typescript/types-interfaces-aliases/"><span class="n">2</span><span class="t">기본 타입·인터페이스·타입 별칭</span><span class="s">원시 타입·객체 타입을 어떻게 선언하고, interface와 type alias를 언제 골라 쓰는지 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>타입 시스템</h2><ol class="toc"><li><a href="/notes/typescript/generics/"><span class="n">3</span><span class="t">제네릭</span><span class="s">제네릭은 타입을 매개변수로 받아 입력과 출력의 관계를 보존하는 장치이며 제약·추론·기본값이 핵심이다</span></a></li>
+<li><a href="/notes/typescript/unions-narrowing/"><span class="n">4</span><span class="t">유니온·교차·리터럴 타입과 Narrowing</span><span class="s">유니온으로 가능한 값의 집합을 선언하고, 제어 흐름 분석으로 각 분기에서 타입을 좁혀 캐스팅 없이 안전하게 다룬다.</span></a></li>
+<li><a href="/notes/typescript/utility-conditional-mapped-types/"><span class="n">5</span><span class="t">유틸리티 타입·조건부 타입·매핑 타입</span><span class="s">기존 타입에서 새 타입을 파생하는 세 가지 도구의 동작 원리와 실무 함정을 정리한다.</span></a></li>
+<li><a href="/notes/typescript/classes-decorators-modules/"><span class="n">6</span><span class="t">클래스·데코레이터·모듈</span><span class="s">TypeScript 클래스의 타입 규칙, 표준 데코레이터와 legacy 데코레이터의 차이, ESM 기반 모듈 타입 모델을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>빌드와 실무</h2><ol class="toc"><li><a href="/notes/typescript/tsconfig-build-esm-cjs/"><span class="n">7</span><span class="t">tsconfig·빌드·ESM과 CJS</span><span class="s">module·moduleResolution·verbatimModuleSyntax가 ESM/CJS 출력을 어떻게 결정하는지 정리한다</span></a></li>
+<li><a href="/notes/typescript/strict-mode-practical-patterns/"><span class="n">8</span><span class="t">실무 패턴 — strict 모드·타입 가드·에러 처리</span><span class="s">strict 옵션을 켜고, 타입 가드로 좁히고, unknown 기반으로 에러를 다루는 실무 규칙을 정리한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

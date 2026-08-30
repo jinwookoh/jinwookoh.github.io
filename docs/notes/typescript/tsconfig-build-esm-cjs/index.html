@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tsconfig·빌드·ESM과 CJS · TypeScript</title>
+  <meta name="description" content="module·moduleResolution·verbatimModuleSyntax가 ESM/CJS 출력을 어떻게 결정하는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="tsconfig·빌드·ESM과 CJS · TypeScript">
+  <meta property="og:description" content="module·moduleResolution·verbatimModuleSyntax가 ESM/CJS 출력을 어떻게 결정하는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/typescript/tsconfig-build-esm-cjs/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/typescript/">TypeScript</a><span class="sep">›</span><span>tsconfig·빌드·ESM과 CJS</span></nav>
+    <article class="post">
+  <p class="part">TypeScript · 빌드와 실무</p>
+  <h1>tsconfig·빌드·ESM과 CJS</h1>
+  <p class="summary">module·moduleResolution·verbatimModuleSyntax가 ESM/CJS 출력을 어떻게 결정하는지 정리한다</p>
+  <div class="content">
+<p>로컬에서는 잘 돌던 TypeScript 코드가 배포 환경에서 <code>ERR_REQUIRE_ESM</code>이나 <code>Cannot use import statement outside a module</code>로 죽는 경우가 있다. 원인은 대부분 코드가 아니라 tsconfig에 있다. 컴파일러는 <code>module</code>과 <code>moduleResolution</code>에 따라 같은 <code>import</code> 문을 ESM으로 남기기도 하고 <code>require()</code>로 바꾸기도 하며, 어떤 파일에서 타입을 읽을지도 다르게 판단한다. 이 설정이 실제 런타임의 동작과 어긋나면 타입 검사는 통과하고 실행만 실패한다.</p>
+<h2>핵심 개념</h2>
+<p>모듈 관련 옵션은 두 질문에 답한다. 출력 파일의 모듈 형식은 무엇인가(<code>module</code>), 그리고 <code>import &quot;x&quot;</code>를 어떤 파일로 해석할 것인가(<code>moduleResolution</code>). 컴파일러가 임의로 정하는 것이 아니라 실제 실행 환경이 하는 일을 그대로 따라야 한다.</p>
+<p>Node 런타임을 대상으로 할 때는 <code>module: &quot;nodenext&quot;</code>를 쓴다. 이 모드에서 파일의 형식은 tsconfig가 아니라 가장 가까운 <code>package.json</code>의 <code>&quot;type&quot;</code> 필드와 파일 확장자로 결정된다. <code>&quot;type&quot;: &quot;module&quot;</code>이면 <code>.ts</code>가 ESM으로, 없으면 CJS로 출력되고, <code>.mts</code>/<code>.cts</code>는 각각 강제로 ESM/CJS가 된다. 상대 경로 import에는 출력 확장자(<code>./util.js</code>)가 필수이며, <code>package.json</code>의 <code>exports</code>와 <code>import</code>/<code>require</code> 조건을 읽는다. TypeScript 5.9부터는 <code>module: &quot;node20&quot;</code>도 제공된다.</p>
+<p>번들러(Vite, esbuild, Next.js)가 출력을 처리하면 <code>module: &quot;esnext&quot;</code> 또는 <code>&quot;preserve&quot;</code>와 <code>moduleResolution: &quot;bundler&quot;</code> 조합을 쓴다. <code>bundler</code>는 <code>exports</code> 조건을 읽으면서도 확장자 생략을 허용하고, <code>preserve</code>는 import/require 구문을 손대지 않는다.</p>
+<p><code>verbatimModuleSyntax</code>는 <code>import type</code>으로 표시한 것만 지우고 나머지 import는 그대로 출력에 남긴다. 이전의 <code>importsNotUsedAsValues</code>·<code>preserveValueImports</code>를 대체하며, ESM 파일에 CJS 문법이 섞이는 것도 오류로 잡는다. <code>isolatedModules</code>는 파일 단위 변환 도구(esbuild, swc)가 처리할 수 없는 문법을 금지한다.</p>
+<p>빌드는 <code>outDir</code>·<code>rootDir</code>로 출력 위치를 정하고, 라이브러리라면 <code>declaration</code>으로 <code>.d.ts</code>를 만든다. 모노레포는 <code>composite</code>와 <code>references</code>를 켜고 <code>tsc --build</code>로 증분 빌드한다.</p>
+<p>Spring/Java와 대응시키면 tsconfig는 Maven compiler plugin의 <code>release</code> 설정, <code>moduleResolution</code>은 클래스패스 탐색 규칙, ESM/CJS 공존은 JPMS 모듈과 classpath jar가 섞일 때의 호환성 문제에 해당한다.</p>
+<table>
+<thead>
+<tr>
+<th>대상 환경</th>
+<th>module</th>
+<th>moduleResolution</th>
+<th>특징</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Node 직접 실행</td>
+<td>nodenext</td>
+<td>nodenext</td>
+<td>확장자 필수, exports 지원</td>
+</tr>
+<tr>
+<td>번들러</td>
+<td>esnext/preserve</td>
+<td>bundler</td>
+<td>확장자 생략 가능</td>
+</tr>
+<tr>
+<td>레거시 CJS</td>
+<td>commonjs</td>
+<td>node10</td>
+<td>exports 미지원, 비권장</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>Node 22에서 ESM으로 실행하는 서비스용 tsconfig다. 형식은 <code>package.json</code>의 <code>&quot;type&quot;: &quot;module&quot;</code>이 결정한다.</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;compilerOptions&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;es2022&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;module&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;nodenext&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;rootDir&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;src&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;outDir&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;dist&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;strict&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;verbatimModuleSyntax&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;isolatedModules&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;sourceMap&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;skipLibCheck&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;include&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;src&quot;</span><span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p><code>verbatimModuleSyntax</code> 아래에서 <code>Order</code> import는 출력에서 제거되고 <code>calcTotal</code>만 남는다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// src/order/service.ts</span>
+<span class="hljs-keyword">import</span> { calcTotal } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;./pricing.js&quot;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-keyword">type</span> { <span class="hljs-title class_">Order</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;./types.js&quot;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">summarize</span>(<span class="hljs-params"><span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span></span>): <span class="hljs-built_in">string</span> {
+  <span class="hljs-keyword">return</span> <span class="hljs-string">`<span class="hljs-subst">${order.id}</span>: <span class="hljs-subst">${calcTotal(order.items)}</span>`</span>;
+}</code></pre>
+<p>ESM과 CJS 소비자를 모두 지원하는 라이브러리는 <code>exports</code>에 조건별 진입점과 형식별 <code>.d.ts</code>를 둔다.</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;@acme/pricing&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;module&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;exports&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;.&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;import&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;types&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;./dist/index.d.mts&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;default&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;./dist/index.mjs&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;require&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;types&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;./dist/index.d.cts&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;default&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;./dist/index.cjs&quot;</span> <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>확장자 없는 상대 import.</strong> <code>bundler</code>에서 잘 되던 <code>import &quot;./util&quot;</code>은 <code>nodenext</code>로 옮기는 순간 오류가 된다. 컴파일러는 출력 파일 기준으로 해석하므로 소스가 <code>.ts</code>여도 <code>./util.js</code>가 맞는 표기다.</li>
+<li><strong>CJS에서 ESM 전용 패키지 require.</strong> CJS 프로젝트가 ESM 전용 패키지를 import하면 tsc는 통과해도 Node에서 <code>ERR_REQUIRE_ESM</code>이 난다. 프로젝트 전체를 ESM으로 옮기거나 동적 <code>import()</code>를 쓰는 편이 안전하다.</li>
+<li><strong>라이브러리 배포 시 <code>types</code> 조건.</strong> <code>exports</code>에서 <code>types</code>는 <code>default</code>보다 앞에 와야 하며, ESM용 <code>.d.ts</code>를 CJS 소비자에게 주면 타입 오류가 난다. <code>.d.mts</code>/<code>.d.cts</code>를 형식별로 분리한다.</li>
+<li><strong>NestJS와 데코레이터 메타데이터.</strong> NestJS 11은 CJS 출력과 <code>emitDecoratorMetadata</code>를 기본으로 하며 <code>experimentalDecorators</code>를 전제한다. ESM으로 전환할 때는 메타데이터 방출과 <code>__dirname</code> 부재를 함께 점검한다.</li>
+<li><strong><code>tsc --build</code>의 캐시.</strong> <code>.tsbuildinfo</code> 기준으로 증분 빌드하므로 tsconfig를 바꾼 뒤 오류가 남는다면 <code>tsc --build --clean</code> 후 다시 빌드한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/typescript/classes-decorators-modules/">클래스·데코레이터·모듈</a></li>
+<li><a href="/notes/typescript/why-typescript/">왜 TypeScript인가 — 타입 시스템과 컴파일 파이프라인</a></li>
+<li><a href="/notes/typescript/strict-mode-practical-patterns/">실무 패턴 — strict 모드·타입 가드·에러 처리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · TypeScript, tsconfig, ESM, CommonJS, Node.js</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/typescript/classes-decorators-modules/"><small>이전</small>클래스·데코레이터·모듈</a>
+  <a class="next" href="/notes/typescript/strict-mode-practical-patterns/"><small>다음</small>실무 패턴 — strict 모드·타입 가드·에러 처리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>클래스·데코레이터·모듈 · TypeScript</title>
+  <meta name="description" content="TypeScript 클래스의 타입 규칙, 표준 데코레이터와 legacy 데코레이터의 차이, ESM 기반 모듈 타입 모델을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="클래스·데코레이터·모듈 · TypeScript">
+  <meta property="og:description" content="TypeScript 클래스의 타입 규칙, 표준 데코레이터와 legacy 데코레이터의 차이, ESM 기반 모듈 타입 모델을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/typescript/classes-decorators-modules/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/typescript/">TypeScript</a><span class="sep">›</span><span>클래스·데코레이터·모듈</span></nav>
+    <article class="post">
+  <p class="part">TypeScript · 타입 시스템</p>
+  <h1>클래스·데코레이터·모듈</h1>
+  <p class="summary">TypeScript 클래스의 타입 규칙, 표준 데코레이터와 legacy 데코레이터의 차이, ESM 기반 모듈 타입 모델을 정리한다</p>
+  <div class="content">
+<p>JavaScript 클래스는 필드 선언 없이 아무 프로퍼티나 붙일 수 있고 메서드 시그니처를 강제할 방법이 없다. 데코레이터 기반 프레임워크(NestJS, TypeORM)는 런타임 규약에만 의존하고, 모듈은 CommonJS인지 ESM인지에 따라 같은 <code>import</code> 문이 다르게 해석된다. TypeScript는 이 세 영역에 정적 규칙을 얹어 컴파일 시점에 오류를 잡는다.</p>
+<h2>핵심 개념</h2>
+<h3>클래스</h3>
+<p><code>strictPropertyInitialization</code>이 켜져 있으면 생성자에서 초기화되지 않은 필드는 오류이며, 나중에 채우는 경우 <code>!</code> 확정 할당 단언을 쓴다. <code>readonly</code>는 생성자 밖의 대입을 막고, 생성자 매개변수에 <code>private</code>·<code>readonly</code>를 붙이면 선언과 초기화를 한 줄로 줄이는 매개변수 프로퍼티가 된다.</p>
+<p>접근 제어자는 타입 검사에만 존재하고 컴파일 결과에 남지 않는다. 런타임까지 감춰야 하면 <code>#private</code> 필드를 쓴다. <code>implements</code>는 형태 검사만 할 뿐 멤버 타입을 주입하지 않으므로 구현 클래스에서 매개변수 타입을 다시 적는다. <code>abstract</code> 클래스는 Spring에서 템플릿 메서드 패턴으로 쓰는 추상 클래스와 역할이 같다.</p>
+<p>클래스도 구조적 타이핑을 따르므로 멤버 구성이 같으면 호환되며, 명목적 구분이 필요하면 <code>private</code> 멤버를 하나 두어 호환을 끊는다.</p>
+<h3>데코레이터</h3>
+<p>TypeScript 5.0부터 ECMAScript 표준(stage 3) 데코레이터를 기본 지원한다. 표준 데코레이터는 <code>(value, context)</code>를 받으며 <code>context.kind</code>가 <code>class</code>·<code>method</code>·<code>field</code>·<code>accessor</code> 등 대상을 알려주고, <code>context.addInitializer</code>로 초기화 훅을 등록한다. 반환값이 있으면 원래 멤버를 대체한다.</p>
+<p><code>experimentalDecorators</code>를 켜면 이전 방식(legacy)으로 동작한다. legacy는 <code>(target, propertyKey, descriptor)</code> 시그니처를 쓰고, 매개변수 데코레이터와 <code>emitDecoratorMetadata</code>를 통한 타입 정보 방출(<code>design:paramtypes</code>)을 지원한다. 표준 데코레이터에는 둘 다 없다. NestJS 11은 <code>@Body()</code> 같은 매개변수 데코레이터와 생성자 타입 기반 DI를 위해 legacy 모드를 요구하며, 두 모드는 공존하지 못한다.</p>
+<p>Spring과 대응시키면 클래스 데코레이터는 <code>@Component</code> 같은 스테레오타입 애노테이션, 메서드 데코레이터는 <code>@Transactional</code> 같은 AOP 애노테이션에 해당한다. 다만 Java 애노테이션은 순수 메타데이터인 반면 TypeScript 데코레이터는 클래스 정의 시점에 실행되는 함수다.</p>
+<h3>모듈</h3>
+<p><code>import</code>나 <code>export</code>가 하나라도 있는 파일은 모듈이고, 없으면 전역 스코프를 공유하는 스크립트다. 타입 전용 참조는 <code>import type</code>으로 표시하며, <code>verbatimModuleSyntax</code>를 켜면 타입만 가져오는 <code>import</code>가 런타임 코드에 남지 않도록 컴파일러가 강제한다.</p>
+<p>소스는 ESM 문법으로 쓰고, <code>module</code>·<code>moduleResolution</code> 옵션이 출력 형식과 <code>package.json</code> <code>exports</code> 해석을 결정한다. <code>node16</code> 해석에서는 상대 경로 import에 <code>.js</code> 확장자를 붙여야 한다. NestJS Module은 이 언어 수준 모듈과 별개의 DI 컨테이너 단위로, Spring의 <code>@Configuration</code> 클래스에 가깝다.</p>
+<h2>코드</h2>
+<p>매개변수 프로퍼티, <code>readonly</code>, 추상 클래스, <code>implements</code>를 함께 쓰는 리포지토리 예제다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">interface</span> <span class="hljs-title class_">Identifiable</span> {
+  <span class="hljs-keyword">readonly</span> <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Repository</span>&lt;T <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Identifiable</span>&gt; {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> store = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Map</span>&lt;<span class="hljs-built_in">string</span>, T&gt;();
+
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span></span>) {}
+
+  <span class="hljs-title function_">save</span>(<span class="hljs-attr">entity</span>: T): T {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">validate</span>(entity);
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">set</span>(entity.<span class="hljs-property">id</span>, entity);
+    <span class="hljs-keyword">return</span> entity;
+  }
+
+  <span class="hljs-title function_">findById</span>(<span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>): T | <span class="hljs-literal">undefined</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">get</span>(id);
+  }
+
+  <span class="hljs-keyword">abstract</span> <span class="hljs-title function_">validate</span>(<span class="hljs-attr">entity</span>: T): <span class="hljs-built_in">void</span>;
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">User</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Identifiable</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">readonly</span> <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>,
+    <span class="hljs-keyword">public</span> <span class="hljs-attr">email</span>: <span class="hljs-built_in">string</span>,
+  </span>) {}
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">UserRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">Repository</span>&lt;<span class="hljs-title class_">User</span>&gt; {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-variable language_">super</span>(<span class="hljs-string">&quot;users&quot;</span>);
+  }
+
+  <span class="hljs-title function_">validate</span>(<span class="hljs-attr">user</span>: <span class="hljs-title class_">User</span>): <span class="hljs-built_in">void</span> {
+    <span class="hljs-keyword">if</span> (!user.<span class="hljs-property">email</span>.<span class="hljs-title function_">includes</span>(<span class="hljs-string">&quot;@&quot;</span>)) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`invalid email in <span class="hljs-subst">${<span class="hljs-variable language_">this</span>.name}</span>: <span class="hljs-subst">${user.email}</span>`</span>);
+    }
+  }
+}</code></pre>
+<p>TypeScript 5.x 표준 데코레이터로 메서드 실행 시간을 기록한다. <code>context.kind</code>로 대상을 검증하고 반환값으로 원래 메서드를 대체한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">function</span> measured&lt;<span class="hljs-title class_">This</span>, <span class="hljs-title class_">Args</span> <span class="hljs-keyword">extends</span> <span class="hljs-built_in">unknown</span>[], <span class="hljs-title class_">Ret</span>&gt;(
+  <span class="hljs-attr">target</span>: <span class="hljs-function">(<span class="hljs-params"><span class="hljs-attr">this</span>: <span class="hljs-title class_">This</span>, ...<span class="hljs-attr">args</span>: <span class="hljs-title class_">Args</span></span>) =&gt;</span> <span class="hljs-title class_">Ret</span>,
+  <span class="hljs-attr">context</span>: <span class="hljs-title class_">ClassMethodDecoratorContext</span>&lt;<span class="hljs-title class_">This</span>, <span class="hljs-function">(<span class="hljs-params"><span class="hljs-attr">this</span>: <span class="hljs-title class_">This</span>, ...<span class="hljs-attr">args</span>: <span class="hljs-title class_">Args</span></span>) =&gt;</span> <span class="hljs-title class_">Ret</span>&gt;,
+) {
+  <span class="hljs-keyword">if</span> (context.<span class="hljs-property">kind</span> !== <span class="hljs-string">&quot;method&quot;</span>) {
+    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&quot;measured는 메서드에만 적용한다&quot;</span>);
+  }
+  <span class="hljs-keyword">const</span> name = <span class="hljs-title class_">String</span>(context.<span class="hljs-property">name</span>);
+
+  <span class="hljs-keyword">return</span> <span class="hljs-keyword">function</span> (<span class="hljs-params"><span class="hljs-attr">this</span>: <span class="hljs-title class_">This</span>, ...<span class="hljs-attr">args</span>: <span class="hljs-title class_">Args</span></span>): <span class="hljs-title class_">Ret</span> {
+    <span class="hljs-keyword">const</span> start = performance.<span class="hljs-title function_">now</span>();
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-keyword">return</span> target.<span class="hljs-title function_">call</span>(<span class="hljs-variable language_">this</span>, ...args);
+    } <span class="hljs-keyword">finally</span> {
+      <span class="hljs-variable language_">console</span>.<span class="hljs-title function_">log</span>(<span class="hljs-string">`<span class="hljs-subst">${name}</span>: <span class="hljs-subst">${(performance.now() - start).toFixed(<span class="hljs-number">2</span>)}</span>ms`</span>);
+    }
+  };
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ReportService</span> {
+  <span class="hljs-meta">@measured</span>
+  <span class="hljs-title function_">build</span>(<span class="hljs-attr">rows</span>: <span class="hljs-built_in">number</span>): <span class="hljs-built_in">string</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">Array</span>.<span class="hljs-title function_">from</span>({ <span class="hljs-attr">length</span>: rows }, <span class="hljs-function">(<span class="hljs-params">_, i</span>) =&gt;</span> <span class="hljs-string">`row-<span class="hljs-subst">${i}</span>`</span>).<span class="hljs-title function_">join</span>(<span class="hljs-string">&quot;\n&quot;</span>);
+  }
+}
+
+<span class="hljs-keyword">new</span> <span class="hljs-title class_">ReportService</span>().<span class="hljs-title function_">build</span>(<span class="hljs-number">10_000</span>);</code></pre>
+<p><code>verbatimModuleSyntax</code> 환경에서 타입과 값을 구분해 가져오는 예제다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// user.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">UserDto</span> {
+  <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">email</span>: <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">toDto</span>(<span class="hljs-params"><span class="hljs-attr">user</span>: { id: <span class="hljs-built_in">string</span>; email: <span class="hljs-built_in">string</span> }</span>): <span class="hljs-title class_">UserDto</span> {
+  <span class="hljs-keyword">return</span> { <span class="hljs-attr">id</span>: user.<span class="hljs-property">id</span>, <span class="hljs-attr">email</span>: user.<span class="hljs-property">email</span> };
+}
+
+<span class="hljs-comment">// app/api/users/route.ts (Next.js 15 Route Handler)</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">NextResponse</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;next/server&quot;</span>;
+<span class="hljs-keyword">import</span> { toDto, <span class="hljs-keyword">type</span> <span class="hljs-title class_">UserDto</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;./user.js&quot;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">GET</span>(<span class="hljs-params"></span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">NextResponse</span>&lt;<span class="hljs-title class_">UserDto</span>[]&gt;&gt; {
+  <span class="hljs-keyword">const</span> users = [{ <span class="hljs-attr">id</span>: <span class="hljs-string">&quot;u1&quot;</span>, <span class="hljs-attr">email</span>: <span class="hljs-string">&quot;a@example.com&quot;</span> }];
+  <span class="hljs-keyword">return</span> <span class="hljs-title class_">NextResponse</span>.<span class="hljs-title function_">json</span>(users.<span class="hljs-title function_">map</span>(toDto));
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>데코레이터 모드 불일치.</strong> NestJS 프로젝트에서 <code>experimentalDecorators</code>를 빼면 <code>@Injectable()</code>이 타입 오류를 내고 DI가 동작하지 않는다. 프레임워크가 요구하는 모드로 프로젝트 전체를 통일한다.</li>
+<li><strong><code>emitDecoratorMetadata</code>와 타입 전용 import.</strong> DI 컨테이너는 <code>design:paramtypes</code>로 생성자 매개변수의 클래스를 읽는다. 의존성을 <code>import type</code>으로 가져오거나 인터페이스로 선언하면 메타데이터가 <code>Object</code>가 되어 주입이 실패하므로 <code>@Inject(TOKEN)</code>으로 토큰을 명시한다.</li>
+<li><strong><code>useDefineForClassFields</code>와 필드 초기화 순서.</strong> <code>target</code>이 ES2022 이상이면 기본값이 <code>true</code>가 되어 필드가 <code>[[Define]]</code> 시맨틱으로 초기화된다. 부모 생성자에서 세팅한 값을 자식의 필드 선언이 <code>undefined</code>로 덮어쓰며, <code>declare</code> 필드 선언으로 회피한다.</li>
+<li><strong><code>this</code> 바인딩 손실.</strong> 메서드를 콜백으로 그대로 넘기면 <code>this</code>가 <code>undefined</code>가 된다. 화살표 함수 필드는 인스턴스마다 함수를 생성하므로 빈번히 생성되는 클래스에서는 명시적 바인딩을 택한다.</li>
+<li><strong>배럴 파일과 순환 의존.</strong> <code>index.ts</code>로 재수출을 모으면 순환 의존이 생기기 쉽고, 데코레이터 평가 순서가 꼬여 <code>undefined</code> 클래스가 DI에 등록되는 원인이 된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/typescript/utility-conditional-mapped-types/">유틸리티 타입·조건부 타입·매핑 타입</a></li>
+<li><a href="/notes/typescript/tsconfig-build-esm-cjs/">tsconfig·빌드·ESM과 CJS</a></li>
+<li><a href="/notes/typescript/strict-mode-practical-patterns/">실무 패턴 — strict 모드·타입 가드·에러 처리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · TypeScript, class, decorator, ESM, NestJS</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/typescript/utility-conditional-mapped-types/"><small>이전</small>유틸리티 타입·조건부 타입·매핑 타입</a>
+  <a class="next" href="/notes/typescript/tsconfig-build-esm-cjs/"><small>다음</small>tsconfig·빌드·ESM과 CJS</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

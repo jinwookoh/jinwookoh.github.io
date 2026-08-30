@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>데이터베이스 — TypeORM·Prisma·트랜잭션 · NestJS</title>
+  <meta name="description" content="NestJS에서 TypeORM과 Prisma를 DI 컨테이너에 올리는 방식과 트랜잭션 경계를 어디서 잡는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="데이터베이스 — TypeORM·Prisma·트랜잭션 · NestJS">
+  <meta property="og:description" content="NestJS에서 TypeORM과 Prisma를 DI 컨테이너에 올리는 방식과 트랜잭션 경계를 어디서 잡는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/database-typeorm-prisma/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nestjs/">NestJS</a><span class="sep">›</span><span>데이터베이스 — TypeORM·Prisma·트랜잭션</span></nav>
+    <article class="post">
+  <p class="part">NestJS · 데이터와 인프라</p>
+  <h1>데이터베이스 — TypeORM·Prisma·트랜잭션</h1>
+  <p class="summary">NestJS에서 TypeORM과 Prisma를 DI 컨테이너에 올리는 방식과 트랜잭션 경계를 어디서 잡는지 정리한다</p>
+  <div class="content">
+<p>NestJS는 데이터베이스 접근 계층을 내장하지 않는다. 서비스마다 드라이버를 직접 열면 풀 관리와 종료 시 정리가 애플리케이션 코드로 흘러 들어오고, 여러 저장소 호출을 원자 단위로 묶을 경계가 없으면 중간 실패 시 데이터가 반쯤 쓰인 채 남는다. <code>@nestjs/typeorm</code>과 Prisma 통합은 DataSource나 PrismaClient를 싱글턴 프로바이더로 올리고, 각 모듈이 필요한 리포지토리만 주입받게 하며, 트랜잭션 경계를 명시적 API로 잡는다.</p>
+<h2>핵심 개념</h2>
+<p><strong>TypeORM 통합.</strong> <code>TypeOrmModule.forRoot()</code>가 루트 모듈에서 DataSource를 생성한다. 옵션은 TypeORM DataSource 설정에 <code>retryAttempts</code>(기본 10회), <code>retryDelay</code>(기본 3000ms), <code>autoLoadEntities</code>(기본 false)가 추가된 형태다. 설정이 비동기로 로드되면 <code>forRootAsync()</code>에 <code>useFactory</code>를 넘기고 <code>ConfigService</code>를 주입한다.</p>
+<p>기능 모듈은 <code>TypeOrmModule.forFeature([User])</code>로 엔티티를 등록한다. 이 호출이 모듈 스코프에 <code>Repository&lt;User&gt;</code> 프로바이더를 만들고, 서비스는 <code>@InjectRepository(User)</code>로 받는다. <code>autoLoadEntities: true</code>면 <code>forFeature</code>의 엔티티가 루트 <code>entities</code> 목록에 자동으로 합쳐진다. DataSource 자체는 <code>@InjectDataSource()</code>로 받는다.</p>
+<p>Spring으로 보면 <code>forRoot()</code>는 <code>DataSource</code> 빈을 만드는 <code>@Configuration</code>, <code>forFeature</code>는 <code>@EnableJpaRepositories</code>의 스캔, <code>Repository&lt;User&gt;</code>는 <code>JpaRepository&lt;User, Long&gt;</code>에 대응한다.</p>
+<p><strong>트랜잭션.</strong> <code>dataSource.transaction(async manager =&gt; {...})</code>는 콜백 안의 <code>manager</code>로 수행한 작업을 하나로 묶고, 정상 반환이면 커밋, 예외면 롤백한다. <code>QueryRunner</code>는 <code>startTransaction</code>·<code>commit</code>·<code>rollback</code>·<code>release</code>를 직접 호출하는 저수준 API다. 어느 쪽이든 주입받은 <code>Repository</code>는 기본 EntityManager에 묶여 있어 트랜잭션에 참여하지 않는다. Spring <code>@Transactional</code>처럼 프록시가 컨텍스트를 전파하는 구조가 아니므로 매니저를 인자로 내려보내거나 콜백 안에서 <code>manager.getRepository()</code>로 다시 꺼낸다.</p>
+<p><strong>Prisma 통합.</strong> Prisma는 <code>schema.prisma</code>에서 클라이언트 코드를 생성한다. <code>npx prisma init</code>으로 스키마와 <code>.env</code>를 만들고, <code>npx prisma migrate dev --name init</code>이 마이그레이션 생성·적용과 클라이언트 재생성을 한 번에 처리한다. NestJS에는 <code>PrismaClient</code>를 상속한 <code>PrismaService</code>를 프로바이더로 등록한다. Prisma 7부터는 드라이버 어댑터를 생성자에 넘기는 방식이 기본이고, 클라이언트가 ESM으로 출력되므로 NestJS의 CommonJS 빌드와 맞추려면 generator 블록에 <code>moduleFormat = &quot;cjs&quot;</code>를 지정한다. 트랜잭션은 <code>$transaction()</code>에 배열을 넘기면 배치, 콜백을 넘기면 <code>tx</code> 클라이언트로 조건 분기가 가능한 인터랙티브 트랜잭션이 된다.</p>
+<h2>코드</h2>
+<p>루트 모듈에서 환경 변수로 DataSource를 구성하고, 기능 모듈에서 리포지토리를 주입받는 기본 형태다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// app.module.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Module</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ConfigModule</span>, <span class="hljs-title class_">ConfigService</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/config&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">TypeOrmModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/typeorm&#x27;</span>;
+
+<span class="hljs-meta">@Module</span>({
+  <span class="hljs-attr">imports</span>: [
+    <span class="hljs-title class_">ConfigModule</span>.<span class="hljs-title function_">forRoot</span>({ <span class="hljs-attr">isGlobal</span>: <span class="hljs-literal">true</span> }),
+    <span class="hljs-title class_">TypeOrmModule</span>.<span class="hljs-title function_">forRootAsync</span>({
+      <span class="hljs-attr">inject</span>: [<span class="hljs-title class_">ConfigService</span>],
+      <span class="hljs-attr">useFactory</span>: <span class="hljs-function">(<span class="hljs-params"><span class="hljs-attr">config</span>: <span class="hljs-title class_">ConfigService</span></span>) =&gt;</span> ({
+        <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;postgres&#x27;</span>,
+        <span class="hljs-attr">url</span>: config.<span class="hljs-property">getOrThrow</span>&lt;<span class="hljs-built_in">string</span>&gt;(<span class="hljs-string">&#x27;DATABASE_URL&#x27;</span>),
+        <span class="hljs-attr">autoLoadEntities</span>: <span class="hljs-literal">true</span>,
+        <span class="hljs-attr">synchronize</span>: <span class="hljs-literal">false</span>,
+      }),
+    }),
+  ],
+})
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AppModule</span> {}
+
+<span class="hljs-comment">// users/users.module.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Module</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">TypeOrmModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/typeorm&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">User</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./user.entity&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">UsersService</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./users.service&#x27;</span>;
+
+<span class="hljs-meta">@Module</span>({
+  <span class="hljs-attr">imports</span>: [<span class="hljs-title class_">TypeOrmModule</span>.<span class="hljs-title function_">forFeature</span>([<span class="hljs-title class_">User</span>])],
+  <span class="hljs-attr">providers</span>: [<span class="hljs-title class_">UsersService</span>],
+  <span class="hljs-attr">exports</span>: [<span class="hljs-title class_">UsersService</span>],
+})
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UsersModule</span> {}</code></pre>
+<p>주문 생성과 재고 차감을 한 트랜잭션으로 묶는 예다. 주입된 리포지토리 대신 콜백의 <code>manager</code>를 통해 엔티티에 접근한다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// orders/orders.service.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">ConflictException</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">InjectDataSource</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/typeorm&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">DataSource</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;typeorm&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Order</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./order.entity&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Stock</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../stock/stock.entity&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrdersService</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-meta">@InjectDataSource</span>() <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">dataSource</span>: <span class="hljs-title class_">DataSource</span></span>) {}
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">place</span>(<span class="hljs-attr">productId</span>: <span class="hljs-built_in">number</span>, <span class="hljs-attr">qty</span>: <span class="hljs-built_in">number</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span>&gt; {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">dataSource</span>.<span class="hljs-title function_">transaction</span>(<span class="hljs-string">&#x27;SERIALIZABLE&#x27;</span>, <span class="hljs-title function_">async</span> (manager) =&gt; {
+      <span class="hljs-keyword">const</span> stock = <span class="hljs-keyword">await</span> manager.<span class="hljs-title function_">findOneOrFail</span>(<span class="hljs-title class_">Stock</span>, {
+        <span class="hljs-attr">where</span>: { productId },
+        <span class="hljs-attr">lock</span>: { <span class="hljs-attr">mode</span>: <span class="hljs-string">&#x27;pessimistic_write&#x27;</span> },
+      });
+      <span class="hljs-keyword">if</span> (stock.<span class="hljs-property">quantity</span> &lt; qty) {
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConflictException</span>(<span class="hljs-string">&#x27;insufficient stock&#x27;</span>);
+      }
+      stock.<span class="hljs-property">quantity</span> -= qty;
+      <span class="hljs-keyword">await</span> manager.<span class="hljs-title function_">save</span>(stock);
+      <span class="hljs-keyword">return</span> manager.<span class="hljs-title function_">save</span>(manager.<span class="hljs-title function_">create</span>(<span class="hljs-title class_">Order</span>, { productId, qty }));
+    });
+  }
+}</code></pre>
+<p>Prisma를 쓰는 경우의 서비스와 인터랙티브 트랜잭션이다. <code>PrismaService</code>는 <code>OnModuleDestroy</code>에서 커넥션을 정리한다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// prisma/prisma.service.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">OnModuleDestroy</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">PrismaClient</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../generated/prisma/client&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">PrismaPg</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@prisma/adapter-pg&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PrismaService</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">PrismaClient</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OnModuleDestroy</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-variable language_">super</span>({ <span class="hljs-attr">adapter</span>: <span class="hljs-keyword">new</span> <span class="hljs-title class_">PrismaPg</span>({ <span class="hljs-attr">connectionString</span>: process.<span class="hljs-property">env</span>.<span class="hljs-property">DATABASE_URL</span> }) });
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">onModuleDestroy</span>(): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.$disconnect();
+  }
+}
+
+<span class="hljs-comment">// orders/orders.service.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">ConflictException</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">PrismaService</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../prisma/prisma.service&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrdersService</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">prisma</span>: <span class="hljs-title class_">PrismaService</span></span>) {}
+
+  <span class="hljs-title function_">place</span>(<span class="hljs-params"><span class="hljs-attr">productId</span>: <span class="hljs-built_in">number</span>, <span class="hljs-attr">qty</span>: <span class="hljs-built_in">number</span></span>) {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">prisma</span>.$transaction(<span class="hljs-title function_">async</span> (tx) =&gt; {
+      <span class="hljs-keyword">const</span> stock = <span class="hljs-keyword">await</span> tx.<span class="hljs-property">stock</span>.<span class="hljs-title function_">findUniqueOrThrow</span>({ <span class="hljs-attr">where</span>: { productId } });
+      <span class="hljs-keyword">if</span> (stock.<span class="hljs-property">quantity</span> &lt; qty) {
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConflictException</span>(<span class="hljs-string">&#x27;insufficient stock&#x27;</span>);
+      }
+      <span class="hljs-keyword">await</span> tx.<span class="hljs-property">stock</span>.<span class="hljs-title function_">update</span>({
+        <span class="hljs-attr">where</span>: { productId },
+        <span class="hljs-attr">data</span>: { <span class="hljs-attr">quantity</span>: { <span class="hljs-attr">decrement</span>: qty } },
+      });
+      <span class="hljs-keyword">return</span> tx.<span class="hljs-property">order</span>.<span class="hljs-title function_">create</span>({ <span class="hljs-attr">data</span>: { productId, qty } });
+    });
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>synchronize: true</code>를 운영에 남기는 실수.</strong> 엔티티 변경이 즉시 DDL로 반영되어 컬럼 삭제나 타입 변경이 데이터 손실로 이어진다. 운영은 마이그레이션 파일과 <code>migrate deploy</code> 류의 명시적 절차로 관리한다.</li>
+<li><strong>트랜잭션에 참여하지 않는 리포지토리.</strong> <code>@InjectRepository</code>로 받은 객체를 <code>transaction()</code> 콜백 안에서 호출하면 별도 커넥션으로 실행되어 롤백에서 빠진다. 서비스 간 전파가 필요하면 매니저를 인자로 넘기거나 AsyncLocalStorage 기반 전파 라이브러리를 쓴다.</li>
+<li><strong>인터랙티브 트랜잭션의 타임아웃.</strong> Prisma 콜백형 <code>$transaction</code>은 기본 5초 안에 끝나야 하고 커넥션 하나를 점유한다. 외부 API 호출을 안에 넣으면 풀이 고갈되므로 DB 작업만으로 짧게 유지한다.</li>
+<li><strong>N+1.</strong> TypeORM <code>relations</code>나 Prisma <code>include</code>를 빠뜨리면 목록 조회에서 항목마다 추가 쿼리가 나간다. 쿼리 로그를 켜고 엔드포인트 단위로 실제 쿼리 수를 확인한다.</li>
+<li><strong>기동 순서.</strong> <code>retryAttempts</code>·<code>retryDelay</code> 기본값이면 DB가 없을 때 30초 동안 기동이 막히므로 헬스체크 타임아웃과 맞춘다. Prisma는 첫 쿼리 시 연결하므로 기동 시점에 실패를 잡으려면 <code>onModuleInit</code>에서 <code>$connect()</code>를 호출한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nestjs/di-modules/">DI와 모듈 시스템</a></li>
+<li><a href="/notes/nestjs/config-logging/">설정·환경·로깅</a></li>
+<li><a href="/notes/nestjs/testing-deployment/">테스트와 배포</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · NestJS, TypeORM, Prisma, Transaction, Repository</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nestjs/interceptors-filters-middleware/"><small>이전</small>Interceptors·Exception Filters·Middleware</a>
+  <a class="next" href="/notes/nestjs/config-logging/"><small>다음</small>설정·환경·로깅</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

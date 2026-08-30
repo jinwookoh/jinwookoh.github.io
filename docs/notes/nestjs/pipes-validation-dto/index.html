@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pipes·검증·DTO · NestJS</title>
+  <meta name="description" content="Pipe는 핸들러 진입 직전에 인자를 변환·검증하는 계층이며, ValidationPipe와 DTO 조합이 입력 검증의 표준이다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Pipes·검증·DTO · NestJS">
+  <meta property="og:description" content="Pipe는 핸들러 진입 직전에 인자를 변환·검증하는 계층이며, ValidationPipe와 DTO 조합이 입력 검증의 표준이다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/pipes-validation-dto/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nestjs/">NestJS</a><span class="sep">›</span><span>Pipes·검증·DTO</span></nav>
+    <article class="post">
+  <p class="part">NestJS · 요청 처리</p>
+  <h1>Pipes·검증·DTO</h1>
+  <p class="summary">Pipe는 핸들러 진입 직전에 인자를 변환·검증하는 계층이며, ValidationPipe와 DTO 조합이 입력 검증의 표준이다</p>
+  <div class="content">
+<p>HTTP 요청 값은 전부 문자열이거나 형태를 보장할 수 없는 JSON이다. 경로 파라미터 <code>:id</code>는 <code>&quot;abc&quot;</code>일 수 있고, 본문에는 정의하지 않은 필드가 섞여 들어온다. 컨트롤러마다 <code>if</code> 문으로 걸러내면 검증이 비즈니스 로직과 뒤섞이고, 누락된 검증 하나가 서비스 계층까지 잘못된 값을 흘려보낸다. NestJS는 이 문제를 Pipe 계층으로 분리한다.</p>
+<h2>핵심 개념</h2>
+<p>Pipe는 <code>PipeTransform</code>을 구현한 <code>@Injectable()</code> 클래스로, 라우트 핸들러 직전에 실행된다. 역할은 변환(문자열 <code>&quot;42&quot;</code>를 숫자 <code>42</code>로)과 검증(조건 불만족 시 예외) 두 가지다. 예외는 Exception Filter가 응답으로 바꾸므로 핸들러는 정제된 값만 받는다.</p>
+<p><code>transform(value, metadata)</code>의 <code>ArgumentMetadata</code>에는 인자 출처(<code>type</code>), 타입 정보(<code>metatype</code>), 데코레이터 인자(<code>data</code>)가 담긴다. <code>metatype</code>은 컴파일 시점 메타데이터라 인터페이스·제네릭은 런타임에 사라진다. DTO를 클래스로 선언해야 하는 이유다.</p>
+<p>Spring과 대응시키면 DTO 검증은 <code>@Valid</code> + Bean Validation, <code>ParseIntPipe</code> 같은 변환 Pipe는 <code>Converter</code>·<code>@RequestParam</code> 타입 바인딩에 해당한다.</p>
+<p>내장 Pipe는 <code>ValidationPipe</code>, <code>ParseIntPipe</code>, <code>ParseBoolPipe</code>, <code>ParseArrayPipe</code>, <code>ParseUUIDPipe</code>, <code>ParseEnumPipe</code>, <code>ParseDatePipe</code>, <code>ParseFilePipe</code>, <code>DefaultValuePipe</code> 등이 있고, Zod·Valibot 같은 Standard Schema 호환 스키마를 받는 <code>StandardSchemaValidationPipe</code>도 추가됐다. 바인딩 범위는 파라미터·메서드(<code>@UsePipes</code>)·컨트롤러·전역 네 단계다. 전역 등록은 <code>app.useGlobalPipes()</code>와 <code>APP_PIPE</code> 프로바이더 두 방식이 있으며, 후자만 DI 컨테이너 안에서 생성되므로 다른 프로바이더를 주입받는 Pipe는 <code>APP_PIPE</code>로 등록한다.</p>
+<p><code>ValidationPipe</code>는 <code>class-validator</code>와 <code>class-transformer</code>를 사용하며 두 패키지는 직접 설치한다. plain object를 DTO 인스턴스로 변환한 뒤 데코레이터 규칙을 검사한다.</p>
+<table>
+<thead>
+<tr>
+<th>옵션</th>
+<th>동작</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>whitelist</code></td>
+<td>데코레이터가 없는 속성을 제거한다</td>
+</tr>
+<tr>
+<td><code>forbidNonWhitelisted</code></td>
+<td>제거 대신 400 예외를 던진다</td>
+</tr>
+<tr>
+<td><code>transform</code></td>
+<td>검증 후 DTO 인스턴스와 기본 타입 변환 결과를 핸들러에 넘긴다</td>
+</tr>
+<tr>
+<td><code>transformOptions.enableImplicitConversion</code></td>
+<td>타입 메타데이터 기준으로 문자열을 number·boolean으로 암묵 변환한다</td>
+</tr>
+<tr>
+<td><code>stopAtFirstError</code></td>
+<td>속성별로 첫 실패에서 검사를 멈춘다</td>
+</tr>
+<tr>
+<td><code>exceptionFactory</code></td>
+<td>에러 배열을 받아 커스텀 예외로 바꾼다</td>
+</tr>
+</tbody></table>
+<p>DTO 파생 타입은 <code>@nestjs/mapped-types</code>의 <code>PartialType</code>, <code>PickType</code>, <code>OmitType</code>, <code>IntersectionType</code>으로 만든다. 검증 데코레이터까지 상속되므로 규칙을 두 번 적지 않아도 된다.</p>
+<h2>코드</h2>
+<p>전역 ValidationPipe를 <code>APP_PIPE</code>로 등록하고, DTO에 검증 규칙을 선언한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// app.module.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Module</span>, <span class="hljs-title class_">ValidationPipe</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-variable constant_">APP_PIPE</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/core&#x27;</span>;
+
+<span class="hljs-meta">@Module</span>({
+  <span class="hljs-attr">providers</span>: [
+    {
+      <span class="hljs-attr">provide</span>: <span class="hljs-variable constant_">APP_PIPE</span>,
+      <span class="hljs-attr">useValue</span>: <span class="hljs-keyword">new</span> <span class="hljs-title class_">ValidationPipe</span>({
+        <span class="hljs-attr">whitelist</span>: <span class="hljs-literal">true</span>,
+        <span class="hljs-attr">forbidNonWhitelisted</span>: <span class="hljs-literal">true</span>,
+        <span class="hljs-attr">transform</span>: <span class="hljs-literal">true</span>,
+        <span class="hljs-attr">transformOptions</span>: { <span class="hljs-attr">enableImplicitConversion</span>: <span class="hljs-literal">true</span> },
+      }),
+    },
+  ],
+})
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AppModule</span> {}
+
+<span class="hljs-comment">// create-cat.dto.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">IsInt</span>, <span class="hljs-title class_">IsString</span>, <span class="hljs-title class_">Length</span>, <span class="hljs-title class_">Min</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;class-validator&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CreateCatDto</span> {
+  <span class="hljs-meta">@IsString</span>()
+  <span class="hljs-meta">@Length</span>(<span class="hljs-number">1</span>, <span class="hljs-number">50</span>)
+  <span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span>;
+
+  <span class="hljs-meta">@IsInt</span>()
+  <span class="hljs-meta">@Min</span>(<span class="hljs-number">0</span>)
+  <span class="hljs-attr">age</span>: <span class="hljs-built_in">number</span>;
+}
+
+<span class="hljs-comment">// update-cat.dto.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">PartialType</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/mapped-types&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CreateCatDto</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./create-cat.dto&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UpdateCatDto</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">PartialType</span>(<span class="hljs-title class_">CreateCatDto</span>) {}</code></pre>
+<p>경로·쿼리 파라미터는 전용 Parse Pipe로 변환한다. <code>DefaultValuePipe</code>는 값이 없을 때 기본값을 채운 뒤 다음 Pipe로 넘긴다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">import</span> {
+  <span class="hljs-title class_">Controller</span>, <span class="hljs-title class_">DefaultValuePipe</span>, <span class="hljs-title class_">Get</span>, <span class="hljs-title class_">HttpStatus</span>,
+  <span class="hljs-title class_">Param</span>, <span class="hljs-title class_">ParseArrayPipe</span>, <span class="hljs-title class_">ParseIntPipe</span>, <span class="hljs-title class_">Query</span>,
+} <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+
+<span class="hljs-meta">@Controller</span>(<span class="hljs-string">&#x27;cats&#x27;</span>)
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CatsController</span> {
+  <span class="hljs-meta">@Get</span>()
+  <span class="hljs-title function_">findAll</span>(<span class="hljs-params">
+    <span class="hljs-meta">@Query</span>(<span class="hljs-string">&#x27;page&#x27;</span>, <span class="hljs-keyword">new</span> DefaultValuePipe(<span class="hljs-number">1</span>), ParseIntPipe) <span class="hljs-attr">page</span>: <span class="hljs-built_in">number</span>,
+    <span class="hljs-meta">@Query</span>(<span class="hljs-string">&#x27;ids&#x27;</span>, <span class="hljs-keyword">new</span> ParseArrayPipe({ items: <span class="hljs-built_in">Number</span>, separator: <span class="hljs-string">&#x27;,&#x27;</span>, optional: <span class="hljs-literal">true</span> }))
+    <span class="hljs-attr">ids</span>?: <span class="hljs-built_in">number</span>[],
+  </span>) {
+    <span class="hljs-keyword">return</span> { page, ids };
+  }
+
+  <span class="hljs-meta">@Get</span>(<span class="hljs-string">&#x27;:id&#x27;</span>)
+  <span class="hljs-title function_">findOne</span>(<span class="hljs-params">
+    <span class="hljs-meta">@Param</span>(<span class="hljs-string">&#x27;id&#x27;</span>, <span class="hljs-keyword">new</span> ParseIntPipe({ errorHttpStatusCode: HttpStatus.NOT_ACCEPTABLE }))
+    <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>,
+  </span>) {
+    <span class="hljs-keyword">return</span> { id };
+  }
+}</code></pre>
+<p>클래스 기반 데코레이터 대신 Zod 스키마로 검증하려면 <code>PipeTransform</code>을 직접 구현한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">BadRequestException</span>, <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">PipeTransform</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { z, <span class="hljs-title class_">ZodType</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;zod&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ZodValidationPipe</span>&lt;T&gt; <span class="hljs-keyword">implements</span> <span class="hljs-title class_">PipeTransform</span>&lt;<span class="hljs-built_in">unknown</span>, T&gt; {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">schema</span>: <span class="hljs-title class_">ZodType</span>&lt;T&gt;</span>) {}
+
+  <span class="hljs-title function_">transform</span>(<span class="hljs-attr">value</span>: <span class="hljs-built_in">unknown</span>): T {
+    <span class="hljs-keyword">const</span> result = <span class="hljs-variable language_">this</span>.<span class="hljs-property">schema</span>.<span class="hljs-title function_">safeParse</span>(value);
+    <span class="hljs-keyword">if</span> (!result.<span class="hljs-property">success</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BadRequestException</span>(result.<span class="hljs-property">error</span>.<span class="hljs-property">issues</span>);
+    }
+    <span class="hljs-keyword">return</span> result.<span class="hljs-property">data</span>;
+  }
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> createCatSchema = z.<span class="hljs-title function_">object</span>({
+  <span class="hljs-attr">name</span>: z.<span class="hljs-title function_">string</span>().<span class="hljs-title function_">min</span>(<span class="hljs-number">1</span>).<span class="hljs-title function_">max</span>(<span class="hljs-number">50</span>),
+  <span class="hljs-attr">age</span>: z.<span class="hljs-title function_">number</span>().<span class="hljs-title function_">int</span>().<span class="hljs-title function_">nonnegative</span>(),
+});
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">type</span> <span class="hljs-title class_">CreateCat</span> = z.<span class="hljs-property">infer</span>&lt;<span class="hljs-keyword">typeof</span> createCatSchema&gt;;
+
+<span class="hljs-comment">// 사용: @Post() @UsePipes(new ZodValidationPipe(createCatSchema)) create(@Body() dto: CreateCat)</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>whitelist</code> 없이 운영하면 mass assignment가 열린다.</strong> 본문에 <code>isAdmin: true</code>가 섞여 들어와도 그대로 서비스로 넘어간다. <code>whitelist: true</code>를 기본으로 두고, 계약을 엄격히 지키려면 <code>forbidNonWhitelisted</code>까지 켠다.</li>
+<li><strong><code>enableImplicitConversion</code>은 boolean에서 함정이 있다.</strong> <code>class-transformer</code>는 <code>&quot;false&quot;</code> 문자열을 <code>Boolean(&quot;false&quot;)</code>, 즉 <code>true</code>로 바꾼다. 쿼리의 boolean 값은 <code>ParseBoolPipe</code>나 <code>@Transform</code>으로 명시 변환해야 한다.</li>
+<li><strong>배열 본문은 타입 정보가 없다.</strong> <code>@Body() dtos: CreateCatDto[]</code>는 런타임 <code>metatype</code>이 <code>Array</code>로만 남아 검증이 통과되지 않는다. 배열을 감싸는 래퍼 DTO를 만들거나 <code>ParseArrayPipe({ items: CreateCatDto })</code>를 쓴다.</li>
+<li><strong>중첩 객체는 <code>@ValidateNested()</code>와 <code>@Type()</code>을 함께 붙여야 한다.</strong> 둘 중 하나라도 빠지면 중첩 객체가 plain object로 남아 내부 규칙이 검사되지 않는다.</li>
+<li><strong>에러 응답 형식은 <code>exceptionFactory</code>로 통일한다.</strong> 기본 400 응답은 <code>message</code> 배열에 문자열만 나열되어 필드별 매핑이 어렵다. <code>ValidationError[]</code>를 <code>{ field, constraints }</code> 구조로 바꾸는 팩토리를 전역 Pipe에 넣는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nestjs/di-modules/">DI와 모듈 시스템</a></li>
+<li><a href="/notes/nestjs/guards-auth-jwt/">Guards·인증 — Passport·JWT</a></li>
+<li><a href="/notes/nestjs/interceptors-filters-middleware/">Interceptors·Exception Filters·Middleware</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · NestJS, Pipe, ValidationPipe, DTO, class-validator</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nestjs/di-modules/"><small>이전</small>DI와 모듈 시스템</a>
+  <a class="next" href="/notes/nestjs/guards-auth-jwt/"><small>다음</small>Guards·인증 — Passport·JWT</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

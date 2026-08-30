@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>실무 패턴 — strict 모드·타입 가드·에러 처리 · TypeScript</title>
+  <meta name="description" content="strict 옵션을 켜고, 타입 가드로 좁히고, unknown 기반으로 에러를 다루는 실무 규칙을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="실무 패턴 — strict 모드·타입 가드·에러 처리 · TypeScript">
+  <meta property="og:description" content="strict 옵션을 켜고, 타입 가드로 좁히고, unknown 기반으로 에러를 다루는 실무 규칙을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/typescript/strict-mode-practical-patterns/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/typescript/">TypeScript</a><span class="sep">›</span><span>실무 패턴 — strict 모드·타입 가드·에러 처리</span></nav>
+    <article class="post">
+  <p class="part">TypeScript · 빌드와 실무</p>
+  <h1>실무 패턴 — strict 모드·타입 가드·에러 처리</h1>
+  <p class="summary">strict 옵션을 켜고, 타입 가드로 좁히고, unknown 기반으로 에러를 다루는 실무 규칙을 정리한다</p>
+  <div class="content">
+<p><code>strict</code>를 끄고 시작한 프로젝트는 타입 검사가 통과해도 런타임에서 <code>Cannot read properties of undefined</code>가 터진다. <code>null</code>이 모든 타입에 암묵적으로 포함되고, 타입을 적지 않은 매개변수는 <code>any</code>가 되어 검사를 빠져나가며, <code>catch</code>에서 받은 값의 <code>err.message</code>가 그대로 컴파일된다. 컴파일러가 잡을 수 있는 오류를 런타임으로 미루는 구조다. strict 모드와 그 위에서 동작하는 좁히기(narrowing)·에러 처리 패턴이 기본값이어야 하는 이유다.</p>
+<h2>핵심 개념</h2>
+<h3>strict 옵션군</h3>
+<p><code>strict: true</code>는 여러 검사를 한 번에 켜는 묶음이다. 개별 옵션을 뒤에 명시하면 그 항목만 끌 수 있다.</p>
+<table>
+<thead>
+<tr>
+<th>옵션</th>
+<th>켜지면 달라지는 것</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>strictNullChecks</code></td>
+<td><code>null</code>·<code>undefined</code>가 별도 타입이 되어, 값이 있음을 확인하기 전에는 프로퍼티 접근이 오류</td>
+</tr>
+<tr>
+<td><code>noImplicitAny</code></td>
+<td>타입 추론이 불가능한 곳에 <code>any</code>를 암묵적으로 넣지 않고 오류로 보고</td>
+</tr>
+<tr>
+<td><code>strictFunctionTypes</code></td>
+<td>함수 매개변수를 반공변으로 검사해 잘못된 콜백 대입을 차단</td>
+</tr>
+<tr>
+<td><code>strictPropertyInitialization</code></td>
+<td>클래스 필드가 생성자에서 초기화되지 않으면 오류</td>
+</tr>
+<tr>
+<td><code>useUnknownInCatchVariables</code></td>
+<td><code>catch (e)</code>의 <code>e</code>가 <code>any</code>가 아니라 <code>unknown</code></td>
+</tr>
+</tbody></table>
+<p>새 프로젝트는 <code>strict: true</code>로 시작하고, 기존 프로젝트는 옵션을 하나씩 켜면서 오류를 줄여 나간다.</p>
+<h3>좁히기와 타입 가드</h3>
+<p>TypeScript는 코드 흐름을 따라가며 변수의 타입을 구체화한다. <code>typeof</code>, <code>instanceof</code>, <code>in</code>, 진릿값 검사, 판별 속성(discriminant)이 좁히기의 재료다. 유니온 멤버가 공통 리터럴 필드(<code>kind</code> 등)를 가지면 <code>switch</code>만으로 분기별 타입이 확정되고, <code>never</code> 대입으로 분기 누락을 컴파일 시점에 잡는다.</p>
+<p>내장 연산자로 표현하기 어려운 조건은 반환 타입이 <code>x is T</code>인 사용자 정의 타입 가드로 만든다. 5.5부터는 단순 술어 함수라면 명시하지 않아도 타입 가드로 추론된다. <code>asserts x is T</code>로 쓰면 정상 반환 이후 타입이 좁혀지는 단언 함수가 된다.</p>
+<p>Java 기준으로 판별 유니온 + <code>switch</code>는 sealed 클래스 패턴 매칭에 해당하고, <code>strictNullChecks</code>는 <code>Optional</code>을 언어 차원에서 강제하는 것과 같다.</p>
+<h3>unknown 기반 에러 처리</h3>
+<p>JavaScript는 <code>throw</code>에 아무 값이나 던질 수 있으므로 strict 모드에서 <code>catch</code> 변수는 <code>unknown</code>이 되고, <code>instanceof Error</code>나 별도 가드를 통과해야 <code>message</code>에 접근할 수 있다. 예상 가능한 실패는 판별 유니온 결과 타입으로 반환해 호출자가 반드시 분기하게 하고, 예상 밖 실패만 <code>throw</code>로 올린다.</p>
+<h3>선언 파일 작성 규칙</h3>
+<p><code>.d.ts</code>를 직접 쓸 때의 원칙이다. <code>Number</code>·<code>String</code> 같은 래퍼 대신 원시 타입을 쓰고, 반환 타입에 <code>any</code> 대신 <code>unknown</code>을 쓴다. 콜백 반환 타입은 <code>void</code>로 두고 콜백 매개변수를 옵셔널로 만들지 않는다. 오버로드는 구체적인 시그니처를 앞에 두고, 매개변수 타입이나 옵셔널 여부만 다른 오버로드는 하나로 합친다.</p>
+<h2>코드</h2>
+<p>판별 유니온으로 결과를 표현하고 <code>never</code> 대입으로 분기 누락을 잡는 예제다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">type</span> <span class="hljs-title class_">ParseResult</span>&lt;T&gt; =
+  | { <span class="hljs-attr">ok</span>: <span class="hljs-literal">true</span>; <span class="hljs-attr">value</span>: T }
+  | { <span class="hljs-attr">ok</span>: <span class="hljs-literal">false</span>; <span class="hljs-attr">reason</span>: <span class="hljs-string">&quot;empty&quot;</span> | <span class="hljs-string">&quot;invalid&quot;</span> };
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">parsePort</span>(<span class="hljs-params"><span class="hljs-attr">input</span>: <span class="hljs-built_in">string</span></span>): <span class="hljs-title class_">ParseResult</span>&lt;<span class="hljs-built_in">number</span>&gt; {
+  <span class="hljs-keyword">if</span> (input.<span class="hljs-title function_">trim</span>() === <span class="hljs-string">&quot;&quot;</span>) <span class="hljs-keyword">return</span> { <span class="hljs-attr">ok</span>: <span class="hljs-literal">false</span>, <span class="hljs-attr">reason</span>: <span class="hljs-string">&quot;empty&quot;</span> };
+  <span class="hljs-keyword">const</span> n = <span class="hljs-title class_">Number</span>(input);
+  <span class="hljs-keyword">if</span> (!<span class="hljs-title class_">Number</span>.<span class="hljs-title function_">isInteger</span>(n) || n &lt; <span class="hljs-number">1</span> || n &gt; <span class="hljs-number">65535</span>) {
+    <span class="hljs-keyword">return</span> { <span class="hljs-attr">ok</span>: <span class="hljs-literal">false</span>, <span class="hljs-attr">reason</span>: <span class="hljs-string">&quot;invalid&quot;</span> };
+  }
+  <span class="hljs-keyword">return</span> { <span class="hljs-attr">ok</span>: <span class="hljs-literal">true</span>, <span class="hljs-attr">value</span>: n };
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">describe</span>(<span class="hljs-params"><span class="hljs-attr">r</span>: <span class="hljs-title class_">ParseResult</span>&lt;<span class="hljs-built_in">number</span>&gt;</span>): <span class="hljs-built_in">string</span> {
+  <span class="hljs-keyword">if</span> (r.<span class="hljs-property">ok</span>) <span class="hljs-keyword">return</span> <span class="hljs-string">`port <span class="hljs-subst">${r.value}</span>`</span>;
+  <span class="hljs-keyword">switch</span> (r.<span class="hljs-property">reason</span>) {
+    <span class="hljs-keyword">case</span> <span class="hljs-string">&quot;empty&quot;</span>:
+      <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;input is empty&quot;</span>;
+    <span class="hljs-keyword">case</span> <span class="hljs-string">&quot;invalid&quot;</span>:
+      <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;not a valid port&quot;</span>;
+    <span class="hljs-attr">default</span>: {
+      <span class="hljs-keyword">const</span> <span class="hljs-attr">exhaustive</span>: <span class="hljs-built_in">never</span> = r.<span class="hljs-property">reason</span>;
+      <span class="hljs-keyword">return</span> exhaustive;
+    }
+  }
+}</code></pre>
+<p>외부 입력을 <code>unknown</code>으로 받고 사용자 정의 타입 가드와 단언 함수로 좁히는 예제다. 5.5 이후에는 <code>isRecord</code>처럼 반환 타입을 적지 않아도 술어로 추론된다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">interface</span> <span class="hljs-title class_">CreateUserDto</span> {
+  <span class="hljs-attr">email</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">age</span>?: <span class="hljs-built_in">number</span>;
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">isRecord</span>(<span class="hljs-params"><span class="hljs-attr">x</span>: <span class="hljs-built_in">unknown</span></span>): x is <span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">unknown</span>&gt; {
+  <span class="hljs-keyword">return</span> <span class="hljs-keyword">typeof</span> x === <span class="hljs-string">&quot;object&quot;</span> &amp;&amp; x !== <span class="hljs-literal">null</span>;
+}
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">assertCreateUserDto</span>(<span class="hljs-params"><span class="hljs-attr">x</span>: <span class="hljs-built_in">unknown</span></span>): asserts x is <span class="hljs-title class_">CreateUserDto</span> {
+  <span class="hljs-keyword">if</span> (!<span class="hljs-title function_">isRecord</span>(x)) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TypeError</span>(<span class="hljs-string">&quot;body must be an object&quot;</span>);
+  <span class="hljs-keyword">if</span> (<span class="hljs-keyword">typeof</span> x.<span class="hljs-property">email</span> !== <span class="hljs-string">&quot;string&quot;</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TypeError</span>(<span class="hljs-string">&quot;email is required&quot;</span>);
+  <span class="hljs-keyword">if</span> (<span class="hljs-string">&quot;age&quot;</span> <span class="hljs-keyword">in</span> x &amp;&amp; x.<span class="hljs-property">age</span> !== <span class="hljs-literal">undefined</span> &amp;&amp; <span class="hljs-keyword">typeof</span> x.<span class="hljs-property">age</span> !== <span class="hljs-string">&quot;number&quot;</span>) {
+    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TypeError</span>(<span class="hljs-string">&quot;age must be a number&quot;</span>);
+  }
+}
+
+<span class="hljs-comment">// Next.js 15 App Router Route Handler</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">POST</span>(<span class="hljs-params"><span class="hljs-attr">req</span>: <span class="hljs-title class_">Request</span></span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Response</span>&gt; {
+  <span class="hljs-keyword">const</span> <span class="hljs-attr">body</span>: <span class="hljs-built_in">unknown</span> = <span class="hljs-keyword">await</span> req.<span class="hljs-title function_">json</span>();
+  <span class="hljs-title function_">assertCreateUserDto</span>(body);
+  <span class="hljs-comment">// 이 지점부터 body는 CreateUserDto</span>
+  <span class="hljs-keyword">return</span> <span class="hljs-title class_">Response</span>.<span class="hljs-title function_">json</span>({ <span class="hljs-attr">email</span>: body.<span class="hljs-property">email</span>, <span class="hljs-attr">age</span>: body.<span class="hljs-property">age</span> ?? <span class="hljs-literal">null</span> }, { <span class="hljs-attr">status</span>: <span class="hljs-number">201</span> });
+}</code></pre>
+<p><code>catch</code>의 <code>unknown</code>을 안전하게 다루는 공용 헬퍼다. <code>Error</code>가 아닌 값이 던져져도 메시지를 뽑아낸다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">function</span> <span class="hljs-title function_">toError</span>(<span class="hljs-params"><span class="hljs-attr">e</span>: <span class="hljs-built_in">unknown</span></span>): <span class="hljs-title class_">Error</span> {
+  <span class="hljs-keyword">if</span> (e <span class="hljs-keyword">instanceof</span> <span class="hljs-title class_">Error</span>) <span class="hljs-keyword">return</span> e;
+  <span class="hljs-keyword">if</span> (<span class="hljs-title function_">isRecord</span>(e) &amp;&amp; <span class="hljs-keyword">typeof</span> e.<span class="hljs-property">message</span> === <span class="hljs-string">&quot;string&quot;</span>) {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(e.<span class="hljs-property">message</span>, { <span class="hljs-attr">cause</span>: e });
+  }
+  <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-title class_">String</span>(e), { <span class="hljs-attr">cause</span>: e });
+}
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">loadConfig</span>(<span class="hljs-params"><span class="hljs-attr">path</span>: <span class="hljs-built_in">string</span></span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">unknown</span>&gt;&gt; {
+  <span class="hljs-keyword">try</span> {
+    <span class="hljs-keyword">const</span> { readFile } = <span class="hljs-keyword">await</span> <span class="hljs-keyword">import</span>(<span class="hljs-string">&quot;node:fs/promises&quot;</span>);
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">JSON</span>.<span class="hljs-title function_">parse</span>(<span class="hljs-keyword">await</span> <span class="hljs-title function_">readFile</span>(path, <span class="hljs-string">&quot;utf8&quot;</span>));
+  } <span class="hljs-keyword">catch</span> (e) {
+    <span class="hljs-keyword">const</span> err = <span class="hljs-title function_">toError</span>(e);
+    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`failed to load config at <span class="hljs-subst">${path}</span>: <span class="hljs-subst">${err.message}</span>`</span>, { <span class="hljs-attr">cause</span>: err });
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>non-null 단언(<code>!</code>)의 남용.</strong> <code>strictNullChecks</code> 오류를 <code>x!.foo</code>로 눌러 버리면 검사를 끈 것과 같다. 실제로 값이 보장되는 곳(초기화 직후, 방금 검사한 맵 조회)에만 제한하고, 그 외에는 조기 반환이나 옵셔널 체이닝으로 흐름을 바꾼다.</li>
+<li><strong>콜백 안에서 좁히기가 풀린다.</strong> <code>if (user) { list.forEach(() =&gt; user.name) }</code>에서 <code>user</code>가 <code>let</code>이면 콜백 안에서는 다시 <code>undefined</code>가 포함된다. 콜백 실행 시점에 값이 바뀔 수 있기 때문이다. 좁힌 값을 <code>const</code>에 담아 넘기면 해결된다.</li>
+<li><strong>가드의 조건과 반환 타입이 어긋난다.</strong> <code>typeof x === &quot;object&quot;</code>는 <code>null</code>도 통과시킨다. 가드가 틀리면 컴파일러가 잘못된 타입을 믿게 되므로 가드 자체에 단위 테스트를 둔다.</li>
+<li><strong><code>strictPropertyInitialization</code>과 DI.</strong> NestJS 11의 프로퍼티 주입이나 ORM 엔티티 필드는 생성자에서 초기화하지 않아 오류가 난다. 생성자 주입으로 바꾸는 것이 우선이고, 프레임워크가 반드시 채우는 필드에만 <code>!</code> 확정 할당 단언을 쓴다.</li>
+<li><strong>점진 도입 시 오류 폭증.</strong> <code>strictNullChecks</code>를 켜면 대형 코드베이스는 수천 건의 오류가 나온다. <code>// @ts-expect-error</code>로 기록한 뒤 줄여 나가고, 오류가 사라져도 남는 <code>@ts-ignore</code>는 쓰지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/typescript/unions-narrowing/">유니온·교차·리터럴 타입과 Narrowing</a></li>
+<li><a href="/notes/typescript/tsconfig-build-esm-cjs/">tsconfig·빌드·ESM과 CJS</a></li>
+<li><a href="/notes/typescript/classes-decorators-modules/">클래스·데코레이터·모듈</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · TypeScript, strict, type guard, narrowing, error handling</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/typescript/tsconfig-build-esm-cjs/"><small>이전</small>tsconfig·빌드·ESM과 CJS</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

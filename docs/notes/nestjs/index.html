@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NestJS · Notes</title>
+  <meta name="description" content="모듈·컨트롤러·프로바이더와 DI, Pipe·Guard·Interceptor, 데이터베이스와 큐, 마이크로서비스, 테스트와 배포 — Spring 개발자 관점.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="NestJS · Notes">
+  <meta property="og:description" content="모듈·컨트롤러·프로바이더와 DI, Pipe·Guard·Interceptor, 데이터베이스와 큐, 마이크로서비스, 테스트와 배포 — Spring 개발자 관점.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>NestJS</span></nav>
+    <header class="series-head"><h1>NestJS</h1><p>모듈·컨트롤러·프로바이더와 DI, Pipe·Guard·Interceptor, 데이터베이스와 큐, 마이크로서비스, 테스트와 배포 — Spring 개발자 관점.</p><p class="count">10편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/nestjs/what-is-nestjs/"><span class="n">1</span><span class="t">NestJS란 — 모듈·컨트롤러·프로바이더</span><span class="s">NestJS는 모듈·컨트롤러·프로바이더 세 축과 DI 컨테이너로 Node 서버에 Spring식 구조를 부여한다</span></a></li>
+<li><a href="/notes/nestjs/di-modules/"><span class="n">2</span><span class="t">DI와 모듈 시스템</span><span class="s">NestJS 모듈이 프로바이더의 가시성을 어떻게 가르고, 커스텀 프로바이더와 스코프가 인스턴스 생성을 어떻게 바꾸는지 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>요청 처리</h2><ol class="toc"><li><a href="/notes/nestjs/pipes-validation-dto/"><span class="n">3</span><span class="t">Pipes·검증·DTO</span><span class="s">Pipe는 핸들러 진입 직전에 인자를 변환·검증하는 계층이며, ValidationPipe와 DTO 조합이 입력 검증의 표준이다</span></a></li>
+<li><a href="/notes/nestjs/guards-auth-jwt/"><span class="n">4</span><span class="t">Guards·인증 — Passport·JWT</span><span class="s">Guard는 핸들러 실행 전 요청의 자격을 판정하는 단일 지점이며, JWT 인증과 역할 인가를 여기서 분리해 처리한다.</span></a></li>
+<li><a href="/notes/nestjs/interceptors-filters-middleware/"><span class="n">5</span><span class="t">Interceptors·Exception Filters·Middleware</span><span class="s">요청 파이프라인의 세 가로축 — 어디서 무엇을 자르고, 무엇을 감싸고, 예외를 어디서 받는가</span></a></li></ol></section>
+<section class="part-group"><h2>데이터와 인프라</h2><ol class="toc"><li><a href="/notes/nestjs/database-typeorm-prisma/"><span class="n">6</span><span class="t">데이터베이스 — TypeORM·Prisma·트랜잭션</span><span class="s">NestJS에서 TypeORM과 Prisma를 DI 컨테이너에 올리는 방식과 트랜잭션 경계를 어디서 잡는지 정리한다</span></a></li>
+<li><a href="/notes/nestjs/config-logging/"><span class="n">7</span><span class="t">설정·환경·로깅</span><span class="s">환경 변수를 검증된 타입 객체로 주입하고, 부트스트랩 로그까지 한 로거로 모으는 방법을 정리한다</span></a></li>
+<li><a href="/notes/nestjs/caching-queues-scheduling/"><span class="n">8</span><span class="t">캐싱·큐(BullMQ)·스케줄링</span><span class="s">요청 경로에서 빼야 할 세 가지 일 — 반복 조회는 캐시로, 느린 작업은 큐로, 주기 작업은 스케줄러로 옮기는 방법</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/nestjs/microservices-kafka-grpc/"><span class="n">9</span><span class="t">마이크로서비스 — Kafka·gRPC</span><span class="s">NestJS 마이크로서비스 추상화 위에서 Kafka 이벤트와 gRPC 호출을 어떻게 나눠 쓰고 어디서 걸리는지 정리한다</span></a></li>
+<li><a href="/notes/nestjs/testing-deployment/"><span class="n">10</span><span class="t">테스트와 배포</span><span class="s">TestingModule로 의존성을 교체해 단위·e2e 테스트를 짜고, 빌드 산출물을 컨테이너로 안전하게 종료·배포하는 방법을 정리한다.</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

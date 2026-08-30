@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>유틸리티 타입·조건부 타입·매핑 타입 · TypeScript</title>
+  <meta name="description" content="기존 타입에서 새 타입을 파생하는 세 가지 도구의 동작 원리와 실무 함정을 정리한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="유틸리티 타입·조건부 타입·매핑 타입 · TypeScript">
+  <meta property="og:description" content="기존 타입에서 새 타입을 파생하는 세 가지 도구의 동작 원리와 실무 함정을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/typescript/utility-conditional-mapped-types/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/typescript/">TypeScript</a><span class="sep">›</span><span>유틸리티 타입·조건부 타입·매핑 타입</span></nav>
+    <article class="post">
+  <p class="part">TypeScript · 타입 시스템</p>
+  <h1>유틸리티 타입·조건부 타입·매핑 타입</h1>
+  <p class="summary">기존 타입에서 새 타입을 파생하는 세 가지 도구의 동작 원리와 실무 함정을 정리한다.</p>
+  <div class="content">
+<p>엔티티 하나를 두고 생성 요청, 수정 요청, 응답 DTO를 각각 손으로 선언하면 필드 하나가 바뀔 때마다 여러 곳을 고쳐야 하고, 한 곳이 빠지면 컴파일은 통과한 채 런타임에서 <code>undefined</code>가 흘러 다닌다. TypeScript는 기존 타입을 재료로 새 타입을 계산하는 수단으로 이 중복을 없앤다. 표준 라이브러리의 유틸리티 타입, 타입 수준 분기인 조건부 타입, 키를 순회하며 속성을 변환하는 매핑 타입이며, 유틸리티 타입 대부분은 나머지 둘로 구현되어 있다.</p>
+<h2>핵심 개념</h2>
+<h3>유틸리티 타입</h3>
+<p><code>lib.d.ts</code>에 전역으로 선언된 제네릭 타입이며 import 없이 쓴다.</p>
+<table>
+<thead>
+<tr>
+<th>분류</th>
+<th>타입</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>속성 수식자 변경</td>
+<td><code>Partial&lt;T&gt;</code>, <code>Required&lt;T&gt;</code>, <code>Readonly&lt;T&gt;</code></td>
+<td>모든 속성을 선택·필수·읽기 전용으로 바꾼다</td>
+</tr>
+<tr>
+<td>키 선택</td>
+<td><code>Pick&lt;T, K&gt;</code>, <code>Omit&lt;T, K&gt;</code></td>
+<td>일부 키만 남기거나 제거한다</td>
+</tr>
+<tr>
+<td>유니온 연산</td>
+<td><code>Exclude&lt;T, U&gt;</code>, <code>Extract&lt;T, U&gt;</code>, <code>NonNullable&lt;T&gt;</code></td>
+<td>유니온 멤버를 걸러 낸다</td>
+</tr>
+<tr>
+<td>객체 생성</td>
+<td><code>Record&lt;K, T&gt;</code></td>
+<td>키 집합과 값 타입으로 객체 타입을 만든다</td>
+</tr>
+<tr>
+<td>함수·클래스 추출</td>
+<td><code>ReturnType&lt;T&gt;</code>, <code>Parameters&lt;T&gt;</code>, <code>ConstructorParameters&lt;T&gt;</code>, <code>InstanceType&lt;T&gt;</code></td>
+<td>시그니처에서 일부를 꺼낸다</td>
+</tr>
+<tr>
+<td>Promise</td>
+<td><code>Awaited&lt;T&gt;</code></td>
+<td>중첩된 <code>Promise</code>를 재귀적으로 풀어 최종 값 타입을 얻는다</td>
+</tr>
+<tr>
+<td>문자열</td>
+<td><code>Uppercase</code>, <code>Lowercase</code>, <code>Capitalize</code>, <code>Uncapitalize</code></td>
+<td>템플릿 리터럴 타입과 함께 키 이름을 변환한다</td>
+</tr>
+</tbody></table>
+<p>Java/Spring에는 직접 대응하는 개념이 없다. MapStruct·Lombok이 소스 생성으로 DTO 변형을 만드는 효과를 컴파일러가 타입 수준에서 즉시 계산한다고 보면 된다. NestJS의 <code>@nestjs/mapped-types</code>가 제공하는 <code>PartialType</code>, <code>PickType</code>, <code>OmitType</code>은 런타임 데코레이터 메타데이터까지 복사한다는 점에서 구분된다.</p>
+<h3>조건부 타입</h3>
+<p><code>T extends U ? X : Y</code> 형태로, <code>T</code>가 <code>U</code>에 할당 가능하면 <code>X</code>, 아니면 <code>Y</code>로 평가된다. 타입 인자가 확정되는 시점에 지연 평가되며, 두 가지 성질이 중요하다.</p>
+<p>첫째, 분배(distributive) 법칙이다. 검사 대상이 벗은(naked) 타입 매개변수이고 유니온이 들어오면 각 멤버에 조건을 따로 적용한 뒤 결과를 다시 유니온으로 합친다. 분배를 막으려면 <code>[T] extends [U]</code>처럼 튜플로 감싼다.</p>
+<p>둘째, <code>infer</code> 키워드다. <code>extends</code> 절 안에서 타입의 일부를 새 타입 변수로 포착한다. <code>ReturnType&lt;T&gt;</code>는 <code>T extends (...args: any) =&gt; infer R ? R : any</code>로 정의되어 있고, <code>Awaited</code>는 <code>infer</code>를 재귀 적용해 <code>then</code> 콜백의 인자 타입을 뽑아낸다. <code>infer U extends string</code>처럼 포착 변수에 제약도 걸 수 있다.</p>
+<h3>매핑 타입</h3>
+<p><code>{ [K in Keys]: Type }</code> 문법으로 키 유니온을 순회하며 속성을 만든다. <code>keyof T</code>와 인덱스 접근 <code>T[K]</code>를 조합하면 원본 구조를 복제하면서 값 타입만 바꿀 수 있다.</p>
+<p><code>+</code>/<code>-</code> 접두어로 <code>readonly</code>와 <code>?</code> 수식자를 추가·제거한다. <code>keyof T</code>를 순회하는 동형(homomorphic) 매핑은 원본 수식자를 보존하지만, <code>Record</code>처럼 임의 키 집합을 순회하면 보존하지 않는다.</p>
+<p><code>as</code> 절은 키 리매핑을 담당한다. 템플릿 리터럴 타입으로 키 이름을 바꾸거나, 결과를 <code>never</code>로 평가해 특정 키를 제거한다.</p>
+<h2>코드</h2>
+<p>엔티티 하나에서 생성·수정·응답 타입을 파생한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">interface</span> <span class="hljs-title class_">Order</span> {
+  <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">userId</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">items</span>: { <span class="hljs-attr">sku</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">qty</span>: <span class="hljs-built_in">number</span> }[];
+  <span class="hljs-attr">status</span>: <span class="hljs-string">&quot;pending&quot;</span> | <span class="hljs-string">&quot;paid&quot;</span> | <span class="hljs-string">&quot;shipped&quot;</span> | <span class="hljs-string">&quot;cancelled&quot;</span>;
+  <span class="hljs-attr">createdAt</span>: <span class="hljs-title class_">Date</span>;
+  <span class="hljs-attr">updatedAt</span>: <span class="hljs-title class_">Date</span>;
+}
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">AuditKeys</span> = <span class="hljs-string">&quot;id&quot;</span> | <span class="hljs-string">&quot;createdAt&quot;</span> | <span class="hljs-string">&quot;updatedAt&quot;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">CreateOrderInput</span> = <span class="hljs-title class_">Omit</span>&lt;<span class="hljs-title class_">Order</span>, <span class="hljs-title class_">AuditKeys</span> | <span class="hljs-string">&quot;status&quot;</span>&gt;;
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">UpdateOrderInput</span> = <span class="hljs-title class_">Partial</span>&lt;<span class="hljs-title class_">Omit</span>&lt;<span class="hljs-title class_">Order</span>, <span class="hljs-title class_">AuditKeys</span> | <span class="hljs-string">&quot;userId&quot;</span>&gt;&gt;;
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">OrderResponse</span> = <span class="hljs-title class_">Readonly</span>&lt;<span class="hljs-title class_">Omit</span>&lt;<span class="hljs-title class_">Order</span>, <span class="hljs-string">&quot;userId&quot;</span>&gt;&gt; &amp; { <span class="hljs-attr">ownerName</span>: <span class="hljs-built_in">string</span> };
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">OrderStatusCount</span> = <span class="hljs-title class_">Record</span>&lt;<span class="hljs-title class_">Order</span>[<span class="hljs-string">&quot;status&quot;</span>], <span class="hljs-built_in">number</span>&gt;;
+
+<span class="hljs-keyword">const</span> <span class="hljs-attr">counts</span>: <span class="hljs-title class_">OrderStatusCount</span> = { <span class="hljs-attr">pending</span>: <span class="hljs-number">3</span>, <span class="hljs-attr">paid</span>: <span class="hljs-number">12</span>, <span class="hljs-attr">shipped</span>: <span class="hljs-number">7</span>, <span class="hljs-attr">cancelled</span>: <span class="hljs-number">1</span> };</code></pre>
+<p>조건부 타입과 <code>infer</code>로 Next.js Route Handler의 반환 타입에서 응답 본문 타입을 추출한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">type</span> <span class="hljs-title class_">JsonOf</span>&lt;T&gt; = T <span class="hljs-keyword">extends</span> { <span class="hljs-title function_">json</span>(): <span class="hljs-title class_">Promise</span>&lt;infer B&gt; } ? B : <span class="hljs-built_in">never</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">HandlerBody</span>&lt;H <span class="hljs-title function_">extends</span> (...<span class="hljs-attr">args</span>: <span class="hljs-built_in">any</span>[]) =&gt; <span class="hljs-built_in">any</span>&gt; =
+  <span class="hljs-title class_">JsonOf</span>&lt;<span class="hljs-title class_">Awaited</span>&lt;<span class="hljs-title class_">ReturnType</span>&lt;H&gt;&gt;&gt;;
+
+<span class="hljs-keyword">declare</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">GET</span>(<span class="hljs-params">
+  <span class="hljs-attr">req</span>: <span class="hljs-title class_">Request</span>,
+</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Response</span> &amp; { <span class="hljs-title function_">json</span>(): <span class="hljs-title class_">Promise</span>&lt;{ <span class="hljs-attr">orders</span>: <span class="hljs-title class_">Order</span>[]; <span class="hljs-attr">total</span>: <span class="hljs-built_in">number</span> }&gt; }&gt;;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">OrdersPayload</span> = <span class="hljs-title class_">HandlerBody</span>&lt;<span class="hljs-keyword">typeof</span> <span class="hljs-variable constant_">GET</span>&gt;;
+<span class="hljs-comment">// { orders: Order[]; total: number }</span>
+
+<span class="hljs-comment">// 분배 조건부 타입: 유니온 각 멤버에 따로 적용된다</span>
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">ToArray</span>&lt;T&gt; = T <span class="hljs-keyword">extends</span> <span class="hljs-built_in">unknown</span> ? T[] : <span class="hljs-built_in">never</span>;
+<span class="hljs-keyword">type</span> A = <span class="hljs-title class_">ToArray</span>&lt;<span class="hljs-built_in">string</span> | <span class="hljs-built_in">number</span>&gt;;            <span class="hljs-comment">// string[] | number[]</span>
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">NonDistributed</span>&lt;T&gt; = [T] <span class="hljs-keyword">extends</span> [<span class="hljs-built_in">unknown</span>] ? T[] : <span class="hljs-built_in">never</span>;
+<span class="hljs-keyword">type</span> B = <span class="hljs-title class_">NonDistributed</span>&lt;<span class="hljs-built_in">string</span> | <span class="hljs-built_in">number</span>&gt;;     <span class="hljs-comment">// (string | number)[]</span></code></pre>
+<p>키 리매핑으로 이벤트 타입에서 핸들러 맵을 만들고, <code>as</code> 절에서 <code>never</code>를 돌려 함수 속성을 걸러낸다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">type</span> <span class="hljs-title class_">Events</span> = {
+  <span class="hljs-attr">orderPaid</span>: { <span class="hljs-attr">orderId</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">amount</span>: <span class="hljs-built_in">number</span> };
+  <span class="hljs-attr">orderShipped</span>: { <span class="hljs-attr">orderId</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">carrier</span>: <span class="hljs-built_in">string</span> };
+};
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Handlers</span> = {
+  [E <span class="hljs-keyword">in</span> keyof <span class="hljs-title class_">Events</span> <span class="hljs-keyword">as</span> <span class="hljs-string">`on<span class="hljs-subst">${Capitalize&lt;E&gt;}</span>`</span>]: <span class="hljs-function">(<span class="hljs-params"><span class="hljs-attr">payload</span>: <span class="hljs-title class_">Events</span>[E]</span>) =&gt;</span> <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt;;
+};
+<span class="hljs-comment">// { onOrderPaid: (p: {...}) =&gt; Promise&lt;void&gt;; onOrderShipped: ... }</span>
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">DataOnly</span>&lt;T&gt; = {
+  [K <span class="hljs-keyword">in</span> keyof T <span class="hljs-keyword">as</span> T[K] <span class="hljs-title function_">extends</span> (...<span class="hljs-attr">args</span>: <span class="hljs-built_in">never</span>[]) =&gt; <span class="hljs-built_in">unknown</span> ? <span class="hljs-built_in">never</span> : K]: T[K];
+};
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Mutable</span>&lt;T&gt; = { -<span class="hljs-keyword">readonly</span> [K <span class="hljs-keyword">in</span> keyof T]: T[K] };
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Frozen</span> = <span class="hljs-title class_">Readonly</span>&lt;{ <span class="hljs-attr">a</span>: <span class="hljs-built_in">number</span>; <span class="hljs-attr">b</span>?: <span class="hljs-built_in">string</span> }&gt;;
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Thawed</span> = <span class="hljs-title class_">Mutable</span>&lt;<span class="hljs-title class_">Frozen</span>&gt;; <span class="hljs-comment">// { a: number; b?: string } — 선택 수식자는 유지된다</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>Omit&lt;T, K&gt;</code>의 <code>K</code>는 <code>keyof any</code>로 제약되어 <code>T</code>에 없는 키를 넘겨도 오류가 없다. <code>K extends keyof T</code>로 제약한 <code>StrictOmit</code>을 두면 리팩터링 누락을 잡는다. 또 <code>Omit</code>은 유니온에 분배되지 않아 판별 유니온에 적용하면 공통 속성만 남은 객체로 뭉개진다.</li>
+<li><code>Partial</code>은 <code>undefined</code> 할당을 막지 못한다. <code>exactOptionalPropertyTypes</code>를 켜지 않으면 <code>{ status: undefined }</code>가 PATCH 입력으로 통과해 컬럼이 null로 덮이므로, <code>undefined</code> 키를 걸러내는 처리가 함께 있어야 한다.</li>
+<li>조건부 타입에 <code>any</code>가 들어오면 분기 양쪽의 유니온이 되고, <code>never</code>가 벗은 매개변수로 들어오면 분배 결과가 <code>never</code>가 된다. 예상과 다른 결과가 나오면 이 두 경우부터 의심한다.</li>
+<li>재귀 매핑 타입(<code>DeepPartial</code> 등)은 <code>Date</code>, <code>Map</code>, 클래스 인스턴스까지 속성 단위로 풀어 버리므로 내장 객체를 먼저 걸러내는 분기가 앞에 있어야 한다. 인스턴스화 깊이 한도가 있어 넓은 스키마에서는 tsc와 에디터 응답이 느려진다.</li>
+<li>복잡한 파생 타입은 오류 메시지에서 원본 이름이 사라지고 전개된 구조만 보인다. 공개 API 경계에서는 한 번 평탄화하거나 명시적 인터페이스로 다시 선언하는 편이 가독성에 유리하다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/typescript/generics/">제네릭</a></li>
+<li><a href="/notes/typescript/unions-narrowing/">유니온·교차·리터럴 타입과 Narrowing</a></li>
+<li><a href="/notes/typescript/strict-mode-practical-patterns/">실무 패턴 — strict 모드·타입 가드·에러 처리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · TypeScript, Utility Types, Conditional Types, Mapped Types, infer</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/typescript/unions-narrowing/"><small>이전</small>유니온·교차·리터럴 타입과 Narrowing</a>
+  <a class="next" href="/notes/typescript/classes-decorators-modules/"><small>다음</small>클래스·데코레이터·모듈</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

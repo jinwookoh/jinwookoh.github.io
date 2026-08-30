@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>설정·환경·로깅 · NestJS</title>
+  <meta name="description" content="환경 변수를 검증된 타입 객체로 주입하고, 부트스트랩 로그까지 한 로거로 모으는 방법을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="설정·환경·로깅 · NestJS">
+  <meta property="og:description" content="환경 변수를 검증된 타입 객체로 주입하고, 부트스트랩 로그까지 한 로거로 모으는 방법을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/config-logging/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nestjs/">NestJS</a><span class="sep">›</span><span>설정·환경·로깅</span></nav>
+    <article class="post">
+  <p class="part">NestJS · 데이터와 인프라</p>
+  <h1>설정·환경·로깅</h1>
+  <p class="summary">환경 변수를 검증된 타입 객체로 주입하고, 부트스트랩 로그까지 한 로거로 모으는 방법을 정리한다</p>
+  <div class="content">
+<p>서비스 코드에서 <code>process.env</code>를 직접 읽으면 값이 항상 <code>string | undefined</code>라 파싱과 null 체크가 반복되고, 필수 변수가 빠진 채 기동해도 해당 코드가 실행되기 전까지 오류가 나지 않는다. 로깅도 마찬가지로 <code>console.log</code>를 흩어 쓰면 레벨을 한 곳에서 조절할 수 없고, 프레임워크 부트스트랩 로그와 애플리케이션 로그의 형식이 달라 수집기 파싱이 깨진다. <code>@nestjs/config</code>와 내장 <code>Logger</code>가 이 둘을 DI 안에서 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>Spring 대응으로 <code>ConfigModule</code> ≈ <code>Environment</code> + <code>@ConfigurationProperties</code>, <code>Logger</code> ≈ SLF4J 파사드 + Logback 구현체다.</p>
+<h3>ConfigModule과 ConfigService</h3>
+<p><code>ConfigModule.forRoot()</code>는 기동 시 <code>.env</code> 파일을 읽어 <code>process.env</code>에 병합하고 <code>ConfigService</code> 프로바이더로 노출한다. <code>isGlobal</code>로 전역 등록, <code>envFilePath</code>로 파일 경로(배열이면 앞쪽 우선), <code>ignoreEnvFile</code>로 파일 무시, <code>load</code>로 가공 팩토리 등록, <code>validate</code>나 <code>validationSchema</code>로 기동 시 검증, <code>cache</code>로 조회 캐시, <code>expandVariables</code>로 <code>${VAR}</code> 참조 전개를 지정한다.</p>
+<p><code>ConfigService.get&lt;T&gt;(key)</code>는 <code>T | undefined</code>를 반환한다. 제네릭 첫 번째 인자에 환경 변수 인터페이스, 두 번째에 <code>true</code>를 넘기면 <code>undefined</code>가 제외되고, <code>{ infer: true }</code>를 붙이면 키로부터 값 타입을 추론한다. <code>getOrThrow(key)</code>는 값이 없으면 즉시 예외를 던진다.</p>
+<h3>네임스페이스 설정과 registerAs</h3>
+<p><code>registerAs(&#39;database&#39;, () =&gt; ({...}))</code>는 팩토리를 키 아래에 묶는다. <code>ConfigService.get(&#39;database.url&#39;)</code>처럼 점 표기로 읽거나, <code>@Inject(databaseConfig.KEY)</code>로 주입해 <code>ConfigType&lt;typeof databaseConfig&gt;</code> 타입을 받는다. 후자가 Spring의 <code>@ConfigurationProperties(prefix = &quot;database&quot;)</code>에 가장 가깝다. 기능 모듈에서만 필요한 설정은 <code>ConfigModule.forFeature()</code>로 부분 등록한다.</p>
+<h3>검증</h3>
+<p><code>validate</code>에는 <code>Record&lt;string, unknown&gt;</code>을 받아 검증된 객체를 반환하는 동기 함수를 넘긴다. <code>class-validator</code>와 <code>class-transformer</code>를 조합하면 DTO와 같은 데코레이터 방식이 되고, <code>validationSchema</code>에는 Standard Schema 호환 스키마(Zod 등)를 넘긴다. 실패 시 기동이 중단되어 잘못된 배포가 트래픽을 받기 전에 걸러진다.</p>
+<h3>Logger와 LoggerService</h3>
+<p><code>@nestjs/common</code>의 <code>Logger</code>는 파사드이고 실제 출력은 <code>ConsoleLogger</code>가 맡는다. <code>NestFactory.create()</code>의 <code>logger</code> 옵션으로 구현체를 교체하거나 레벨 배열(<code>fatal</code>, <code>error</code>, <code>warn</code>, <code>log</code>, <code>debug</code>, <code>verbose</code>)로 출력을 제한한다. <code>LoggerService</code>를 구현하면 pino나 winston도 끼울 수 있다. <code>ConsoleLogger</code> 옵션 중 <code>json: true</code>는 한 줄 JSON 출력, <code>prefix</code>는 접두어, <code>colors: false</code>는 stdout의 ANSI 코드를 막는다.</p>
+<h2>코드</h2>
+<p>환경 변수 스키마를 클래스로 선언하고 기동 시 검증한다. <code>enableImplicitConversion</code>이 있어야 문자열이 <code>number</code>로 변환된 뒤 <code>@IsNumber()</code>를 통과한다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/config/env.validation.ts</span>
+<span class="hljs-keyword">import</span> { plainToInstance } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;class-transformer&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">IsEnum</span>, <span class="hljs-title class_">IsNumber</span>, <span class="hljs-title class_">IsString</span>, <span class="hljs-title class_">Max</span>, <span class="hljs-title class_">Min</span>, validateSync } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;class-validator&#x27;</span>;
+
+<span class="hljs-keyword">enum</span> <span class="hljs-title class_">Environment</span> {
+  <span class="hljs-title class_">Development</span> = <span class="hljs-string">&#x27;development&#x27;</span>,
+  <span class="hljs-title class_">Production</span> = <span class="hljs-string">&#x27;production&#x27;</span>,
+  <span class="hljs-title class_">Test</span> = <span class="hljs-string">&#x27;test&#x27;</span>,
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">EnvironmentVariables</span> {
+  <span class="hljs-meta">@IsEnum</span>(<span class="hljs-title class_">Environment</span>)
+  <span class="hljs-attr">NODE_ENV</span>: <span class="hljs-title class_">Environment</span>;
+
+  <span class="hljs-meta">@IsNumber</span>()
+  <span class="hljs-meta">@Min</span>(<span class="hljs-number">0</span>)
+  <span class="hljs-meta">@Max</span>(<span class="hljs-number">65535</span>)
+  <span class="hljs-attr">PORT</span>: <span class="hljs-built_in">number</span>;
+
+  <span class="hljs-meta">@IsString</span>()
+  <span class="hljs-attr">DATABASE_URL</span>: <span class="hljs-built_in">string</span>;
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">validate</span>(<span class="hljs-params"><span class="hljs-attr">config</span>: <span class="hljs-title class_">Record</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">unknown</span>&gt;</span>) {
+  <span class="hljs-keyword">const</span> validated = <span class="hljs-title function_">plainToInstance</span>(<span class="hljs-title class_">EnvironmentVariables</span>, config, {
+    <span class="hljs-attr">enableImplicitConversion</span>: <span class="hljs-literal">true</span>,
+  });
+  <span class="hljs-keyword">const</span> errors = <span class="hljs-title function_">validateSync</span>(validated, { <span class="hljs-attr">skipMissingProperties</span>: <span class="hljs-literal">false</span> });
+  <span class="hljs-keyword">if</span> (errors.<span class="hljs-property">length</span> &gt; <span class="hljs-number">0</span>) {
+    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(errors.<span class="hljs-title function_">toString</span>());
+  }
+  <span class="hljs-keyword">return</span> validated;
+}</code></pre>
+<p>네임스페이스 설정을 전역 등록하고 서비스에서 타입 안전하게 주입받는다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/config/database.config.ts</span>
+<span class="hljs-keyword">import</span> { registerAs } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/config&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-title function_">registerAs</span>(<span class="hljs-string">&#x27;database&#x27;</span>, <span class="hljs-function">() =&gt;</span> ({
+  <span class="hljs-attr">url</span>: process.<span class="hljs-property">env</span>.<span class="hljs-property">DATABASE_URL</span>!,
+  <span class="hljs-attr">poolSize</span>: <span class="hljs-title class_">Number</span>(process.<span class="hljs-property">env</span>.<span class="hljs-property">DATABASE_POOL_SIZE</span> ?? <span class="hljs-number">10</span>),
+}));
+
+<span class="hljs-comment">// src/app.module.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Module</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ConfigModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/config&#x27;</span>;
+<span class="hljs-keyword">import</span> databaseConfig <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./config/database.config&#x27;</span>;
+<span class="hljs-keyword">import</span> { validate } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./config/env.validation&#x27;</span>;
+
+<span class="hljs-meta">@Module</span>({
+  <span class="hljs-attr">imports</span>: [
+    <span class="hljs-title class_">ConfigModule</span>.<span class="hljs-title function_">forRoot</span>({
+      <span class="hljs-attr">isGlobal</span>: <span class="hljs-literal">true</span>,
+      <span class="hljs-attr">envFilePath</span>: [<span class="hljs-string">`.env.<span class="hljs-subst">${process.env.NODE_ENV}</span>`</span>, <span class="hljs-string">&#x27;.env&#x27;</span>],
+      <span class="hljs-attr">load</span>: [databaseConfig],
+      validate,
+      <span class="hljs-attr">cache</span>: <span class="hljs-literal">true</span>,
+    }),
+  ],
+})
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AppModule</span> {}
+
+<span class="hljs-comment">// src/database/database.service.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Inject</span>, <span class="hljs-title class_">Injectable</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ConfigService</span>, <span class="hljs-title class_">ConfigType</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/config&#x27;</span>;
+<span class="hljs-keyword">import</span> databaseConfig <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../config/database.config&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">EnvironmentVariables</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../config/env.validation&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DatabaseService</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-meta">@Inject</span>(databaseConfig.KEY)
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">db</span>: <span class="hljs-title class_">ConfigType</span>&lt;<span class="hljs-keyword">typeof</span> databaseConfig&gt;,
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">config</span>: <span class="hljs-title class_">ConfigService</span>&lt;<span class="hljs-title class_">EnvironmentVariables</span>, <span class="hljs-literal">true</span>&gt;,
+  </span>) {}
+
+  <span class="hljs-title function_">describe</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-keyword">const</span> port = <span class="hljs-variable language_">this</span>.<span class="hljs-property">config</span>.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;PORT&#x27;</span>, { <span class="hljs-attr">infer</span>: <span class="hljs-literal">true</span> }); <span class="hljs-comment">// number</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-string">`<span class="hljs-subst">${<span class="hljs-variable language_">this</span>.db.url}</span> (pool=<span class="hljs-subst">${<span class="hljs-variable language_">this</span>.db.poolSize}</span>, port=<span class="hljs-subst">${port}</span>)`</span>;
+  }
+}</code></pre>
+<p>부트스트랩 로그까지 JSON 로거로 내보내고, 서비스에서는 컨텍스트를 붙여 쓴다. <code>bufferLogs: true</code>면 <code>useLogger()</code> 호출 전 로그가 버퍼에 쌓였다가 교체된 로거로 출력된다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/main.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ConsoleLogger</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">NestFactory</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/core&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ConfigService</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/config&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">AppModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./app.module&#x27;</span>;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">bootstrap</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> app = <span class="hljs-keyword">await</span> <span class="hljs-title class_">NestFactory</span>.<span class="hljs-title function_">create</span>(<span class="hljs-title class_">AppModule</span>, { <span class="hljs-attr">bufferLogs</span>: <span class="hljs-literal">true</span> });
+
+  <span class="hljs-keyword">const</span> isProd = process.<span class="hljs-property">env</span>.<span class="hljs-property">NODE_ENV</span> === <span class="hljs-string">&#x27;production&#x27;</span>;
+  app.<span class="hljs-title function_">useLogger</span>(
+    <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConsoleLogger</span>({
+      <span class="hljs-attr">prefix</span>: <span class="hljs-string">&#x27;orders-api&#x27;</span>,
+      <span class="hljs-attr">json</span>: isProd,
+      <span class="hljs-attr">colors</span>: !isProd,
+      <span class="hljs-attr">logLevels</span>: isProd ? [<span class="hljs-string">&#x27;fatal&#x27;</span>, <span class="hljs-string">&#x27;error&#x27;</span>, <span class="hljs-string">&#x27;warn&#x27;</span>, <span class="hljs-string">&#x27;log&#x27;</span>] : [<span class="hljs-string">&#x27;fatal&#x27;</span>, <span class="hljs-string">&#x27;error&#x27;</span>, <span class="hljs-string">&#x27;warn&#x27;</span>, <span class="hljs-string">&#x27;log&#x27;</span>, <span class="hljs-string">&#x27;debug&#x27;</span>, <span class="hljs-string">&#x27;verbose&#x27;</span>],
+    }),
+  );
+
+  <span class="hljs-keyword">const</span> config = app.<span class="hljs-title function_">get</span>(<span class="hljs-title class_">ConfigService</span>);
+  <span class="hljs-keyword">await</span> app.<span class="hljs-title function_">listen</span>(config.<span class="hljs-property">getOrThrow</span>&lt;<span class="hljs-built_in">number</span>&gt;(<span class="hljs-string">&#x27;PORT&#x27;</span>));
+}
+<span class="hljs-title function_">bootstrap</span>();
+
+<span class="hljs-comment">// src/orders/orders.service.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">Logger</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrdersService</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> logger = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Logger</span>(<span class="hljs-title class_">OrdersService</span>.<span class="hljs-property">name</span>);
+
+  <span class="hljs-title function_">create</span>(<span class="hljs-params"><span class="hljs-attr">orderId</span>: <span class="hljs-built_in">string</span></span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">logger</span>.<span class="hljs-title function_">log</span>(<span class="hljs-string">`order created id=<span class="hljs-subst">${orderId}</span>`</span>);
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-comment">// ...</span>
+    } <span class="hljs-keyword">catch</span> (err) {
+      <span class="hljs-variable language_">this</span>.<span class="hljs-property">logger</span>.<span class="hljs-title function_">error</span>(<span class="hljs-string">`order failed id=<span class="hljs-subst">${orderId}</span>`</span>, (err <span class="hljs-keyword">as</span> <span class="hljs-title class_">Error</span>).<span class="hljs-property">stack</span>);
+      <span class="hljs-keyword">throw</span> err;
+    }
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>.env</code> 파일은 <code>process.env</code>를 덮어쓰지 않는다.</strong> 셸이나 컨테이너 런타임이 설정한 변수가 우선한다. 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 <code>ignoreEnvFile: true</code>로 파일 의존을 끊는다.</li>
+<li><strong><code>ConfigService</code>를 <code>forRoot()</code> 이전에 쓸 수 없다.</strong> 설정에 의존하는 동적 모듈은 <code>TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })</code> 형태로 비동기 등록해야 한다. 동기 <code>forRoot()</code>에 <code>process.env</code>를 직접 넣으면 파일이 아직 읽히지 않아 <code>undefined</code>가 들어간다.</li>
+<li><strong><code>cache: true</code>는 런타임 변경을 반영하지 않는다.</strong> 기동 이후 <code>process.env</code>를 바꿔도 <code>ConfigService</code>에는 보이지 않으므로, 테스트에서 변수를 바꿔 가며 검증할 때 원인이 되기 쉽다.</li>
+<li><strong><code>bufferLogs</code> 없이 <code>useLogger()</code>를 호출하면 부트스트랩 로그는 기본 로거로 나간다.</strong> 모듈 초기화 로그가 텍스트로 먼저 찍히고 이후부터 JSON이 되어 수집기 파싱이 깨진다. 기동 실패 시 버퍼가 비워지지 않을 수 있으므로 <code>catch</code>에서 <code>app.flushLogs()</code>를 호출한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nestjs/di-modules/">DI와 모듈 시스템</a></li>
+<li><a href="/notes/nestjs/database-typeorm-prisma/">데이터베이스 — TypeORM·Prisma·트랜잭션</a></li>
+<li><a href="/notes/nestjs/testing-deployment/">테스트와 배포</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · NestJS, ConfigModule, ConfigService, Logger, ConsoleLogger</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nestjs/database-typeorm-prisma/"><small>이전</small>데이터베이스 — TypeORM·Prisma·트랜잭션</a>
+  <a class="next" href="/notes/nestjs/caching-queues-scheduling/"><small>다음</small>캐싱·큐(BullMQ)·스케줄링</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

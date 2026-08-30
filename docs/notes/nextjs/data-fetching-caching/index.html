@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>데이터 페칭·캐싱·revalidate · Next.js</title>
+  <meta name="description" content="Next.js 15의 네 가지 캐시 계층과 fetch 옵션·revalidate·태그 무효화를 어떤 기준으로 조합하는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="데이터 페칭·캐싱·revalidate · Next.js">
+  <meta property="og:description" content="Next.js 15의 네 가지 캐시 계층과 fetch 옵션·revalidate·태그 무효화를 어떤 기준으로 조합하는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nextjs/data-fetching-caching/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nextjs/">Next.js</a><span class="sep">›</span><span>데이터 페칭·캐싱·revalidate</span></nav>
+    <article class="post">
+  <p class="part">Next.js · 데이터</p>
+  <h1>데이터 페칭·캐싱·revalidate</h1>
+  <p class="summary">Next.js 15의 네 가지 캐시 계층과 fetch 옵션·revalidate·태그 무효화를 어떤 기준으로 조합하는지 정리한다</p>
+  <div class="content">
+<p>Server Component는 서버에서 직접 데이터를 읽어 렌더링하므로, 캐시 전략을 정하지 않으면 페이지 요청마다 원격 API와 DB를 그대로 때린다. 반대로 캐시를 켜 두고 무효화 경로를 설계하지 않으면 데이터를 수정해도 화면이 바뀌지 않는다. Next.js는 이 문제를 요청 메모이제이션, Data Cache, Full Route Cache, Router Cache라는 네 계층으로 나누어 처리하며, 각 계층이 어디에 살고 언제 비워지는지 알아야 &quot;왜 데이터가 안 바뀌는가&quot;와 &quot;왜 매번 느린가&quot;를 구분할 수 있다.</p>
+<h2>핵심 개념</h2>
+<p>네 계층은 저장 위치와 수명이 다르다.</p>
+<table>
+<thead>
+<tr>
+<th>계층</th>
+<th>위치</th>
+<th>대상</th>
+<th>수명</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Request Memoization</td>
+<td>서버, 렌더 1회</td>
+<td>같은 URL·옵션의 <code>fetch</code> 반환값</td>
+<td>한 번의 렌더 트리가 끝나면 소멸</td>
+</tr>
+<tr>
+<td>Data Cache</td>
+<td>서버, 배포 간 유지</td>
+<td><code>fetch</code> 응답, <code>unstable_cache</code> 결과</td>
+<td>revalidate 시간 또는 on-demand 무효화까지</td>
+</tr>
+<tr>
+<td>Full Route Cache</td>
+<td>서버</td>
+<td>프리렌더된 RSC payload + HTML</td>
+<td>Data Cache 무효화·재배포까지</td>
+</tr>
+<tr>
+<td>Router Cache</td>
+<td>브라우저 메모리</td>
+<td>방문한 세그먼트의 RSC payload</td>
+<td>세션 동안, 동적 세그먼트는 짧게</td>
+</tr>
+</tbody></table>
+<p>요청 메모이제이션은 React의 기능이다. 한 렌더 패스 안에서 동일한 <code>fetch(url, options)</code>가 여러 컴포넌트에서 호출되면 첫 호출만 네트워크로 나가고 나머지는 결과를 공유한다. <code>fetch</code>가 아닌 ORM 호출은 React의 <code>cache()</code>로 감싸야 같은 효과를 얻는다.</p>
+<p>Data Cache는 Next.js가 서버에 두는 영속 캐시다. Next.js 15부터 <code>fetch</code>의 기본값은 캐시하지 않음이며, <code>cache: &#39;force-cache&#39;</code>를 명시하거나 <code>next: { revalidate: n }</code>을 주어야 저장된다. 14까지는 기본이 캐시였으므로 마이그레이션 시 동작이 뒤집힌다. <code>next: { tags: [...] }</code>로 항목에 태그를 붙이면 <code>revalidateTag</code>로 묶어서 지울 수 있다. <code>fetch</code>를 쓰지 않는 DB 쿼리는 <code>unstable_cache(fn, keyParts, { revalidate, tags })</code>로 감싸 Data Cache에 넣는다.</p>
+<p>Full Route Cache는 빌드 시점에 정적으로 렌더링된 라우트의 결과물이다. 라우트 안의 모든 데이터가 캐시 가능하고 <code>cookies()</code>, <code>headers()</code>, <code>searchParams</code> 같은 요청 시점 API를 쓰지 않으면 정적 라우트가 되어 여기에 저장된다. 하나라도 동적 요소가 있으면 라우트 전체가 요청마다 렌더링되지만, Data Cache는 별개로 계속 동작한다.</p>
+<p>ISR은 Full Route Cache에 시간 조건을 붙인 것이다. 세그먼트에서 <code>export const revalidate = 60</code>을 내보내면 60초가 지난 뒤 들어온 첫 요청은 오래된 페이지를 즉시 받고, 백그라운드에서 재생성이 시작되며, 성공하면 다음 요청부터 새 페이지가 나간다. 재생성 중 예외가 나면 마지막 성공본이 계속 서빙된다. <code>revalidatePath</code>와 <code>revalidateTag</code>는 캐시를 지우기만 하고 다음 요청 때 재생성한다.</p>
+<p>Spring과 견주면 Data Cache는 <code>@Cacheable</code> + TTL, <code>revalidateTag</code>는 <code>@CacheEvict(allEntries)</code>에 해당하며, 요청 메모이제이션은 요청 스코프 빈에 결과를 담아 두는 것과 같다.</p>
+<h2>코드</h2>
+<p>세그먼트 단위 ISR과 개별 <code>fetch</code>의 태그를 함께 쓴 목록 페이지다. <code>revalidate</code>는 정적으로 분석 가능한 리터럴이어야 한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// app/posts/page.tsx</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> revalidate = <span class="hljs-number">3600</span>
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">Post</span> {
+  <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>
+  <span class="hljs-attr">title</span>: <span class="hljs-built_in">string</span>
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">PostsPage</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">&#x27;https://api.example.com/posts&#x27;</span>, {
+    <span class="hljs-attr">next</span>: { <span class="hljs-attr">tags</span>: [<span class="hljs-string">&#x27;posts&#x27;</span>] },
+  })
+  <span class="hljs-keyword">const</span> <span class="hljs-attr">posts</span>: <span class="hljs-title class_">Post</span>[] = <span class="hljs-keyword">await</span> res.<span class="hljs-title function_">json</span>()
+
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">ul</span>&gt;</span>
+      {posts.map((p) =&gt; (
+        <span class="hljs-tag">&lt;<span class="hljs-name">li</span> <span class="hljs-attr">key</span>=<span class="hljs-string">{p.id}</span>&gt;</span>{p.title}<span class="hljs-tag">&lt;/<span class="hljs-name">li</span>&gt;</span>
+      ))}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">ul</span>&gt;</span></span>
+  )
+}</code></pre>
+<p>DB를 직접 읽는 함수는 <code>unstable_cache</code>로 Data Cache에 넣고, 같은 렌더 안의 중복 호출은 React <code>cache</code>로 합친다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// lib/posts.ts</span>
+<span class="hljs-keyword">import</span> { cache } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>
+<span class="hljs-keyword">import</span> { unstable_cache } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;next/cache&#x27;</span>
+<span class="hljs-keyword">import</span> { db } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@/lib/db&#x27;</span>
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> getPostsCached = <span class="hljs-title function_">unstable_cache</span>(
+  <span class="hljs-title function_">async</span> () =&gt; db.<span class="hljs-property">post</span>.<span class="hljs-title function_">findMany</span>({ <span class="hljs-attr">orderBy</span>: { <span class="hljs-attr">createdAt</span>: <span class="hljs-string">&#x27;desc&#x27;</span> } }),
+  [<span class="hljs-string">&#x27;posts-list&#x27;</span>],
+  { <span class="hljs-attr">revalidate</span>: <span class="hljs-number">3600</span>, <span class="hljs-attr">tags</span>: [<span class="hljs-string">&#x27;posts&#x27;</span>] },
+)
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">const</span> getPost = <span class="hljs-title function_">cache</span>(<span class="hljs-title function_">async</span> (<span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>) =&gt; {
+  <span class="hljs-keyword">return</span> db.<span class="hljs-property">post</span>.<span class="hljs-title function_">findUnique</span>({ <span class="hljs-attr">where</span>: { id } })
+})</code></pre>
+<p>쓰기 이후에는 Server Action에서 태그를 무효화한다. 경로 전체를 지우려면 <code>revalidatePath</code>를 쓴다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// app/posts/actions.ts</span>
+<span class="hljs-string">&#x27;use server&#x27;</span>
+
+<span class="hljs-keyword">import</span> { revalidateTag, revalidatePath } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;next/cache&#x27;</span>
+<span class="hljs-keyword">import</span> { db } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@/lib/db&#x27;</span>
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">createPost</span>(<span class="hljs-params"><span class="hljs-attr">formData</span>: <span class="hljs-title class_">FormData</span></span>) {
+  <span class="hljs-keyword">const</span> title = <span class="hljs-title class_">String</span>(formData.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;title&#x27;</span>) ?? <span class="hljs-string">&#x27;&#x27;</span>)
+  <span class="hljs-keyword">await</span> db.<span class="hljs-property">post</span>.<span class="hljs-title function_">create</span>({ <span class="hljs-attr">data</span>: { title } })
+  <span class="hljs-title function_">revalidateTag</span>(<span class="hljs-string">&#x27;posts&#x27;</span>)
+  <span class="hljs-title function_">revalidatePath</span>(<span class="hljs-string">&#x27;/posts&#x27;</span>)
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>15 기본값 역전. 14에서 캐시에 기대던 <code>fetch</code>가 15에서는 매 요청 원격 호출로 바뀐다. 업그레이드 후 외부 API 호출량이 급증하면 이 지점부터 확인한다.</li>
+<li>동적 요소 하나가 라우트 전체를 동적으로 만든다. layout에서 <code>cookies()</code>를 읽으면 그 아래 모든 page가 Full Route Cache에서 빠진다. 사용자별 정보는 Client Component나 별도 Suspense 경계로 분리한다.</li>
+<li>revalidate 값은 라우트에서 가장 짧은 값이 이긴다. 한 <code>fetch</code>에 <code>revalidate: 0</code>이나 <code>no-store</code>가 있으면 라우트가 동적 렌더링으로 전환된다. <code>revalidate = 60 * 10</code> 같은 계산식은 빌드가 거부한다.</li>
+<li>다중 인스턴스 배포에서 기본 캐시는 파일 시스템이라 인스턴스마다 따로 존재한다. <code>revalidateTag</code>가 호출을 받은 인스턴스만 비우므로 Redis 등 공유 cacheHandler를 설정해야 한다.</li>
+<li>개발 서버에서는 페이지가 항상 즉시 렌더링되고 캐시되지 않는다. ISR 검증은 <code>next build</code> 후 <code>next start</code>로 하고, <code>next.config</code>의 <code>logging.fetches.fullUrl</code>을 켜면 어떤 <code>fetch</code>가 캐시를 탔는지 로그로 드러난다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nextjs/what-is-nextjs-rendering/">Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</a></li>
+<li><a href="/notes/nextjs/server-vs-client-components/">Server Components와 Client Components</a></li>
+<li><a href="/notes/nextjs/server-actions-forms/">Server Actions·폼·mutation</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Next.js, Data Cache, ISR, revalidateTag, unstable_cache</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nextjs/server-vs-client-components/"><small>이전</small>Server Components와 Client Components</a>
+  <a class="next" href="/notes/nextjs/server-actions-forms/"><small>다음</small>Server Actions·폼·mutation</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server Components와 Client Components · Next.js</title>
+  <meta name="description" content="서버 전용 렌더링을 기본으로 두고, 상호작용이 필요한 최소 범위에만 'use client' 경계를 긋는 기준을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Server Components와 Client Components · Next.js">
+  <meta property="og:description" content="서버 전용 렌더링을 기본으로 두고, 상호작용이 필요한 최소 범위에만 'use client' 경계를 긋는 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nextjs/server-vs-client-components/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nextjs/">Next.js</a><span class="sep">›</span><span>Server Components와 Client Components</span></nav>
+    <article class="post">
+  <p class="part">Next.js · 기초</p>
+  <h1>Server Components와 Client Components</h1>
+  <p class="summary">서버 전용 렌더링을 기본으로 두고, 상호작용이 필요한 최소 범위에만 'use client' 경계를 긋는 기준을 정리한다</p>
+  <div class="content">
+<p>전통적인 React SPA는 모든 컴포넌트 코드를 브라우저로 보내고, 데이터도 브라우저가 API를 호출해 받아온다. 한 번 그리고 끝나는 정적 본문과 그 파싱 라이브러리까지 번들에 포함된다. DB 접근 코드는 브라우저에 둘 수 없으니 API 계층이 필수이고, 렌더링 전에 네트워크 왕복이 한 번 더 생긴다. Next.js App Router는 컴포넌트를 실행 환경에 따라 두 종류로 나누어 이 비용을 줄인다.</p>
+<h2>핵심 개념</h2>
+<p>App Router의 모든 컴포넌트는 기본이 Server Component다. 서버에서 렌더링되어 결과가 RSC Payload라는 직렬화 형식으로 클라이언트에 전달되고, 그 자바스크립트 코드는 브라우저로 보내지 않는다. 따라서 파일 시스템, 데이터베이스 클라이언트, 비밀 키를 컴포넌트 안에서 바로 사용할 수 있다. <code>async</code> 함수로 선언하고 본문에서 <code>await</code>로 데이터를 받는 것도 허용된다. 반대로 <code>useState</code>, <code>useEffect</code> 같은 훅과 <code>onClick</code> 같은 이벤트 핸들러, <code>window</code> 접근은 쓸 수 없다.</p>
+<p>Client Component는 파일 최상단에 <code>&#39;use client&#39;</code> 지시어를 선언한 모듈이다. 이 지시어는 모듈 그래프의 경계를 표시한다. 해당 파일과 그 파일이 import하는 모든 모듈은 클라이언트 번들에 포함된다. 이름과 달리 클라이언트 컴포넌트도 첫 요청 시에는 서버에서 HTML로 프리렌더링되고, 브라우저에서 hydration 과정을 거쳐 이벤트 핸들러가 붙는다.</p>
+<p>서버는 Server Component를 실행해 RSC Payload를 만들고 그 안에 Client Component의 참조와 props를 기록한다. 초기 요청은 HTML과 함께 전달되고, 이후 페이지 이동에서는 RSC Payload만 받아 트리를 갱신한다.</p>
+<p>두 종류의 경계를 넘나드는 데는 제약이 있다. Server Component에서 Client Component를 import하는 것은 자유롭지만, 그 반대는 불가능하다. 대신 Server Component를 <code>children</code>이나 다른 prop으로 넘기는 방식은 허용된다. 또한 경계를 넘어가는 props는 직렬화 가능해야 한다. 함수, 클래스 인스턴스, Date 같은 값은 그대로 넘길 수 없고, Server Action 함수만 예외로 전달된다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>Server Component</th>
+<th>Client Component</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>선언</td>
+<td>기본값</td>
+<td><code>&#39;use client&#39;</code></td>
+</tr>
+<tr>
+<td>데이터 접근</td>
+<td>DB·파일·비밀 키 직접 사용</td>
+<td>fetch 또는 props</td>
+</tr>
+<tr>
+<td>훅·이벤트</td>
+<td>불가</td>
+<td>가능</td>
+</tr>
+<tr>
+<td>번들 포함</td>
+<td>안 됨</td>
+<td>포함</td>
+</tr>
+<tr>
+<td>렌더링 위치</td>
+<td>서버만</td>
+<td>서버 프리렌더 + 브라우저</td>
+</tr>
+</tbody></table>
+<p>Spring과 대응시키면 Server Component는 서비스 계층을 직접 호출하는 Thymeleaf 템플릿, Client Component는 그 위에 얹는 브라우저 스크립트에 해당한다. <code>server-only</code> 패키지는 모듈이 클라이언트 번들에 섞이면 빌드를 실패시키므로 계층 침범을 컴파일 시점에 막는 역할을 한다.</p>
+<h2>코드</h2>
+<p>데이터베이스에 직접 접근하는 Server Component다. 비밀 키와 쿼리 코드는 브라우저로 전달되지 않는다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/posts/page.tsx</span>
+<span class="hljs-keyword">import</span> { db } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@/lib/db&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">LikeButton</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./like-button&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">PostsPage</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> posts = <span class="hljs-keyword">await</span> db.<span class="hljs-property">post</span>.<span class="hljs-title function_">findMany</span>({ <span class="hljs-attr">orderBy</span>: { <span class="hljs-attr">createdAt</span>: <span class="hljs-string">&#x27;desc&#x27;</span> } });
+
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">ul</span>&gt;</span>
+      {posts.map((post) =&gt; (
+        <span class="hljs-tag">&lt;<span class="hljs-name">li</span> <span class="hljs-attr">key</span>=<span class="hljs-string">{post.id}</span>&gt;</span>
+          <span class="hljs-tag">&lt;<span class="hljs-name">h2</span>&gt;</span>{post.title}<span class="hljs-tag">&lt;/<span class="hljs-name">h2</span>&gt;</span>
+          <span class="hljs-tag">&lt;<span class="hljs-name">LikeButton</span> <span class="hljs-attr">postId</span>=<span class="hljs-string">{post.id}</span> <span class="hljs-attr">initialCount</span>=<span class="hljs-string">{post.likes}</span> /&gt;</span>
+        <span class="hljs-tag">&lt;/<span class="hljs-name">li</span>&gt;</span>
+      ))}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">ul</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>상호작용이 필요한 부분만 분리한 Client Component다. props는 직렬화 가능한 원시 값만 받는다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/posts/like-button.tsx</span>
+<span class="hljs-string">&#x27;use client&#x27;</span>;
+
+<span class="hljs-keyword">import</span> { useState } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Props</span> = { <span class="hljs-attr">postId</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">initialCount</span>: <span class="hljs-built_in">number</span> };
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">LikeButton</span>(<span class="hljs-params">{ postId, initialCount }: <span class="hljs-title class_">Props</span></span>) {
+  <span class="hljs-keyword">const</span> [count, setCount] = <span class="hljs-title function_">useState</span>(initialCount);
+
+  <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">handleClick</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-title function_">setCount</span>(<span class="hljs-function">(<span class="hljs-params">c</span>) =&gt;</span> c + <span class="hljs-number">1</span>);
+    <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">`/api/posts/<span class="hljs-subst">${postId}</span>/like`</span>, { <span class="hljs-attr">method</span>: <span class="hljs-string">&#x27;POST&#x27;</span> });
+  }
+
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">onClick</span>=<span class="hljs-string">{handleClick}</span>&gt;</span>좋아요 {count}<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span></span>;
+}</code></pre>
+<p>Client Component 안에 Server Component를 배치해야 할 때는 <code>children</code>으로 넘긴다. <code>Modal</code>은 클라이언트에서 열림 상태를 관리하지만, 그 안의 내용은 서버에서 렌더링된다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/components/modal.tsx</span>
+<span class="hljs-string">&#x27;use client&#x27;</span>;
+
+<span class="hljs-keyword">import</span> { useState, <span class="hljs-keyword">type</span> <span class="hljs-title class_">ReactNode</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Modal</span>(<span class="hljs-params">{ children }: { children: ReactNode }</span>) {
+  <span class="hljs-keyword">const</span> [open, setOpen] = <span class="hljs-title function_">useState</span>(<span class="hljs-literal">false</span>);
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">onClick</span>=<span class="hljs-string">{()</span> =&gt;</span> setOpen(true)}&gt;열기<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span>
+      {open &amp;&amp; <span class="hljs-tag">&lt;<span class="hljs-name">dialog</span> <span class="hljs-attr">open</span>&gt;</span>{children}<span class="hljs-tag">&lt;/<span class="hljs-name">dialog</span>&gt;</span>}
+    <span class="hljs-tag">&lt;/&gt;</span></span>
+  );
+}
+
+<span class="hljs-comment">// app/page.tsx (Server Component)</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Modal</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./components/modal&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ServerDetail</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./components/server-detail&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Page</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Modal</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">ServerDetail</span> /&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">Modal</span>&gt;</span></span>
+  );
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>경계가 위로 올라가는 문제.</strong> 페이지 최상단 컴포넌트에 <code>&#39;use client&#39;</code>를 붙이면 그 아래 import 트리 전체가 클라이언트 번들이 된다. 지시어는 상호작용이 필요한 말단 컴포넌트에만 붙이고, 데이터 페칭과 정적 마크업은 위쪽 Server Component에 남긴다.</li>
+<li><strong>서버 전용 코드의 유출.</strong> 환경 변수를 읽는 유틸리티나 DB 클라이언트를 Client Component에서 실수로 import하면 코드가 번들에 섞인다. 그런 모듈 최상단에 <code>import &#39;server-only&#39;</code>를 넣어 빌드 단계에서 차단한다.</li>
+<li><strong>직렬화 불가 props.</strong> 서버에서 만든 <code>Date</code>, <code>Map</code>, 클래스 인스턴스, 콜백 함수를 Client Component에 넘기면 런타임 오류가 난다. ISO 문자열이나 일반 객체로 바꿔 넘기고, 서버 로직 호출이 필요하면 Server Action을 prop으로 전달한다.</li>
+<li><strong>서드파티 컴포넌트 래핑.</strong> 훅을 사용하면서 <code>&#39;use client&#39;</code>를 선언하지 않은 라이브러리 컴포넌트는 Server Component에서 바로 쓰면 실패한다. 지시어를 붙인 얇은 래퍼 파일로 감싸 사용한다.</li>
+<li><strong>Context Provider 위치.</strong> 테마나 인증 상태를 담는 Provider는 Client Component여야 하므로 루트 레이아웃 전체에 지시어를 붙이고 싶어진다. 대신 Provider만 별도 파일로 분리하고 레이아웃에서 <code>children</code>을 감싸는 형태로 두면 나머지 트리는 서버에 남는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nextjs/what-is-nextjs-rendering/">Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</a></li>
+<li><a href="/notes/nextjs/data-fetching-caching/">데이터 페칭·캐싱·revalidate</a></li>
+<li><a href="/notes/nextjs/performance-bundling-streaming/">성능·번들·스트리밍</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Next.js, React Server Components, use client, App Router, Composition</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nextjs/routing-layouts-loading-error/"><small>이전</small>라우팅·레이아웃·로딩과 에러 UI</a>
+  <a class="next" href="/notes/nextjs/data-fetching-caching/"><small>다음</small>데이터 페칭·캐싱·revalidate</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

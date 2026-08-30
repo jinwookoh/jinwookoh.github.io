@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>테스트와 배포 · NestJS</title>
+  <meta name="description" content="TestingModule로 의존성을 교체해 단위·e2e 테스트를 짜고, 빌드 산출물을 컨테이너로 안전하게 종료·배포하는 방법을 정리한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="테스트와 배포 · NestJS">
+  <meta property="og:description" content="TestingModule로 의존성을 교체해 단위·e2e 테스트를 짜고, 빌드 산출물을 컨테이너로 안전하게 종료·배포하는 방법을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/testing-deployment/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nestjs/">NestJS</a><span class="sep">›</span><span>테스트와 배포</span></nav>
+    <article class="post">
+  <p class="part">NestJS · 운영</p>
+  <h1>테스트와 배포</h1>
+  <p class="summary">TestingModule로 의존성을 교체해 단위·e2e 테스트를 짜고, 빌드 산출물을 컨테이너로 안전하게 종료·배포하는 방법을 정리한다.</p>
+  <div class="content">
+<p>DI 컨테이너 위에 올라간 코드를 <code>new</code>로 직접 조립해 테스트하면 데코레이터 메타데이터, 모듈 스코프, 요청 스코프 프로바이더가 전부 빠진 상태로 검증하게 된다. 통과한 테스트가 실제 부트스트랩과 다른 그래프를 보고 있으므로 신뢰도가 낮고, 데이터베이스나 외부 API 같은 무거운 의존성을 떼어낼 표준 방법도 없어 테스트가 느리고 불안정해진다. 배포 쪽도 마찬가지로, <code>ts-node</code>로 소스를 그대로 띄우거나 종료 신호를 처리하지 않으면 컨테이너 재시작 때마다 진행 중인 요청과 DB 커넥션이 끊긴다. NestJS는 테스트용 모듈 빌더와 종료 훅, 빌드 산출물 실행 규약으로 이 두 문제를 프레임워크 차원에서 다룬다.</p>
+<h2>핵심 개념</h2>
+<p><code>@nestjs/testing</code>의 <code>Test.createTestingModule()</code>은 일반 <code>@Module()</code>과 같은 메타데이터(controllers·providers·imports)를 받아 테스트 전용 컨테이너를 만든다. <code>compile()</code>이 그래프를 해석해 <code>TestingModule</code>을 돌려주고, 여기서 <code>get()</code>으로 싱글턴 인스턴스를, <code>resolve()</code>로 요청·transient 스코프 인스턴스를 꺼낸다. 스프링의 <code>@SpringBootTest</code> + <code>@MockBean</code> 조합에 대응한다.</p>
+<p>의존성 교체는 <code>compile()</code> 전에 체이닝으로 선언한다.</p>
+<table>
+<thead>
+<tr>
+<th>메서드</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>overrideProvider(T).useValue / useClass / useFactory</code></td>
+<td>특정 프로바이더를 목으로 교체</td>
+</tr>
+<tr>
+<td><code>overrideGuard / overrideInterceptor / overridePipe / overrideFilter</code></td>
+<td>인핸서 교체 (예: 인증 가드를 항상 통과시키기)</td>
+</tr>
+<tr>
+<td><code>overrideModule(A).useModule(B)</code></td>
+<td>모듈 단위 교체</td>
+</tr>
+<tr>
+<td><code>useMocker(fn)</code></td>
+<td>선언하지 않은 나머지 의존성을 토큰 기준으로 자동 목 생성</td>
+</tr>
+</tbody></table>
+<p>요청 스코프 프로바이더는 <code>get()</code>으로 꺼낼 수 없다. <code>ContextIdFactory.create()</code>로 컨텍스트 ID를 만들고, <code>ContextIdFactory.getByRequest</code>를 spy로 고정한 뒤 <code>resolve(Token, contextId)</code>로 얻는다.</p>
+<p>e2e 테스트는 <code>moduleRef.createNestApplication()</code>으로 실제 HTTP 어댑터까지 올린 뒤 <code>supertest</code>로 요청을 보낸다. 이때 <code>main.ts</code>에서 적용한 전역 파이프·프리픽스는 자동으로 붙지 않으므로 테스트 쪽에서 동일하게 설정해야 한다. 스프링의 <code>MockMvc</code> 또는 <code>WebTestClient</code>에 대응한다.</p>
+<p>배포는 <code>nest build</code>가 만든 <code>dist/main.js</code>를 Node LTS로 직접 실행하는 것이 기본이다. <code>NODE_ENV=production</code>을 설정해야 의존 라이브러리들의 프로덕션 최적화가 켜지고, 포트·시크릿은 환경 변수로만 주입한다. 종료 신호는 <code>app.enableShutdownHooks()</code>를 켜야 <code>OnModuleDestroy</code>·<code>BeforeApplicationShutdown</code>·<code>OnApplicationShutdown</code> 훅이 SIGTERM에 반응한다. 상태 점검은 <code>@nestjs/terminus</code>가 DB·메모리·디스크 인디케이터를 제공하며, 스프링 액추에이터의 <code>/actuator/health</code>에 해당한다.</p>
+<h2>코드</h2>
+<p>컨트롤러 단위 테스트. 서비스를 직접 등록한 뒤 메서드를 spy로 덮는다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Test</span>, <span class="hljs-title class_">TestingModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/testing&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CatsController</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./cats.controller&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CatsService</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./cats.service&#x27;</span>;
+
+<span class="hljs-title function_">describe</span>(<span class="hljs-string">&#x27;CatsController&#x27;</span>, <span class="hljs-function">() =&gt;</span> {
+  <span class="hljs-keyword">let</span> <span class="hljs-attr">controller</span>: <span class="hljs-title class_">CatsController</span>;
+  <span class="hljs-keyword">let</span> <span class="hljs-attr">service</span>: <span class="hljs-title class_">CatsService</span>;
+
+  <span class="hljs-title function_">beforeEach</span>(<span class="hljs-title function_">async</span> () =&gt; {
+    <span class="hljs-keyword">const</span> <span class="hljs-attr">moduleRef</span>: <span class="hljs-title class_">TestingModule</span> = <span class="hljs-keyword">await</span> <span class="hljs-title class_">Test</span>.<span class="hljs-title function_">createTestingModule</span>({
+      <span class="hljs-attr">controllers</span>: [<span class="hljs-title class_">CatsController</span>],
+      <span class="hljs-attr">providers</span>: [<span class="hljs-title class_">CatsService</span>],
+    }).<span class="hljs-title function_">compile</span>();
+
+    service = moduleRef.<span class="hljs-title function_">get</span>(<span class="hljs-title class_">CatsService</span>);
+    controller = moduleRef.<span class="hljs-title function_">get</span>(<span class="hljs-title class_">CatsController</span>);
+  });
+
+  <span class="hljs-title function_">it</span>(<span class="hljs-string">&#x27;findAll은 서비스 결과를 그대로 돌려준다&#x27;</span>, <span class="hljs-title function_">async</span> () =&gt; {
+    <span class="hljs-keyword">const</span> result = [{ <span class="hljs-attr">id</span>: <span class="hljs-number">1</span>, <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;nabi&#x27;</span> }];
+    jest.<span class="hljs-title function_">spyOn</span>(service, <span class="hljs-string">&#x27;findAll&#x27;</span>).<span class="hljs-title function_">mockResolvedValue</span>(result);
+    <span class="hljs-keyword">await</span> <span class="hljs-title function_">expect</span>(controller.<span class="hljs-title function_">findAll</span>()).<span class="hljs-property">resolves</span>.<span class="hljs-title function_">toBe</span>(result);
+  });
+});</code></pre>
+<p>e2e 테스트. 모듈을 통째로 올리되 서비스와 가드를 교체하고, 전역 파이프는 <code>main.ts</code>와 같게 맞춘다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">INestApplication</span>, <span class="hljs-title class_">ValidationPipe</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Test</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/testing&#x27;</span>;
+<span class="hljs-keyword">import</span> request <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;supertest&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CatsModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../src/cats/cats.module&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CatsService</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../src/cats/cats.service&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">AuthGuard</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../src/auth/auth.guard&#x27;</span>;
+
+<span class="hljs-title function_">describe</span>(<span class="hljs-string">&#x27;Cats (e2e)&#x27;</span>, <span class="hljs-function">() =&gt;</span> {
+  <span class="hljs-keyword">let</span> <span class="hljs-attr">app</span>: <span class="hljs-title class_">INestApplication</span>;
+  <span class="hljs-keyword">const</span> catsService = { <span class="hljs-attr">findAll</span>: <span class="hljs-function">() =&gt;</span> [{ <span class="hljs-attr">id</span>: <span class="hljs-number">1</span>, <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;nabi&#x27;</span> }] };
+
+  <span class="hljs-title function_">beforeAll</span>(<span class="hljs-title function_">async</span> () =&gt; {
+    <span class="hljs-keyword">const</span> moduleRef = <span class="hljs-keyword">await</span> <span class="hljs-title class_">Test</span>.<span class="hljs-title function_">createTestingModule</span>({
+      <span class="hljs-attr">imports</span>: [<span class="hljs-title class_">CatsModule</span>],
+    })
+      .<span class="hljs-title function_">overrideProvider</span>(<span class="hljs-title class_">CatsService</span>).<span class="hljs-title function_">useValue</span>(catsService)
+      .<span class="hljs-title function_">overrideGuard</span>(<span class="hljs-title class_">AuthGuard</span>).<span class="hljs-title function_">useValue</span>({ <span class="hljs-attr">canActivate</span>: <span class="hljs-function">() =&gt;</span> <span class="hljs-literal">true</span> })
+      .<span class="hljs-title function_">compile</span>();
+
+    app = moduleRef.<span class="hljs-title function_">createNestApplication</span>();
+    app.<span class="hljs-title function_">useGlobalPipes</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ValidationPipe</span>({ <span class="hljs-attr">whitelist</span>: <span class="hljs-literal">true</span> }));
+    <span class="hljs-keyword">await</span> app.<span class="hljs-title function_">init</span>();
+  });
+
+  <span class="hljs-title function_">afterAll</span>(<span class="hljs-function">() =&gt;</span> app.<span class="hljs-title function_">close</span>());
+
+  <span class="hljs-title function_">it</span>(<span class="hljs-string">&#x27;GET /cats&#x27;</span>, <span class="hljs-function">() =&gt;</span>
+    <span class="hljs-title function_">request</span>(app.<span class="hljs-title function_">getHttpServer</span>())
+      .<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;/cats&#x27;</span>)
+      .<span class="hljs-title function_">expect</span>(<span class="hljs-number">200</span>)
+      .<span class="hljs-title function_">expect</span>(catsService.<span class="hljs-title function_">findAll</span>()));
+});</code></pre>
+<p>프로덕션 부트스트랩과 멀티스테이지 Dockerfile. 종료 훅을 켜고, 런타임 이미지에는 빌드 산출물과 프로덕션 의존성만 넣는다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/main.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">NestFactory</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/core&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">AppModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./app.module&#x27;</span>;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">bootstrap</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> app = <span class="hljs-keyword">await</span> <span class="hljs-title class_">NestFactory</span>.<span class="hljs-title function_">create</span>(<span class="hljs-title class_">AppModule</span>);
+  app.<span class="hljs-title function_">enableShutdownHooks</span>();
+  <span class="hljs-keyword">await</span> app.<span class="hljs-title function_">listen</span>(process.<span class="hljs-property">env</span>.<span class="hljs-property">PORT</span> ?? <span class="hljs-number">3000</span>);
+}
+<span class="hljs-title function_">bootstrap</span>();</code></pre>
+<pre><code class="hljs language-dockerfile"><span class="hljs-keyword">FROM</span> node:<span class="hljs-number">22</span>-alpine AS build
+<span class="hljs-keyword">WORKDIR</span><span class="language-bash"> /app</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> package*.json ./</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> npm ci</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> . .</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> npm run build &amp;&amp; npm prune --omit=dev</span>
+
+<span class="hljs-keyword">FROM</span> node:<span class="hljs-number">22</span>-alpine
+<span class="hljs-keyword">WORKDIR</span><span class="language-bash"> /app</span>
+<span class="hljs-keyword">ENV</span> NODE_ENV=production
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=build /app/dist ./dist</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=build /app/node_modules ./node_modules</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> package.json ./</span>
+<span class="hljs-keyword">EXPOSE</span> <span class="hljs-number">3000</span>
+<span class="hljs-keyword">CMD</span><span class="language-bash"> [<span class="hljs-string">&quot;node&quot;</span>, <span class="hljs-string">&quot;dist/main.js&quot;</span>]</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>전역 설정 누락</strong>: <code>useGlobalPipes</code>·<code>setGlobalPrefix</code>·<code>useGlobalFilters</code>는 <code>main.ts</code>에 있으므로 e2e에서 다시 적용하지 않으면 검증 에러가 200으로 통과한다. 부트스트랩 설정을 별도 함수로 뽑아 <code>main.ts</code>와 테스트가 공유하게 만드는 편이 안전하다.</li>
+<li><strong><code>app.close()</code> 생략</strong>: e2e에서 앱을 닫지 않으면 DB 풀·타이머·큐 커넥션이 남아 Jest가 종료되지 않거나 다음 테스트 파일과 포트가 충돌한다. <code>afterAll</code>에서 반드시 닫는다.</li>
+<li><strong><code>overrideProvider</code> 토큰 불일치</strong>: <code>@Inject(&#39;CACHE&#39;)</code>처럼 문자열·심볼 토큰으로 주입한 프로바이더는 클래스가 아닌 그 토큰으로 override해야 한다. 클래스로 지정하면 조용히 실패하고 실제 구현이 로드된다.</li>
+<li><strong>종료 훅 미활성화</strong>: <code>enableShutdownHooks()</code>를 켜지 않으면 SIGTERM에서 <code>OnApplicationShutdown</code>이 실행되지 않아 롤링 배포 중 진행 요청이 잘린다. <code>npm start</code>로 띄우면 시그널이 npm에 머무르므로 Node를 직접 실행한다.</li>
+<li><strong>헬스체크와 readiness 분리</strong>: Terminus 엔드포인트 하나를 liveness와 readiness에 같이 쓰면 DB 일시 장애 때 파드가 재시작 루프에 빠진다. DB 인디케이터는 readiness에만 두고 liveness는 프로세스 생존만 본다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nestjs/di-modules/">DI와 모듈 시스템</a></li>
+<li><a href="/notes/nestjs/guards-auth-jwt/">Guards·인증 — Passport·JWT</a></li>
+<li><a href="/notes/nestjs/config-logging/">설정·환경·로깅</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · NestJS, Testing, Jest, Docker, Deployment</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nestjs/microservices-kafka-grpc/"><small>이전</small>마이크로서비스 — Kafka·gRPC</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

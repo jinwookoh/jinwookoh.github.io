@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>성능·번들·스트리밍 · Next.js</title>
+  <meta name="description" content="Suspense 스트리밍으로 TTFB를 줄이고, 번들 분석기와 optimizePackageImports·dynamic으로 클라이언트 JS를 깎는 방법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="성능·번들·스트리밍 · Next.js">
+  <meta property="og:description" content="Suspense 스트리밍으로 TTFB를 줄이고, 번들 분석기와 optimizePackageImports·dynamic으로 클라이언트 JS를 깎는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nextjs/performance-bundling-streaming/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nextjs/">Next.js</a><span class="sep">›</span><span>성능·번들·스트리밍</span></nav>
+    <article class="post">
+  <p class="part">Next.js · 운영</p>
+  <h1>성능·번들·스트리밍</h1>
+  <p class="summary">Suspense 스트리밍으로 TTFB를 줄이고, 번들 분석기와 optimizePackageImports·dynamic으로 클라이언트 JS를 깎는 방법</p>
+  <div class="content">
+<p>서버 컴포넌트에서 <code>await</code>를 여러 번 하는 페이지는 가장 느린 데이터 소스가 끝날 때까지 HTML 한 바이트도 내보내지 못한다. 페이지 상단의 제목과 내비게이션은 이미 준비됐는데도 하단 추천 목록을 기다리느라 TTFB가 밀린다. 클라이언트 쪽도 마찬가지다. 아이콘 라이브러리 하나를 named import 했을 뿐인데 수백 개 모듈이 클라이언트 번들에 딸려 들어가고, 차트·마크다운 파서처럼 결과가 정적 HTML인 라이브러리가 브라우저에서 실행된다. 두 문제를 다루는 도구가 스트리밍과 번들 최적화다.</p>
+<h2>핵심 개념</h2>
+<p><strong>스트리밍</strong>은 서버가 HTML을 청크 단위로 순차 전송하는 방식이다. App Router는 React Suspense 경계를 기준으로 동작한다. 경계 안쪽 컴포넌트가 데이터를 기다리며 suspend 되면 fallback이 먼저 내려가고, 준비된 시점에 실제 내용이 뒤따라 전송되어 자리를 바꾼다. Spring으로 치면 <code>ResponseBodyEmitter</code>/<code>StreamingResponseBody</code>로 응답을 나눠 흘려보내는 것과 같은 계층의 기법이며, 그 위에 React가 부분 하이드레이션까지 맡는다.</p>
+<p><code>loading.tsx</code>는 이 Suspense 경계를 파일 규칙으로 만든 것이다. 같은 폴더의 <code>page.tsx</code>와 하위 세그먼트를 자동으로 <code>&lt;Suspense&gt;</code>로 감싸며, 같은 세그먼트의 <code>layout.tsx</code>·<code>template.tsx</code>·<code>error.tsx</code>는 감싸지 않는다. 클라이언트 내비게이션 시 fallback은 prefetch 대상이라 즉시 표시되고, 이동 중에도 공유 레이아웃은 계속 상호작용 가능하다. 더 세밀한 제어가 필요하면 페이지 안에서 <code>&lt;Suspense&gt;</code>를 직접 배치한다. 독립적인 데이터 소스마다 경계를 나누면 각 영역이 자기 속도로 채워진다.</p>
+<p>스트리밍의 제약은 HTTP 상태 코드다. 헤더가 이미 나간 뒤에는 상태를 바꿀 수 없으므로 응답은 항상 200으로 시작한다. 스트리밍 도중 <code>notFound()</code>가 호출되면 Next.js가 <code>&lt;meta name=&quot;robots&quot; content=&quot;noindex&quot;&gt;</code>를 심어 색인은 막지만 상태는 200으로 남는다.</p>
+<p><strong>번들 최적화</strong>는 두 단계다. 먼저 측정한다. Webpack 빌드에서는 <code>@next/bundle-analyzer</code> 플러그인이 서버·클라이언트 번들의 treemap을 생성하고, Turbopack에서는 <code>next experimental-analyze</code> 명령이 모듈 그래프 기반으로 import 체인까지 추적한다. 다음으로 원인별로 처방한다.</p>
+<table>
+<thead>
+<tr>
+<th>원인</th>
+<th>처방</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>export가 수백 개인 패키지(아이콘·유틸)</td>
+<td><code>experimental.optimizePackageImports</code>로 실제 사용 모듈만 로드</td>
+</tr>
+<tr>
+<td>결과가 정적 HTML인 무거운 클라이언트 작업(하이라이터·차트)</td>
+<td>서버 컴포넌트로 옮겨 마크업만 전송</td>
+</tr>
+<tr>
+<td>첫 화면에 불필요한 클라이언트 컴포넌트</td>
+<td><code>next/dynamic</code>으로 지연 로드</td>
+</tr>
+<tr>
+<td>서버 번들에 포함되면 깨지는 네이티브 의존성</td>
+<td><code>serverExternalPackages</code>로 번들링 제외</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>독립적인 두 데이터 영역을 각각 Suspense로 감싸 서로의 지연에 영향받지 않게 한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/page.tsx</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Suspense</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react&quot;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">OrderFeed</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;./order-feed&quot;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">RevenueChart</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;./revenue-chart&quot;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">DashboardPage</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">section</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">h1</span>&gt;</span>대시보드<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Suspense</span> <span class="hljs-attr">fallback</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">p</span>&gt;</span>주문 목록을 불러오는 중<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">OrderFeed</span> /&gt;</span>
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Suspense</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Suspense</span> <span class="hljs-attr">fallback</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">div</span> <span class="hljs-attr">className</span>=<span class="hljs-string">&quot;h-64 animate-pulse&quot;</span> /&gt;</span>}&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">RevenueChart</span> /&gt;</span>
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Suspense</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">section</span>&gt;</span></span>
+  );
+}</code></pre>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/order-feed.tsx (Server Component)</span>
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Order</span> = { <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">total</span>: <span class="hljs-built_in">number</span> };
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">OrderFeed</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">&quot;https://api.example.com/orders&quot;</span>, {
+    <span class="hljs-attr">next</span>: { <span class="hljs-attr">revalidate</span>: <span class="hljs-number">30</span> },
+  });
+  <span class="hljs-keyword">const</span> <span class="hljs-attr">orders</span>: <span class="hljs-title class_">Order</span>[] = <span class="hljs-keyword">await</span> res.<span class="hljs-title function_">json</span>();
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">ul</span>&gt;</span>
+      {orders.map((o) =&gt; (
+        <span class="hljs-tag">&lt;<span class="hljs-name">li</span> <span class="hljs-attr">key</span>=<span class="hljs-string">{o.id}</span>&gt;</span>{o.id} — {o.total.toLocaleString()}원<span class="hljs-tag">&lt;/<span class="hljs-name">li</span>&gt;</span>
+      ))}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">ul</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>번들 분석기를 환경변수로 켜고, 대형 패키지 import 최적화와 서버 번들 제외 목록을 함께 설정한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-comment">// next.config.ts</span>
+<span class="hljs-keyword">import</span> <span class="hljs-keyword">type</span> { <span class="hljs-title class_">NextConfig</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;next&quot;</span>;
+<span class="hljs-keyword">import</span> bundleAnalyzer <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;@next/bundle-analyzer&quot;</span>;
+
+<span class="hljs-keyword">const</span> withBundleAnalyzer = <span class="hljs-title function_">bundleAnalyzer</span>({
+  <span class="hljs-attr">enabled</span>: process.<span class="hljs-property">env</span>.<span class="hljs-property">ANALYZE</span> === <span class="hljs-string">&quot;true&quot;</span>,
+});
+
+<span class="hljs-keyword">const</span> <span class="hljs-attr">nextConfig</span>: <span class="hljs-title class_">NextConfig</span> = {
+  <span class="hljs-attr">experimental</span>: {
+    <span class="hljs-attr">optimizePackageImports</span>: [<span class="hljs-string">&quot;lucide-react&quot;</span>, <span class="hljs-string">&quot;@mui/material&quot;</span>],
+  },
+  <span class="hljs-attr">serverExternalPackages</span>: [<span class="hljs-string">&quot;sharp&quot;</span>, <span class="hljs-string">&quot;pino&quot;</span>],
+};
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-title function_">withBundleAnalyzer</span>(nextConfig);</code></pre>
+<pre><code class="hljs language-bash">ANALYZE=<span class="hljs-literal">true</span> npm run build        <span class="hljs-comment"># Webpack: 브라우저에 treemap 3개 오픈</span>
+npx next experimental-analyze     <span class="hljs-comment"># Turbopack: 인터랙티브 모듈 그래프</span>
+npx next experimental-analyze --output   <span class="hljs-comment"># .next/diagnostics/analyze 에 저장</span></code></pre>
+<p>초기 화면에 필요 없는 클라이언트 전용 컴포넌트는 <code>next/dynamic</code>으로 분리해 별도 청크로 미룬다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/editor/page.tsx</span>
+<span class="hljs-string">&quot;use client&quot;</span>;
+<span class="hljs-keyword">import</span> dynamic <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;next/dynamic&quot;</span>;
+
+<span class="hljs-keyword">const</span> <span class="hljs-title class_">RichEditor</span> = <span class="hljs-title function_">dynamic</span>(<span class="hljs-function">() =&gt;</span> <span class="hljs-keyword">import</span>(<span class="hljs-string">&quot;@/components/rich-editor&quot;</span>), {
+  <span class="hljs-attr">ssr</span>: <span class="hljs-literal">false</span>,
+  <span class="hljs-attr">loading</span>: <span class="hljs-function">() =&gt;</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>에디터 준비 중<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span></span>,
+});
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">EditorPage</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">RichEditor</span> /&gt;</span></span>;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>레이아웃의 비캐시 데이터가 fallback을 막는다.</strong> <code>layout.tsx</code>에서 <code>cookies()</code>·<code>headers()</code>나 캐시되지 않은 fetch를 호출하면 <code>loading.tsx</code>가 있어도 레이아웃 렌더가 끝날 때까지 내비게이션이 멈춘다. 그런 호출은 <code>page.tsx</code>로 내리거나 레이아웃 안에서 별도 <code>&lt;Suspense&gt;</code>로 감싼다.</li>
+<li><strong>404 상태 코드가 필요하면 스트리밍 전에 판단한다.</strong> <code>notFound()</code>는 첫 Suspense fallback이 렌더되기 전, suspend 가능한 <code>await</code>보다 앞에 두어야 실제 404가 나간다. 규정 준수나 분석 목적으로 상태 코드가 중요하면 proxy 단계에서 slug 존재 여부를 가볍게 확인한다.</li>
+<li><strong>Suspense를 너무 잘게 쪼개면 레이아웃 시프트가 늘어난다.</strong> fallback과 실제 콘텐츠의 크기를 맞추지 않으면 CLS가 악화된다. 사용자가 함께 기대하는 정보는 하나의 경계로 묶는다.</li>
+<li><strong><code>ssr: false</code>는 서버 컴포넌트에서 쓸 수 없다.</strong> <code>next/dynamic</code>의 <code>ssr: false</code>는 클라이언트 컴포넌트 안에서만 허용된다. 서버 컴포넌트에서 지연 로드가 필요하면 <code>ssr</code> 옵션 없이 <code>dynamic</code>을 쓰거나, 클라이언트 래퍼를 한 겹 둔다.</li>
+<li><strong>스트리밍은 정적 export에서 동작하지 않는다.</strong> <code>output: &quot;export&quot;</code>로 정적 사이트를 뽑는 경우 Suspense fallback은 빌드 시점에 해소된다. 자체 호스팅 시에는 프록시(Nginx 등)의 응답 버퍼링을 꺼야 청크가 즉시 전달된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nextjs/server-vs-client-components/">Server Components와 Client Components</a></li>
+<li><a href="/notes/nextjs/routing-layouts-loading-error/">라우팅·레이아웃·로딩과 에러 UI</a></li>
+<li><a href="/notes/nextjs/data-fetching-caching/">데이터 페칭·캐싱·revalidate</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Next.js, Streaming, Suspense, Bundle Analyzer, Code Splitting</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nextjs/styling-state/"><small>이전</small>스타일링과 상태 관리</a>
+  <a class="next" href="/notes/nextjs/deployment-env-monitoring/"><small>다음</small>배포(Vercel·Docker)·환경변수·모니터링</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

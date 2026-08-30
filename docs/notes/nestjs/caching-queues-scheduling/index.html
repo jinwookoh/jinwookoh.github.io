@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>캐싱·큐(BullMQ)·스케줄링 · NestJS</title>
+  <meta name="description" content="요청 경로에서 빼야 할 세 가지 일 — 반복 조회는 캐시로, 느린 작업은 큐로, 주기 작업은 스케줄러로 옮기는 방법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="캐싱·큐(BullMQ)·스케줄링 · NestJS">
+  <meta property="og:description" content="요청 경로에서 빼야 할 세 가지 일 — 반복 조회는 캐시로, 느린 작업은 큐로, 주기 작업은 스케줄러로 옮기는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/caching-queues-scheduling/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nestjs/">NestJS</a><span class="sep">›</span><span>캐싱·큐(BullMQ)·스케줄링</span></nav>
+    <article class="post">
+  <p class="part">NestJS · 데이터와 인프라</p>
+  <h1>캐싱·큐(BullMQ)·스케줄링</h1>
+  <p class="summary">요청 경로에서 빼야 할 세 가지 일 — 반복 조회는 캐시로, 느린 작업은 큐로, 주기 작업은 스케줄러로 옮기는 방법</p>
+  <div class="content">
+<p>HTTP 요청 핸들러 안에서 모든 일을 끝내려 하면 세 가지 문제가 나타난다. 같은 결과를 돌려주는 조회가 매번 DB를 때리고, 메일 발송처럼 수 초 걸리는 작업이 요청을 붙잡아 타임아웃을 만들며, 정산처럼 정해진 시각에 돌아야 하는 작업을 넣을 자리가 없다. Node는 단일 이벤트 루프라 긴 작업 하나가 다른 요청까지 느리게 만든다. NestJS는 이 세 문제를 각각 <code>@nestjs/cache-manager</code>, <code>@nestjs/bullmq</code>, <code>@nestjs/schedule</code>로 분리한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>캐싱.</strong> <code>CacheModule</code>은 <code>cache-manager</code> 라이브러리를 감싼 모듈이다. <code>cache-manager</code> 5.x부터 스토어가 Keyv 기반이라 Redis는 <code>@keyv/redis</code> 어댑터를 <code>stores</code> 배열에 넣어 붙이고, 여러 개를 넣으면 앞쪽부터 조회하며 뒤쪽을 폴백으로 쓴다. TTL 단위는 밀리초, 기본값 0은 만료 없음이다. 사용 방식은 두 갈래다. <code>CACHE_MANAGER</code> 토큰으로 <code>Cache</code> 인스턴스를 주입받아 <code>get</code>·<code>set</code>·<code>del</code>을 직접 호출하는 방식과, 컨트롤러에 <code>CacheInterceptor</code>를 걸어 GET 응답을 URL 기준으로 자동 캐시하는 방식이다. 후자는 <code>@CacheKey()</code>·<code>@CacheTTL()</code>로 메서드별 키와 만료를 덮어쓴다. Spring의 <code>CacheManager</code> 빈 직접 호출과 GET 전용 <code>@Cacheable</code>에 각각 대응한다.</p>
+<p><strong>큐.</strong> <code>@nestjs/bullmq</code>는 Redis 기반 잡 큐 BullMQ를 모듈화한 것이다. <code>BullModule.forRoot()</code>로 Redis 연결을 잡고, <code>registerQueue({ name })</code>으로 큐를 선언하면 <code>@InjectQueue(&#39;name&#39;)</code>으로 <code>Queue</code> 인스턴스를 받아 <code>add(jobName, data, opts)</code>로 잡을 넣는다. 소비자는 <code>@Processor(&#39;name&#39;)</code>을 붙인 클래스가 <code>WorkerHost</code>를 상속하고 <code>process(job)</code> 하나를 구현한다. 예전 Bull과 달리 잡 이름별 데코레이터 없이 <code>job.name</code>으로 분기한다. 잡 옵션으로 <code>attempts</code>·<code>backoff</code>·<code>delay</code>·<code>priority</code>·<code>removeOnComplete</code>·<code>repeat</code>를 지정하고, 워커 이벤트는 <code>@OnWorkerEvent</code>로 받는다. 부모-자식 잡을 묶는 <code>registerFlowProducer()</code>와 핸들러를 별도 프로세스로 띄우는 <code>processors</code> 옵션도 있다. Spring의 <code>@JmsListener</code> 컨슈머에 재시도 정책이 내장된 형태로 보면 되고, 브로커가 Redis라는 점이 다르다.</p>
+<p><strong>스케줄링.</strong> <code>ScheduleModule.forRoot()</code>를 올리면 <code>@Cron</code>·<code>@Interval</code>·<code>@Timeout</code>이 붙은 프로바이더 메서드를 부트스트랩 시점(<code>onApplicationBootstrap</code>)에 수집해 등록한다. <code>@Cron</code>은 초 단위까지 포함한 6필드 표현식을 받고, 옵션으로 <code>name</code>, <code>timeZone</code>, 이전 실행이 끝날 때까지 다음 실행을 미루는 <code>waitForCompletion</code>, <code>disabled</code>가 있다. 런타임에 잡을 추가·삭제하려면 <code>SchedulerRegistry</code>를 주입해 <code>addCronJob</code>·<code>deleteCronJob</code>을 쓴다. Spring의 <code>@Scheduled(cron=...)</code>과 <code>TaskScheduler</code>에 대응한다.</p>
+<h2>코드</h2>
+<p>Redis를 스토어로 쓰는 캐시 모듈 등록과, 서비스에서 캐시를 직접 읽고 쓰는 예제다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Module</span>, <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">Inject</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CacheModule</span>, <span class="hljs-variable constant_">CACHE_MANAGER</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/cache-manager&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Cache</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;cache-manager&#x27;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-title class_">KeyvRedis</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@keyv/redis&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Keyv</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;keyv&#x27;</span>;
+
+<span class="hljs-meta">@Module</span>({
+  <span class="hljs-attr">imports</span>: [
+    <span class="hljs-title class_">CacheModule</span>.<span class="hljs-title function_">registerAsync</span>({
+      <span class="hljs-attr">isGlobal</span>: <span class="hljs-literal">true</span>,
+      <span class="hljs-attr">useFactory</span>: <span class="hljs-title function_">async</span> () =&gt; ({
+        <span class="hljs-attr">ttl</span>: <span class="hljs-number">60_000</span>, <span class="hljs-comment">// ms</span>
+        <span class="hljs-attr">stores</span>: [<span class="hljs-keyword">new</span> <span class="hljs-title class_">Keyv</span>({ <span class="hljs-attr">store</span>: <span class="hljs-keyword">new</span> <span class="hljs-title class_">KeyvRedis</span>(<span class="hljs-string">&#x27;redis://localhost:6379&#x27;</span>) })],
+      }),
+    }),
+  ],
+})
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AppModule</span> {}
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductService</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-meta">@Inject</span>(CACHE_MANAGER) <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">cache</span>: <span class="hljs-title class_">Cache</span></span>) {}
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">findOne</span>(<span class="hljs-params"><span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span></span>) {
+    <span class="hljs-keyword">const</span> key = <span class="hljs-string">`product:<span class="hljs-subst">${id}</span>`</span>;
+    <span class="hljs-keyword">const</span> hit = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">cache</span>.<span class="hljs-property">get</span>&lt;<span class="hljs-title class_">Product</span>&gt;(key);
+    <span class="hljs-keyword">if</span> (hit) <span class="hljs-keyword">return</span> hit;
+    <span class="hljs-keyword">const</span> product = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">repo</span>.<span class="hljs-title function_">findOneBy</span>({ id });
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">cache</span>.<span class="hljs-title function_">set</span>(key, product, <span class="hljs-number">300_000</span>);
+    <span class="hljs-keyword">return</span> product;
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">update</span>(<span class="hljs-params"><span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">dto</span>: <span class="hljs-title class_">UpdateProductDto</span></span>) {
+    <span class="hljs-keyword">const</span> saved = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">repo</span>.<span class="hljs-title function_">save</span>({ id, ...dto });
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">cache</span>.<span class="hljs-title function_">del</span>(<span class="hljs-string">`product:<span class="hljs-subst">${id}</span>`</span>);
+    <span class="hljs-keyword">return</span> saved;
+  }
+}</code></pre>
+<p>BullMQ 큐에 잡을 넣는 프로듀서와, <code>job.name</code>으로 분기하며 재시도 옵션을 받는 컨슈머다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Module</span>, <span class="hljs-title class_">Injectable</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">BullModule</span>, <span class="hljs-title class_">InjectQueue</span>, <span class="hljs-title class_">Processor</span>, <span class="hljs-title class_">WorkerHost</span>, <span class="hljs-title class_">OnWorkerEvent</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/bullmq&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Queue</span>, <span class="hljs-title class_">Job</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;bullmq&#x27;</span>;
+
+<span class="hljs-meta">@Module</span>({
+  <span class="hljs-attr">imports</span>: [
+    <span class="hljs-title class_">BullModule</span>.<span class="hljs-title function_">forRoot</span>({ <span class="hljs-attr">connection</span>: { <span class="hljs-attr">host</span>: <span class="hljs-string">&#x27;localhost&#x27;</span>, <span class="hljs-attr">port</span>: <span class="hljs-number">6379</span> } }),
+    <span class="hljs-title class_">BullModule</span>.<span class="hljs-title function_">registerQueue</span>({ <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;mail&#x27;</span> }),
+  ],
+  <span class="hljs-attr">providers</span>: [<span class="hljs-title class_">MailService</span>, <span class="hljs-title class_">MailConsumer</span>],
+})
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MailModule</span> {}
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MailService</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-meta">@InjectQueue</span>(<span class="hljs-string">&#x27;mail&#x27;</span>) <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">queue</span>: <span class="hljs-title class_">Queue</span></span>) {}
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">sendWelcome</span>(<span class="hljs-params"><span class="hljs-attr">userId</span>: <span class="hljs-built_in">string</span></span>) {
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">queue</span>.<span class="hljs-title function_">add</span>(
+      <span class="hljs-string">&#x27;welcome&#x27;</span>,
+      { userId },
+      {
+        <span class="hljs-attr">attempts</span>: <span class="hljs-number">5</span>,
+        <span class="hljs-attr">backoff</span>: { <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;exponential&#x27;</span>, <span class="hljs-attr">delay</span>: <span class="hljs-number">2_000</span> },
+        <span class="hljs-attr">removeOnComplete</span>: <span class="hljs-number">1_000</span>,
+        <span class="hljs-attr">removeOnFail</span>: <span class="hljs-number">5_000</span>,
+      },
+    );
+  }
+}
+
+<span class="hljs-meta">@Processor</span>(<span class="hljs-string">&#x27;mail&#x27;</span>, { <span class="hljs-attr">concurrency</span>: <span class="hljs-number">5</span> })
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MailConsumer</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">WorkerHost</span> {
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">process</span>(<span class="hljs-params"><span class="hljs-attr">job</span>: <span class="hljs-title class_">Job</span>&lt;{ userId: <span class="hljs-built_in">string</span> }&gt;</span>) {
+    <span class="hljs-keyword">switch</span> (job.<span class="hljs-property">name</span>) {
+      <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;welcome&#x27;</span>:
+        <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">mailer</span>.<span class="hljs-title function_">send</span>(job.<span class="hljs-property">data</span>.<span class="hljs-property">userId</span>, <span class="hljs-string">&#x27;welcome&#x27;</span>);
+        <span class="hljs-keyword">return</span> { <span class="hljs-attr">sentAt</span>: <span class="hljs-title class_">Date</span>.<span class="hljs-title function_">now</span>() };
+      <span class="hljs-attr">default</span>:
+        <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`unknown job <span class="hljs-subst">${job.name}</span>`</span>);
+    }
+  }
+
+  <span class="hljs-meta">@OnWorkerEvent</span>(<span class="hljs-string">&#x27;failed&#x27;</span>)
+  <span class="hljs-title function_">onFailed</span>(<span class="hljs-params"><span class="hljs-attr">job</span>: <span class="hljs-title class_">Job</span>, <span class="hljs-attr">err</span>: <span class="hljs-title class_">Error</span></span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">logger</span>.<span class="hljs-title function_">warn</span>(<span class="hljs-string">`job <span class="hljs-subst">${job.id}</span> failed (<span class="hljs-subst">${job.attemptsMade}</span>): <span class="hljs-subst">${err.message}</span>`</span>);
+  }
+}</code></pre>
+<p>크론 잡을 선언하고, 같은 서비스에서 <code>SchedulerRegistry</code>로 런타임에 잡을 추가하는 예제다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Injectable</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Cron</span>, <span class="hljs-title class_">CronExpression</span>, <span class="hljs-title class_">SchedulerRegistry</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/schedule&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CronJob</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;cron&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CleanupService</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">registry</span>: <span class="hljs-title class_">SchedulerRegistry</span></span>) {}
+
+  <span class="hljs-meta">@Cron</span>(<span class="hljs-string">&#x27;0 0 3 * * *&#x27;</span>, {
+    <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;purge-expired&#x27;</span>,
+    <span class="hljs-attr">timeZone</span>: <span class="hljs-string">&#x27;Asia/Seoul&#x27;</span>,
+    <span class="hljs-attr">waitForCompletion</span>: <span class="hljs-literal">true</span>,
+  })
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">purgeExpired</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">repo</span>.<span class="hljs-title function_">deleteExpired</span>();
+  }
+
+  <span class="hljs-meta">@Cron</span>(<span class="hljs-title class_">CronExpression</span>.<span class="hljs-property">EVERY_10_MINUTES</span>, { <span class="hljs-attr">disabled</span>: process.<span class="hljs-property">env</span>.<span class="hljs-property">NODE_ENV</span> === <span class="hljs-string">&#x27;test&#x27;</span> })
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">refreshStats</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">stats</span>.<span class="hljs-title function_">rebuild</span>();
+  }
+
+  <span class="hljs-title function_">scheduleReport</span>(<span class="hljs-params"><span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">cronTime</span>: <span class="hljs-built_in">string</span></span>) {
+    <span class="hljs-keyword">const</span> job = <span class="hljs-keyword">new</span> <span class="hljs-title class_">CronJob</span>(cronTime, <span class="hljs-function">() =&gt;</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">reports</span>.<span class="hljs-title function_">generate</span>(name));
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">registry</span>.<span class="hljs-title function_">addCronJob</span>(name, job);
+    job.<span class="hljs-title function_">start</span>();
+  }
+
+  <span class="hljs-title function_">cancelReport</span>(<span class="hljs-params"><span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span></span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">registry</span>.<span class="hljs-title function_">deleteCronJob</span>(name);
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>TTL 단위와 스토어 버전.</strong> <code>cache-manager</code> 4.x까지는 초, 5.x부터는 밀리초다. 옛 예제의 <code>ttl: 60</code>을 그대로 쓰면 60ms 만에 사라진다. <code>cache-manager-redis-store</code> 같은 구 어댑터는 <code>@keyv/redis</code>로 바꿔야 한다.</li>
+<li><strong><code>CacheInterceptor</code>의 키 범위.</strong> 기본 키는 요청 URL이라 사용자별로 다른 응답을 내는 GET에 그대로 걸면 다른 사용자의 데이터가 섞인다. 사용자 ID를 키에 넣으려면 <code>trackBy()</code>를 오버라이드한 인터셉터를 만든다. GET 외 메서드와 <code>@Res()</code>를 주입한 핸들러는 캐시되지 않는다.</li>
+<li><strong>큐 워커와 웹 프로세스의 분리.</strong> 컨슈머를 API 서버와 같은 프로세스에 두면 무거운 잡이 이벤트 루프를 점유한다. CPU 작업은 <code>processors</code>로 별도 프로세스에 두거나 워커 앱을 따로 띄우고, <code>concurrency</code>는 DB 커넥션 수에 맞춘다.</li>
+<li><strong>잡 데이터와 정리 정책.</strong> 잡 데이터는 JSON으로 직렬화되므로 엔티티 대신 ID만 넣는다. <code>removeOnComplete</code>·<code>removeOnFail</code>을 지정하지 않으면 완료 잡이 Redis에 무한 누적되고, 멱등성 없는 작업에 재시도를 걸면 중복 실행이 생긴다.</li>
+<li><strong>스케줄러의 다중 인스턴스 문제.</strong> <code>@Cron</code>은 프로세스 내부 타이머라 인스턴스를 3대 띄우면 같은 잡이 3번 돈다. 단일 실행이 필요하면 Redis 락을 잡거나, 스케줄러는 큐에 잡을 넣기만 하고 실행은 워커나 BullMQ <code>repeat</code>에 맡긴다. 긴 잡은 <code>waitForCompletion</code> 없이는 이전 실행과 겹친다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nestjs/di-modules/">DI와 모듈 시스템</a></li>
+<li><a href="/notes/nestjs/config-logging/">설정·환경·로깅</a></li>
+<li><a href="/notes/nestjs/microservices-kafka-grpc/">마이크로서비스 — Kafka·gRPC</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · NestJS, cache-manager, BullMQ, Redis, @nestjs/schedule</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nestjs/config-logging/"><small>이전</small>설정·환경·로깅</a>
+  <a class="next" href="/notes/nestjs/microservices-kafka-grpc/"><small>다음</small>마이크로서비스 — Kafka·gRPC</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

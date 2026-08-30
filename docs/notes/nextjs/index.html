@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Next.js · Notes</title>
+  <meta name="description" content="App Router의 렌더링 모델, Server/Client Components, 데이터 페칭과 캐싱, Server Actions, Route Handler, 성능과 배포.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Next.js · Notes">
+  <meta property="og:description" content="App Router의 렌더링 모델, Server/Client Components, 데이터 페칭과 캐싱, Server Actions, Route Handler, 성능과 배포.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nextjs/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Next.js</span></nav>
+    <header class="series-head"><h1>Next.js</h1><p>App Router의 렌더링 모델, Server/Client Components, 데이터 페칭과 캐싱, Server Actions, Route Handler, 성능과 배포.</p><p class="count">10편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/nextjs/what-is-nextjs-rendering/"><span class="n">1</span><span class="t">Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</span><span class="s">Next.js App Router는 라우트 단위로 정적·동적 렌더링을 자동 결정하며, 선택 기준은 데이터의 요청 의존성이다</span></a></li>
+<li><a href="/notes/nextjs/routing-layouts-loading-error/"><span class="n">2</span><span class="t">라우팅·레이아웃·로딩과 에러 UI</span><span class="s">App Router는 폴더 규약만으로 중첩 레이아웃·스트리밍 로딩·구간별 에러 경계를 선언한다.</span></a></li>
+<li><a href="/notes/nextjs/server-vs-client-components/"><span class="n">3</span><span class="t">Server Components와 Client Components</span><span class="s">서버 전용 렌더링을 기본으로 두고, 상호작용이 필요한 최소 범위에만 'use client' 경계를 긋는 기준을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>데이터</h2><ol class="toc"><li><a href="/notes/nextjs/data-fetching-caching/"><span class="n">4</span><span class="t">데이터 페칭·캐싱·revalidate</span><span class="s">Next.js 15의 네 가지 캐시 계층과 fetch 옵션·revalidate·태그 무효화를 어떤 기준으로 조합하는지 정리한다</span></a></li>
+<li><a href="/notes/nextjs/server-actions-forms/"><span class="n">5</span><span class="t">Server Actions·폼·mutation</span><span class="s">폼 제출과 데이터 변경을 API 라우트 없이 서버 함수 하나로 처리하고 캐시까지 갱신하는 방법</span></a></li></ol></section>
+<section class="part-group"><h2>기능</h2><ol class="toc"><li><a href="/notes/nextjs/route-handlers-middleware-auth/"><span class="n">6</span><span class="t">Route Handlers·미들웨어·인증</span><span class="s">API 엔드포인트는 route.ts, 요청 전 분기는 middleware.ts, 실제 권한 검증은 데이터 접근 계층에 둔다.</span></a></li>
+<li><a href="/notes/nextjs/images-fonts-metadata-seo/"><span class="n">7</span><span class="t">이미지·폰트·메타데이터·SEO</span><span class="s">next/image·next/font·Metadata API로 레이아웃 시프트 없이 이미지·폰트를 서빙하고 SEO 태그를 코드로 관리하는 법</span></a></li>
+<li><a href="/notes/nextjs/styling-state/"><span class="n">8</span><span class="t">스타일링과 상태 관리</span><span class="s">CSS는 import 순서가 곧 적용 순서이고, 상태는 서버 데이터·URL·클라이언트 UI 상태로 나눠 두어야 번들과 캐시가 무너지지 않는다</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/nextjs/performance-bundling-streaming/"><span class="n">9</span><span class="t">성능·번들·스트리밍</span><span class="s">Suspense 스트리밍으로 TTFB를 줄이고, 번들 분석기와 optimizePackageImports·dynamic으로 클라이언트 JS를 깎는 방법</span></a></li>
+<li><a href="/notes/nextjs/deployment-env-monitoring/"><span class="n">10</span><span class="t">배포(Vercel·Docker)·환경변수·모니터링</span><span class="s">Next.js를 Vercel과 Docker 중 어디에 올리든 환경변수의 빌드·런타임 경계와 instrumentation 훅을 알아야 운영이 된다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

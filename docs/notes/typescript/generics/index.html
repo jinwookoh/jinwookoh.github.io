@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>제네릭 · TypeScript</title>
+  <meta name="description" content="제네릭은 타입을 매개변수로 받아 입력과 출력의 관계를 보존하는 장치이며 제약·추론·기본값이 핵심이다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="제네릭 · TypeScript">
+  <meta property="og:description" content="제네릭은 타입을 매개변수로 받아 입력과 출력의 관계를 보존하는 장치이며 제약·추론·기본값이 핵심이다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/typescript/generics/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/typescript/">TypeScript</a><span class="sep">›</span><span>제네릭</span></nav>
+    <article class="post">
+  <p class="part">TypeScript · 타입 시스템</p>
+  <h1>제네릭</h1>
+  <p class="summary">제네릭은 타입을 매개변수로 받아 입력과 출력의 관계를 보존하는 장치이며 제약·추론·기본값이 핵심이다</p>
+  <div class="content">
+<p>값을 받아 그대로 돌려주는 함수를 <code>any</code>로 작성하면 인자가 무엇이었든 반환 타입은 <code>any</code>가 된다. 호출부는 입력이 <code>number</code>였다는 정보를 잃고, 이후 모든 연산이 타입 검사 밖으로 빠져나간다. 반대로 <code>number</code>, <code>string</code>마다 별도 함수를 만들면 같은 로직이 타입 수만큼 복제된다. 제네릭은 이 두 선택지 사이의 공백을 메운다. 타입 자체를 매개변수로 받아 함수·클래스·인터페이스를 한 번만 정의하고, 호출 시점에 결정된 타입을 입력에서 출력까지 끊김 없이 전달한다.</p>
+<h2>핵심 개념</h2>
+<p>제네릭의 본질은 타입 변수다. <code>function identity&lt;Type&gt;(arg: Type): Type</code>에서 <code>Type</code>은 값이 아니라 타입을 담는 자리이며, 호출 때 확정된다. 명시적으로 <code>identity&lt;string&gt;(&quot;x&quot;)</code>처럼 넘길 수도 있지만 대부분은 인자로부터 컴파일러가 추론한다. 추론은 인자 위치에서만 일어나며, 반환 타입만으로는 타입 인자를 결정하지 못한다.</p>
+<p>타입 변수는 그 자체로는 어떤 구조도 보장하지 않는다. <code>arg.length</code>에 접근하려 하면 <code>Type</code>에 <code>length</code>가 있다는 근거가 없으므로 오류가 난다. 이때 <code>extends</code> 절로 제약(constraint)을 건다. <code>&lt;Type extends { length: number }&gt;</code>로 선언하면 <code>length</code>를 가진 타입만 들어올 수 있고, 함수 본문에서 해당 속성을 안전하게 사용한다. 제약은 상한을 정하는 것이지 타입을 그 상한으로 바꾸는 것이 아니다. <code>string</code>을 넘기면 <code>Type</code>은 여전히 <code>string</code>이다.</p>
+<p>타입 변수끼리 제약을 걸 수도 있다. <code>&lt;Type, Key extends keyof Type&gt;</code>은 두 번째 타입 인자가 첫 번째 객체 타입의 키여야 한다는 관계를 표현한다. 이 형태가 <code>getProperty(obj, &quot;name&quot;)</code> 같은 API에서 오타를 컴파일 단계에서 걸러내는 기반이 된다.</p>
+<p>제네릭은 함수 외에도 인터페이스와 클래스에 적용된다. 클래스의 타입 매개변수는 인스턴스 멤버에만 유효하고 static 멤버에서는 참조할 수 없다. 인터페이스는 호출 시그니처 전체를 제네릭으로 만들거나, 인터페이스 자체를 매개변수화해 <code>GenericIdentityFn&lt;number&gt;</code>처럼 특정 타입으로 고정한 뒤 사용하는 두 가지 방식이 있다.</p>
+<p>타입 매개변수에는 기본값을 줄 수 있다. <code>&lt;T = HTMLElement&gt;</code>처럼 선언하면 인자 없이 호출해도 추론이 실패하는 대신 기본 타입이 적용된다. 기본값이 있는 매개변수는 필수 매개변수 뒤에 와야 하며, 제약이 있다면 기본값은 그 제약을 만족해야 한다.</p>
+<p>클래스 타입 자체를 값으로 다룰 때는 생성자 시그니처 <code>new () =&gt; Type</code>을 타입으로 쓴다. 팩토리 함수에 <code>c: new () =&gt; Type</code>을 넘기면 반환 타입이 실제 생성되는 클래스로 추론된다. 여기에 제약을 결합하면 <code>Animal</code>의 하위 클래스만 받는 팩토리를 만들 수 있다.</p>
+<p>Java/Spring과 비교하면, TypeScript 제네릭은 Java 제네릭과 문법이 비슷하지만 두 가지가 다르다. 첫째, Java와 마찬가지로 런타임에 타입이 지워지지만, TypeScript는 구조적 타입 시스템이므로 <code>extends</code> 제약이 클래스 상속이 아니라 형태 일치로 판정된다. 둘째, <code>keyof</code>나 리터럴 타입과 결합해 Java에서는 불가능한 키 이름 수준의 제약이 가능하다. Spring Data의 <code>Repository&lt;T, ID&gt;</code> 인터페이스가 하는 역할을 TypeScript에서는 <code>Repository&lt;Entity, Key extends keyof Entity&gt;</code>처럼 더 세밀하게 표현한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>타입 인자 명시</th>
+<th>추론</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>방식</td>
+<td><code>fn&lt;string&gt;(x)</code></td>
+<td><code>fn(x)</code></td>
+</tr>
+<tr>
+<td>사용 시점</td>
+<td>추론이 모호하거나 반환 타입만으로 결정해야 할 때</td>
+<td>인자에서 타입이 드러나는 대부분의 경우</td>
+</tr>
+<tr>
+<td>위험</td>
+<td>인자와 불일치 시 즉시 오류</td>
+<td>리터럴이 넓은 타입으로 확장될 수 있음</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>객체와 키를 받아 해당 속성 값을 반환하며, 존재하지 않는 키는 컴파일 단계에서 거부한다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">function</span> getProperty&lt;<span class="hljs-title class_">Type</span>, <span class="hljs-title class_">Key</span> <span class="hljs-keyword">extends</span> keyof <span class="hljs-title class_">Type</span>&gt;(<span class="hljs-attr">obj</span>: <span class="hljs-title class_">Type</span>, <span class="hljs-attr">key</span>: <span class="hljs-title class_">Key</span>): <span class="hljs-title class_">Type</span>[<span class="hljs-title class_">Key</span>] {
+  <span class="hljs-keyword">return</span> obj[key];
+}
+
+<span class="hljs-keyword">const</span> user = { <span class="hljs-attr">id</span>: <span class="hljs-number">1</span>, <span class="hljs-attr">name</span>: <span class="hljs-string">&quot;kim&quot;</span>, <span class="hljs-attr">active</span>: <span class="hljs-literal">true</span> };
+
+<span class="hljs-keyword">const</span> name = <span class="hljs-title function_">getProperty</span>(user, <span class="hljs-string">&quot;name&quot;</span>);   <span class="hljs-comment">// string</span>
+<span class="hljs-keyword">const</span> active = <span class="hljs-title function_">getProperty</span>(user, <span class="hljs-string">&quot;active&quot;</span>); <span class="hljs-comment">// boolean</span>
+<span class="hljs-comment">// getProperty(user, &quot;email&quot;);            // 오류: &quot;email&quot;은 keyof typeof user가 아니다</span></code></pre>
+<p>제약과 기본값을 가진 제네릭 클래스로, 같은 로직을 엔티티 타입마다 다시 쓰지 않는다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">interface</span> <span class="hljs-title class_">Entity</span> {
+  <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>;
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">InMemoryRepository</span>&lt;T <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Entity</span>, K <span class="hljs-keyword">extends</span> keyof T = <span class="hljs-string">&quot;id&quot;</span>&gt; {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> items = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Map</span>&lt;T[K], T&gt;();
+
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">key</span>: K</span>) {}
+
+  <span class="hljs-title function_">save</span>(<span class="hljs-attr">item</span>: T): T {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">items</span>.<span class="hljs-title function_">set</span>(item[<span class="hljs-variable language_">this</span>.<span class="hljs-property">key</span>], item);
+    <span class="hljs-keyword">return</span> item;
+  }
+
+  <span class="hljs-title function_">findBy</span>(<span class="hljs-attr">value</span>: T[K]): T | <span class="hljs-literal">undefined</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">items</span>.<span class="hljs-title function_">get</span>(value);
+  }
+}
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">Order</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Entity</span> {
+  <span class="hljs-attr">code</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">amount</span>: <span class="hljs-built_in">number</span>;
+}
+
+<span class="hljs-keyword">const</span> orders = <span class="hljs-keyword">new</span> <span class="hljs-title class_">InMemoryRepository</span>&lt;<span class="hljs-title class_">Order</span>&gt;(<span class="hljs-string">&quot;id&quot;</span>);
+orders.<span class="hljs-title function_">save</span>({ <span class="hljs-attr">id</span>: <span class="hljs-number">10</span>, <span class="hljs-attr">code</span>: <span class="hljs-string">&quot;A-1&quot;</span>, <span class="hljs-attr">amount</span>: <span class="hljs-number">3000</span> });
+<span class="hljs-keyword">const</span> found = orders.<span class="hljs-title function_">findBy</span>(<span class="hljs-number">10</span>); <span class="hljs-comment">// Order | undefined</span></code></pre>
+<p>생성자 시그니처를 제약으로 사용해 특정 계층의 하위 클래스만 생성하는 팩토리다.</p>
+<pre><code class="hljs language-ts"><span class="hljs-keyword">class</span> <span class="hljs-title class_">Animal</span> {
+  legs = <span class="hljs-number">4</span>;
+}
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Dog</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">Animal</span> {
+  <span class="hljs-title function_">bark</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;woof&quot;</span>;
+  }
+}
+
+<span class="hljs-keyword">function</span> create&lt;T <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Animal</span>&gt;(<span class="hljs-attr">ctor</span>: <span class="hljs-title function_">new</span> () =&gt; T): T {
+  <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title function_">ctor</span>();
+}
+
+<span class="hljs-keyword">const</span> dog = <span class="hljs-title function_">create</span>(<span class="hljs-title class_">Dog</span>); <span class="hljs-comment">// Dog</span>
+dog.<span class="hljs-title function_">bark</span>();
+<span class="hljs-comment">// create(Date);          // 오류: Date에는 legs가 없다</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>리터럴 인자가 넓은 타입으로 추론된다. <code>wrap(&quot;GET&quot;)</code>을 호출하면 <code>T</code>는 <code>&quot;GET&quot;</code>이 아니라 <code>string</code>으로 확장되는 경우가 있다. 리터럴을 보존해야 하면 <code>T extends string</code>처럼 원시 타입 제약을 두거나, TypeScript 5.0에서 추가된 <code>const</code> 타입 매개변수(<code>&lt;const T&gt;</code>)를 사용한다.</li>
+<li>반환 타입만 제네릭인 함수는 추론 근거가 없어 <code>unknown</code>으로 결정된다. <code>fetchJson&lt;T&gt;(url): Promise&lt;T&gt;</code> 같은 시그니처는 호출부가 타입 인자를 명시하는 것 외에는 어떤 검증도 하지 않으므로, 사실상 <code>as T</code> 단언과 같다. 런타임 스키마 검증과 함께 써야 한다.</li>
+<li>제약 없는 타입 변수에서 속성을 읽으면 오류이지만, 이를 피하려고 <code>T extends any</code>나 <code>T extends object</code>로 얼버무리면 제약이 무의미해진다. 실제로 사용하는 속성만 담은 최소 인터페이스로 상한을 정한다.</li>
+<li>제네릭은 컴파일 시 지워지므로 <code>instanceof T</code>나 <code>typeof T</code> 같은 런타임 분기는 불가능하다. 런타임 판별이 필요하면 생성자나 판별 함수를 값으로 함께 전달한다.</li>
+<li>타입 매개변수가 서너 개를 넘어가면 호출부에서 순서를 맞추기 어렵고 오류 메시지도 길어진다. 옵션 객체 타입 하나로 묶거나, 중간 타입 별칭으로 단계를 나누어 추론 부담을 줄인다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/typescript/types-interfaces-aliases/">기본 타입·인터페이스·타입 별칭</a></li>
+<li><a href="/notes/typescript/unions-narrowing/">유니온·교차·리터럴 타입과 Narrowing</a></li>
+<li><a href="/notes/typescript/utility-conditional-mapped-types/">유틸리티 타입·조건부 타입·매핑 타입</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · TypeScript, Generics, Type Parameter, Constraint, Type Inference</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/typescript/types-interfaces-aliases/"><small>이전</small>기본 타입·인터페이스·타입 별칭</a>
+  <a class="next" href="/notes/typescript/unions-narrowing/"><small>다음</small>유니온·교차·리터럴 타입과 Narrowing</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

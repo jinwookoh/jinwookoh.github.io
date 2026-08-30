@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>마이크로서비스 — Kafka·gRPC · NestJS</title>
+  <meta name="description" content="NestJS 마이크로서비스 추상화 위에서 Kafka 이벤트와 gRPC 호출을 어떻게 나눠 쓰고 어디서 걸리는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="마이크로서비스 — Kafka·gRPC · NestJS">
+  <meta property="og:description" content="NestJS 마이크로서비스 추상화 위에서 Kafka 이벤트와 gRPC 호출을 어떻게 나눠 쓰고 어디서 걸리는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/microservices-kafka-grpc/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nestjs/">NestJS</a><span class="sep">›</span><span>마이크로서비스 — Kafka·gRPC</span></nav>
+    <article class="post">
+  <p class="part">NestJS · 운영</p>
+  <h1>마이크로서비스 — Kafka·gRPC</h1>
+  <p class="summary">NestJS 마이크로서비스 추상화 위에서 Kafka 이벤트와 gRPC 호출을 어떻게 나눠 쓰고 어디서 걸리는지 정리한다</p>
+  <div class="content">
+<p>서비스를 여러 개로 쪼개면 HTTP만으로 연결하기 어려운 지점이 생긴다. 주문 생성 뒤 재고·알림·정산이 각각 반응해야 하는데 REST로 순차 호출하면 한 서비스 장애가 전체 요청을 끌어내리고, 내부 동기 호출을 JSON으로 처리하면 직렬화 비용과 스키마 불일치가 누적된다. <code>@nestjs/microservices</code>는 이런 통신을 전송 계층과 분리된 하나의 모델로 묶는다.</p>
+<h2>핵심 개념</h2>
+<p>마이크로서비스는 <code>NestFactory.createMicroservice()</code>로 독립 실행하거나, HTTP 앱에 <code>app.connectMicroservice()</code>로 붙여 하이브리드로 운영한다. 전송 방식은 <code>Transport</code> 열거형으로 고르며 핸들러 코드는 전송 방식에 거의 의존하지 않는다.</p>
+<p>메시지 스타일은 두 가지다. <code>@MessagePattern()</code>은 요청-응답으로 핸들러 반환값이 호출자에게 돌아간다. <code>@EventPattern()</code>은 발행-구독으로 응답 없이 같은 이벤트의 핸들러가 병렬 실행된다. 클라이언트는 <code>ClientProxy</code>가 담당한다. <code>send()</code>는 구독 시점에 요청을 보내는 cold Observable, <code>emit()</code>은 즉시 발행하는 hot Observable을 반환한다. <code>ClientsModule.register()</code>로 등록해 토큰으로 주입하고, <code>@Payload()</code>와 <code>@Ctx()</code>로 본문과 전송 계층별 컨텍스트(파티션·오프셋·메타데이터)를 꺼낸다.</p>
+<p>Spring에 대응시키면 <code>@EventPattern</code> + Kafka는 <code>@KafkaListener</code>, <code>ClientProxy.emit()</code>은 <code>KafkaTemplate.send()</code>에 가깝다. <code>@GrpcMethod()</code>는 grpc-spring-boot-starter의 <code>@GrpcService</code> 구현 메서드, <code>RpcException</code>은 <code>StatusRuntimeException</code>에 해당한다.</p>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>Kafka</th>
+<th>gRPC</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>통신 모델</td>
+<td>비동기 메시지</td>
+<td>동기 RPC·스트리밍</td>
+</tr>
+<tr>
+<td>계약</td>
+<td>토픽 + 자체 스키마</td>
+<td><code>.proto</code></td>
+</tr>
+<tr>
+<td>용도</td>
+<td>이벤트 전파, 재처리</td>
+<td>서비스 간 조회·명령</td>
+</tr>
+</tbody></table>
+<p>Kafka 트랜스포터는 <code>options.client.brokers</code>와 <code>options.consumer.groupId</code>로 브로커·컨슈머 그룹을 지정한다. 요청-응답을 쓰려면 클라이언트가 <code>onModuleInit()</code>에서 <code>subscribeToResponseOf(pattern)</code>을 호출해 응답 토픽을 미리 구독해야 한다. 발행만 하는 서비스는 <code>producerOnlyMode: true</code>로 컨슈머 등록을 건너뛴다. 핸들러 반환값을 <code>{ key, value, headers }</code> 형태로 주면 파티션 키와 헤더를 제어한다.</p>
+<p>gRPC 트랜스포터는 <code>package</code>와 <code>protoPath</code>가 필수다. 서버는 <code>@GrpcMethod(service, method)</code>로 단항 호출을, <code>@GrpcStreamMethod()</code>로 Observable 스트리밍을, <code>@GrpcStreamCall()</code>로 Node 스트림을 직접 다룬다. 클라이언트는 <code>ClientGrpc.getService&lt;T&gt;(name)</code>로 proto 서비스 인터페이스를 얻고 각 메서드는 Observable을 반환한다. 예외는 <code>GrpcNotFoundException</code>처럼 상태 코드별 클래스가 있고 <code>GrpcExceptionFilter</code>를 전역 등록해 gRPC 상태로 변환한다.</p>
+<h2>코드</h2>
+<p>Kafka 하이브리드 앱을 구성하고 이벤트를 수신하는 예제다. 오프셋을 수동 커밋하도록 <code>run.autoCommit</code>을 끈다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// main.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">NestFactory</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/core&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">MicroserviceOptions</span>, <span class="hljs-title class_">Transport</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/microservices&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">AppModule</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;./app.module&#x27;</span>;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">bootstrap</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> app = <span class="hljs-keyword">await</span> <span class="hljs-title class_">NestFactory</span>.<span class="hljs-title function_">create</span>(<span class="hljs-title class_">AppModule</span>);
+  app.<span class="hljs-property">connectMicroservice</span>&lt;<span class="hljs-title class_">MicroserviceOptions</span>&gt;({
+    <span class="hljs-attr">transport</span>: <span class="hljs-title class_">Transport</span>.<span class="hljs-property">KAFKA</span>,
+    <span class="hljs-attr">options</span>: {
+      <span class="hljs-attr">client</span>: { <span class="hljs-attr">clientId</span>: <span class="hljs-string">&#x27;order&#x27;</span>, <span class="hljs-attr">brokers</span>: [<span class="hljs-string">&#x27;localhost:9092&#x27;</span>] },
+      <span class="hljs-attr">consumer</span>: { <span class="hljs-attr">groupId</span>: <span class="hljs-string">&#x27;order-consumer&#x27;</span> },
+      <span class="hljs-attr">run</span>: { <span class="hljs-attr">autoCommit</span>: <span class="hljs-literal">false</span> },
+    },
+  });
+  <span class="hljs-keyword">await</span> app.<span class="hljs-title function_">startAllMicroservices</span>();
+  <span class="hljs-keyword">await</span> app.<span class="hljs-title function_">listen</span>(<span class="hljs-number">3000</span>);
+}
+<span class="hljs-title function_">bootstrap</span>();
+
+<span class="hljs-comment">// order.consumer.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Controller</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> {
+  <span class="hljs-title class_">Ctx</span>, <span class="hljs-title class_">EventPattern</span>, <span class="hljs-title class_">KafkaContext</span>, <span class="hljs-title class_">KafkaRetriableException</span>, <span class="hljs-title class_">Payload</span>,
+} <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/microservices&#x27;</span>;
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderCreated</span> { <span class="hljs-attr">orderId</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">amount</span>: <span class="hljs-built_in">number</span> }
+
+<span class="hljs-meta">@Controller</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderConsumer</span> {
+  <span class="hljs-meta">@EventPattern</span>(<span class="hljs-string">&#x27;order.created&#x27;</span>)
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">onOrderCreated</span>(
+    <span class="hljs-meta">@Payload</span>() <span class="hljs-attr">data</span>: <span class="hljs-title class_">OrderCreated</span>,
+    <span class="hljs-meta">@Ctx</span>() <span class="hljs-attr">ctx</span>: <span class="hljs-title class_">KafkaContext</span>,
+  ): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+    <span class="hljs-keyword">const</span> heartbeat = ctx.<span class="hljs-title function_">getHeartbeat</span>();
+    <span class="hljs-keyword">try</span> {
+      <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">reserveStock</span>(data);
+      <span class="hljs-keyword">await</span> <span class="hljs-title function_">heartbeat</span>();
+      <span class="hljs-keyword">const</span> { offset } = ctx.<span class="hljs-title function_">getMessage</span>();
+      <span class="hljs-keyword">await</span> ctx.<span class="hljs-title function_">getConsumer</span>().<span class="hljs-title function_">commitOffsets</span>([
+        { <span class="hljs-attr">topic</span>: ctx.<span class="hljs-title function_">getTopic</span>(), <span class="hljs-attr">partition</span>: ctx.<span class="hljs-title function_">getPartition</span>(), offset },
+      ]);
+    } <span class="hljs-keyword">catch</span> (err) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">KafkaRetriableException</span>(<span class="hljs-title class_">String</span>(err));
+    }
+  }
+
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">async</span> <span class="hljs-title function_">reserveStock</span>(<span class="hljs-attr">_</span>: <span class="hljs-title class_">OrderCreated</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {}
+}</code></pre>
+<p>Kafka 클라이언트로 이벤트를 발행하고, 필요하면 요청-응답도 쓰는 예제다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { <span class="hljs-title class_">Inject</span>, <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">OnModuleInit</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ClientKafkaProxy</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/microservices&#x27;</span>;
+<span class="hljs-keyword">import</span> { firstValueFrom, timeout } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;rxjs&#x27;</span>;
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderPublisher</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OnModuleInit</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-meta">@Inject</span>(<span class="hljs-string">&#x27;ORDER_BUS&#x27;</span>) <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">client</span>: <span class="hljs-title class_">ClientKafkaProxy</span></span>) {}
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">onModuleInit</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">client</span>.<span class="hljs-title function_">subscribeToResponseOf</span>(<span class="hljs-string">&#x27;stock.check&#x27;</span>);
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">client</span>.<span class="hljs-title function_">connect</span>();
+  }
+
+  <span class="hljs-title function_">publish</span>(<span class="hljs-params"><span class="hljs-attr">orderId</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">amount</span>: <span class="hljs-built_in">number</span></span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">client</span>.<span class="hljs-title function_">emit</span>(<span class="hljs-string">&#x27;order.created&#x27;</span>, {
+      <span class="hljs-attr">key</span>: orderId,
+      <span class="hljs-attr">value</span>: { orderId, amount },
+    });
+  }
+
+  <span class="hljs-title function_">checkStock</span>(<span class="hljs-attr">sku</span>: <span class="hljs-built_in">string</span>): <span class="hljs-title class_">Promise</span>&lt;{ <span class="hljs-attr">available</span>: <span class="hljs-built_in">boolean</span> }&gt; {
+    <span class="hljs-keyword">return</span> <span class="hljs-title function_">firstValueFrom</span>(
+      <span class="hljs-variable language_">this</span>.<span class="hljs-property">client</span>
+        .<span class="hljs-property">send</span>&lt;{ <span class="hljs-attr">available</span>: <span class="hljs-built_in">boolean</span> }&gt;(<span class="hljs-string">&#x27;stock.check&#x27;</span>, { sku })
+        .<span class="hljs-title function_">pipe</span>(<span class="hljs-title function_">timeout</span>(<span class="hljs-number">3000</span>)),
+    );
+  }
+}</code></pre>
+<p>gRPC 서버 핸들러와 클라이언트 호출 예제다. proto 파일의 서비스 이름과 메서드 이름이 데코레이터 인자와 일치해야 한다.</p>
+<pre><code class="hljs language-protobuf"><span class="hljs-comment">// proto/hero.proto</span>
+syntax = <span class="hljs-string">&quot;proto3&quot;</span>;
+<span class="hljs-keyword">package</span> hero;
+
+<span class="hljs-keyword">service </span><span class="hljs-title class_">HeroesService</span> {
+  <span class="hljs-function"><span class="hljs-keyword">rpc</span> FindOne (HeroById) <span class="hljs-keyword">returns</span> (Hero) </span>{}
+}
+<span class="hljs-keyword">message </span><span class="hljs-title class_">HeroById</span> { <span class="hljs-type">int32</span> id = <span class="hljs-number">1</span>; }
+<span class="hljs-keyword">message </span><span class="hljs-title class_">Hero</span> { <span class="hljs-type">int32</span> id = <span class="hljs-number">1</span>; <span class="hljs-type">string</span> name = <span class="hljs-number">2</span>; }</code></pre>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// heroes.controller.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Controller</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">GrpcMethod</span>, <span class="hljs-title class_">GrpcNotFoundException</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/microservices&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Metadata</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@grpc/grpc-js&#x27;</span>;
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">HeroById</span> { <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span> }
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">Hero</span> { <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>; <span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span> }
+
+<span class="hljs-meta">@Controller</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">HeroesController</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">heroes</span>: <span class="hljs-title class_">Hero</span>[] = [{ <span class="hljs-attr">id</span>: <span class="hljs-number">1</span>, <span class="hljs-attr">name</span>: <span class="hljs-string">&#x27;John&#x27;</span> }];
+
+  <span class="hljs-meta">@GrpcMethod</span>(<span class="hljs-string">&#x27;HeroesService&#x27;</span>, <span class="hljs-string">&#x27;FindOne&#x27;</span>)
+  <span class="hljs-title function_">findOne</span>(<span class="hljs-attr">data</span>: <span class="hljs-title class_">HeroById</span>, <span class="hljs-attr">metadata</span>: <span class="hljs-title class_">Metadata</span>): <span class="hljs-title class_">Hero</span> {
+    <span class="hljs-keyword">const</span> hero = <span class="hljs-variable language_">this</span>.<span class="hljs-property">heroes</span>.<span class="hljs-title function_">find</span>(<span class="hljs-function">(<span class="hljs-params">h</span>) =&gt;</span> h.<span class="hljs-property">id</span> === data.<span class="hljs-property">id</span>);
+    <span class="hljs-keyword">if</span> (!hero) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">GrpcNotFoundException</span>(<span class="hljs-string">`hero <span class="hljs-subst">${data.id}</span>`</span>);
+    <span class="hljs-keyword">return</span> hero;
+  }
+}
+
+<span class="hljs-comment">// hero.client.ts</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Inject</span>, <span class="hljs-title class_">Injectable</span>, <span class="hljs-title class_">OnModuleInit</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/common&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">ClientGrpc</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@nestjs/microservices&#x27;</span>;
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Observable</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;rxjs&#x27;</span>;
+
+<span class="hljs-keyword">interface</span> <span class="hljs-title class_">HeroesService</span> {
+  <span class="hljs-title function_">findOne</span>(<span class="hljs-attr">req</span>: { <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span> }): <span class="hljs-title class_">Observable</span>&lt;{ <span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span>; <span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span> }&gt;;
+}
+
+<span class="hljs-meta">@Injectable</span>()
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">HeroClient</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OnModuleInit</span> {
+  <span class="hljs-keyword">private</span> svc!: <span class="hljs-title class_">HeroesService</span>;
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-meta">@Inject</span>(<span class="hljs-string">&#x27;HERO_PACKAGE&#x27;</span>) <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">client</span>: <span class="hljs-title class_">ClientGrpc</span></span>) {}
+
+  <span class="hljs-title function_">onModuleInit</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">svc</span> = <span class="hljs-variable language_">this</span>.<span class="hljs-property">client</span>.<span class="hljs-property">getService</span>&lt;<span class="hljs-title class_">HeroesService</span>&gt;(<span class="hljs-string">&#x27;HeroesService&#x27;</span>);
+  }
+
+  <span class="hljs-title function_">find</span>(<span class="hljs-params"><span class="hljs-attr">id</span>: <span class="hljs-built_in">number</span></span>) {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">svc</span>.<span class="hljs-title function_">findOne</span>({ id });
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.</strong> <code>subscribeToResponseOf()</code>를 빠뜨리면 <code>send()</code>가 응답을 영원히 기다린다. 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.</li>
+<li><strong>오프셋 커밋과 재시도 의미를 정해야 한다.</strong> 자동 커밋에서 핸들러가 실패하면 메시지가 유실될 수 있고, 수동 커밋에서 커밋을 빠뜨리면 반복 소비한다. 이벤트 핸들러의 미처리 예외는 기본 재시도 대상이므로 핸들러를 멱등하게 쓰고, 영구 실패는 일반 예외로 구분해 DLQ로 보낸다.</li>
+<li><strong>긴 작업은 세션 타임아웃을 넘긴다.</strong> <code>sessionTimeout</code> 안에 하트비트가 없으면 리밸런싱으로 파티션이 다른 인스턴스로 넘어간다. <code>ctx.getHeartbeat()</code>를 중간에 호출하거나 작업을 큐로 넘긴다.</li>
+<li><strong>proto 계약 관리가 서비스 경계를 결정한다.</strong> proto 파일을 저장소마다 복사하면 버전이 어긋난다. 별도 패키지로 배포하고 <code>protoPath</code>에 배열을 넘겨 함께 로드한다. 기본 4MB 메시지 제한은 <code>maxReceiveMessageLength</code>로 조정한다.</li>
+<li><strong>하이브리드 앱은 가드·파이프 적용 범위가 다르다.</strong> HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다. <code>connectMicroservice()</code>에 <code>inheritAppConfig: true</code>를 명시하거나 따로 등록한다. 예외는 <code>RpcException</code> 계열을 던져야 필터가 응답 형식을 맞춘다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nestjs/caching-queues-scheduling/">캐싱·큐(BullMQ)·스케줄링</a></li>
+<li><a href="/notes/nestjs/interceptors-filters-middleware/">Interceptors·Exception Filters·Middleware</a></li>
+<li><a href="/notes/nestjs/testing-deployment/">테스트와 배포</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · NestJS, Microservices, Kafka, gRPC, ClientProxy</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nestjs/caching-queues-scheduling/"><small>이전</small>캐싱·큐(BullMQ)·스케줄링</a>
+  <a class="next" href="/notes/nestjs/testing-deployment/"><small>다음</small>테스트와 배포</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

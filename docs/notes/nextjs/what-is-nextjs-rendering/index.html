@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR) · Next.js</title>
+  <meta name="description" content="Next.js App Router는 라우트 단위로 정적·동적 렌더링을 자동 결정하며, 선택 기준은 데이터의 요청 의존성이다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR) · Next.js">
+  <meta property="og:description" content="Next.js App Router는 라우트 단위로 정적·동적 렌더링을 자동 결정하며, 선택 기준은 데이터의 요청 의존성이다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nextjs/what-is-nextjs-rendering/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nextjs/">Next.js</a><span class="sep">›</span><span>Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</span></nav>
+    <article class="post">
+  <p class="part">Next.js · 기초</p>
+  <h1>Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</h1>
+  <p class="summary">Next.js App Router는 라우트 단위로 정적·동적 렌더링을 자동 결정하며, 선택 기준은 데이터의 요청 의존성이다</p>
+  <div class="content">
+<p>React만으로 화면을 만들면 브라우저는 빈 HTML과 번들 JavaScript를 받은 뒤에야 화면을 그린다. 첫 화면이 늦고, 크롤러는 데이터가 채워지기 전의 빈 문서를 본다. 이를 피하려고 서버에서 HTML을 먼저 만들려 하면 라우팅, 데이터 로딩 시점, 번들 분리, 캐시 무효화를 직접 조립해야 한다. Next.js는 이 조립을 프레임워크 규약으로 흡수한다. 파일 시스템이 라우팅을 정의하고, 각 라우트가 어떤 방식으로 렌더링될지를 코드의 데이터 접근 패턴에서 추론한다.</p>
+<h2>핵심 개념</h2>
+<p>Next.js 15의 기본 라우터는 App Router다. <code>app/</code> 디렉터리 아래의 폴더 구조가 URL 경로가 되고, 폴더 안의 예약 파일이 역할을 나눈다. <code>page.tsx</code>는 해당 경로의 UI, <code>layout.tsx</code>는 하위 경로가 공유하는 껍데기, <code>loading.tsx</code>와 <code>error.tsx</code>는 각각 Suspense 경계와 에러 경계로 변환된다. <code>[id]</code> 같은 대괄호 폴더는 동적 세그먼트다. Spring으로 치면 <code>@RequestMapping(&quot;/posts/{id}&quot;)</code>에 해당하는 선언이 폴더 이름으로 옮겨진 셈이며, <code>layout.tsx</code>는 중첩 가능한 뷰 템플릿에 가깝다.</p>
+<p>App Router의 컴포넌트는 기본적으로 React Server Component다. 서버에서만 실행되고 그 결과가 직렬화된 RSC 페이로드로 브라우저에 전달되며, 컴포넌트 코드 자체는 클라이언트 번들에 포함되지 않는다. 브라우저 API나 이벤트 핸들러가 필요한 부분만 파일 상단에 <code>&#39;use client&#39;</code>를 선언해 Client Component로 분리한다. 이 경계 덕분에 DB 접근 코드가 페이지 컴포넌트 안에 바로 들어간다. Spring MVC의 컨트롤러와 템플릿 렌더링이 한 함수에 합쳐진 형태다.</p>
+<p>렌더링 전략은 네 가지로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th>전략</th>
+<th>렌더링 시점</th>
+<th>HTML 생성 주체</th>
+<th>App Router에서의 조건</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SSG (정적)</td>
+<td>빌드 시</td>
+<td>서버(빌드 서버)</td>
+<td>요청 시 정보에 의존하지 않을 때 기본값</td>
+</tr>
+<tr>
+<td>ISR (증분 정적 재생성)</td>
+<td>빌드 시 + 주기적 재생성</td>
+<td>서버</td>
+<td><code>revalidate</code> 설정 또는 태그 기반 무효화</td>
+</tr>
+<tr>
+<td>SSR (동적)</td>
+<td>요청마다</td>
+<td>서버</td>
+<td><code>cookies()</code>, <code>headers()</code>, <code>searchParams</code> 등 사용 시</td>
+</tr>
+<tr>
+<td>CSR</td>
+<td>브라우저</td>
+<td>클라이언트</td>
+<td>Client Component에서 마운트 후 fetch</td>
+</tr>
+</tbody></table>
+<p>App Router는 이 전략을 페이지 단위 설정으로 고르게 하지 않는다. 라우트 세그먼트를 렌더링하면서 요청 시점 정보를 읽는 동적 API가 호출되는지를 관찰하고, 호출이 없으면 정적으로, 있으면 동적으로 분류한다. 개발자는 <code>export const dynamic = &#39;force-dynamic&#39;</code>이나 <code>export const revalidate = 60</code> 같은 세그먼트 설정으로 판단을 덮어쓸 수 있다.</p>
+<p>동적 라우트에서 <code>loading.tsx</code>나 <code>&lt;Suspense&gt;</code>로 경계를 두면 준비된 부분부터 HTML을 스트리밍하고, 느린 부분은 나중에 채운다.</p>
+<p>Next.js 15에서 주의할 기본값 변경이 있다. <code>fetch</code>의 응답과 GET Route Handler는 더 이상 기본 캐시 대상이 아니며, 캐시하려면 <code>fetch(url, { cache: &#39;force-cache&#39; })</code> 또는 <code>next: { revalidate }</code> 옵션을 명시해야 한다. 또한 <code>params</code>, <code>searchParams</code>, <code>cookies()</code>, <code>headers()</code>가 모두 Promise를 반환하므로 <code>await</code>로 풀어야 한다.</p>
+<h2>코드</h2>
+<p>정적 렌더링 라우트. 요청 시점 정보를 읽지 않으므로 빌드 시 HTML이 생성되고, <code>generateStaticParams</code>로 미리 만들 경로를 알려 준다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/posts/[slug]/page.tsx</span>
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Post</span> = { <span class="hljs-attr">slug</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">title</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">body</span>: <span class="hljs-built_in">string</span> };
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">generateStaticParams</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> <span class="hljs-attr">posts</span>: <span class="hljs-title class_">Post</span>[] = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">&#x27;https://api.example.com/posts&#x27;</span>, {
+    <span class="hljs-attr">cache</span>: <span class="hljs-string">&#x27;force-cache&#x27;</span>,
+  }).<span class="hljs-title function_">then</span>(<span class="hljs-function">(<span class="hljs-params">r</span>) =&gt;</span> r.<span class="hljs-title function_">json</span>());
+  <span class="hljs-keyword">return</span> posts.<span class="hljs-title function_">map</span>(<span class="hljs-function">(<span class="hljs-params">p</span>) =&gt;</span> ({ <span class="hljs-attr">slug</span>: p.<span class="hljs-property">slug</span> }));
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">PostPage</span>(<span class="hljs-params">{
+  params,
+}: {
+  params: <span class="hljs-built_in">Promise</span>&lt;{ slug: <span class="hljs-built_in">string</span> }&gt;;
+}</span>) {
+  <span class="hljs-keyword">const</span> { slug } = <span class="hljs-keyword">await</span> params;
+  <span class="hljs-keyword">const</span> <span class="hljs-attr">post</span>: <span class="hljs-title class_">Post</span> = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">`https://api.example.com/posts/<span class="hljs-subst">${slug}</span>`</span>, {
+    <span class="hljs-attr">next</span>: { <span class="hljs-attr">revalidate</span>: <span class="hljs-number">300</span> }, <span class="hljs-comment">// 300초마다 재생성 → ISR</span>
+  }).<span class="hljs-title function_">then</span>(<span class="hljs-function">(<span class="hljs-params">r</span>) =&gt;</span> r.<span class="hljs-title function_">json</span>());
+
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">article</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">h1</span>&gt;</span>{post.title}<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>{post.body}<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">article</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>동적 렌더링 라우트. <code>cookies()</code>를 읽는 순간 해당 세그먼트는 요청마다 렌더링되며, 느린 부분은 Suspense로 감싸 스트리밍한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/page.tsx</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Suspense</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+<span class="hljs-keyword">import</span> { cookies } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;next/headers&#x27;</span>;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">RecentOrders</span>(<span class="hljs-params">{ userId }: { userId: <span class="hljs-built_in">string</span> }</span>) {
+  <span class="hljs-keyword">const</span> orders = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">`https://api.example.com/users/<span class="hljs-subst">${userId}</span>/orders`</span>, {
+    <span class="hljs-attr">cache</span>: <span class="hljs-string">&#x27;no-store&#x27;</span>,
+  }).<span class="hljs-title function_">then</span>(<span class="hljs-function">(<span class="hljs-params">r</span>) =&gt;</span> r.<span class="hljs-title function_">json</span>() <span class="hljs-keyword">as</span> <span class="hljs-title class_">Promise</span>&lt;{ <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>; <span class="hljs-attr">total</span>: <span class="hljs-built_in">number</span> }[]&gt;);
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">ul</span>&gt;</span>
+      {orders.map((o) =&gt; (
+        <span class="hljs-tag">&lt;<span class="hljs-name">li</span> <span class="hljs-attr">key</span>=<span class="hljs-string">{o.id}</span>&gt;</span>{o.id}: {o.total}<span class="hljs-tag">&lt;/<span class="hljs-name">li</span>&gt;</span>
+      ))}
+    <span class="hljs-tag">&lt;/<span class="hljs-name">ul</span>&gt;</span></span>
+  );
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">DashboardPage</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> store = <span class="hljs-keyword">await</span> <span class="hljs-title function_">cookies</span>();
+  <span class="hljs-keyword">const</span> userId = store.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;uid&#x27;</span>)?.<span class="hljs-property">value</span> ?? <span class="hljs-string">&#x27;anonymous&#x27;</span>;
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">main</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">h1</span>&gt;</span>{userId}의 대시보드<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Suspense</span> <span class="hljs-attr">fallback</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">p</span>&gt;</span>주문 불러오는 중<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">RecentOrders</span> <span class="hljs-attr">userId</span>=<span class="hljs-string">{userId}</span> /&gt;</span>
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Suspense</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">main</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>클라이언트 렌더링. 브라우저 이벤트가 필요한 부분만 <code>&#39;use client&#39;</code>로 분리하고, 데이터는 마운트 이후에 가져온다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/LiveCounter.tsx</span>
+<span class="hljs-string">&#x27;use client&#x27;</span>;
+<span class="hljs-keyword">import</span> { useEffect, useState } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">LiveCounter</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">const</span> [count, setCount] = useState&lt;<span class="hljs-built_in">number</span> | <span class="hljs-literal">null</span>&gt;(<span class="hljs-literal">null</span>);
+  <span class="hljs-title function_">useEffect</span>(<span class="hljs-function">() =&gt;</span> {
+    <span class="hljs-keyword">const</span> id = <span class="hljs-built_in">setInterval</span>(<span class="hljs-title function_">async</span> () =&gt; {
+      <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">&#x27;/api/visitors&#x27;</span>);
+      <span class="hljs-title function_">setCount</span>((<span class="hljs-keyword">await</span> res.<span class="hljs-title function_">json</span>()).<span class="hljs-property">count</span> <span class="hljs-keyword">as</span> <span class="hljs-built_in">number</span>);
+    }, <span class="hljs-number">5000</span>);
+    <span class="hljs-keyword">return</span> <span class="hljs-function">() =&gt;</span> <span class="hljs-built_in">clearInterval</span>(id);
+  }, []);
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">span</span>&gt;</span>{count ?? &#x27;-&#x27;}명 접속 중<span class="hljs-tag">&lt;/<span class="hljs-name">span</span>&gt;</span></span>;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>의도치 않은 동적 전환.</strong> 공통 레이아웃에서 <code>cookies()</code>나 <code>headers()</code>를 한 번 읽으면 그 아래 모든 페이지가 동적 렌더링으로 바뀐다. 빌드 로그에서 라우트 옆의 기호(정적 <code>○</code>, 동적 <code>ƒ</code>)를 확인해 의도와 맞는지 점검해야 한다.</li>
+<li><strong>Next.js 15 캐시 기본값.</strong> 14에서 15로 올리면 <code>fetch</code> 결과가 캐시되지 않아 백엔드 호출량이 급증할 수 있다. 캐시가 필요한 호출마다 <code>cache</code> 또는 <code>next.revalidate</code>를 명시하고, 세그먼트 단위로 묶고 싶다면 <code>export const fetchCache = &#39;default-cache&#39;</code>를 검토한다.</li>
+<li><strong>Promise 기반 params.</strong> <code>params</code>와 <code>searchParams</code>를 동기 객체로 다루던 코드는 15에서 경고를 거쳐 오류가 된다. 타입을 <code>Promise&lt;...&gt;</code>로 바꾸고 <code>await</code>를 붙이는 마이그레이션이 필요하다.</li>
+<li><strong>직렬화 경계.</strong> Server Component에서 Client Component로 넘기는 props는 직렬화 가능해야 한다. Map, 클래스 인스턴스, 일반 함수는 넘길 수 없고, 함수는 Server Action으로만 전달된다.</li>
+<li><strong>ISR 재생성 타이밍.</strong> <code>revalidate</code>는 지정한 시간이 지난 후 들어온 첫 요청에 이전 버전을 응답하고 백그라운드에서 재생성한다. 재생성 직후 요청이 없으면 갱신되지 않으므로 즉시 반영이 필요하면 <code>revalidatePath</code>나 <code>revalidateTag</code>로 명시적으로 무효화한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nextjs/routing-layouts-loading-error/">라우팅·레이아웃·로딩과 에러 UI</a></li>
+<li><a href="/notes/nextjs/server-vs-client-components/">Server Components와 Client Components</a></li>
+<li><a href="/notes/nextjs/data-fetching-caching/">데이터 페칭·캐싱·revalidate</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Next.js, App Router, SSR, SSG, ISR, React Server Components</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/nextjs/routing-layouts-loading-error/"><small>다음</small>라우팅·레이아웃·로딩과 에러 UI</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

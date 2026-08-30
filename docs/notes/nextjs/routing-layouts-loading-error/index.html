@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>라우팅·레이아웃·로딩과 에러 UI · Next.js</title>
+  <meta name="description" content="App Router는 폴더 규약만으로 중첩 레이아웃·스트리밍 로딩·구간별 에러 경계를 선언한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="라우팅·레이아웃·로딩과 에러 UI · Next.js">
+  <meta property="og:description" content="App Router는 폴더 규약만으로 중첩 레이아웃·스트리밍 로딩·구간별 에러 경계를 선언한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/nextjs/routing-layouts-loading-error/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/nextjs/">Next.js</a><span class="sep">›</span><span>라우팅·레이아웃·로딩과 에러 UI</span></nav>
+    <article class="post">
+  <p class="part">Next.js · 기초</p>
+  <h1>라우팅·레이아웃·로딩과 에러 UI</h1>
+  <p class="summary">App Router는 폴더 규약만으로 중첩 레이아웃·스트리밍 로딩·구간별 에러 경계를 선언한다.</p>
+  <div class="content">
+<p>라우팅 라이브러리를 직접 조합하면 공통 헤더를 페이지마다 다시 그리고, 데이터가 준비될 때까지 화면 전체가 비어 있으며, 한 컴포넌트의 예외가 페이지 전체를 백지로 만든다. 로딩·에러 상태를 페이지마다 <code>useState</code>로 관리하면 같은 코드가 수십 곳에 복제된다. Next.js App Router는 이 문제를 파일 시스템 규약으로 해결한다. 폴더가 URL 세그먼트가 되고, <code>layout.tsx</code>·<code>loading.tsx</code>·<code>error.tsx</code>라는 예약 파일이 각 세그먼트의 공통 UI·로딩 UI·에러 UI를 담당한다.</p>
+<h2>핵심 개념</h2>
+<p>App Router에서 <code>app/</code> 아래의 각 폴더는 하나의 라우트 세그먼트다. 폴더 안에 <code>page.tsx</code>가 있어야 그 경로가 공개 URL이 되고, <code>page.tsx</code>가 없는 폴더는 하위 경로의 구조만 담는다. 세그먼트마다 다음 예약 파일을 둘 수 있다.</p>
+<table>
+<thead>
+<tr>
+<th>파일</th>
+<th>역할</th>
+<th>렌더링 특성</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>layout.tsx</code></td>
+<td>하위 세그먼트를 감싸는 공통 UI</td>
+<td>내비게이션 간 상태 유지, 리렌더링 없음</td>
+</tr>
+<tr>
+<td><code>template.tsx</code></td>
+<td>레이아웃과 같은 위치이나 매 내비게이션마다 새 인스턴스</td>
+<td>상태 초기화, 효과 재실행</td>
+</tr>
+<tr>
+<td><code>loading.tsx</code></td>
+<td>세그먼트의 데이터 준비 중 대체 UI</td>
+<td>자동 <code>Suspense</code> 경계</td>
+</tr>
+<tr>
+<td><code>error.tsx</code></td>
+<td>세그먼트 렌더링 예외를 잡는 UI</td>
+<td>자동 Error Boundary, 클라이언트 컴포넌트</td>
+</tr>
+<tr>
+<td><code>global-error.tsx</code></td>
+<td>루트 레이아웃까지 포함한 최상위 예외</td>
+<td><code>&lt;html&gt;</code>·<code>&lt;body&gt;</code>를 직접 렌더링</td>
+</tr>
+</tbody></table>
+<p>레이아웃은 중첩된다. <code>app/layout.tsx</code>(루트 레이아웃)는 필수이며 <code>&lt;html&gt;</code>과 <code>&lt;body&gt;</code>를 반드시 포함한다. <code>app/dashboard/layout.tsx</code>는 루트 레이아웃의 <code>children</code> 자리에 삽입되고, 다시 <code>app/dashboard/settings/page.tsx</code>를 자신의 <code>children</code>으로 받는다. 형제 경로 사이를 이동할 때 상위 레이아웃은 다시 마운트되지 않으므로 입력값이나 스크롤 위치가 유지된다. 진입마다 초기화가 필요하면 <code>template.tsx</code>를 쓴다.</p>
+<p><code>loading.tsx</code>는 같은 폴더의 <code>page.tsx</code>와 그 하위 트리를 <code>&lt;Suspense fallback={&lt;Loading /&gt;}&gt;</code>으로 감싼 것과 동일하게 동작한다. 서버는 레이아웃과 로딩 UI를 먼저 HTML로 내려보내고, 데이터가 준비되는 대로 나머지 조각을 같은 응답 스트림에 이어 붙인다. 이것이 스트리밍 SSR이다. 더 세밀하게 나누려면 컴포넌트 안에 <code>&lt;Suspense&gt;</code>를 직접 배치한다.</p>
+<p><code>error.tsx</code>는 자신이 속한 세그먼트와 그 하위에서 발생한 렌더링 예외를 가로챈다. 같은 폴더의 <code>layout.tsx</code>가 발생시킨 예외는 잡지 못하는데, 에러 경계가 레이아웃 안쪽에 배치되기 때문이다. 레이아웃의 예외는 한 단계 위 세그먼트의 <code>error.tsx</code>가 처리하고, 루트 레이아웃의 예외는 <code>global-error.tsx</code>만 잡을 수 있다. 서버 컴포넌트의 에러는 프로덕션에서 메시지가 제거되고 <code>digest</code> 해시만 클라이언트로 전달되며, 서버 로그의 같은 digest와 대조한다.</p>
+<p>Spring/Java와 대응시키면 중첩 <code>layout.tsx</code>는 Thymeleaf 레이아웃 데코레이터, <code>error.tsx</code>는 세그먼트 범위로 좁힌 <code>@ControllerAdvice</code>·<code>@ExceptionHandler</code>, <code>loading.tsx</code>의 스트리밍 응답은 <code>ResponseBodyEmitter</code>로 조각을 흘려보내는 모델에 해당한다.</p>
+<h2>코드</h2>
+<p>대시보드 세그먼트의 공통 레이아웃이다. Next.js 15부터 <code>params</code>는 Promise로 전달되므로 <code>await</code>로 풀어 쓴다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/[team]/layout.tsx</span>
+<span class="hljs-keyword">import</span> <span class="hljs-keyword">type</span> { <span class="hljs-title class_">ReactNode</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react&quot;</span>;
+<span class="hljs-keyword">import</span> <span class="hljs-title class_">Link</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;next/link&quot;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Props</span> = {
+  <span class="hljs-attr">children</span>: <span class="hljs-title class_">ReactNode</span>;
+  <span class="hljs-attr">params</span>: <span class="hljs-title class_">Promise</span>&lt;{ <span class="hljs-attr">team</span>: <span class="hljs-built_in">string</span> }&gt;;
+};
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">TeamLayout</span>(<span class="hljs-params">{ children, params }: <span class="hljs-title class_">Props</span></span>) {
+  <span class="hljs-keyword">const</span> { team } = <span class="hljs-keyword">await</span> params;
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">section</span> <span class="hljs-attr">className</span>=<span class="hljs-string">&quot;flex&quot;</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">nav</span> <span class="hljs-attr">className</span>=<span class="hljs-string">&quot;w-56&quot;</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">Link</span> <span class="hljs-attr">href</span>=<span class="hljs-string">{</span>`/<span class="hljs-attr">dashboard</span>/${<span class="hljs-attr">team</span>}`}&gt;</span>개요<span class="hljs-tag">&lt;/<span class="hljs-name">Link</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">Link</span> <span class="hljs-attr">href</span>=<span class="hljs-string">{</span>`/<span class="hljs-attr">dashboard</span>/${<span class="hljs-attr">team</span>}/<span class="hljs-attr">members</span>`}&gt;</span>멤버<span class="hljs-tag">&lt;/<span class="hljs-name">Link</span>&gt;</span>
+        <span class="hljs-tag">&lt;<span class="hljs-name">Link</span> <span class="hljs-attr">href</span>=<span class="hljs-string">{</span>`/<span class="hljs-attr">dashboard</span>/${<span class="hljs-attr">team</span>}/<span class="hljs-attr">settings</span>`}&gt;</span>설정<span class="hljs-tag">&lt;/<span class="hljs-name">Link</span>&gt;</span>
+      <span class="hljs-tag">&lt;/<span class="hljs-name">nav</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">main</span> <span class="hljs-attr">className</span>=<span class="hljs-string">&quot;flex-1&quot;</span>&gt;</span>{children}<span class="hljs-tag">&lt;/<span class="hljs-name">main</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">section</span>&gt;</span></span>
+  );
+}</code></pre>
+<p>같은 세그먼트에 <code>loading.tsx</code>를 두면 <code>page.tsx</code>의 데이터 대기 중에 레이아웃과 함께 즉시 스트리밍된다. 페이지 안에서 느린 위젯만 별도 <code>Suspense</code>로 분리한 형태다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/[team]/loading.tsx</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Loading</span>(<span class="hljs-params"></span>) {
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">role</span>=<span class="hljs-string">&quot;status&quot;</span> <span class="hljs-attr">aria-busy</span>=<span class="hljs-string">&quot;true&quot;</span>&gt;</span>불러오는 중<span class="hljs-tag">&lt;/<span class="hljs-name">div</span>&gt;</span></span>;
+}
+
+<span class="hljs-comment">// app/dashboard/[team]/page.tsx</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Suspense</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react&quot;</span>;
+<span class="hljs-keyword">import</span> { getTeam, getActivity } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;@/lib/api&quot;</span>;
+
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">Activity</span>(<span class="hljs-params">{ team }: { team: <span class="hljs-built_in">string</span> }</span>) {
+  <span class="hljs-keyword">const</span> rows = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getActivity</span>(team); <span class="hljs-comment">// 느린 호출</span>
+  <span class="hljs-keyword">return</span> <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">ul</span>&gt;</span>{rows.map((r) =&gt; <span class="hljs-tag">&lt;<span class="hljs-name">li</span> <span class="hljs-attr">key</span>=<span class="hljs-string">{r.id}</span>&gt;</span>{r.message}<span class="hljs-tag">&lt;/<span class="hljs-name">li</span>&gt;</span>)}<span class="hljs-tag">&lt;/<span class="hljs-name">ul</span>&gt;</span></span>;
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">TeamPage</span>(<span class="hljs-params">{
+  params,
+}: {
+  params: <span class="hljs-built_in">Promise</span>&lt;{ team: <span class="hljs-built_in">string</span> }&gt;;
+}</span>) {
+  <span class="hljs-keyword">const</span> { team } = <span class="hljs-keyword">await</span> params;
+  <span class="hljs-keyword">const</span> info = <span class="hljs-keyword">await</span> <span class="hljs-title function_">getTeam</span>(team);
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">h1</span>&gt;</span>{info.name}<span class="hljs-tag">&lt;/<span class="hljs-name">h1</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">Suspense</span> <span class="hljs-attr">fallback</span>=<span class="hljs-string">{</span>&lt;<span class="hljs-attr">p</span>&gt;</span>활동 내역 로딩<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>}&gt;
+        <span class="hljs-tag">&lt;<span class="hljs-name">Activity</span> <span class="hljs-attr">team</span>=<span class="hljs-string">{team}</span> /&gt;</span>
+      <span class="hljs-tag">&lt;/<span class="hljs-name">Suspense</span>&gt;</span>
+    <span class="hljs-tag">&lt;/&gt;</span></span>
+  );
+}</code></pre>
+<p>에러 경계는 클라이언트 컴포넌트여야 하며, <code>reset</code>을 호출하면 해당 세그먼트만 다시 렌더링을 시도한다.</p>
+<pre><code class="hljs language-tsx"><span class="hljs-comment">// app/dashboard/[team]/error.tsx</span>
+<span class="hljs-string">&quot;use client&quot;</span>;
+
+<span class="hljs-keyword">import</span> { useEffect } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;react&quot;</span>;
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Props</span> = {
+  <span class="hljs-attr">error</span>: <span class="hljs-title class_">Error</span> &amp; { <span class="hljs-attr">digest</span>?: <span class="hljs-built_in">string</span> };
+  <span class="hljs-attr">reset</span>: <span class="hljs-function">() =&gt;</span> <span class="hljs-built_in">void</span>;
+};
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">default</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">TeamError</span>(<span class="hljs-params">{ error, reset }: <span class="hljs-title class_">Props</span></span>) {
+  <span class="hljs-title function_">useEffect</span>(<span class="hljs-function">() =&gt;</span> {
+    <span class="hljs-comment">// 모니터링 SDK로 전송. digest로 서버 로그와 대조한다.</span>
+    <span class="hljs-variable language_">console</span>.<span class="hljs-title function_">error</span>(error.<span class="hljs-property">digest</span> ?? error.<span class="hljs-property">message</span>);
+  }, [error]);
+
+  <span class="hljs-keyword">return</span> (
+    <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">div</span> <span class="hljs-attr">role</span>=<span class="hljs-string">&quot;alert&quot;</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">p</span>&gt;</span>팀 정보를 표시하지 못했다.<span class="hljs-tag">&lt;/<span class="hljs-name">p</span>&gt;</span>
+      <span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">type</span>=<span class="hljs-string">&quot;button&quot;</span> <span class="hljs-attr">onClick</span>=<span class="hljs-string">{()</span> =&gt;</span> reset()}&gt;
+        다시 시도
+      <span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span>
+    <span class="hljs-tag">&lt;/<span class="hljs-name">div</span>&gt;</span></span>
+  );
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>레이아웃은 부모에서 자식으로 데이터를 넘기지 못한다. 상위 레이아웃과 하위 페이지가 같은 사용자 정보를 필요로 하면 각자 <code>fetch</code>하고, 같은 요청 안에서의 중복은 <code>fetch</code> 메모이제이션이나 <code>React.cache</code>로 제거한다.</li>
+<li><code>reset()</code>은 렌더링만 다시 시도하며 서버 데이터 캐시를 무효화하지 않는다. 서버 컴포넌트 예외를 복구하려면 <code>useRouter().refresh()</code>를 함께 호출해 최신 서버 응답을 받아야 한다.</li>
+<li><code>loading.tsx</code>는 세그먼트 전체를 하나의 경계로 묶으므로 페이지 안에서 가장 느린 호출이 전체 fallback을 좌우한다. 핵심 콘텐츠를 먼저 보이려면 컴포넌트 단위 <code>Suspense</code>로 쪼갠다.</li>
+<li>스트리밍 응답은 HTTP 상태 코드가 이미 200으로 전송된 뒤에 에러가 발생할 수 있다. <code>error.tsx</code>가 화면을 대체해도 상태 코드는 바뀌지 않으므로 상태 코드 기반 헬스 체크에는 별도 메트릭이 필요하다.</li>
+<li><code>notFound()</code>와 <code>redirect()</code>는 예외를 던지는 방식이므로 <code>try/catch</code> 안에서 호출하면 catch에 잡혀 무산된다. 조회 블록 바깥에서 호출한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/nextjs/what-is-nextjs-rendering/">Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</a></li>
+<li><a href="/notes/nextjs/server-vs-client-components/">Server Components와 Client Components</a></li>
+<li><a href="/notes/nextjs/performance-bundling-streaming/">성능·번들·스트리밍</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Next.js, App Router, layout, loading, error boundary</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/nextjs/what-is-nextjs-rendering/"><small>이전</small>Next.js란 — App Router와 렌더링 모델 (SSR·SSG·ISR·CSR)</a>
+  <a class="next" href="/notes/nextjs/server-vs-client-components/"><small>다음</small>Server Components와 Client Components</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
