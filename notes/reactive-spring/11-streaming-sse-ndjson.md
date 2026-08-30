@@ -137,10 +137,10 @@ void streamsProducts() {
 
 ## 실무에서 걸리는 지점
 
-- **`produces` 누락.** `Flux<T>`만 반환하면 JSON 배열로 전체 수집 후 전송된다. 스트리밍이 안 되는 것뿐 아니라 대용량 조회에서 OOM으로 이어진다. `curl`도 기본 버퍼링을 하므로 확인할 때는 `curl -N`을 붙인다.
-- **Sink 스코프.** 요청 핸들러 안에서 `Sinks.many()`를 만들면 매 요청마다 아무도 발행하지 않는 새 Sink가 생긴다. Sink는 싱글톤 빈의 필드로 두고 `asFlux()`만 노출한다. `replay().all()`은 원소를 무한히 보관하므로 `limit(n)` 또는 `limit(Duration)`으로 제한한다.
+- **`produces` 누락.** `Flux<T>`만 반환하면 JSON 배열로 전체 수집 후 전송된다. ==스트리밍이 안 되는 것뿐 아니라 대용량 조회에서 OOM으로 이어진다.== `curl`도 기본 버퍼링을 하므로 확인할 때는 `curl -N`을 붙인다.
+- **Sink 스코프.** ==요청 핸들러 안에서 `Sinks.many()`를 만들면 매 요청마다 아무도 발행하지 않는 새 Sink가 생긴다.== Sink는 싱글톤 빈의 필드로 두고 `asFlux()`만 노출한다. `replay().all()`은 원소를 무한히 보관하므로 `limit(n)` 또는 `limit(Duration)`으로 제한한다.
 - **`tryEmitNext` 결과 무시.** 반환값 `EmitResult`가 `FAIL_ZERO_SUBSCRIBER`, `FAIL_OVERFLOW`, `FAIL_NON_SERIALIZED`일 수 있다. 여러 스레드에서 동시에 발행한다면 `emitNext`에 `EmitFailureHandler`를 넘긴다.
-- **커밋 전 발행.** `doOnNext`에서 이벤트를 내보내면 구독자가 아직 커밋되지 않은 행을 조회할 수 있다. 저장 `Mono`의 `doOnSuccess` 또는 트랜잭션 커밋 이후 시점에서 발행한다.
+- **커밋 전 발행.** ==`doOnNext`에서 이벤트를 내보내면 구독자가 아직 커밋되지 않은 행을 조회할 수 있다.== 저장 `Mono`의 `doOnSuccess` 또는 트랜잭션 커밋 이후 시점에서 발행한다.
 - **프록시 유휴 타임아웃.** 이벤트가 뜸한 SSE 연결은 로드밸런서가 끊는다. 주석 이벤트로 하트비트를 보내고 프록시의 응답 버퍼링을 끈다. 재연결 시 `Last-Event-ID`를 처리하지 않으면 그 사이 이벤트는 유실된다.
 - **클라이언트 스트리밍의 완료 신호.** `@RequestBody Flux<T>`를 `count()`로 마무리하는 핸들러는 요청 본문이 `onComplete`되어야 응답한다. 클라이언트가 스트림을 닫지 않으면 응답이 나가지 않으므로 타임아웃을 둔다.
 

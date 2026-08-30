@@ -164,7 +164,7 @@ public class GlobalExceptionHandler {
 
 ## 실무에서 걸리는 지점
 
-- **`@Async`와 `@Transactional`의 조합.** 비동기 메서드는 다른 스레드에서 새 트랜잭션을 연다. 호출자가 롤백돼도 비동기 쪽은 커밋됐을 수 있다. 커밋 이후에만 실행해야 하면 `@TransactionalEventListener(phase = AFTER_COMMIT)`을 쓴다.
+- **`@Async`와 `@Transactional`의 조합.** 비동기 메서드는 다른 스레드에서 새 트랜잭션을 연다. ==호출자가 롤백돼도 비동기 쪽은 커밋됐을 수 있다.== 커밋 이후에만 실행해야 하면 `@TransactionalEventListener(phase = AFTER_COMMIT)`을 쓴다.
 - **동기 리스너의 느린 작업.** `@EventListener`는 발행자 스레드에서 동기 실행되므로 메일 발송이나 외부 호출을 넣으면 그만큼 응답이 지연된다. `@Async`를 붙이거나 브로커로 넘긴다.
 - **N+1과 전체 로딩.** 지연 로딩 컬렉션을 반복문에서 접근하면 건수만큼 쿼리가 나간다. Fetch Join·`@EntityGraph`·`default_batch_fetch_size` 중 하나로 해결한다. 일부 필드만 필요한 `findAll()`은 프로젝션 쿼리로 대체한다.
 - **JPA 엔티티에 Lombok `@Data`.** 생성된 `hashCode`·`toString`이 양방향 연관 필드를 타고 들어가 `StackOverflowError`를 낸다. `@Getter`·`@Setter`·`@NoArgsConstructor`만 쓰고 연관 필드는 `@ToString.Exclude`로 뺀다.

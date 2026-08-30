@@ -118,11 +118,11 @@ export default function EditorPage() {
 
 ## 실무에서 걸리는 지점
 
-- **레이아웃의 비캐시 데이터가 fallback을 막는다.** `layout.tsx`에서 `cookies()`·`headers()`나 캐시되지 않은 fetch를 호출하면 `loading.tsx`가 있어도 레이아웃 렌더가 끝날 때까지 내비게이션이 멈춘다. 그런 호출은 `page.tsx`로 내리거나 레이아웃 안에서 별도 `<Suspense>`로 감싼다.
-- **404 상태 코드가 필요하면 스트리밍 전에 판단한다.** `notFound()`는 첫 Suspense fallback이 렌더되기 전, suspend 가능한 `await`보다 앞에 두어야 실제 404가 나간다. 규정 준수나 분석 목적으로 상태 코드가 중요하면 proxy 단계에서 slug 존재 여부를 가볍게 확인한다.
+- **레이아웃의 비캐시 데이터가 fallback을 막는다.** ==`layout.tsx`에서 `cookies()`·`headers()`나 캐시되지 않은 fetch를 호출하면 `loading.tsx`가 있어도 레이아웃 렌더가 끝날 때까지 내비게이션이 멈춘다.== 그런 호출은 `page.tsx`로 내리거나 레이아웃 안에서 별도 `<Suspense>`로 감싼다.
+- **404 상태 코드가 필요하면 스트리밍 전에 판단한다.** ==`notFound()`는 첫 Suspense fallback이 렌더되기 전, suspend 가능한 `await`보다 앞에 두어야 실제 404가 나간다.== 규정 준수나 분석 목적으로 상태 코드가 중요하면 proxy 단계에서 slug 존재 여부를 가볍게 확인한다.
 - **Suspense를 너무 잘게 쪼개면 레이아웃 시프트가 늘어난다.** fallback과 실제 콘텐츠의 크기를 맞추지 않으면 CLS가 악화된다. 사용자가 함께 기대하는 정보는 하나의 경계로 묶는다.
 - **`ssr: false`는 서버 컴포넌트에서 쓸 수 없다.** `next/dynamic`의 `ssr: false`는 클라이언트 컴포넌트 안에서만 허용된다. 서버 컴포넌트에서 지연 로드가 필요하면 `ssr` 옵션 없이 `dynamic`을 쓰거나, 클라이언트 래퍼를 한 겹 둔다.
-- **스트리밍은 정적 export에서 동작하지 않는다.** `output: "export"`로 정적 사이트를 뽑는 경우 Suspense fallback은 빌드 시점에 해소된다. 자체 호스팅 시에는 프록시(Nginx 등)의 응답 버퍼링을 꺼야 청크가 즉시 전달된다.
+- **스트리밍은 정적 export에서 동작하지 않는다.** `output: "export"`로 정적 사이트를 뽑는 경우 Suspense fallback은 빌드 시점에 해소된다. ==자체 호스팅 시에는 프록시(Nginx 등)의 응답 버퍼링을 꺼야 청크가 즉시 전달된다.==
 
 ## 관련 글
 

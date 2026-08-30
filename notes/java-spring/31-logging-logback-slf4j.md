@@ -142,13 +142,13 @@ public class TraceIdFilter extends OncePerRequestFilter {
 
 **문자열 연결과 무거운 인자.** `log.debug("user " + id)`는 DEBUG가 꺼져 있어도 연결이 먼저 일어난다. `{}` 플레이스홀더는 레벨 검사 후에만 포맷하지만, 인자 자체가 직렬화처럼 무거우면 `log.isDebugEnabled()` 가드나 SLF4J 2.x fluent API의 `addArgument(() -> heavy())`로 지연시킨다.
 
-**MDC 누수.** MDC는 ThreadLocal 기반이라 정리하지 않으면 풀에서 재사용된 스레드가 이전 요청의 traceId를 달고 나온다. `finally`에서 반드시 제거한다. `@Async`로 넘어가면 전파되지 않으므로 `TaskDecorator`로 복사한다.
+**MDC 누수.** ==MDC는 ThreadLocal 기반이라 정리하지 않으면 풀에서 재사용된 스레드가 이전 요청의 traceId를 달고 나온다.== `finally`에서 반드시 제거한다. `@Async`로 넘어가면 전파되지 않으므로 `TaskDecorator`로 복사한다.
 
 **민감 정보.** 비밀번호·카드번호·주민등록번호·API 키·JWT는 한 줄이라도 남기면 보관 기간 내내 유출 대상이 된다. DTO의 `toString()`에 딸려 나오는 경우가 흔하므로 객체를 통째로 넘기지 않고 필요한 필드만 마스킹해서 찍는다.
 
-**동기 쓰기와 디스크.** 기본 appender는 호출 스레드에서 동기적으로 쓴다. 로그량이 많으면 `AsyncAppender`로 감싸되, 큐가 차면 DEBUG 이하를 버리는 기본 동작을 알고 써야 한다. `totalSizeCap`을 빼먹으면 디스크가 가득 차 애플리케이션이 멈춘다.
+**동기 쓰기와 디스크.** 기본 appender는 호출 스레드에서 동기적으로 쓴다. 로그량이 많으면 `AsyncAppender`로 감싸되, 큐가 차면 DEBUG 이하를 버리는 기본 동작을 알고 써야 한다. ==`totalSizeCap`을 빼먹으면 디스크가 가득 차 애플리케이션이 멈춘다.==
 
-**컨테이너 환경의 포맷.** Kubernetes에서는 파일 대신 stdout으로 내보내고 수집기가 가져가는 구조가 표준이며, 필드 검색을 위해 JSON 출력이 필요하다. Spring Boot 3.4부터는 `logging.structured.format.console=ecs` 한 줄로 지원한다. `spring.jpa.show-sql=true`는 `System.out`으로 출력되어 이 체계를 전부 우회하므로 SQL은 `org.hibernate.SQL` 로거로 잡는다.
+**컨테이너 환경의 포맷.** Kubernetes에서는 파일 대신 stdout으로 내보내고 수집기가 가져가는 구조가 표준이며, 필드 검색을 위해 JSON 출력이 필요하다. Spring Boot 3.4부터는 `logging.structured.format.console=ecs` 한 줄로 지원한다. ==`spring.jpa.show-sql=true`는 `System.out`으로 출력되어 이 체계를 전부 우회하므로 SQL은 `org.hibernate.SQL` 로거로 잡는다.==
 
 ## 관련 글
 

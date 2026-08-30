@@ -132,10 +132,10 @@ export class RolesGuard implements CanActivate {
 
 ## 실무에서 걸리는 지점
 
-- **Guard 실행 순서는 등록 순서다.** `APP_GUARD`를 여러 개 등록하면 provider 배열 순서대로 실행되므로 `JwtAuthGuard`가 `RolesGuard`보다 앞에 와야 `request.user`가 채워진 상태로 역할 검사가 이루어진다. 순서가 뒤집히면 모든 요청이 403으로 떨어진다.
+- **Guard 실행 순서는 등록 순서다.** `APP_GUARD`를 여러 개 등록하면 provider 배열 순서대로 실행되므로 `JwtAuthGuard`가 `RolesGuard`보다 앞에 와야 `request.user`가 채워진 상태로 역할 검사가 이루어진다. ==순서가 뒤집히면 모든 요청이 403으로 떨어진다.==
 - **false 반환과 예외 던지기는 응답 코드가 다르다.** false를 반환하면 Nest가 403 `ForbiddenException`으로 바꾸고, 토큰이 없거나 만료된 경우는 직접 `UnauthorizedException`(401)을 던져야 클라이언트가 재로그인과 권한 부족을 구분한다.
-- **Guard는 Pipe보다 먼저 실행된다.** 따라서 Guard 안에서 본문 DTO가 검증·변환됐다고 가정하면 안 된다. 요청 본문에 의존하는 인가 판단은 raw 값을 직접 다루거나 Interceptor 이후 계층으로 옮긴다.
-- **Passport 경로에서는 `validate()`의 반환값이 곧 `request.user`다.** 여기서 DB 조회를 하면 모든 보호 요청마다 쿼리가 발생한다. 토큰 payload만으로 충분한 정보를 담거나, 조회가 필요하면 캐시를 앞에 두는 것이 일반적이다.
+- **Guard는 Pipe보다 먼저 실행된다.** ==따라서 Guard 안에서 본문 DTO가 검증·변환됐다고 가정하면 안 된다.== 요청 본문에 의존하는 인가 판단은 raw 값을 직접 다루거나 Interceptor 이후 계층으로 옮긴다.
+- **Passport 경로에서는 `validate()`의 반환값이 곧 `request.user`다.** ==여기서 DB 조회를 하면 모든 보호 요청마다 쿼리가 발생한다.== 토큰 payload만으로 충분한 정보를 담거나, 조회가 필요하면 캐시를 앞에 두는 것이 일반적이다.
 
 ## 관련 글
 

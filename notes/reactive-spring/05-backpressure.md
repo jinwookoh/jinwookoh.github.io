@@ -15,15 +15,15 @@ updated: 2026-08-29
 
 ### request(n)과 unbounded 요청
 
-`Flux.subscribe(consumer)` 형태의 기본 구독은 `request(Long.MAX_VALUE)`를 호출한다. 무제한 요청이므로 기본 구독만으로는 배압이 걸리지 않는다. 배압이 동작하려면 `publishOn`·`flatMap`처럼 내부 큐를 두는 연산자가 있거나 `limitRate`·`BaseSubscriber`로 요청량을 명시해야 한다.
+`Flux.subscribe(consumer)` 형태의 기본 구독은 `request(Long.MAX_VALUE)`를 호출한다. ==무제한 요청이므로 기본 구독만으로는 배압이 걸리지 않는다.== 배압이 동작하려면 `publishOn`·`flatMap`처럼 내부 큐를 두는 연산자가 있거나 `limitRate`·`BaseSubscriber`로 요청량을 명시해야 한다.
 
 ### 내부 큐와 75% 보충 규칙
 
-큐를 가진 연산자는 기본 prefetch 256개를 업스트림에 요청하고, 소비자가 그중 75%를 처리한 시점에 그만큼을 다시 요청한다. `limitRate(100)`은 처음 100개를 요청하고 75개가 처리되면 다음 75개를 요청한다. 임계값을 직접 정하려면 `limitRate(highTide, lowTide)`를 쓴다.
+==큐를 가진 연산자는 기본 prefetch 256개를 업스트림에 요청하고, 소비자가 그중 75%를 처리한 시점에 그만큼을 다시 요청한다.== `limitRate(100)`은 처음 100개를 요청하고 75개가 처리되면 다음 75개를 요청한다. 임계값을 직접 정하려면 `limitRate(highTide, lowTide)`를 쓴다.
 
 ### 배압을 준수하는 소스와 그렇지 않은 소스
 
-`Flux.range`, `Flux.generate`, `Flux.fromIterable`은 요청받은 개수만큼만 값을 만들므로 배압을 자동으로 준수한다. 반면 `Flux.create`는 외부 콜백이 임의 시점에 `sink.next()`를 호출하므로 요청량과 무관하게 값이 들어오고, 기본 `OverflowStrategy.BUFFER`가 초과분을 무제한 큐에 담는다. `sink.onRequest()`로 수요에 맞춰 생산하거나 `Flux.create(emitter, OverflowStrategy.DROP)`처럼 전략을 지정해야 한다. Hot Publisher인 `Sinks.Many`도 구독자 수요와 무관하게 발행하므로 `onBackpressureBuffer(size)` 같은 버퍼 설정이 필수다.
+`Flux.range`, `Flux.generate`, `Flux.fromIterable`은 요청받은 개수만큼만 값을 만들므로 배압을 자동으로 준수한다. 반면 `Flux.create`는 외부 콜백이 임의 시점에 `sink.next()`를 호출하므로 요청량과 무관하게 값이 들어오고, ==기본 `OverflowStrategy.BUFFER`가 초과분을 무제한 큐에 담는다.== `sink.onRequest()`로 수요에 맞춰 생산하거나 `Flux.create(emitter, OverflowStrategy.DROP)`처럼 전략을 지정해야 한다. Hot Publisher인 `Sinks.Many`도 구독자 수요와 무관하게 발행하므로 `onBackpressureBuffer(size)` 같은 버퍼 설정이 필수다.
 
 ### 오버플로우 전략
 
@@ -114,7 +114,7 @@ Flux.range(1, 10)
 - **무제한 `onBackpressureBuffer()`와 무한 스트림의 조합은 OOM으로 이어진다.** 유실 불가 데이터라면 소스가 요청을 존중하게 만들거나, 크기 제한 버퍼에 ERROR 전략을 걸어 초과를 즉시 실패로 드러낸다.
 - **`limitRate`는 소비 측 요청량만 줄인다.** `Flux.create` 루프가 `sink.next()`를 전부 호출한 뒤라면 값은 이미 내부 버퍼에 있다. 생산을 늦추려면 `sink.onRequest()`와 `sink.isCancelled()` 확인이 필요하다.
 - **`Sinks.Many`의 `tryEmitNext`는 버퍼가 차면 `FAIL_OVERFLOW`를 반환한다.** 반환값을 확인하지 않으면 값이 조용히 사라진다.
-- **Drop과 Latest는 보존 대상이 반대다.** Drop은 오래된 값을 지키고 새 값을 버리며, Latest는 대기 값을 새 값으로 교체한다. 최신 값만 의미 있는 데이터에 Drop을 쓰면 오래된 값이 소비된다.
+- **Drop과 Latest는 보존 대상이 반대다.** Drop은 오래된 값을 지키고 새 값을 버리며, Latest는 대기 값을 새 값으로 교체한다. ==최신 값만 의미 있는 데이터에 Drop을 쓰면 오래된 값이 소비된다.==
 
 ## 관련 글
 

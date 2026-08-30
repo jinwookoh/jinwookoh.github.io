@@ -24,12 +24,12 @@
   <h1>DTO 매핑 — MapStruct</h1>
   <p class="summary">Entity와 DTO 사이 변환 코드를 컴파일 시점에 생성해 반복과 누락을 없애는 MapStruct 표준 패턴</p>
   <div class="content">
-<p>Entity를 API 응답으로 그대로 노출하지 않으려면 DTO로 변환하는 코드가 필요하다. 이 변환을 손으로 작성하면 Entity 하나당 정적 팩토리 메서드 하나, 필드 20개면 20줄이 붙는다. 문제는 분량보다 유지보수다. Entity에 필드가 추가됐을 때 변환 메서드를 갱신하지 않으면 응답에서 값이 조용히 빠지고, <code>getAmount()</code>를 <code>setAmount()</code>가 아닌 다른 setter에 넣는 실수는 컴파일러가 잡아 주지 않는다. 런타임 리플렉션 기반 매퍼(ModelMapper 등)는 코드를 줄여 주지만 필드 이름이 어긋나도 실행 전까지 알 수 없고, 매 호출마다 리플렉션 비용이 든다. <mark>MapStruct는 이 두 문제를 컴파일 시점 코드 생성으로 해결한다.</mark></p>
+<p>Entity를 API 응답으로 그대로 노출하지 않으려면 DTO로 변환하는 코드가 필요하다. 이 변환을 손으로 작성하면 Entity 하나당 정적 팩토리 메서드 하나, 필드 20개면 20줄이 붙는다. 문제는 분량보다 유지보수다. Entity에 필드가 추가됐을 때 변환 메서드를 갱신하지 않으면 응답에서 값이 조용히 빠지고, <code>getAmount()</code>를 <code>setAmount()</code>가 아닌 다른 setter에 넣는 실수는 컴파일러가 잡아 주지 않는다. 런타임 리플렉션 기반 매퍼(ModelMapper 등)는 코드를 줄여 주지만 필드 이름이 어긋나도 실행 전까지 알 수 없고, 매 호출마다 리플렉션 비용이 든다. MapStruct는 이 두 문제를 컴파일 시점 코드 생성으로 해결한다.</p>
 <h2>핵심 개념</h2>
 <p>MapStruct는 어노테이션 프로세서다. 개발자는 <code>@Mapper</code>가 붙은 인터페이스에 메서드 시그니처만 선언하고, 컴파일러가 그 시그니처를 매핑 규칙으로 읽어 구현 클래스를 <code>build/generated/sources</code> 아래에 생성한다. 생성된 코드는 getter와 setter를 직접 호출하는 평범한 자바 코드이므로 실행 성능은 수동 매핑과 같고, 디버거로 한 줄씩 따라갈 수 있다.</p>
 <p>매핑 규칙의 기본은 이름 일치다. 소스 객체의 프로퍼티와 대상 객체의 프로퍼티 이름이 같으면 자동으로 연결된다. 이름이 다르거나 중첩 객체의 값을 끌어와야 하면 <code>@Mapping(source, target)</code>으로 명시하고, <code>source</code>에는 <code>user.name</code> 같은 점 표기로 중첩 경로를 적을 수 있다. 대상 필드를 건너뛰려면 <code>ignore = true</code>, 소스가 null일 때 채울 값은 <code>defaultValue</code>, 날짜와 문자열 사이 변환은 <code>dateFormat</code>으로 지정한다.</p>
 <p><code>componentModel = &quot;spring&quot;</code>을 주면 생성 클래스에 <code>@Component</code>가 붙어 일반 Bean처럼 주입받는다. Spring Boot 3 기준으로 <code>MappingConstants.ComponentModel.SPRING</code> 상수를 써도 된다.</p>
-<p>안전 장치로 가장 중요한 옵션은 <code>unmappedTargetPolicy = ReportingPolicy.ERROR</code>다. 대상 DTO에 매핑되지 않은 필드가 하나라도 남으면 컴파일이 실패하므로, Entity나 DTO에 필드를 추가하고 매퍼를 갱신하지 않는 실수가 빌드 단계에서 드러난다. 기본값은 WARN이라 경고가 로그에 묻히기 쉬우므로 프로젝트 전체에 ERROR를 적용하는 편이 낫다.</p>
+<p>안전 장치로 가장 중요한 옵션은 <code>unmappedTargetPolicy = ReportingPolicy.ERROR</code>다. 대상 DTO에 매핑되지 않은 필드가 하나라도 남으면 컴파일이 실패하므로, Entity나 DTO에 필드를 추가하고 매퍼를 갱신하지 않는 실수가 빌드 단계에서 드러난다. <mark>기본값은 WARN이라 경고가 로그에 묻히기 쉬우므로 프로젝트 전체에 ERROR를 적용하는 편이 낫다.</mark></p>
 <p>이 밖에 <code>@MappingTarget</code>은 새 객체를 만들지 않고 기존 객체의 필드를 덮어쓰는 업데이트 매핑에 쓰이고, <code>uses</code>는 다른 매퍼를 위임 대상으로 등록해 중첩 객체 그래프를 자동 변환하게 한다. <code>List&lt;Order&gt;</code>를 <code>List&lt;OrderResponse&gt;</code>로 바꾸는 컬렉션 매핑은 단일 객체 메서드가 있으면 시그니처만 선언해도 생성된다.</p>
 <p>ModelMapper와의 차이는 다음과 같다.</p>
 <table>
@@ -62,7 +62,7 @@
 </tr>
 </tbody></table>
 <h2>코드</h2>
-<p>Gradle 의존성. Lombok을 함께 쓰면 <code>lombok-mapstruct-binding</code>이 없을 때 MapStruct가 Lombok이 생성한 getter/setter를 보지 못하므로 반드시 추가한다.</p>
+<p>Gradle 의존성. <mark>Lombok을 함께 쓰면 <code>lombok-mapstruct-binding</code>이 없을 때 MapStruct가 Lombok이 생성한 getter/setter를 보지 못하므로 반드시 추가한다.</mark></p>
 <pre><code class="hljs language-groovy">dependencies {
     implementation <span class="hljs-string">&#x27;org.mapstruct:mapstruct:1.6.3&#x27;</span>
     annotationProcessor <span class="hljs-string">&#x27;org.mapstruct:mapstruct-processor:1.6.3&#x27;</span>
@@ -126,10 +126,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Lombok 어노테이션 프로세서 순서.</strong> <code>lombok-mapstruct-binding</code> 없이 빌드하면 &quot;Unknown property&quot; 또는 setter를 찾지 못한다는 오류가 난다.</mark> Gradle의 <code>annotationProcessor</code> 선언만으로는 순서가 보장되지 않으므로 바인딩 아티팩트를 반드시 넣는다.</li>
+<li><strong>Lombok 어노테이션 프로세서 순서.</strong> <code>lombok-mapstruct-binding</code> 없이 빌드하면 &quot;Unknown property&quot; 또는 setter를 찾지 못한다는 오류가 난다. Gradle의 <code>annotationProcessor</code> 선언만으로는 순서가 보장되지 않으므로 바인딩 아티팩트를 반드시 넣는다.</li>
 <li><strong><code>expression = &quot;java(...)&quot;</code> 남용.</strong> 문자열 안의 자바 코드는 IDE 리팩터링과 컴파일 검증에서 빠진다. 복잡한 변환은 인터페이스에 <code>default</code> 메서드를 두거나 별도 클래스를 <code>uses</code>로 등록해 타입이 검증되는 경로로 처리한다.</li>
 <li><strong>연관 Entity와 지연 로딩.</strong> <code>user.name</code>처럼 연관 객체를 매핑하면 트랜잭션 밖에서 <code>LazyInitializationException</code>이 나거나 컬렉션 매핑에서 N+1이 발생한다. 매핑은 트랜잭션 안에서 수행하고, 목록 조회는 fetch join으로 미리 로딩한다.</li>
-<li><mark><strong>업데이트 매핑의 null 처리.</strong> 부분 수정 API에서 요청 필드가 null이면 기본 전략은 대상 필드를 null로 덮어쓴다.</mark> <code>NullValuePropertyMappingStrategy.IGNORE</code>를 명시하지 않으면 의도치 않은 값 삭제가 DB에 반영된다.</li>
+<li><strong>업데이트 매핑의 null 처리.</strong> <mark>부분 수정 API에서 요청 필드가 null이면 기본 전략은 대상 필드를 null로 덮어쓴다.</mark> <code>NullValuePropertyMappingStrategy.IGNORE</code>를 명시하지 않으면 의도치 않은 값 삭제가 DB에 반영된다.</li>
 <li><strong>생성 코드 확인 습관.</strong> 매핑 결과가 이상하면 <code>build/generated/sources/annotationProcessor</code> 아래 <code>OrderMapperImpl</code>을 직접 연다. 어떤 필드가 어떤 getter에서 왔는지 그대로 적혀 있으므로 추측할 이유가 없다.</li>
 </ul>
 <h2>관련 글</h2>

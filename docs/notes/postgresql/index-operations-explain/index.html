@@ -24,15 +24,15 @@
   <h1>인덱스 운영과 EXPLAIN</h1>
   <p class="summary">인덱스는 만들고 끝이 아니라 EXPLAIN으로 검증하고 통계로 관찰하며 주기적으로 재구성·제거하는 운영 대상이다.</p>
   <div class="content">
-<p>인덱스를 만들었는데도 쿼리가 느린 경우는 흔하다. 통계가 오래되어 계획자가 인덱스를 무시하거나, <code>CONCURRENTLY</code> 생성이 실패해 INVALID 상태로 남았거나, 복합 인덱스의 컬럼 순서가 쿼리와 맞지 않는 경우다. 반대로 한 번도 조회되지 않는 인덱스가 모든 쓰기를 느리게 만드는 일도 잦다. <mark>계획자가 택한 경로를 EXPLAIN으로 확인하고, <code>pg_stat_user_indexes</code>로 사용 여부를 관찰하고, REINDEX와 ANALYZE로 상태를 되돌리는 운영 절차가 필요하다.</mark></p>
+<p>인덱스를 만들었는데도 쿼리가 느린 경우는 흔하다. 통계가 오래되어 계획자가 인덱스를 무시하거나, <code>CONCURRENTLY</code> 생성이 실패해 INVALID 상태로 남았거나, 복합 인덱스의 컬럼 순서가 쿼리와 맞지 않는 경우다. 반대로 한 번도 조회되지 않는 인덱스가 모든 쓰기를 느리게 만드는 일도 잦다. 계획자가 택한 경로를 EXPLAIN으로 확인하고, <code>pg_stat_user_indexes</code>로 사용 여부를 관찰하고, REINDEX와 ANALYZE로 상태를 되돌리는 운영 절차가 필요하다.</p>
 <h2>핵심 개념</h2>
 <h3>인덱스 라이프사이클</h3>
 <p>운영 인덱스는 설계 → 생성 → 검증 → 모니터링 → 튜닝 → 제거의 순환을 따른다. 설계 단계에서는 자주 나오는 WHERE·JOIN·ORDER BY 컬럼을 기준으로 인덱스 집합을 정한다. PRIMARY KEY와 UNIQUE 제약은 인덱스를 자동으로 만들지만 외래 키는 만들지 않으므로 직접 추가한다. 카디널리티가 매우 낮거나 갱신이 잦은 컬럼은 대상에서 빼거나 부분 인덱스로 범위를 줄인다. 갱신이 잦은 컬럼을 인덱스에서 빼면 HOT 업데이트가 가능해져 인덱스 갱신 자체를 피할 수 있다.</p>
-<p>생성은 운영 환경에서 항상 <code>CREATE INDEX CONCURRENTLY</code>를 쓴다. 일반 <code>CREATE INDEX</code>는 완료될 때까지 테이블 쓰기를 막는다. <code>CONCURRENTLY</code>는 락 없이 진행하는 대신 실패하면 <code>pg_index.indisvalid = false</code>인 INVALID 인덱스를 남기며, 이 인덱스는 검색에 쓰이지 않으면서 쓰기 비용과 디스크만 소모한다.</p>
+<p>생성은 운영 환경에서 항상 <code>CREATE INDEX CONCURRENTLY</code>를 쓴다. <mark>일반 <code>CREATE INDEX</code>는 완료될 때까지 테이블 쓰기를 막는다.</mark> <mark><code>CONCURRENTLY</code>는 락 없이 진행하는 대신 실패하면 <code>pg_index.indisvalid = false</code>인 INVALID 인덱스를 남기며, 이 인덱스는 검색에 쓰이지 않으면서 쓰기 비용과 디스크만 소모한다.</mark></p>
 <p>튜닝은 두 축이다. 인덱스가 테이블 대비 비정상적으로 커졌으면 블로트를 의심하고 <code>REINDEX INDEX CONCURRENTLY</code>로 재구성한다. PostgreSQL 12부터 지원하며 기존 인덱스로 검색을 받으면서 새 인덱스를 만들어 교체한다. 대량 DML 이후에는 <code>ANALYZE</code>로 통계를 갱신한다. 계획자는 통계로 비용을 추정하므로 통계가 현실과 다르면 인덱스가 있어도 Seq Scan을 고른다.</p>
 <h3>EXPLAIN 읽기</h3>
-<p><code>EXPLAIN</code>은 추정 계획만 보여주고 <code>EXPLAIN ANALYZE</code>는 쿼리를 실제로 실행해 실측치를 함께 출력한다. <mark>운영 진단 표준은 <code>EXPLAIN (ANALYZE, BUFFERS)</code>다.</mark> <code>BUFFERS</code>는 <code>shared hit</code>(캐시 적중)과 <code>read</code>(디스크 읽기)를 구분해 I/O 병목을 드러낸다.</p>
-<p><code>cost=START..TOTAL rows=N width=W</code>에서 START는 첫 행 반환까지의 추정 비용, TOTAL은 전체 완료 비용, rows는 추정 행 수다. <code>actual time=START..TOTAL rows=N loops=L</code>은 실측 ms와 실제 행 수, 노드 실행 횟수다. cost는 단위 없는 상대값이라 actual time과 직접 비교하지 않는다. 대신 추정 rows와 실제 rows를 비교하고, 수십 배 이상 어긋나면 <code>ANALYZE</code>를 돌린다. <code>loops</code>가 큰 노드는 time에 loops를 곱해야 총 소요 시간이 된다.</p>
+<p><code>EXPLAIN</code>은 추정 계획만 보여주고 <code>EXPLAIN ANALYZE</code>는 쿼리를 실제로 실행해 실측치를 함께 출력한다. 운영 진단 표준은 <code>EXPLAIN (ANALYZE, BUFFERS)</code>다. <code>BUFFERS</code>는 <code>shared hit</code>(캐시 적중)과 <code>read</code>(디스크 읽기)를 구분해 I/O 병목을 드러낸다.</p>
+<p><code>cost=START..TOTAL rows=N width=W</code>에서 START는 첫 행 반환까지의 추정 비용, TOTAL은 전체 완료 비용, rows는 추정 행 수다. <code>actual time=START..TOTAL rows=N loops=L</code>은 실측 ms와 실제 행 수, 노드 실행 횟수다. cost는 단위 없는 상대값이라 actual time과 직접 비교하지 않는다. 대신 추정 rows와 실제 rows를 비교하고, 수십 배 이상 어긋나면 <code>ANALYZE</code>를 돌린다. <mark><code>loops</code>가 큰 노드는 time에 loops를 곱해야 총 소요 시간이 된다.</mark></p>
 <table>
 <thead>
 <tr>
@@ -158,7 +158,7 @@ ANALYZE orders;</code></pre>
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>EXPLAIN ANALYZE는 실제 실행이다.</strong></mark> UPDATE·DELETE에 붙이면 데이터가 실제로 바뀐다. 쓰기 쿼리 진단은 <code>BEGIN</code>으로 열고 <code>ROLLBACK</code>으로 닫는다.</li>
+<li><strong>EXPLAIN ANALYZE는 실제 실행이다.</strong> <mark>UPDATE·DELETE에 붙이면 데이터가 실제로 바뀐다.</mark> 쓰기 쿼리 진단은 <code>BEGIN</code>으로 열고 <code>ROLLBACK</code>으로 닫는다.</li>
 <li><strong><code>CONCURRENTLY</code>는 실패 흔적을 남긴다.</strong> 배포 파이프라인에서 <code>pg_index.indisvalid</code>를 점검하고, INVALID 인덱스는 <code>DROP INDEX CONCURRENTLY</code> 후 재생성한다.</li>
 <li><strong>통계 갱신을 잊으면 인덱스가 무시된다.</strong> 대량 적재·삭제 뒤 autovacuum이 따라오기 전에는 계획자가 오래된 추정으로 Seq Scan을 고른다. 추정 rows와 실제 rows가 어긋나면 인덱스 추가보다 <code>ANALYZE</code>가 먼저다.</li>
 <li><strong>미사용 판단에는 관찰 기간이 필요하다.</strong> 월말 배치만 쓰는 인덱스가 있으므로 <code>idx_scan = 0</code>만 보고 지우지 않는다. 통계 초기화 시점을 확인하고 최소 몇 주 관찰 뒤 제거한다.</li>

@@ -141,11 +141,11 @@ public class ThumbnailHandler implements RequestHandler<S3Event, Void> {
 
 ## 실무에서 걸리는 지점
 
-- **Compliance 모드는 되돌릴 수 없다.** 기본 보존 규칙을 잘못 넣으면 그 기간 동안 객체와 저장 비용이 남는다. Governance 로 검증한 뒤 Compliance 로 올린다. 라이프사이클 만료 규칙도 보존 기간 전에는 삭제하지 못한다.
-- **이벤트 알림이 오지 않는 첫 원인은 Lambda 리소스 정책 누락이다.** 버킷 알림 구성만 넣으면 호출이 일어나지 않고 에러도 남지 않는다. 출력 버킷을 입력 버킷과 같게 두고 prefix 필터를 빼면 재귀 호출로 비용이 폭증한다.
-- **Presigned URL 만료는 서명 자격 증명 만료에 묶인다.** 인스턴스 프로파일이나 Lambda 실행 역할의 임시 자격 증명으로 7일짜리 URL을 만들어도 자격 증명 갱신 시점에 무효가 된다. 긴 만료가 필요하면 IAM 사용자 키로 서명한다.
+- **Compliance 모드는 되돌릴 수 없다.** 기본 보존 규칙을 잘못 넣으면 그 기간 동안 객체와 저장 비용이 남는다. Governance 로 검증한 뒤 Compliance 로 올린다. ==라이프사이클 만료 규칙도 보존 기간 전에는 삭제하지 못한다.==
+- **이벤트 알림이 오지 않는 첫 원인은 Lambda 리소스 정책 누락이다.** 버킷 알림 구성만 넣으면 호출이 일어나지 않고 에러도 남지 않는다. ==출력 버킷을 입력 버킷과 같게 두고 prefix 필터를 빼면 재귀 호출로 비용이 폭증한다.==
+- **Presigned URL 만료는 서명 자격 증명 만료에 묶인다.** ==인스턴스 프로파일이나 Lambda 실행 역할의 임시 자격 증명으로 7일짜리 URL을 만들어도 자격 증명 갱신 시점에 무효가 된다.== 긴 만료가 필요하면 IAM 사용자 키로 서명한다.
 - **캐시 헤더는 자산 종류별로 나눈다.** 해시 파일명 자산은 1년, `index.html` 은 `no-cache` 로 올린다. OAC 전환 시 버킷 정책의 `SourceArn` 배포 ID가 틀리면 403이 캐시되어 원인 찾기가 오래 걸린다.
-- **Access Point 는 버킷 정책과 AND 로 평가된다.** 버킷 정책에 `s3:DataAccessPointAccount` 조건을 두지 않으면 버킷 직접 경로가 그대로 열려 있다. Multi-Region Access Point 는 단일 리전 트래픽에는 과하다.
+- **Access Point 는 버킷 정책과 AND 로 평가된다.** ==버킷 정책에 `s3:DataAccessPointAccount` 조건을 두지 않으면 버킷 직접 경로가 그대로 열려 있다.== Multi-Region Access Point 는 단일 리전 트래픽에는 과하다.
 
 ## 관련 글
 

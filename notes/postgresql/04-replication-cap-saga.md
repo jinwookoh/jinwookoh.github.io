@@ -31,7 +31,7 @@ Physical(Streaming) 복제는 WAL을 그대로 전달하므로 replica가 primar
 
 ### Failover와 Split-Brain
 
-primary 장애 시 replica를 승격하는 것이 Failover다. 수동 승격은 다운타임이 분에서 시간 단위로 늘어나므로 Patroni처럼 etcd·Consul 합의로 새 primary를 정하는 자동화를 쓴다. 핵심은 정족수(Quorum)와 Fencing이다. 과반 합의 없이 승격하면 옛 primary와 새 primary가 동시에 쓰기를 받는 Split-Brain이 발생하고, 수동 병합 외에 복구 방법이 없다.
+primary 장애 시 replica를 승격하는 것이 Failover다. 수동 승격은 다운타임이 분에서 시간 단위로 늘어나므로 Patroni처럼 etcd·Consul 합의로 새 primary를 정하는 자동화를 쓴다. 핵심은 정족수(Quorum)와 Fencing이다. ==과반 합의 없이 승격하면 옛 primary와 새 primary가 동시에 쓰기를 받는 Split-Brain이 발생하고, 수동 병합 외에 복구 방법이 없다.==
 
 ### CAP과 PACELC
 
@@ -124,9 +124,9 @@ public class OrderSagaOrchestrator {
 
 ## 실무에서 걸리는 지점
 
-- **복제는 백업이 아니다.** primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다. 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.
-- **`synchronous_standby_names`를 켠 상태에서 standby가 전부 내려가면 커밋이 멈춘다.** `ANY 1 (s1, s2)` 정족수로 낮추거나 장애 시 설정을 풀 운영 절차를 준비해야 한다.
-- **long transaction과 replica 충돌.** standby의 긴 조회는 primary VACUUM이 만든 WAL과 충돌해 취소되거나(`hot_standby_feedback` off), primary의 dead tuple 정리를 막는다(on). 분석 쿼리는 전용 replica로 분리한다.
+- **복제는 백업이 아니다.** ==primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다.== 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.
+- ==**`synchronous_standby_names`를 켠 상태에서 standby가 전부 내려가면 커밋이 멈춘다.**== `ANY 1 (s1, s2)` 정족수로 낮추거나 장애 시 설정을 풀 운영 절차를 준비해야 한다.
+- **long transaction과 replica 충돌.** ==standby의 긴 조회는 primary VACUUM이 만든 WAL과 충돌해 취소되거나(`hot_standby_feedback` off), primary의 dead tuple 정리를 막는다(on).== 분석 쿼리는 전용 replica로 분리한다.
 - **Cascade 복제는 lag이 누적된다.** replica의 replica는 primary lag과 중간 노드 lag을 합산한 지연을 가지므로 Eventual 조회 전용으로 격리한다.
 - **Saga의 보상은 항상 성공한다는 가정이 틀리다.** 환불 API가 실패하거나 두 번 호출될 수 있으므로 보상은 멱등하게 만들고, 실패한 보상은 outbox 테이블에 기록해 재처리한다. 보상 불가능한 단계는 Saga의 마지막에 둔다.
 

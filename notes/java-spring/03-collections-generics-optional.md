@@ -160,10 +160,10 @@ public class UserService {
 
 ## 실무에서 걸리는 지점
 
-- **`HashMap`을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.** 공유 상태에는 `ConcurrentHashMap`을 쓴다.
-- **`orElse`의 인자는 값이 있어도 평가된다.** DB 조회처럼 비용이 있는 기본값은 `orElseGet`으로 지연시킨다.
+- ==**`HashMap`을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.**== 공유 상태에는 `ConcurrentHashMap`을 쓴다.
+- ==**`orElse`의 인자는 값이 있어도 평가된다.**== DB 조회처럼 비용이 있는 기본값은 `orElseGet`으로 지연시킨다.
 - **`Optional`은 반환 타입 전용이다.** 필드에 두면 직렬화와 JPA 매핑이 깨지고, 빈 컬렉션이 부재를 표현하므로 `Optional<List<T>>`로 감싸지 않는다.
-- **타입 소거 때문에 제네릭 타입 역직렬화는 힌트가 필요하다.** `RestClient`에서 `.body(List.class)`로 받으면 `List<LinkedHashMap>`이 되므로 `ParameterizedTypeReference<List<User>>`를 넘긴다.
+- **타입 소거 때문에 제네릭 타입 역직렬화는 힌트가 필요하다.** ==`RestClient`에서 `.body(List.class)`로 받으면 `List<LinkedHashMap>`이 되므로 `ParameterizedTypeReference<List<User>>`를 넘긴다.==
 
 ## 관련 글
 

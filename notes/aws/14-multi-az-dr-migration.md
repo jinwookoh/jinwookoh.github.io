@@ -37,13 +37,13 @@ RPO는 허용하는 데이터 손실 시간이고 백업 빈도로 결정된다.
 
 Pilot Light와 Warm Standby의 차이는 EC2가 꺼져 있는지 최소 규모로 켜져 있는지 하나다. Multi-Site는 Route 53 라우팅과 Aurora Global Database를 결합하고, Direct Connect의 백업 경로는 Site-to-Site VPN으로 둔다.
 
-AWS Elastic Disaster Recovery(DRS)는 에이전트로 블록 수준 지속 복제를 하며 저사양 스테이징을 유지하다 재해 시 수 분 안에 프로덕션 규모 EC2로 전환한다(RPO 초, RTO 분 단위). AWS Backup은 여러 서비스의 백업을 태그 기반으로 중앙 관리하며, Vault Lock은 WORM 모델을 강제해 루트 사용자조차 백업을 삭제하거나 보존 기간을 줄일 수 없게 한다.
+AWS Elastic Disaster Recovery(DRS)는 에이전트로 블록 수준 지속 복제를 하며 저사양 스테이징을 유지하다 재해 시 수 분 안에 프로덕션 규모 EC2로 전환한다(RPO 초, RTO 분 단위). AWS Backup은 여러 서비스의 백업을 태그 기반으로 중앙 관리하며, ==Vault Lock은 WORM 모델을 강제해 루트 사용자조차 백업을 삭제하거나 보존 기간을 줄일 수 없게 한다.==
 
 ### 마이그레이션 도구 분류
 
 무엇을 옮기느냐로 도구가 갈린다. DB는 DMS가 기본이며 Full Load + CDC로 소스 DB를 계속 쓰면서 이전한다. 엔진이 다르면 SCT로 스키마를 먼저 변환한다. 서버 자체는 MGN으로 에이전트 기반 Lift-and-Shift를 하고, 사전 계획은 Discovery Service(Agent-based만 종속성 매핑 제공), 진행 추적은 Migration Hub가 맡는다. MGN은 컷오버로 끝나는 일회성 이전이고 DRS는 페일백까지 포함한 지속 복구다.
 
-파일은 DataSync가 온프레미스 NFS·SMB와 S3·EFS·FSx를 동기화하고, SFTP 워크플로 유지가 필요하면 Transfer Family를 쓴다. 200TB 기준 100Mbps 인터넷은 약 185일, 1Gbps Direct Connect는 약 18일, Snowball은 약 1주가 걸리므로 대역폭이 부족하면 Snowball로 초기 데이터를 보내고 배송 기간의 증분은 DMS CDC로 동기화한 뒤 컷오버한다. RDS에서 Aurora로는 Read Replica 지연이 0이 된 뒤 승격하고, 외부 MySQL은 Percona XtraBackup, 외부 PostgreSQL은 `aws_s3` 확장으로 가져온다.
+파일은 DataSync가 온프레미스 NFS·SMB와 S3·EFS·FSx를 동기화하고, SFTP 워크플로 유지가 필요하면 Transfer Family를 쓴다. ==200TB 기준 100Mbps 인터넷은 약 185일, 1Gbps Direct Connect는 약 18일, Snowball은 약 1주가 걸리므로== 대역폭이 부족하면 Snowball로 초기 데이터를 보내고 배송 기간의 증분은 DMS CDC로 동기화한 뒤 컷오버한다. RDS에서 Aurora로는 Read Replica 지연이 0이 된 뒤 승격하고, 외부 MySQL은 Percona XtraBackup, 외부 PostgreSQL은 `aws_s3` 확장으로 가져온다.
 
 ## 코드
 
@@ -95,10 +95,10 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- RDS 페일오버는 자동이지만 애플리케이션 재연결은 자동이 아니다. JVM DNS 캐시(`networkaddress.cache.ttl`)와 풀의 `max-lifetime`을 짧게 두지 않으면 페일오버 뒤에도 수 분간 오류가 이어진다.
+- RDS 페일오버는 자동이지만 애플리케이션 재연결은 자동이 아니다. ==JVM DNS 캐시(`networkaddress.cache.ttl`)와 풀의 `max-lifetime`을 짧게 두지 않으면 페일오버 뒤에도 수 분간 오류가 이어진다.==
 - Auto Scaling 확장 속도는 부팅 시간이 결정한다. 무거운 설치는 Golden AMI에 담고 User Data에는 환경별 동적 값만 남긴다.
 - DR 전략은 페일오버 훈련으로 검증한다. 대상 리전에 AMI가 실제로 있는지, 리전마다 다른 AMI ID를 반영했는지 주기적으로 확인한다.
-- DMS CDC는 소스 DB의 트랜잭션 로그에 의존한다. binlog나 logical replication이 꺼져 있으면 증분이 따라오지 않고, Snowball 배송 기간보다 로그 보존이 짧으면 CDC 시작점이 사라진다.
+- DMS CDC는 소스 DB의 트랜잭션 로그에 의존한다. ==binlog나 logical replication이 꺼져 있으면 증분이 따라오지 않고, Snowball 배송 기간보다 로그 보존이 짧으면 CDC 시작점이 사라진다.==
 - Vault Lock은 되돌릴 수 없다. 잘못 지정한 보존 기간만큼 스토리지 비용이 확정되므로 유예 기간 동안 정책을 검증한다.
 
 ## 관련 글

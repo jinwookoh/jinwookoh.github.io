@@ -24,7 +24,7 @@
   <h1>AOP와 SpEL</h1>
   <p class="summary">횡단 관심사를 프록시로 분리하는 Spring AOP의 동작 원리와 SpEL 표현식의 역할·경계를 정리한다</p>
   <div class="content">
-<p>서비스 메서드를 열어 보면 비즈니스 로직은 몇 줄이고 로깅·시간 측정·권한 검증·트랜잭션 관리 같은 공통 코드가 나머지를 차지하는 경우가 많다. 이 코드가 수백 개 메서드에 반복되면 한 줄을 고치려 해도 모든 위치를 수정해야 하고, 핵심 로직이 부가 코드에 묻힌다. <mark>여러 모듈을 가로질러 반복되는 횡단 관심사(cross-cutting concern)를 한 곳에 정의해 컨테이너가 대상 메서드에 끼워 넣게 하는 기법이 AOP다.</mark> <code>@PreAuthorize</code>나 <code>@Cacheable</code>처럼 AOP 기반 어노테이션이 조건이나 키를 문자열로 받을 때 그 문자열을 해석하는 것이 SpEL이다.</p>
+<p>서비스 메서드를 열어 보면 비즈니스 로직은 몇 줄이고 로깅·시간 측정·권한 검증·트랜잭션 관리 같은 공통 코드가 나머지를 차지하는 경우가 많다. 이 코드가 수백 개 메서드에 반복되면 한 줄을 고치려 해도 모든 위치를 수정해야 하고, 핵심 로직이 부가 코드에 묻힌다. 여러 모듈을 가로질러 반복되는 횡단 관심사(cross-cutting concern)를 한 곳에 정의해 컨테이너가 대상 메서드에 끼워 넣게 하는 기법이 AOP다. <code>@PreAuthorize</code>나 <code>@Cacheable</code>처럼 AOP 기반 어노테이션이 조건이나 키를 문자열로 받을 때 그 문자열을 해석하는 것이 SpEL이다.</p>
 <h2>핵심 개념</h2>
 <table>
 <thead>
@@ -139,11 +139,11 @@
         .getValue(ctx, <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(<span class="hljs-number">150_000</span>, <span class="hljs-string">&quot;GOLD&quot;</span>), Boolean.class);</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>자기 호출</strong>. 같은 클래스 안에서 <code>this.method()</code>로 부르면 프록시를 거치지 않아 <code>@Transactional</code>도 <code>@Cacheable</code>도 적용되지 않는다.</mark> 다른 Bean으로 분리하는 것이 정석이고 <code>AopContext.currentProxy()</code>는 최후 수단이다.</li>
-<li><strong>프록시가 못 감싸는 메서드</strong>. CGLIB는 서브클래스를 만들므로 <code>final</code>·<code>private</code> 메서드에는 Advice가 걸리지 않는다. 오류 없이 넘어가므로 테스트로 확인한다.</li>
-<li><strong>Aspect 순서와 예외 전파</strong>. 여러 Aspect가 겹치면 <code>@Order</code> 없이는 순서가 보장되지 않는다. <code>@Around</code>에서 예외를 삼키면 바깥 <code>@Transactional</code>이 롤백을 판단하지 못한다.</li>
+<li><strong>자기 호출</strong>. <mark>같은 클래스 안에서 <code>this.method()</code>로 부르면 프록시를 거치지 않아 <code>@Transactional</code>도 <code>@Cacheable</code>도 적용되지 않는다.</mark> 다른 Bean으로 분리하는 것이 정석이고 <code>AopContext.currentProxy()</code>는 최후 수단이다.</li>
+<li><strong>프록시가 못 감싸는 메서드</strong>. <mark>CGLIB는 서브클래스를 만들므로 <code>final</code>·<code>private</code> 메서드에는 Advice가 걸리지 않는다.</mark> 오류 없이 넘어가므로 테스트로 확인한다.</li>
+<li><strong>Aspect 순서와 예외 전파</strong>. 여러 Aspect가 겹치면 <code>@Order</code> 없이는 순서가 보장되지 않는다. <mark><code>@Around</code>에서 예외를 삼키면 바깥 <code>@Transactional</code>이 롤백을 판단하지 못한다.</mark></li>
 <li><strong>넓은 Pointcut의 비용</strong>. <code>execution(* com.example..*.*(..))</code>처럼 잡으면 거의 모든 Bean이 프록시가 되어 기동 시간과 호출 오버헤드가 늘어난다. 마커 어노테이션 기반 Pointcut이 범위를 명시적으로 유지한다.</li>
-<li><mark><strong>SpEL과 사용자 입력</strong>. <code>T(java.lang.Runtime).getRuntime().exec(...)</code>이 평가되면 서버에서 명령이 실행된다.</mark> 외부 입력을 <code>StandardEvaluationContext</code>로 평가하는 코드는 원격 코드 실행 취약점이며 실제 CVE가 반복된 경로다. 불가피하면 <code>SimpleEvaluationContext</code>로 제한한다.</li>
+<li><strong>SpEL과 사용자 입력</strong>. <code>T(java.lang.Runtime).getRuntime().exec(...)</code>이 평가되면 서버에서 명령이 실행된다. <mark>외부 입력을 <code>StandardEvaluationContext</code>로 평가하는 코드는 원격 코드 실행 취약점이며 실제 CVE가 반복된 경로다.</mark> 불가피하면 <code>SimpleEvaluationContext</code>로 제한한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

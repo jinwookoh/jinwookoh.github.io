@@ -25,7 +25,7 @@ Elasticsearch의 풀텍스트 검색은 문자열을 그대로 비교하지 않�
 | `user_dictionary` | 브랜드·모델명·인명 등 기본 사전에 없는 단어 등록 | 5천~1만 항목 이내 |
 | `nori_part_of_speech`의 `stoptags` | 조사·어미·부호 등 무의미한 품사 제거 | 기본값에서 도메인에 맞춰 조정 |
 
-동의어는 형태소 분석으로 풀 수 없는 영역이다. `synonym_graph` 필터에 `신촌, 신촌역`처럼 양방향, `노트북 => 랩탑`처럼 단방향 규칙을 등록한다. 색인 시점에 넣으면 표를 바꿀 때마다 재색인이 필요하므로, `search_analyzer`에 `updateable: true`로 붙이고 `_reload_search_analyzers` API로 무중단 갱신한다. 8.10 이상은 synonyms set API로 규칙을 인덱스 밖에서 관리한다.
+동의어는 형태소 분석으로 풀 수 없는 영역이다. `synonym_graph` 필터에 `신촌, 신촌역`처럼 양방향, `노트북 => 랩탑`처럼 단방향 규칙을 등록한다. ==색인 시점에 넣으면 표를 바꿀 때마다 재색인이 필요하므로, `search_analyzer`에 `updateable: true`로 붙이고 `_reload_search_analyzers` API로 무중단 갱신한다.== 8.10 이상은 synonyms set API로 규칙을 인덱스 밖에서 관리한다.
 
 ## 코드
 
@@ -119,10 +119,10 @@ public class AnalyzerCheckService {
 
 ## 실무에서 걸리는 지점
 
-- **플러그인 미설치 노드.** `analysis-nori`는 모든 노드에 설치하고 재시작해야 한다. 한 노드라도 빠지면 그 노드의 샤드만 분석이 달라 간헐적으로 결과가 누락된다. `_cat/plugins?v`로 확인한다.
-- **사용자 사전은 인덱스 open 시점에 로딩된다.** 파일만 바꿔서는 기존 인덱스에 반영되지 않으며 `_close`/`_open` 또는 reindex가 필요하다. 사전이 수만 줄로 커지면 힙 사용량과 open 시간이 늘어나므로 도메인 단어만 남긴다. 파일 배포가 막힌 매니지드 환경에서는 `user_dictionary_rules`로 설정에 직접 넣는다.
+- **플러그인 미설치 노드.** `analysis-nori`는 모든 노드에 설치하고 재시작해야 한다. ==한 노드라도 빠지면 그 노드의 샤드만 분석이 달라 간헐적으로 결과가 누락된다.== `_cat/plugins?v`로 확인한다.
+- **사용자 사전은 인덱스 open 시점에 로딩된다.** ==파일만 바꿔서는 기존 인덱스에 반영되지 않으며 `_close`/`_open` 또는 reindex가 필요하다.== 사전이 수만 줄로 커지면 힙 사용량과 open 시간이 늘어나므로 도메인 단어만 남긴다. 파일 배포가 막힌 매니지드 환경에서는 `user_dictionary_rules`로 설정에 직접 넣는다.
 - **analyzer 변경은 재색인이다.** `text` 필드의 analyzer는 매핑 생성 후 바꿀 수 없다. `standard`로 색인한 뒤 Nori로 바꾸려면 새 인덱스를 만들고 alias를 교체한다.
-- **n-gram 범위 폭주.** `min_gram=1, max_gram=20` 같은 설정은 토큰 수를 수십 배로 키워 인덱스 크기와 색인 속도를 악화시킨다. 자동완성은 `edge_ngram` 2~10 범위로 별도 multi-field에만 적용한다. `decompound_mode: mixed`도 인덱스 크기를 30~50% 늘린다.
+- **n-gram 범위 폭주.** `min_gram=1, max_gram=20` 같은 설정은 토큰 수를 수십 배로 키워 인덱스 크기와 색인 속도를 악화시킨다. 자동완성은 `edge_ngram` 2~10 범위로 별도 multi-field에만 적용한다. ==`decompound_mode: mixed`도 인덱스 크기를 30~50% 늘린다.==
 - **오타 허용.** 완성형 한글은 한 글자 차이가 자모 하나 차이인 경우가 많아 글자 단위 fuzzy query가 잘 맞지 않는다. 자모 분리 토크나이저는 Nori에 없으므로 별도 플러그인으로 `name.jamo` multi-field를 두고 `should` 절로 함께 묶는다.
 
 ## 관련 글

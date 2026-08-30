@@ -24,7 +24,7 @@
   <h1>Mapping과 Field Type</h1>
   <p class="summary">Mapping은 한 번 색인되면 타입을 바꿀 수 없으므로 strict·multi-field·타입 명시를 처음부터 잡아야 한다</p>
   <div class="content">
-<p>Mapping은 인덱스의 각 필드가 어떤 타입으로 색인되는지 정의하는 스키마다. <mark>RDBMS와 달리 이미 색인된 필드의 타입을 바꾸는 명령이 없다.</mark> 문자열을 <code>text</code>로 잡으면 집계가 안 되고 <code>keyword</code>로 잡으면 부분 검색이 안 되며, 고치려면 전체를 재색인해야 한다. Mapping 없이 문서를 넣으면 타입을 자동 추론해 필드를 추가하는데, 이 동작이 운영에서 필드 수 폭증과 오추론 사고를 만든다.</p>
+<p>Mapping은 인덱스의 각 필드가 어떤 타입으로 색인되는지 정의하는 스키마다. RDBMS와 달리 이미 색인된 필드의 타입을 바꾸는 명령이 없다. 문자열을 <code>text</code>로 잡으면 집계가 안 되고 <code>keyword</code>로 잡으면 부분 검색이 안 되며, 고치려면 전체를 재색인해야 한다. Mapping 없이 문서를 넣으면 타입을 자동 추론해 필드를 추가하는데, 이 동작이 운영에서 필드 수 폭증과 오추론 사고를 만든다.</p>
 <h2>핵심 개념</h2>
 <h3>Static과 Dynamic Mapping</h3>
 <p>Static Mapping은 <code>mappings.properties</code>에 필드와 타입을 직접 선언한다. Dynamic Mapping은 처음 보는 필드를 추론해 추가하는 기본 동작으로, 문자열은 <code>text</code> + <code>keyword</code> multi-field, 정수는 <code>long</code>, 실수는 <code>float</code>가 된다. 첫 문서가 타입을 고정한다.</p>
@@ -52,15 +52,15 @@
 <td>운영 표준</td>
 </tr>
 </tbody></table>
-<p><mark>운영 인덱스는 <code>strict</code>로 잠그고 <code>index.mapping.total_fields.limit</code>(기본 1000)을 2차 방벽으로 둔다.</mark> 필드를 미리 알 수 없는 로그성 데이터는 <code>dynamic_templates</code>로 규칙(<code>match_mapping_type</code>, <code>match</code>)을 정해 허용한다.</p>
+<p>운영 인덱스는 <code>strict</code>로 잠그고 <code>index.mapping.total_fields.limit</code>(기본 1000)을 2차 방벽으로 둔다. 필드를 미리 알 수 없는 로그성 데이터는 <code>dynamic_templates</code>로 규칙(<code>match_mapping_type</code>, <code>match</code>)을 정해 허용한다.</p>
 <h3>text vs keyword와 Multi-field</h3>
 <p><code>text</code>는 analyzer를 거쳐 토큰으로 역색인되므로 full-text 검색에 쓰고, 정렬·집계는 불가능하다. <code>keyword</code>는 원본 그대로 한 토큰이 되어 정확 일치·정렬·집계에 쓴다. 둘 다 필요하면 <code>fields</code>로 하위 필드를 두는 multi-field로 <code>title</code>은 <code>text</code>, <code>title.keyword</code>는 <code>keyword</code>로 동시 색인한다. <code>ignore_above: 256</code>은 그 길이를 넘는 값을 keyword 색인에서 제외한다. 하위 필드마다 디스크가 늘어나므로 필요한 필드에만 둔다.</p>
 <h3>숫자·날짜</h3>
 <p>숫자는 값 범위에 맞춰 작은 타입으로 잡되 PK처럼 커질 수 있는 값은 <code>long</code>으로 둔다. 가격·평점처럼 소수 자릿수가 고정된 값은 <code>scaled_float</code>로 정수 저장한다. <code>date</code>는 epoch millis로 저장되며 복수 포맷은 <code>format</code>에 <code>||</code>로 나열한다. 타임존이 없으면 UTC로 해석하므로 클라이언트는 UTC + <code>Z</code>로 통일한다.</p>
 <h3>object · nested · flattened</h3>
-<p><code>object</code>는 중첩 JSON을 평면 키로 푼다. 배열 객체를 <code>object</code>로 두면 각 키가 독립 배열로 평탄화되어 짝이 사라지고 <code>first=A AND last=Y</code> 같은 잘못된 조합이 매치된다. <code>nested</code>는 각 객체를 별도 Lucene 문서로 색인해 짝을 보존하지만 비용이 커진다. <code>flattened</code>는 키를 미리 알 수 없는 JSON을 한 필드로 압축해 Mapping Explosion을 막는 대신 하위 키별 집계가 제한된다.</p>
+<p><code>object</code>는 중첩 JSON을 평면 키로 푼다. <mark>배열 객체를 <code>object</code>로 두면 각 키가 독립 배열로 평탄화되어 짝이 사라지고 <code>first=A AND last=Y</code> 같은 잘못된 조합이 매치된다.</mark> <code>nested</code>는 각 객체를 별도 Lucene 문서로 색인해 짝을 보존하지만 비용이 커진다. <code>flattened</code>는 키를 미리 알 수 없는 JSON을 한 필드로 압축해 Mapping Explosion을 막는 대신 하위 키별 집계가 제한된다.</p>
 <h3>Runtime Field와 Mapping 변경</h3>
-<p>Runtime Field는 쿼리 시점에 스크립트로 계산하는 가상 필드로, reindex 없이 파생 값을 다루지만 느리므로 자주 쓰이면 정식 필드로 옮긴다. 변경 가능한 것은 필드 추가, 하위 필드 추가, runtime field 정도다. 기존 필드의 타입·analyzer 변경, 필드 삭제, <code>object</code>↔<code>nested</code> 전환은 불가능하며 새 인덱스 → <code>_reindex</code> → alias 전환으로 처리한다. 애플리케이션은 alias만 바라봐야 무중단 전환이 된다.</p>
+<p>Runtime Field는 쿼리 시점에 스크립트로 계산하는 가상 필드로, reindex 없이 파생 값을 다루지만 느리므로 자주 쓰이면 정식 필드로 옮긴다. 변경 가능한 것은 필드 추가, 하위 필드 추가, runtime field 정도다. <mark>기존 필드의 타입·analyzer 변경, 필드 삭제, <code>object</code>↔<code>nested</code> 전환은 불가능하며 새 인덱스 → <code>_reindex</code> → alias 전환으로 처리한다.</mark> 애플리케이션은 alias만 바라봐야 무중단 전환이 된다.</p>
 <h2>코드</h2>
 <p>운영 표준 형태의 명시 Mapping이다.</p>
 <pre><code class="hljs language-json">PUT /orders
@@ -135,10 +135,10 @@
 <span class="hljs-punctuation">}</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Mapping Explosion.</strong> <code>dynamic: true</code>에서 가변 값을 필드 이름으로 쓰는 JSON이 들어오면 필드 수가 폭증해 클러스터 메모리가 소진된다.</mark> <code>strict</code>로 막고 가변 키 덩어리는 <code>flattened</code>로 받는다.</li>
+<li><strong>Mapping Explosion.</strong> <code>dynamic: true</code>에서 가변 값을 필드 이름으로 쓰는 JSON이 들어오면 필드 수가 폭증해 클러스터 메모리가 소진된다. <code>strict</code>로 막고 가변 키 덩어리는 <code>flattened</code>로 받는다.</li>
 <li><strong>keyword 하위 필드 누락.</strong> <code>text</code>만으로 잡은 필드에 <code>terms</code> 집계를 걸면 &quot;Fielddata is disabled on text fields&quot;로 실패하고 해결에는 reindex가 필요하다.</li>
 <li><strong>date 포맷 불일치.</strong> 추론된 date 필드에 다른 형식이 들어오면 <code>mapper_parsing_exception</code>으로 거부된다. <code>format</code>을 명시하되 클라이언트를 ISO 8601 UTC로 통일하는 편이 낫다.</li>
-<li><strong>nested 남용과 미사용.</strong> <code>object</code>로 두면 짝이 깨진 조합이 매치되고, 모든 배열에 <code>nested</code>를 쓰면 색인·쿼리 비용이 1.5~3배 늘어난다. 수만 건이 붙는 관계는 별도 인덱스로 뺀다.</li>
+<li><strong>nested 남용과 미사용.</strong> <code>object</code>로 두면 짝이 깨진 조합이 매치되고, <mark>모든 배열에 <code>nested</code>를 쓰면 색인·쿼리 비용이 1.5~3배 늘어난다.</mark> 수만 건이 붙는 관계는 별도 인덱스로 뺀다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

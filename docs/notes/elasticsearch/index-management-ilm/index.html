@@ -24,13 +24,13 @@
   <h1>Index 관리·ILM·Rollover</h1>
   <p class="summary">인덱스는 생성 시점에 핵심 설정이 고정되므로 alias·template·ILM으로 갈아끼우는 구조를 처음부터 만든다</p>
   <div class="content">
-<p>Elasticsearch 인덱스는 Primary Shard 수·analyzer·필드 타입이 생성 시점에 고정된다. <mark>온라인 변경 경로가 없어서 잘못 만든 인덱스는 새로 만들고 데이터를 옮겨야 하는데, 앱이 실제 인덱스 이름을 직접 참조하면 이 작업이 배포와 묶여 다운타임 없이 끝낼 수 없다.</mark> 시계열 데이터를 인덱스 하나에 계속 쌓으면 샤드가 권장치 10~50GB를 넘고, 오래된 데이터 삭제가 비싸며, 자주 읽는 데이터와 보관용 데이터가 같은 고가 디스크에 놓인다.</p>
+<p>Elasticsearch 인덱스는 Primary Shard 수·analyzer·필드 타입이 생성 시점에 고정된다. 온라인 변경 경로가 없어서 잘못 만든 인덱스는 새로 만들고 데이터를 옮겨야 하는데, 앱이 실제 인덱스 이름을 직접 참조하면 이 작업이 배포와 묶여 다운타임 없이 끝낼 수 없다. 시계열 데이터를 인덱스 하나에 계속 쌓으면 샤드가 권장치 10~50GB를 넘고, 오래된 데이터 삭제가 비싸며, 자주 읽는 데이터와 보관용 데이터가 같은 고가 디스크에 놓인다.</p>
 <h2>핵심 개념</h2>
 <p><strong>Settings.</strong> <code>number_of_shards</code>, <code>analysis.*</code>, <code>index.codec</code>은 생성 시점에만 지정한다. <code>number_of_replicas</code>, <code>refresh_interval</code>, <code>index.max_result_window</code>는 <code>PUT /&lt;index&gt;/_settings</code>로 운영 중 변경한다. 운영 인덱스는 settings·mappings·aliases를 한 번에 지정하고 mapping은 <code>dynamic: strict</code>로 두며, 이름에는 <code>products-v1</code>처럼 버전 접미사를 붙인다.</p>
 <p><strong>Alias.</strong> 인덱스를 가리키는 논리 이름이다. 앱은 <code>products</code>만 알고 실제로는 <code>products-v1</code>이나 <code>v2</code>를 본다. <code>POST /_aliases</code>에 remove와 add를 함께 넣으면 원자적으로 교체된다. 여러 인덱스를 가리킬 때는 <code>is_write_index: true</code>로 쓰기 대상을 하나 지정한다.</p>
-<p><strong>Reindex.</strong> <code>POST /_reindex</code>는 source 문서를 dest로 복사한다. 대형 인덱스는 <code>wait_for_completion=false</code>로 띄워 <code>_tasks</code>로 추적하고, <code>slices=auto</code>로 병렬화하며, <code>conflicts: proceed</code>로 충돌 문서를 건너뛴다. dest를 미리 만들지 않으면 동적 매핑으로 생성되어 analyzer가 원본과 달라진다. <mark>무중단 재색인은 새 인덱스 생성 → reindex → 증분 복사 → alias 원자 교체 → 옛 인덱스 3~7일 보존 순서다.</mark></p>
+<p><strong>Reindex.</strong> <code>POST /_reindex</code>는 source 문서를 dest로 복사한다. 대형 인덱스는 <code>wait_for_completion=false</code>로 띄워 <code>_tasks</code>로 추적하고, <code>slices=auto</code>로 병렬화하며, <code>conflicts: proceed</code>로 충돌 문서를 건너뛴다. <mark>dest를 미리 만들지 않으면 동적 매핑으로 생성되어 analyzer가 원본과 달라진다.</mark> 무중단 재색인은 새 인덱스 생성 → reindex → 증분 복사 → alias 원자 교체 → 옛 인덱스 3~7일 보존 순서다.</p>
 <p><strong>Index Template.</strong> 이름 패턴에 매칭되는 인덱스에 settings·mappings·aliases를 자동 적용한다. 여러 템플릿이 매칭되면 <code>priority</code>가 큰 쪽이 이긴다. <code>_component_template</code>으로 공통 조각을 만들고 <code>composed_of</code>로 조립한다.</p>
-<p><strong>ILM.</strong> 인덱스를 Hot(쓰기·rollover) → Warm(읽기 전용·forcemerge·shrink) → Cold·Frozen(저가 스토리지·searchable_snapshot) → Delete 단계로 자동 전환하는 정책 엔진이다. 기본 10분 주기로 스캔하며 <code>min_age</code>는 rollover 완료 시점부터 계산된다. <code>searchable_snapshot</code> 액션만 Enterprise 라이선스가 필요하다.</p>
+<p><strong>ILM.</strong> 인덱스를 Hot(쓰기·rollover) → Warm(읽기 전용·forcemerge·shrink) → Cold·Frozen(저가 스토리지·searchable_snapshot) → Delete 단계로 자동 전환하는 정책 엔진이다. <mark>기본 10분 주기로 스캔하며 <code>min_age</code>는 rollover 완료 시점부터 계산된다.</mark> <code>searchable_snapshot</code> 액션만 Enterprise 라이선스가 필요하다.</p>
 <p><strong>Rollover.</strong> <code>max_primary_shard_size</code>·<code>max_age</code>·<code>max_docs</code> 중 하나라도 만족하면 다음 번호 인덱스를 만들고 write alias를 옮긴다. 초기 인덱스의 <code>is_write_index: true</code> alias와 template의 <code>index.lifecycle.name</code>·<code>index.lifecycle.rollover_alias</code>가 모두 있어야 동작한다.</p>
 <p><strong>Data Stream.</strong> alias·rollover·ILM을 하나로 묶은 8.x 시계열 권장 패턴이다. template에 <code>data_stream: {}</code>을 넣으면 스트림 이름이 쓰기 대상이 되고 백킹 인덱스가 자동 생성된다. <code>@timestamp</code>가 필수이고 append-only다.</p>
 <h2>코드</h2>
@@ -132,7 +132,7 @@ PUT _index_template/logs-app-template
 <li><strong>실제 인덱스 이름 노출.</strong> 앱이 <code>products-v1</code>을 직접 호출하면 mapping 변경마다 배포가 따라붙는다. 앱은 alias만 쓰도록 강제한다.</li>
 <li><strong>Template priority 충돌.</strong> <code>logs-*</code>와 <code>logs-app-*</code>가 같은 priority면 결과를 예측할 수 없다. 100 단위로 분리하고 <code>_simulate_index</code>로 검증한다.</li>
 <li><strong>refresh_interval 원복 누락.</strong> 대량 색인 전 <code>-1</code>로 끈 뒤 원복을 잊으면 새 문서가 검색되지 않는다. try-finally에서 원복한다.</li>
-<li><mark><strong>rollover 침묵 실패.</strong> write alias나 <code>rollover_alias</code>가 빠지면 에러 없이 인덱스가 수백 GB로 부푼다.</mark> <code>GET &lt;index&gt;/_ilm/explain</code>으로 멈춘 <code>step</code>을 확인하고, ERROR면 원인 해결 후 <code>POST &lt;index&gt;/_ilm/retry</code>한다.</li>
+<li><strong>rollover 침묵 실패.</strong> <mark>write alias나 <code>rollover_alias</code>가 빠지면 에러 없이 인덱스가 수백 GB로 부푼다.</mark> <code>GET &lt;index&gt;/_ilm/explain</code>으로 멈춘 <code>step</code>을 확인하고, ERROR면 원인 해결 후 <code>POST &lt;index&gt;/_ilm/retry</code>한다.</li>
 <li><strong>Data tier와 forcemerge.</strong> <code>allocate</code>가 요구하는 <code>data_warm</code> 노드가 없으면 인덱스가 Hot에 남으므로 노드를 분리할 수 없다면 allocate를 뺀다. forcemerge는 쓰기가 멈춘 뒤 돌아야 하므로 Warm <code>min_age</code>를 1~2일 이상으로 두고, Delete 앞에 스냅샷이 먼저 잡히는지 확인한다.</li>
 </ul>
 <h2>관련 글</h2>

@@ -24,10 +24,10 @@
   <h1>성능 튜닝</h1>
   <p class="summary">Heap·Thread Pool·Cache·Fielddata·Circuit Breaker 다섯 자리를 측정 기반으로 조정해 응답 시간과 색인 처리량을 끌어올린다</p>
   <div class="content">
-<p>응답이 느려지거나 처리량이 나오지 않을 때 원인은 대부분 다섯 자리에 몰려 있다. Heap 크기가 맞지 않아 GC pause가 길어지고, Thread Pool 대기열이 차서 요청이 거절되며, 캐시가 동작하지 않아 같은 필터가 매번 재계산되고, text 필드 집계가 Fielddata를 Heap에 올리며, 그 끝에서 Circuit Breaker가 요청을 끊는다. <mark><code>_nodes/stats</code>·<code>_cat/thread_pool</code>·Profile API로 병목을 확인한 뒤 변수 하나만 바꾸고 다시 측정한다.</mark></p>
+<p>응답이 느려지거나 처리량이 나오지 않을 때 원인은 대부분 다섯 자리에 몰려 있다. Heap 크기가 맞지 않아 GC pause가 길어지고, Thread Pool 대기열이 차서 요청이 거절되며, 캐시가 동작하지 않아 같은 필터가 매번 재계산되고, text 필드 집계가 Fielddata를 Heap에 올리며, 그 끝에서 Circuit Breaker가 요청을 끊는다. <code>_nodes/stats</code>·<code>_cat/thread_pool</code>·Profile API로 병목을 확인한 뒤 변수 하나만 바꾸고 다시 측정한다.</p>
 <h2>핵심 개념</h2>
 <h3>JVM Heap</h3>
-<p><mark>Heap은 물리 RAM의 50%까지만 할당하고 나머지는 Lucene 세그먼트를 mmap으로 읽는 OS Page Cache에 남긴다.</mark> 또 JVM은 Heap이 32GB 미만일 때만 Compressed Oops로 포인터를 압축하므로 상한은 31GB 이하로 두고, 더 필요하면 노드 수를 늘린다. <code>Xms</code>와 <code>Xmx</code>는 같은 값으로 고정하며, 지정하지 않으면 8.x가 RAM의 50%(최대 31GB)를 자동으로 잡는다.</p>
+<p>Heap은 물리 RAM의 50%까지만 할당하고 나머지는 Lucene 세그먼트를 mmap으로 읽는 OS Page Cache에 남긴다. 또 JVM은 Heap이 32GB 미만일 때만 Compressed Oops로 포인터를 압축하므로 상한은 31GB 이하로 두고, 더 필요하면 노드 수를 늘린다. <code>Xms</code>와 <code>Xmx</code>는 같은 값으로 고정하며, 지정하지 않으면 8.x가 RAM의 50%(최대 31GB)를 자동으로 잡는다.</p>
 <h3>Thread Pool</h3>
 <p>요청 종류별로 별도 풀을 운영해 검색 부하가 색인을 막지 못하게 한다. <code>search</code> 풀은 <code>int(CPU × 3 / 2) + 1</code>에 queue 1,000, <code>write</code> 풀은 CPU 수에 queue 10,000이 기본이다. queue가 차면 <code>EsRejectedExecutionException</code>(HTTP 429)이 발생한다. 대응은 bulk 크기 축소, 동시성 축소, refresh_interval 연장, 노드 추가 순서이고 queue 확대는 마지막 수단이다.</p>
 <h3>Query Cache와 Request Cache</h3>
@@ -148,8 +148,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Heap 48GB의 역설.</strong> Heap을 32GB 넘게 잡으면 Compressed Oops가 꺼지고 Page Cache도 줄어 오히려 느려진다. 30~31GB로 낮추고 부족분은 노드 추가로 푼다.</li>
-<li><mark><strong>queue 확대로 rejection 감추기.</strong> <code>thread_pool.write.queue_size</code>를 키우면 429는 사라지지만 대기 요청이 Heap에 쌓여 OOM으로 이어진다.</mark></li>
+<li><strong>Heap 48GB의 역설.</strong> <mark>Heap을 32GB 넘게 잡으면 Compressed Oops가 꺼지고 Page Cache도 줄어 오히려 느려진다.</mark> 30~31GB로 낮추고 부족분은 노드 추가로 푼다.</li>
+<li><strong>queue 확대로 rejection 감추기.</strong> <mark><code>thread_pool.write.queue_size</code>를 키우면 429는 사라지지만 대기 요청이 Heap에 쌓여 OOM으로 이어진다.</mark></li>
 <li><strong>운영 중 force_merge.</strong> I/O와 CPU를 동시에 점유해 검색 응답이 수십 초로 늘어난다. 쓰기가 끝난 인덱스에만 실행한다.</li>
 <li><strong>text 필드 terms 집계.</strong> Fielddata breaker가 걸린다. <code>fielddata: true</code> 대신 <code>.keyword</code> 서브필드로 집계 대상을 바꾼다.</li>
 <li><strong>deep pagination.</strong> <code>from: 100000</code>이면 각 샤드가 10만 건 이상을 정렬한다. <code>search_after</code>나 PIT로 전환한다.</li>

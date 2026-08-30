@@ -24,17 +24,17 @@
   <h1>Secondary Index·Fanout·분산 ID</h1>
   <p class="summary">키-값 모델에서 속성 조회·팔로워 피드·충돌 없는 ID를 자료구조 조합으로 풀어내는 세 가지 패턴</p>
   <div class="content">
-<p>Redis는 키로만 값을 찾는다. 가격이 10만 원 미만인 상품, 팔로우한 사람들이 올린 최근 글처럼 키가 아닌 속성으로 조회하려면 RDB의 <code>CREATE INDEX</code>에 해당하는 구조를 애플리케이션이 직접 만들어 유지해야 한다. 소셜 피드는 여기에 한 번의 쓰기를 수만 명의 읽기 뷰에 반영하는 팬아웃 문제가 얹히고, 데이터를 샤딩하는 순간 <code>auto_increment</code>가 샤드마다 독립적으로 발급돼 ID가 충돌한다. <mark>세 문제 모두 키-값 모델 위에 관계형 편의 기능을 재구성하는 일이다.</mark></p>
+<p>Redis는 키로만 값을 찾는다. 가격이 10만 원 미만인 상품, 팔로우한 사람들이 올린 최근 글처럼 키가 아닌 속성으로 조회하려면 RDB의 <code>CREATE INDEX</code>에 해당하는 구조를 애플리케이션이 직접 만들어 유지해야 한다. 소셜 피드는 여기에 한 번의 쓰기를 수만 명의 읽기 뷰에 반영하는 팬아웃 문제가 얹히고, 데이터를 샤딩하는 순간 <code>auto_increment</code>가 샤드마다 독립적으로 발급돼 ID가 충돌한다. 세 문제 모두 키-값 모델 위에 관계형 편의 기능을 재구성하는 일이다.</p>
 <h2>핵심 개념</h2>
 <h3>Secondary Index</h3>
 <p>쿼리 형태에 따라 자료구조를 고른다. 범위·정렬·페이징은 Sorted Set(score=값, member=ID)에 <code>ZRANGE BYSCORE</code>, 카테고리·태그 같은 이산 값 필터는 값을 키에 넣은 Set, 문자열 prefix는 score를 0으로 둔 Sorted Set에 <code>ZRANGE BYLEX</code>, 좌표 반경은 Sorted Set 위에 geohash를 얹은 <code>GEOSEARCH</code>를 쓴다.</p>
 <p>복합 조건은 집합 연산으로 조립한다. <code>AND</code>는 <code>SINTER</code>, <code>OR</code>는 <code>SUNION</code>, <code>AND NOT</code>은 <code>SDIFF</code>다. 범위와 필터가 섞이면 단일 명령으로 끝나지 않는다. 두 구조를 각각 읽어 애플리케이션에서 교집합을 잡거나, 필터 Set을 score 0인 Sorted Set으로도 유지해 <code>ZINTERSTORE WEIGHTS 1 0</code>으로 합치거나, Lua로 처리한다.</p>
-<p><mark>인덱스 유지는 전적으로 애플리케이션 책임이다.</mark> Pipelining은 왕복을 줄이지만 기존 값을 읽고 옮기는 조건부 로직이 별도 호출로 빠져 레이스가 생긴다. Lua는 읽기와 쓰기를 원자적으로 묶되 Cluster에서 모든 키가 같은 슬롯에 있어야 한다. 비동기 워커는 쓰기가 빠른 대신 결과적 일관성을 받아들여야 한다.</p>
+<p>인덱스 유지는 전적으로 애플리케이션 책임이다. Pipelining은 왕복을 줄이지만 기존 값을 읽고 옮기는 조건부 로직이 별도 호출로 빠져 레이스가 생긴다. Lua는 읽기와 쓰기를 원자적으로 묶되 Cluster에서 모든 키가 같은 슬롯에 있어야 한다. 비동기 워커는 쓰기가 빠른 대신 결과적 일관성을 받아들여야 한다.</p>
 <h3>Fanout</h3>
 <p>소셜 서비스는 프로필과 글 본문을 Hash, 팔로우 관계를 양방향 Set(<code>following:{uid}</code>, <code>followers:{uid}</code>), 타임라인을 score=timestamp인 Sorted Set으로 둔다. 팔로우 한 건은 Set 두 개를 함께 갱신하므로 <code>MULTI/EXEC</code> 또는 Lua로 묶는다.</p>
-<p>글을 팔로워에게 전달하는 방식은 둘이다. Fanout-on-Write는 작성 시 팔로워 전원의 <code>home_timeline</code>에 <code>ZADD</code>해 두므로 피드 조회가 <code>ZRANGE REV</code> 한 번으로 끝나지만 쓰기가 팔로워 수만큼 늘어난다. Fanout-on-Read는 자기 <code>user_timeline</code>에만 쓰고 조회 시 팔로잉 N명의 타임라인을 읽어 merge하므로 쓰기는 가볍고 읽기가 비싸다. 팔로워 5,000만 명인 계정이 글 하나에 5,000만 번 <code>ZADD</code>를 하는 것은 현실적이지 않으므로, 임계치 미만 계정은 Push하고 그 이상은 Push를 생략한 뒤 <mark>조회 시 셀럽 계정만 Pull해서 merge하는 Hybrid가 실서비스의 표준이다</mark>.</p>
+<p>글을 팔로워에게 전달하는 방식은 둘이다. Fanout-on-Write는 작성 시 팔로워 전원의 <code>home_timeline</code>에 <code>ZADD</code>해 두므로 피드 조회가 <code>ZRANGE REV</code> 한 번으로 끝나지만 쓰기가 팔로워 수만큼 늘어난다. Fanout-on-Read는 자기 <code>user_timeline</code>에만 쓰고 조회 시 팔로잉 N명의 타임라인을 읽어 merge하므로 쓰기는 가볍고 읽기가 비싸다. 팔로워 5,000만 명인 계정이 글 하나에 5,000만 번 <code>ZADD</code>를 하는 것은 현실적이지 않으므로, 임계치 미만 계정은 Push하고 그 이상은 Push를 생략한 뒤 조회 시 셀럽 계정만 Pull해서 merge하는 Hybrid가 실서비스의 표준이다.</p>
 <h3>분산 ID</h3>
-<p>UUID v4는 128비트 랜덤 값이라 중앙 조율 없이 생성할 수 있지만 시간 순서가 없어 B-tree 인덱스의 임의 위치에 삽입되며 page split을 일으키고, 16바이트라 <code>bigint</code>의 두 배 무게가 인덱스와 외래 키마다 누적된다. UUID v7은 상위 비트를 타임스탬프로 채워 정렬 문제를 줄였으나 크기는 그대로다.</p>
+<p><mark>UUID v4는 128비트 랜덤 값이라 중앙 조율 없이 생성할 수 있지만 시간 순서가 없어 B-tree 인덱스의 임의 위치에 삽입되며 page split을 일으키고, 16바이트라 <code>bigint</code>의 두 배 무게가 인덱스와 외래 키마다 누적된다.</mark> UUID v7은 상위 비트를 타임스탬프로 채워 정렬 문제를 줄였으나 크기는 그대로다.</p>
 <p>Snowflake는 64비트 정수를 부호 1비트, 밀리초 타임스탬프 41비트(약 69년), 워커 ID 10비트(1,024대), 시퀀스 12비트(1ms당 4,096개)로 나눈다. 타임스탬프가 상위 비트라 시간순 정렬이 보장되고 8바이트라 인덱스 친화적이다. UUID의 무충돌성과 <code>auto_increment</code>의 정렬성을 동시에 얻는다.</p>
 <h2>코드</h2>
 <p>가격 인덱스와 카테고리 인덱스를 원본 Hash와 함께 갱신하는 서비스. 카테고리 이동은 읽기-쓰기가 섞이므로 Lua로 원자성을 확보하고, 키에 해시 태그를 붙여 Cluster에서도 같은 슬롯에 둔다.</p>
@@ -157,7 +157,7 @@
 <ul>
 <li><strong>인덱스 갱신 누락과 CROSSSLOT.</strong> <mark>원본만 바꾸고 인덱스를 빠뜨리면 조회 결과가 조용히 틀어진다.</mark> 갱신 경로를 한 메서드로 모으고, Cluster에서는 해시 태그로 원본·인덱스를 같은 슬롯에 묶지 않으면 Lua와 <code>MULTI</code>가 CROSSSLOT 오류로 실패한다.</li>
 <li><strong>큰 Set과 <code>SMEMBERS</code>.</strong> 팔로워 Set이 수십만 멤버로 커지면 <code>SMEMBERS</code> 한 번이 이벤트 루프를 붙잡는다. <code>SSCAN</code>으로 나눠 읽고, 집합 연산 결과가 클 때는 <code>SINTERCARD</code>로 카디널리티만 먼저 확인한다.</li>
-<li><strong>타임라인 정리 비용.</strong> <code>home_timeline</code>은 <code>ZREMRANGEBYRANK</code>로 최근 N개만 유지하지 않으면 무한히 자란다. 언팔로우 후 남은 글과 삭제된 글은 팔로워 전원의 타임라인에서 빼야 하므로 팬아웃의 역연산 비용이 든다.</li>
+<li><strong>타임라인 정리 비용.</strong> <code>home_timeline</code>은 <code>ZREMRANGEBYRANK</code>로 최근 N개만 유지하지 않으면 무한히 자란다. <mark>언팔로우 후 남은 글과 삭제된 글은 팔로워 전원의 타임라인에서 빼야 하므로 팬아웃의 역연산 비용이 든다.</mark></li>
 <li><strong>셀럽 Hot Key.</strong> 임계치 이상 계정의 <code>user_timeline</code>은 피드 조회마다 Pull되어 한 슬롯에 요청이 집중된다. 로컬 캐시나 짧은 TTL 복제본으로 읽기를 분산한다.</li>
 <li><strong>Snowflake 시계와 워커 ID.</strong> NTP 보정으로 시각이 뒤로 가면 예외 또는 대기로 막고, 워커 ID는 배포 설정·DB 등록·Redis <code>SET NX</code> 같은 유일 배정 체계로 관리한다. Sorted Set score는 double이라 2^53을 넘는 ID를 score로 쓰면 정밀도가 깨지므로 ID는 member에, 시각은 score에 둔다.</li>
 </ul>

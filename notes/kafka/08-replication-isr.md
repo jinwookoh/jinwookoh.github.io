@@ -36,7 +36,7 @@ HW = 130
 
 ### min.insync.replicas와 acks=all
 
-ISR이 리더만 남으면 `acks=all`도 사실상 `acks=1`과 같다. `min.insync.replicas`는 `acks=all` 쓰기를 받기 위한 ISR 최소 크기다. RF=3, `min.insync.replicas=2`, `acks=all` 조합에서 브로커 한 대가 죽으면 쓰기가 유지되고, 두 대가 죽으면 `NotEnoughReplicasException`으로 쓰기가 거부된다. 읽기는 계속 가능하다.
+==ISR이 리더만 남으면 `acks=all`도 사실상 `acks=1`과 같다.== `min.insync.replicas`는 `acks=all` 쓰기를 받기 위한 ISR 최소 크기다. RF=3, `min.insync.replicas=2`, `acks=all` 조합에서 브로커 한 대가 죽으면 쓰기가 유지되고, 두 대가 죽으면 `NotEnoughReplicasException`으로 쓰기가 거부된다. 읽기는 계속 가능하다.
 
 ### Quorum 방식과의 비교
 
@@ -152,10 +152,10 @@ public class IsrChecker {
 ## 실무에서 걸리는 지점
 
 - `acks=all`만 켜고 `min.insync.replicas`를 기본값 1로 두면 ISR이 리더만 남은 순간부터 리더 단독 기록으로 응답이 나간다. 두 설정은 세트로 본다.
-- `min.insync.replicas`를 RF와 같게 두면 팔로워 하나만 느려져도 쓰기가 멈춘다. RF=3에는 2가 적정하다.
+- ==`min.insync.replicas`를 RF와 같게 두면 팔로워 하나만 느려져도 쓰기가 멈춘다.== RF=3에는 2가 적정하다.
 - `replica.lag.time.max.ms`를 줄이면 짧은 GC 정지에도 ISR이 흔들려 `NotEnoughReplicas`가 산발한다.
 - `UnderReplicatedPartitions`가 0을 넘는 상태는 아직 손실이 아니지만 지속되면 위험하다. `UnderMinIsrPartitions`와 `OfflinePartitionsCount`는 즉시 대응 대상이다.
-- `unclean.leader.election.enable=true`를 브로커 전역으로 열면 내부 토픽까지 적용된다. 필요한 토픽에만 토픽 레벨로 건다.
+- ==`unclean.leader.election.enable=true`를 브로커 전역으로 열면 내부 토픽까지 적용된다.== 필요한 토픽에만 토픽 레벨로 건다.
 
 ## 관련 글
 

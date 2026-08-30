@@ -110,10 +110,10 @@ public class GlobalExceptionHandler {
 ## 실무에서 걸리는 지점
 
 - **빈 catch와 원인 없는 재던지기.** `catch (Exception e) {}`는 장애를 묵살하고, `throw new XxxException(e.getMessage())`는 스택 트레이스를 버린다. 잡았으면 로그를 남기거나 원인을 붙여 다시 던지는 둘 중 하나를 반드시 한다. 로그와 재던지기를 동시에 하면 상위 계층에서 같은 예외가 중복 기록되므로 한 계층에서만 로그를 남긴다.
-- **예외로 흐름 제어.** 예외 생성 시 `fillInStackTrace()`가 스택을 캡처하므로 정상 흐름에서 초당 수천 번 던지면 비용이 눈에 띈다. 존재 여부 확인 같은 예상 가능한 분기는 `Optional`이나 boolean 반환으로 처리한다. 스택이 불필요한 예외라면 `writableStackTrace=false` 생성자를 쓴다.
-- **`InterruptedException` 삼키기.** 잡은 뒤 아무 처리도 하지 않으면 스레드의 인터럽트 플래그가 지워져 종료 신호가 사라진다. `Thread.currentThread().interrupt()`로 플래그를 복원한 뒤 종료하거나 언체크드 예외로 감싼다. Virtual Thread 환경에서도 동일하다.
-- **`@Transactional` 롤백 규칙.** 기본 설정은 `RuntimeException`과 `Error`에서만 롤백하고 체크드 예외는 커밋한다. 체크드 예외를 그대로 전파하는 서비스 메서드는 실패했는데 커밋되는 상황을 만든다. 도메인 예외를 언체크드로 통일하면 이 문제가 사라진다.
-- **`finally`에서의 `return`.** `finally` 블록에 `return`이 있으면 `try`에서 던진 예외가 무시된다. `finally`는 정리 작업만 두고 제어 흐름을 바꾸지 않는다.
+- **예외로 흐름 제어.** ==예외 생성 시 `fillInStackTrace()`가 스택을 캡처하므로 정상 흐름에서 초당 수천 번 던지면 비용이 눈에 띈다.== 존재 여부 확인 같은 예상 가능한 분기는 `Optional`이나 boolean 반환으로 처리한다. 스택이 불필요한 예외라면 `writableStackTrace=false` 생성자를 쓴다.
+- **`InterruptedException` 삼키기.** ==잡은 뒤 아무 처리도 하지 않으면 스레드의 인터럽트 플래그가 지워져 종료 신호가 사라진다.== `Thread.currentThread().interrupt()`로 플래그를 복원한 뒤 종료하거나 언체크드 예외로 감싼다. Virtual Thread 환경에서도 동일하다.
+- **`@Transactional` 롤백 규칙.** ==기본 설정은 `RuntimeException`과 `Error`에서만 롤백하고 체크드 예외는 커밋한다.== 체크드 예외를 그대로 전파하는 서비스 메서드는 실패했는데 커밋되는 상황을 만든다. 도메인 예외를 언체크드로 통일하면 이 문제가 사라진다.
+- **`finally`에서의 `return`.** ==`finally` 블록에 `return`이 있으면 `try`에서 던진 예외가 무시된다.== `finally`는 정리 작업만 두고 제어 흐름을 바꾸지 않는다.
 
 ## 관련 글
 

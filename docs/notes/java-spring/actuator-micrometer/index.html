@@ -24,12 +24,12 @@
   <h1>Actuator와 Micrometer</h1>
   <p class="summary">Actuator 엔드포인트로 상태를 노출하고 Micrometer로 메트릭·트레이스를 수집해 운영 가시성을 확보하는 방법</p>
   <div class="content">
-<p>컨테이너로 띄운 애플리케이션이 멈추면 콘솔 로그만으로는 원인을 찾기 어렵다. Kubernetes는 인스턴스가 살아 있는지, 트래픽을 받을 준비가 됐는지 판단할 신호가 필요하고, 운영자는 힙 사용량·커넥션 풀 대기·응답 시간 분포를 시계열로 봐야 장애 전조를 잡는다. <mark>Actuator는 이 운영 기능을 HTTP 엔드포인트로 제공하고, Micrometer는 메트릭을 수집해 Prometheus 같은 백엔드로 내보내는 추상화 계층을 맡는다.</mark></p>
+<p>컨테이너로 띄운 애플리케이션이 멈추면 콘솔 로그만으로는 원인을 찾기 어렵다. Kubernetes는 인스턴스가 살아 있는지, 트래픽을 받을 준비가 됐는지 판단할 신호가 필요하고, 운영자는 힙 사용량·커넥션 풀 대기·응답 시간 분포를 시계열로 봐야 장애 전조를 잡는다. Actuator는 이 운영 기능을 HTTP 엔드포인트로 제공하고, Micrometer는 메트릭을 수집해 Prometheus 같은 백엔드로 내보내는 추상화 계층을 맡는다.</p>
 <h2>핵심 개념</h2>
 <h3>Actuator 엔드포인트와 노출 제어</h3>
-<p><code>spring-boot-starter-actuator</code> 의존성을 추가하면 <code>/actuator/*</code> 경로에 <code>health</code>(상태)·<code>info</code>(빌드 버전)·<code>metrics</code>·<code>prometheus</code>·<code>loggers</code>(로그 레벨 변경)·<code>env</code>·<code>heapdump</code> 등이 등록된다. Spring Boot 3.x 기준 웹으로 기본 노출되는 것은 <code>health</code> 하나뿐이며, 나머지는 <code>management.endpoints.web.exposure.include</code>에 명시해야 열린다. <code>/health</code>는 등록된 <code>HealthIndicator</code>를 모두 집계하며 DB·Redis·디스크 중 하나라도 DOWN이면 전체가 DOWN이다.</p>
+<p><code>spring-boot-starter-actuator</code> 의존성을 추가하면 <code>/actuator/*</code> 경로에 <code>health</code>(상태)·<code>info</code>(빌드 버전)·<code>metrics</code>·<code>prometheus</code>·<code>loggers</code>(로그 레벨 변경)·<code>env</code>·<code>heapdump</code> 등이 등록된다. Spring Boot 3.x 기준 웹으로 기본 노출되는 것은 <code>health</code> 하나뿐이며, 나머지는 <code>management.endpoints.web.exposure.include</code>에 명시해야 열린다. <mark><code>/health</code>는 등록된 <code>HealthIndicator</code>를 모두 집계하며 DB·Redis·디스크 중 하나라도 DOWN이면 전체가 DOWN이다.</mark></p>
 <h3>Kubernetes 프로브</h3>
-<p><code>management.health.probes.enabled=true</code>를 켜면 <code>/actuator/health/liveness</code>와 <code>/readiness</code>가 생긴다. Liveness 실패는 컨테이너 재시작을 유발하고, Readiness 실패는 라우팅에서 제외될 뿐 재시작하지 않는다. Readiness는 초기화가 끝날 때까지 OUT_OF_SERVICE를 유지하므로 DB 연결 대기 같은 일시적 상태는 Readiness에만 반영한다.</p>
+<p><code>management.health.probes.enabled=true</code>를 켜면 <code>/actuator/health/liveness</code>와 <code>/readiness</code>가 생긴다. <mark>Liveness 실패는 컨테이너 재시작을 유발하고, Readiness 실패는 라우팅에서 제외될 뿐 재시작하지 않는다.</mark> Readiness는 초기화가 끝날 때까지 OUT_OF_SERVICE를 유지하므로 DB 연결 대기 같은 일시적 상태는 Readiness에만 반영한다.</p>
 <h3>Micrometer와 자동 계측</h3>
 <p>Micrometer는 메트릭의 SLF4J다. 코드는 <code>MeterRegistry</code>에만 의존하고, 클래스패스의 구현체(<code>micrometer-registry-prometheus</code>)가 백엔드 포맷을 결정한다. 자동 구성은 <code>PrometheusMeterRegistry</code> 빈과 <code>/actuator/prometheus</code>를 등록하고, 내장 <code>MeterBinder</code>들이 <code>jvm.memory.used</code>·<code>jvm.gc.pause</code>·<code>hikaricp.connections.pending</code>·<code>tomcat.threads.busy</code>·<code>http.server.requests</code>·<code>logback.events</code> 같은 메트릭을 일괄 등록한다. Meter 타입은 Counter(단조 증가), Gauge(현재 값), Timer(소요 시간과 횟수), DistributionSummary(크기 분포) 네 가지다. <code>/actuator/metrics</code>는 JSON 탐색용이고, Prometheus 스크레이프 대상은 <code>/actuator/prometheus</code>여야 한다.</p>
 <h3>Observation API</h3>
@@ -132,9 +132,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong><code>include: &quot;*&quot;</code>를 운영에 두는 것.</strong> <code>/env</code>는 시크릿을, <code>/heapdump</code>는 메모리 전체를 노출한다.</mark> <code>health,info,prometheus</code>로 제한하고 관리 포트를 분리한다.</li>
-<li><strong><code>@Timed</code>·<code>@Observed</code>를 붙였는데 메트릭이 없다.</strong> <code>TimedAspect</code>·<code>ObservedAspect</code> 빈이 없으면 AOP가 연결되지 않고 컴파일 오류도 없다. <code>http.server.requests</code>만 잡히는 증상이면 Aspect 빈부터 확인한다.</li>
-<li><mark><strong><code>initialDelaySeconds</code>가 짧으면 재시작 루프에 빠진다.</strong></mark> 기동이 60초 넘게 걸리면 Liveness가 먼저 실패해 컨테이너가 계속 죽는다. <code>startupProbe</code>를 두거나 지연을 기동 시간에 맞춘다.</li>
+<li><strong><code>include: &quot;*&quot;</code>를 운영에 두는 것.</strong> <mark><code>/env</code>는 시크릿을, <code>/heapdump</code>는 메모리 전체를 노출한다.</mark> <code>health,info,prometheus</code>로 제한하고 관리 포트를 분리한다.</li>
+<li><strong><code>@Timed</code>·<code>@Observed</code>를 붙였는데 메트릭이 없다.</strong> <mark><code>TimedAspect</code>·<code>ObservedAspect</code> 빈이 없으면 AOP가 연결되지 않고 컴파일 오류도 없다.</mark> <code>http.server.requests</code>만 잡히는 증상이면 Aspect 빈부터 확인한다.</li>
+<li><strong><code>initialDelaySeconds</code>가 짧으면 재시작 루프에 빠진다.</strong> 기동이 60초 넘게 걸리면 Liveness가 먼저 실패해 컨테이너가 계속 죽는다. <code>startupProbe</code>를 두거나 지연을 기동 시간에 맞춘다.</li>
 <li><strong>히스토그램을 모든 Timer에 켜면 Prometheus 메모리가 급증한다.</strong> <code>histogram_quantile()</code>을 실제로 쓰는 메트릭에만 켜고 <code>uri</code> 태그 카디널리티를 <code>MeterFilter</code>로 제한한다.</li>
 <li><strong>SecurityFilterChain에 <code>@Order</code>가 없으면 Actuator 요청이 401을 받는다.</strong> API 체인이 먼저 매칭될 수 있다. <code>/actuator/loggers</code> POST는 반드시 인증 뒤에 둔다.</li>
 </ul>

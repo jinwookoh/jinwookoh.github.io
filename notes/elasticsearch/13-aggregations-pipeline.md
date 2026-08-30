@@ -156,11 +156,11 @@ public class DailyRevenueService {
 
 ## 실무에서 걸리는 지점
 
-- `buckets_path` 오타는 400 에러로 잡히지 않는다. 잘못된 경로는 빈 결과나 NaN으로 돌아온다. 경로와 metric 이름을 상수로 관리하고 Kibana Dev Tools에서 먼저 확인한다.
-- `bucket_selector`는 terms가 `size`만큼 버킷을 확정한 뒤에 동작한다. 상위 10개 안에 없던 조건 충족 버킷은 이미 잘려 있으므로 size를 전체 개수에 가깝게 키운다. terms의 `order`에 pipeline 결과를 넣는 것도 동작하지 않으며, 정렬은 `bucket_sort`로 분리한다.
+- ==`buckets_path` 오타는 400 에러로 잡히지 않는다.== 잘못된 경로는 빈 결과나 NaN으로 돌아온다. 경로와 metric 이름을 상수로 관리하고 Kibana Dev Tools에서 먼저 확인한다.
+- ==`bucket_selector`는 terms가 `size`만큼 버킷을 확정한 뒤에 동작한다.== 상위 10개 안에 없던 조건 충족 버킷은 이미 잘려 있으므로 size를 전체 개수에 가깝게 키운다. terms의 `order`에 pipeline 결과를 넣는 것도 동작하지 않으며, 정렬은 `bucket_sort`로 분리한다.
 - `bucket_script`는 버킷 수만큼 스크립트를 실행한다. 식이 복잡하면 집계 본체보다 스크립트 비용이 커지므로 식을 단순하게 유지하고 selector로 버킷을 먼저 줄인다.
-- `percentiles_bucket`은 입력 버킷 수가 표본 크기다. 7개 버킷의 p99는 통계적으로 의미가 없고, 최소 30~50개 버킷 이상에서만 쓴다.
-- pipeline 집계는 데이터 노드에 분산되지 않고 coordinator 노드에 모인 결과 위에서 실행된다. `cumulative_cardinality`는 버킷마다 HyperLogLog 상태를 유지해 부담이 더 크다. 버킷이 수만 단위로 늘어나면 selector로 미리 자르거나 pipeline을 빼고 클라이언트에서 계산한다.
+- `percentiles_bucket`은 입력 버킷 수가 표본 크기다. ==7개 버킷의 p99는 통계적으로 의미가 없고, 최소 30~50개 버킷 이상에서만 쓴다.==
+- ==pipeline 집계는 데이터 노드에 분산되지 않고 coordinator 노드에 모인 결과 위에서 실행된다.== `cumulative_cardinality`는 버킷마다 HyperLogLog 상태를 유지해 부담이 더 크다. 버킷이 수만 단위로 늘어나면 selector로 미리 자르거나 pipeline을 빼고 클라이언트에서 계산한다.
 
 ## 관련 글
 

@@ -19,7 +19,7 @@ Dart 3부터 null safety는 언어의 기본이다. 모든 타입은 null을 허
 
 null 처리 도구는 `x?.foo`(null이면 전체가 null), `x ?? y`(null이면 대체값), `x ??= y`(null일 때만 대입), `x!`(null 아님 단언, 틀리면 예외), `late T x`(첫 사용 전 초기화 약속), `required`(named 파라미터 필수화)다.
 
-Flow analysis도 중요하다. `if (x != null)` 분기 안에서는 지역 변수 `x`가 자동으로 non-nullable로 승격된다. 승격은 지역 변수와 Dart 3.2부터 private final 필드에만 적용되고, getter나 public 필드는 중간에 값이 바뀔 수 있어 승격되지 않는다. 이 경우 지역 변수로 복사한 뒤 검사한다. Java와 비교하면 `T?`는 `Optional<T>`보다 Kotlin의 nullable 타입에 가깝다.
+Flow analysis도 중요하다. `if (x != null)` 분기 안에서는 지역 변수 `x`가 자동으로 non-nullable로 승격된다. ==승격은 지역 변수와 Dart 3.2부터 private final 필드에만 적용되고, getter나 public 필드는 중간에 값이 바뀔 수 있어 승격되지 않는다.== 이 경우 지역 변수로 복사한 뒤 검사한다. Java와 비교하면 `T?`는 `Optional<T>`보다 Kotlin의 nullable 타입에 가깝다.
 
 ### 비동기 — Future와 Stream
 
@@ -134,8 +134,8 @@ void main() {
 - **`!` 남용.** 분석기 경고를 없애려고 `!`를 붙이면 null safety의 이점이 런타임 크래시로 바뀐다. `?.`·`??`·지역 변수 승격으로 풀리지 않을 때만 쓰고, 왜 null이 아닌지 주석으로 근거를 남긴다.
 - **`late` 초기화 누락.** 초기화 전에 읽으면 `LateInitializationError`가 난다. `initState`의 조건 분기에서 초기화가 빠지기 쉬우므로 가능하면 nullable로 선언한다.
 - **await 누락.** `Future`를 `await` 없이 호출하면 예외가 잡히지 않고 unhandled error로 흘러간다. 린트 `unawaited_futures`를 켜고, 의도적으로 기다리지 않을 때는 `unawaited()`로 감싼다.
-- **Stream 구독 해제.** `listen`으로 만든 `StreamSubscription`을 `dispose`에서 `cancel`하지 않으면 위젯이 사라진 뒤에도 콜백이 실행되어 누수와 `setState() called after dispose()`가 발생한다. `StreamBuilder`는 구독을 자동 관리한다.
-- **이벤트 루프 블로킹.** JSON 파싱처럼 수십 ms 이상 걸리는 동기 작업을 메인 isolate에서 돌리면 프레임이 끊긴다. `async`를 붙여도 동기 계산은 같은 스레드에서 돌기 때문에 `Isolate.run`이나 `compute`로 분리한다.
+- **Stream 구독 해제.** ==`listen`으로 만든 `StreamSubscription`을 `dispose`에서 `cancel`하지 않으면 위젯이 사라진 뒤에도 콜백이 실행되어 누수와 `setState() called after dispose()`가 발생한다.== `StreamBuilder`는 구독을 자동 관리한다.
+- **이벤트 루프 블로킹.** JSON 파싱처럼 수십 ms 이상 걸리는 동기 작업을 메인 isolate에서 돌리면 프레임이 끊긴다. ==`async`를 붙여도 동기 계산은 같은 스레드에서 돌기 때문에 `Isolate.run`이나 `compute`로 분리한다.==
 
 ## 관련 글
 

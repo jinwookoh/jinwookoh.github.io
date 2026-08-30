@@ -13,7 +13,7 @@ updated: 2026-08-29
 
 ## 핵심 개념
 
-`repeat`와 `retry`는 구조가 같고 트리거만 다르다. `repeat`는 `onComplete`, `retry`는 `onError`를 받으면 업스트림을 다시 구독한다. 파이프라인 바깥의 상태는 초기화되지 않는다. 횟수 인자는 추가 실행 횟수라 `repeat(3)`은 총 4회 실행, `retry(2)`는 총 3회 시도다. 인자 없는 `repeat()`는 `take`·`takeUntil`로 종료 조건을 붙여야 하고, `retry()`는 영구 오류에 붙이면 CPU를 점유하는 무한 루프가 된다. `repeatWhen`은 완료 신호를 담은 companion Flux에 `delayElements`를 걸어 주기 폴링을 만든다.
+`repeat`와 `retry`는 구조가 같고 트리거만 다르다. `repeat`는 `onComplete`, `retry`는 `onError`를 받으면 업스트림을 다시 구독한다. 파이프라인 바깥의 상태는 초기화되지 않는다. ==횟수 인자는 추가 실행 횟수라 `repeat(3)`은 총 4회 실행, `retry(2)`는 총 3회 시도다.== 인자 없는 `repeat()`는 `take`·`takeUntil`로 종료 조건을 붙여야 하고, `retry()`는 영구 오류에 붙이면 CPU를 점유하는 무한 루프가 된다. `repeatWhen`은 완료 신호를 담은 companion Flux에 `delayElements`를 걸어 주기 폴링을 만든다.
 
 정교한 재시도는 `retryWhen(Retry)`이 담당한다.
 
@@ -26,7 +26,7 @@ updated: 2026-08-29
 
 `Retry.backoff`는 기본 지터가 0.5라 대기 시간에 최대 50% 무작위 편차를 더해 thundering herd를 막고, `maxBackoff`로 상한을 둔다. `filter`는 재시도 대상 예외를 제한하고, `doBeforeRetry`는 `RetrySignal`을 받아 로깅에 쓴다. 재시도가 소진되면 원본 대신 `Retries exhausted: n/n` 메시지의 `IllegalStateException`이 전파되고 원본은 `getCause()`에 들어간다. 원본을 그대로 전파하려면 `onRetryExhaustedThrow((spec, signal) -> signal.failure())`를 쓴다.
 
-StepVerifier는 Publisher를 구독하며 신호를 하나씩 소비해 선언된 기대와 대조한다. `create`는 시나리오만 만들고, `verify()`·`verifyComplete()`·`verifyError()` 같은 종결 메서드를 호출해야 구독과 검증이 시작된다. 종결 메서드가 빠지면 아무 검증 없이 통과한다. 값 검증은 `expectNext`(정확한 값), `expectNextMatches`(술어), `assertNext`(JUnit·AssertJ 단언), `expectNextCount`(개수만), `thenConsumeWhile`(술어가 참인 동안 전부 소비)로 나뉘고, 에러는 `expectError(Class)`, `expectErrorMessage`로 검증한다.
+StepVerifier는 Publisher를 구독하며 신호를 하나씩 소비해 선언된 기대와 대조한다. `create`는 시나리오만 만들고, `verify()`·`verifyComplete()`·`verifyError()` 같은 종결 메서드를 호출해야 구독과 검증이 시작된다. ==종결 메서드가 빠지면 아무 검증 없이 통과한다.== 값 검증은 `expectNext`(정확한 값), `expectNextMatches`(술어), `assertNext`(JUnit·AssertJ 단언), `expectNextCount`(개수만), `thenConsumeWhile`(술어가 참인 동안 전부 소비)로 나뉘고, 에러는 `expectError(Class)`, `expectErrorMessage`로 검증한다.
 
 `withVirtualTime`은 스케줄러를 `VirtualTimeScheduler`로 교체해 `delayElements`, `interval`, `Retry.backoff` 같은 시간 기반 연산자를 실제 대기 없이 검증한다. `thenAwait`로 가상 시계를 진행하고 `expectNoEvent`로 구간에 신호가 없었음을 단언하는데, 구독도 이벤트이므로 그 앞에 `expectSubscription()`이 필요하다. 가상 스케줄러는 `withVirtualTime` 호출 시점에 설치되므로 Publisher는 반드시 `Supplier` 안에서 생성한다. `TestPublisher`는 테스트 코드가 직접 `next`·`error`·`complete`를 발행하며, 구독 전에 발행한 값은 사라지므로 `then()` 블록 안에서 발행한다.
 
@@ -169,8 +169,8 @@ class FlakyClientTest {
 
 - `filter` 없는 `retryWhen`은 4xx처럼 반복해도 결과가 같은 예외에 대기 시간만 소모한다. 5xx·타임아웃·커넥션 예외로 대상을 한정한다.
 - 타임아웃으로 실패한 POST는 서버에서 이미 처리됐을 수 있다. 멱등 키 없는 재시도는 중복 실행이 된다.
-- WebClient·서비스·게이트웨이에 각각 재시도가 있으면 시도 횟수가 곱해진다. 재시도는 한 곳에서만 선언한다.
-- 소진 예외 타입이 바뀌므로 `retryWhen` 아래의 `onErrorResume(TimeoutException.class, ...)`는 매칭되지 않는다. `onRetryExhaustedThrow`로 원본을 전파하거나 `getCause()`로 분기한다.
+- ==WebClient·서비스·게이트웨이에 각각 재시도가 있으면 시도 횟수가 곱해진다.== 재시도는 한 곳에서만 선언한다.
+- ==소진 예외 타입이 바뀌므로 `retryWhen` 아래의 `onErrorResume(TimeoutException.class, ...)`는 매칭되지 않는다.== `onRetryExhaustedThrow`로 원본을 전파하거나 `getCause()`로 분기한다.
 - 시간 기반 연산자를 실제 시간으로 테스트하면 CI가 느려지고 타이밍에 따라 실패한다. 부분 소비 테스트는 `cancel()` 후 `verify()`로 끝내 무한 대기를 피한다.
 
 ## 관련 글

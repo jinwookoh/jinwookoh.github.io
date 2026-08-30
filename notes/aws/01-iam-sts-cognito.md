@@ -19,11 +19,11 @@ IAM은 리전에 종속되지 않는 글로벌 서비스다. 계정 생성 시 �
 
 Identity 기반 정책은 AWS 관리형·고객 관리형·인라인으로 나뉘며 버전 관리가 되는 고객 관리형이 권장된다. 리소스 기반 정책은 S3 버킷·Lambda·SQS·SNS 등에 직접 붙는다.
 
-평가 규칙은 명시적 Deny가 모든 Allow보다 우선하고, 명시적 Allow가 없으면 암묵적 Deny다. 요청은 SCP, 리소스 기반 정책, Identity 기반 정책, Permission Boundary, 세션 정책을 모두 통과해야 허용된다. Permission Boundary는 사용자·역할의 권한 상한으로 유효 권한은 Identity 정책과의 교집합이며, 위임받은 사용자가 스스로 관리자 권한을 만드는 것을 막는다. SCP는 Organizations의 OU·계정 단위 상한으로 멤버 계정의 루트까지 제한하지만 관리 계정에는 적용되지 않는다.
+평가 규칙은 명시적 Deny가 모든 Allow보다 우선하고, 명시적 Allow가 없으면 암묵적 Deny다. 요청은 SCP, 리소스 기반 정책, Identity 기반 정책, Permission Boundary, 세션 정책을 모두 통과해야 허용된다. Permission Boundary는 사용자·역할의 권한 상한으로 유효 권한은 Identity 정책과의 교집합이며, 위임받은 사용자가 스스로 관리자 권한을 만드는 것을 막는다. ==SCP는 Organizations의 OU·계정 단위 상한으로 멤버 계정의 루트까지 제한하지만 관리 계정에는 적용되지 않는다.==
 
-STS는 15분에서 12시간(기본 1시간) 유효한 Access Key ID·Secret Access Key·Session Token을 발급한다. `AssumeRole`은 같은 계정 또는 교차 계정 역할 수임, `GetSessionToken`은 MFA 사용자의 임시 자격 증명, `GetCallerIdentity`는 현재 주체 확인, `DecodeAuthorizationMessage`는 Access Denied 메시지 해독에 쓴다. 역할을 수임하면 세션 동안 원래 권한은 사라지고 역할 권한만 남는다. 따라서 A 계정 DynamoDB를 읽어 B 계정 S3에 쓰는 것처럼 두 계정 권한이 동시에 필요하면 B 계정 버킷 정책에 A 계정 주체를 허용하는 리소스 기반 정책을 쓴다.
+STS는 15분에서 12시간(기본 1시간) 유효한 Access Key ID·Secret Access Key·Session Token을 발급한다. `AssumeRole`은 같은 계정 또는 교차 계정 역할 수임, `GetSessionToken`은 MFA 사용자의 임시 자격 증명, `GetCallerIdentity`는 현재 주체 확인, `DecodeAuthorizationMessage`는 Access Denied 메시지 해독에 쓴다. ==역할을 수임하면 세션 동안 원래 권한은 사라지고 역할 권한만 남는다.== 따라서 A 계정 DynamoDB를 읽어 B 계정 S3에 쓰는 것처럼 두 계정 권한이 동시에 필요하면 B 계정 버킷 정책에 A 계정 주체를 허용하는 리소스 기반 정책을 쓴다.
 
-`iam:PassRole`은 EC2·Lambda 같은 서비스에 역할을 전달하는 권한이다. Resource를 특정 역할 ARN으로 좁히지 않으면 권한이 적은 사용자가 관리자 역할을 인스턴스에 붙여 권한을 상승시킬 수 있다.
+`iam:PassRole`은 EC2·Lambda 같은 서비스에 역할을 전달하는 권한이다. ==Resource를 특정 역할 ARN으로 좁히지 않으면 권한이 적은 사용자가 관리자 역할을 인스턴스에 붙여 권한을 상승시킬 수 있다.==
 
 Cognito User Pool은 가입·로그인·소셜 로그인·MFA를 처리해 JWT를 발급하고 API Gateway·ALB와 직접 통합된다. Identity Pool은 그 토큰이나 게스트 상태를 IAM 역할에 매핑해 임시 AWS 자격 증명을 발급한다. User Pool로 신원을 확인하고 Identity Pool로 AWS 권한을 주는 두 단계 조합이 표준이다.
 
@@ -123,7 +123,7 @@ spring:
 ## 실무에서 걸리는 지점
 
 - Secret Access Key는 생성 직후 한 번만 표시된다. 처음부터 키를 쓰지 않고 EC2는 인스턴스 프로파일, ECS·Lambda는 실행 역할로 자격 증명을 받는 구조가 기본이다.
-- `durationSeconds`는 역할의 최대 세션 시간을 넘길 수 없고, 역할 체이닝은 상한이 1시간으로 고정되어 장시간 배치에 쓰면 중간에 만료된다.
+- `durationSeconds`는 역할의 최대 세션 시간을 넘길 수 없고, ==역할 체이닝은 상한이 1시간으로 고정되어 장시간 배치에 쓰면 중간에 만료된다.==
 - Access Denied가 나면 `GetCallerIdentity`로 실제 호출 주체를 먼저 확인한다. 로컬 프로파일과 컨테이너 역할이 섞여 다른 주체로 호출되는 경우가 잦다.
 - `iam:PassRole`에 `Resource: "*"`를 준 CI 역할은 관리자 역할을 배포 대상에 붙일 수 있어 사실상 관리자와 같다. 전달 가능한 역할 ARN을 열거한다.
 - 미사용 권한은 Access Advisor로 찾아 제거하고, 계정 전체 MFA·키 교체 상태는 Credential Report로 감사한다. 태그 정책은 태그 없는 리소스 생성을 막지 않으므로 SCP나 Config 규칙이 따로 필요하다.

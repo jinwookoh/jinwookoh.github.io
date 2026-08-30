@@ -24,10 +24,10 @@
   <h1>Hot/Cold Publisher와 Sinks</h1>
   <p class="summary">구독마다 소스를 다시 실행하는 Cold를 Hot으로 바꾸는 연산자와, 외부에서 직접 신호를 주입하는 Sinks의 선택 기준을 정리한다</p>
   <div class="content">
-<p>Reactor의 <code>Mono</code>와 <code>Flux</code>는 구독마다 소스를 처음부터 다시 실행한다. 하나의 <code>Flux</code>를 두 컴포넌트가 각각 구독하면 DB 쿼리나 HTTP 호출이 두 번 나가고, 웹소켓 피드처럼 연결이 비싼 소스라면 구독자 수만큼 연결이 열린다. 반대로 외부 이벤트 수신처럼 임의의 시점에 코드가 직접 값을 밀어 넣어야 하는 경우, 일반 생성 연산자로는 구독 시점과 발행 시점을 분리할 수 없다. <mark>앞의 문제는 Hot 변환 연산자가, 뒤의 문제는 <code>Sinks</code>가 해결한다.</mark></p>
+<p>Reactor의 <code>Mono</code>와 <code>Flux</code>는 구독마다 소스를 처음부터 다시 실행한다. 하나의 <code>Flux</code>를 두 컴포넌트가 각각 구독하면 DB 쿼리나 HTTP 호출이 두 번 나가고, 웹소켓 피드처럼 연결이 비싼 소스라면 구독자 수만큼 연결이 열린다. 반대로 외부 이벤트 수신처럼 임의의 시점에 코드가 직접 값을 밀어 넣어야 하는 경우, 일반 생성 연산자로는 구독 시점과 발행 시점을 분리할 수 없다. 앞의 문제는 Hot 변환 연산자가, 뒤의 문제는 <code>Sinks</code>가 해결한다.</p>
 <h2>핵심 개념</h2>
 <p>Cold Publisher는 구독자마다 독립된 실행을 시작한다. <code>Flux.range</code>, <code>WebClient</code>의 <code>retrieve()</code> 결과, R2DBC 리포지토리 반환값 모두 Cold다. <code>Mono.just</code>도 Cold지만 인자는 assembly 시점에 한 번 평가되어 캡처되므로, 구독마다 계산을 다시 하려면 <code>Mono.fromSupplier</code>나 <code>Mono.defer</code>를 쓴다.</p>
-<p><mark>Hot Publisher는 하나의 실행을 여러 구독자가 공유하며, 늦게 합류한 구독자는 합류 시점 이후의 신호만 받는다.</mark> 진입점은 <code>publish()</code>가 반환하는 <code>ConnectableFlux</code>다. <code>connect()</code> 전까지 상위 소스를 구독하지 않으며, <code>connect()</code> 시점을 정하는 방식에 따라 파생 연산자가 갈린다.</p>
+<p>Hot Publisher는 하나의 실행을 여러 구독자가 공유하며, 늦게 합류한 구독자는 합류 시점 이후의 신호만 받는다. 진입점은 <code>publish()</code>가 반환하는 <code>ConnectableFlux</code>다. <code>connect()</code> 전까지 상위 소스를 구독하지 않으며, <code>connect()</code> 시점을 정하는 방식에 따라 파생 연산자가 갈린다.</p>
 <table>
 <thead>
 <tr>
@@ -81,7 +81,7 @@
 <li><code>multicast()</code> — 다중 구독자 브로드캐스트. 늦게 합류한 구독자는 이후 신호만 받는다. <code>directBestEffort()</code>는 버퍼 없이 느린 구독자에게 드롭한다.</li>
 <li><code>replay()</code> — 새 구독자에게 이전 신호를 재전송. <code>all()</code>, <code>limit(n)</code>, <code>limit(Duration)</code>으로 범위를 정한다.</li>
 </ul>
-<p><code>tryEmitNext</code>는 <code>EmitResult</code>를 반환하고 처리를 호출자에게 맡기며, <code>emitNext</code>는 <code>EmitFailureHandler</code>가 재시도 여부를 결정한다. <code>Sinks</code>는 직렬화된 호출을 전제하므로 여러 스레드가 동시에 <code>tryEmitNext</code>를 호출하면 <code>FAIL_NON_SERIALIZED</code>가 반환되고, 이를 무시하면 신호가 예외 없이 사라진다.</p>
+<p><code>tryEmitNext</code>는 <code>EmitResult</code>를 반환하고 처리를 호출자에게 맡기며, <code>emitNext</code>는 <code>EmitFailureHandler</code>가 재시도 여부를 결정한다. <code>Sinks</code>는 직렬화된 호출을 전제하므로 <mark>여러 스레드가 동시에 <code>tryEmitNext</code>를 호출하면 <code>FAIL_NON_SERIALIZED</code>가 반환되고, 이를 무시하면 신호가 예외 없이 사라진다.</mark></p>
 <h2>코드</h2>
 <p><code>share()</code>와 <code>autoConnect</code>의 재구독 동작 차이를 <code>Flux.interval</code>로 확인한다.</p>
 <pre><code class="hljs language-java"><span class="hljs-keyword">import</span> reactor.core.Disposable;
@@ -165,7 +165,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><mark><code>cache()</code>와 <code>replay().all()</code>을 무한 스트림에 붙이면 저장된 신호가 해제되지 않아 OOM으로 이어진다.</mark> 끝이 없는 소스에는 <code>cache(n)</code>, <code>cache(Duration)</code>, <code>replay().limit(n)</code>처럼 상한을 둔다.</li>
-<li><code>share()</code>는 구독자가 잠시 0이 되는 구간마다 소스를 끊고 재연결하며 시퀀스가 리셋된다. 연결 유지가 목적이면 <code>autoConnect</code>를, 마지막 구독자 이탈 후 유예를 두려면 <code>refCount(n, Duration)</code>을 쓴다.</li>
+<li><mark><code>share()</code>는 구독자가 잠시 0이 되는 구간마다 소스를 끊고 재연결하며 시퀀스가 리셋된다.</mark> 연결 유지가 목적이면 <code>autoConnect</code>를, 마지막 구독자 이탈 후 유예를 두려면 <code>refCount(n, Duration)</code>을 쓴다.</li>
 <li><code>Sinks.One</code>은 값을 한 번만 받는다. 두 번째 <code>tryEmitValue</code>는 <code>FAIL_TERMINATED</code>를 반환하고 조용히 무시되므로 반환값을 로그로 남긴다.</li>
 <li><code>multicast().onBackpressureBuffer()</code>는 느린 구독자 때문에 버퍼가 차면 <code>FAIL_OVERFLOW</code>를 반환한다. 손실이 허용되는 알림성 이벤트에는 <code>directBestEffort()</code>가 맞고, 아니면 버퍼 크기와 소비 속도를 함께 조정한다.</li>
 <li>생성자에서 <code>subscribe()</code>한 구독은 컨텍스트 재시작 시 누적될 수 있다. <code>Disposable</code>을 보관하고 <code>@PreDestroy</code>에서 해제한다.</li>

@@ -24,7 +24,7 @@
   <h1>gRPC — Unary·Server/Client/Bidirectional Streaming</h1>
   <p class="summary">gRPC 4가지 RPC 모드가 StreamObserver 하나로 어떻게 구분되고, 각각 언제 쓰는지 정리한다</p>
   <div class="content">
-<p>REST는 요청 하나에 응답 하나라는 형태만 제공한다. 대용량 목록은 페이지 단위로 반복 호출하고, 실시간 알림은 폴링이나 별도 WebSocket 채널을 열고, 대량 업로드는 개별 호출로 쪼개야 한다. 통신 형태마다 프로토콜과 코드 패턴, 에러 모델이 달라진다. <mark>gRPC는 하나의 서비스 정의 안에서 네 가지 RPC 모드를 제공하며, 모두 같은 <code>StreamObserver</code> 인터페이스와 상태 코드 체계로 동작한다.</mark></p>
+<p>REST는 요청 하나에 응답 하나라는 형태만 제공한다. 대용량 목록은 페이지 단위로 반복 호출하고, 실시간 알림은 폴링이나 별도 WebSocket 채널을 열고, 대량 업로드는 개별 호출로 쪼개야 한다. 통신 형태마다 프로토콜과 코드 패턴, 에러 모델이 달라진다. gRPC는 하나의 서비스 정의 안에서 네 가지 RPC 모드를 제공하며, 모두 같은 <code>StreamObserver</code> 인터페이스와 상태 코드 체계로 동작한다.</p>
 <h2>핵심 개념</h2>
 <p>네 모드는 proto 정의에서 요청과 응답 어느 쪽에 <code>stream</code>이 붙었는지로 결정된다.</p>
 <table>
@@ -167,9 +167,9 @@
 <ul>
 <li><strong>취소 감지 없는 무한 스트림.</strong> 클라이언트가 <code>Iterator</code>를 버리거나 <code>cancel</code>을 호출해도 서버가 감지하지 않으면 구독한 소스는 계속 돈다. <code>setOnCancelHandler</code>로 정리 코드를 연결하고, Reactor Stub에서는 <code>doOnCancel</code>을 쓴다.</li>
 <li><strong>백프레셔는 HTTP/2 flow control 수준이다.</strong> <code>request(n)</code> 같은 수요 신호가 없고, <code>setOnReadyHandler</code> 안에서 <code>isReady()</code>를 확인하며 보내는 방식으로만 제어된다. 수요 기반 백프레셔가 핵심이면 RSocket이 맞다.</li>
-<li><mark><strong><code>StreamObserver</code>는 스레드 안전하지 않다.</strong></mark> 여러 스레드가 같은 observer의 <code>onNext</code>를 동시에 호출하면 순서가 깨지거나 예외가 난다. 브로드캐스트 구조에서는 <code>Sinks.Many</code> 같은 직렬화 계층을 둔다.</li>
-<li><strong>부분 실패와 <code>onError</code>를 구분한다.</strong> Client Streaming에서 메시지 하나가 실패했다고 <code>onError</code>를 호출하면 스트림 전체가 종료된다. 개별 실패는 카운트만 하고 최종 응답에 성공·실패 수를 담는다.</li>
-<li><strong>큰 파일과 Deadline 전파.</strong> 청크 업로드는 서버 메모리와 커넥션을 오래 점유하므로 수십 MB 이하까지만 쓰고 그 이상은 객체 스토리지에 직접 올린다. 상위 호출의 짧은 Deadline이 하위 호출까지 전파되므로 장기 스트림에는 별도 값을 주거나 설정하지 않는다.</li>
+<li><strong><code>StreamObserver</code>는 스레드 안전하지 않다.</strong> <mark>여러 스레드가 같은 observer의 <code>onNext</code>를 동시에 호출하면 순서가 깨지거나 예외가 난다.</mark> 브로드캐스트 구조에서는 <code>Sinks.Many</code> 같은 직렬화 계층을 둔다.</li>
+<li><strong>부분 실패와 <code>onError</code>를 구분한다.</strong> <mark>Client Streaming에서 메시지 하나가 실패했다고 <code>onError</code>를 호출하면 스트림 전체가 종료된다.</mark> 개별 실패는 카운트만 하고 최종 응답에 성공·실패 수를 담는다.</li>
+<li><strong>큰 파일과 Deadline 전파.</strong> 청크 업로드는 서버 메모리와 커넥션을 오래 점유하므로 수십 MB 이하까지만 쓰고 그 이상은 객체 스토리지에 직접 올린다. <mark>상위 호출의 짧은 Deadline이 하위 호출까지 전파되므로 장기 스트림에는 별도 값을 주거나 설정하지 않는다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

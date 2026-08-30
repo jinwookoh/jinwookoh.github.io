@@ -24,7 +24,7 @@
   <h1>tsconfig·빌드·ESM과 CJS</h1>
   <p class="summary">module·moduleResolution·verbatimModuleSyntax가 ESM/CJS 출력을 어떻게 결정하는지 정리한다</p>
   <div class="content">
-<p>로컬에서는 잘 돌던 TypeScript 코드가 배포 환경에서 <code>ERR_REQUIRE_ESM</code>이나 <code>Cannot use import statement outside a module</code>로 죽는 경우가 있다. 원인은 대부분 코드가 아니라 tsconfig에 있다. 컴파일러는 <code>module</code>과 <code>moduleResolution</code>에 따라 같은 <code>import</code> 문을 ESM으로 남기기도 하고 <code>require()</code>로 바꾸기도 하며, 어떤 파일에서 타입을 읽을지도 다르게 판단한다. <mark>이 설정이 실제 런타임의 동작과 어긋나면 타입 검사는 통과하고 실행만 실패한다.</mark></p>
+<p>로컬에서는 잘 돌던 TypeScript 코드가 배포 환경에서 <code>ERR_REQUIRE_ESM</code>이나 <code>Cannot use import statement outside a module</code>로 죽는 경우가 있다. 원인은 대부분 코드가 아니라 tsconfig에 있다. 컴파일러는 <code>module</code>과 <code>moduleResolution</code>에 따라 같은 <code>import</code> 문을 ESM으로 남기기도 하고 <code>require()</code>로 바꾸기도 하며, 어떤 파일에서 타입을 읽을지도 다르게 판단한다. 이 설정이 실제 런타임의 동작과 어긋나면 타입 검사는 통과하고 실행만 실패한다.</p>
 <h2>핵심 개념</h2>
 <p>모듈 관련 옵션은 두 질문에 답한다. 출력 파일의 모듈 형식은 무엇인가(<code>module</code>), 그리고 <code>import &quot;x&quot;</code>를 어떤 파일로 해석할 것인가(<code>moduleResolution</code>). 컴파일러가 임의로 정하는 것이 아니라 실제 실행 환경이 하는 일을 그대로 따라야 한다.</p>
 <p>Node 런타임을 대상으로 할 때는 <code>module: &quot;nodenext&quot;</code>를 쓴다. <mark>이 모드에서 파일의 형식은 tsconfig가 아니라 가장 가까운 <code>package.json</code>의 <code>&quot;type&quot;</code> 필드와 파일 확장자로 결정된다.</mark> <code>&quot;type&quot;: &quot;module&quot;</code>이면 <code>.ts</code>가 ESM으로, 없으면 CJS로 출력되고, <code>.mts</code>/<code>.cts</code>는 각각 강제로 ESM/CJS가 된다. 상대 경로 import에는 출력 확장자(<code>./util.js</code>)가 필수이며, <code>package.json</code>의 <code>exports</code>와 <code>import</code>/<code>require</code> 조건을 읽는다. TypeScript 5.9부터는 <code>module: &quot;node20&quot;</code>도 제공된다.</p>
@@ -97,9 +97,9 @@
 <span class="hljs-punctuation">}</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>확장자 없는 상대 import.</strong> <code>bundler</code>에서 잘 되던 <code>import &quot;./util&quot;</code>은 <code>nodenext</code>로 옮기는 순간 오류가 된다.</mark> 컴파일러는 출력 파일 기준으로 해석하므로 소스가 <code>.ts</code>여도 <code>./util.js</code>가 맞는 표기다.</li>
-<li><strong>CJS에서 ESM 전용 패키지 require.</strong> CJS 프로젝트가 ESM 전용 패키지를 import하면 tsc는 통과해도 Node에서 <code>ERR_REQUIRE_ESM</code>이 난다. 프로젝트 전체를 ESM으로 옮기거나 동적 <code>import()</code>를 쓰는 편이 안전하다.</li>
-<li><strong>라이브러리 배포 시 <code>types</code> 조건.</strong> <code>exports</code>에서 <code>types</code>는 <code>default</code>보다 앞에 와야 하며, ESM용 <code>.d.ts</code>를 CJS 소비자에게 주면 타입 오류가 난다. <code>.d.mts</code>/<code>.d.cts</code>를 형식별로 분리한다.</li>
+<li><strong>확장자 없는 상대 import.</strong> <code>bundler</code>에서 잘 되던 <code>import &quot;./util&quot;</code>은 <code>nodenext</code>로 옮기는 순간 오류가 된다. 컴파일러는 출력 파일 기준으로 해석하므로 소스가 <code>.ts</code>여도 <code>./util.js</code>가 맞는 표기다.</li>
+<li><strong>CJS에서 ESM 전용 패키지 require.</strong> <mark>CJS 프로젝트가 ESM 전용 패키지를 import하면 tsc는 통과해도 Node에서 <code>ERR_REQUIRE_ESM</code>이 난다.</mark> 프로젝트 전체를 ESM으로 옮기거나 동적 <code>import()</code>를 쓰는 편이 안전하다.</li>
+<li><strong>라이브러리 배포 시 <code>types</code> 조건.</strong> <mark><code>exports</code>에서 <code>types</code>는 <code>default</code>보다 앞에 와야 하며, ESM용 <code>.d.ts</code>를 CJS 소비자에게 주면 타입 오류가 난다.</mark> <code>.d.mts</code>/<code>.d.cts</code>를 형식별로 분리한다.</li>
 <li><strong>NestJS와 데코레이터 메타데이터.</strong> NestJS 11은 CJS 출력과 <code>emitDecoratorMetadata</code>를 기본으로 하며 <code>experimentalDecorators</code>를 전제한다. ESM으로 전환할 때는 메타데이터 방출과 <code>__dirname</code> 부재를 함께 점검한다.</li>
 <li><strong><code>tsc --build</code>의 캐시.</strong> <code>.tsbuildinfo</code> 기준으로 증분 빌드하므로 tsconfig를 바꾼 뒤 오류가 남는다면 <code>tsc --build --clean</code> 후 다시 빌드한다.</li>
 </ul>

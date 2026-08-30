@@ -23,9 +23,9 @@ updated: 2026-08-29
 | Builder | 선택 파라미터가 많은 불변 객체 | 생성자 4개 이상, boolean·int 연속 |
 | Prototype | 비용 큰 객체를 복제로 생성 | 체크포인트·Undo·템플릿 변형 |
 
-Singleton의 단순 lazy 초기화는 멀티스레드에서 인스턴스가 두 개 생길 수 있고, Double-Checked Locking은 `volatile` 없이는 명령어 재배치로 초기화가 끝나지 않은 참조가 노출된다. 클래스 로딩이 원자성을 보장하는 holder idiom이나 enum이 가장 안전하다.
+Singleton의 단순 lazy 초기화는 멀티스레드에서 인스턴스가 두 개 생길 수 있고, ==Double-Checked Locking은 `volatile` 없이는 명령어 재배치로 초기화가 끝나지 않은 참조가 노출된다.== 클래스 로딩이 원자성을 보장하는 holder idiom이나 enum이 가장 안전하다.
 
-Factory Method는 static 메서드 안에서 switch로 분기하는 Simple Factory와, 팩토리를 인터페이스로 추상화해 서브클래스가 생성 대상을 정하는 GoF 정통 형태로 나뉜다. 전자는 타입 추가마다 분기가 늘어 OCP를 위반한다. Abstract Factory는 Factory Method 여러 개를 하나의 인터페이스로 묶은 것으로, 새 플랫폼 추가는 쉽지만 새 제품 타입 추가는 모든 팩토리를 수정해야 한다.
+Factory Method는 static 메서드 안에서 switch로 분기하는 Simple Factory와, 팩토리를 인터페이스로 추상화해 서브클래스가 생성 대상을 정하는 GoF 정통 형태로 나뉜다. 전자는 타입 추가마다 분기가 늘어 OCP를 위반한다. Abstract Factory는 Factory Method 여러 개를 하나의 인터페이스로 묶은 것으로, ==새 플랫폼 추가는 쉽지만 새 제품 타입 추가는 모든 팩토리를 수정해야 한다==.
 
 Builder는 필수 값을 빌더 생성자로 받고 선택 값을 체이닝하며, `build()`에서 검증한 뒤 private 생성자로 final 필드를 채운다. Prototype에서 `Object.clone()`은 얕은 복사이고 `Cloneable`은 설계 결함이 많아 복사 생성자로 대체한다.
 
@@ -179,7 +179,7 @@ public record Glyph(char ch, int x, int y, GlyphStyle style) {}
 - **Singleton 직접 구현은 대부분 불필요하다.** Spring Bean이 기본 singleton scope이고, static 접근점은 DI를 우회해 테스트에서 mock 교체를 막는다.
 - **Lazy 초기화는 Singleton이 아니어도 같은 경쟁 조건을 갖는다.** Virtual Proxy의 `if (real == null)` 역시 두 스레드가 동시에 통과한다. `volatile` + DCL이나 `computeIfAbsent`를 쓰고, Virtual Thread 환경에서는 `synchronized` 안의 블로킹 I/O가 pinning을 유발하므로 `ReentrantLock`을 검토한다.
 - **Lombok `@Builder`는 필수 값을 강제하지 못한다.** `@NonNull`이나 `build()` 검증을 별도로 둔다. 필드 2~3개짜리 객체에 Builder는 과설계다.
-- **Spring 프록시는 self-invocation을 가로채지 못한다.** `@Transactional`은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 `this.method()`에는 어드바이스가 빠진다. 대상 클래스가 `final`이면 CGLIB 서브클래싱도 실패한다.
+- **Spring 프록시는 self-invocation을 가로채지 못한다.** ==`@Transactional`은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 `this.method()`에는 어드바이스가 빠진다.== 대상 클래스가 `final`이면 CGLIB 서브클래싱도 실패한다.
 - **Facade가 비즈니스 로직을 흡수하면 God Object가 된다.** Composite의 재귀 순회는 깊이가 예측 불가능하면 스택 오버플로를 일으키므로 반복 순회로 바꾼다.
 
 ## 관련 글

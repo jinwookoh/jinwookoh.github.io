@@ -13,7 +13,7 @@ updated: 2026-08-29
 
 ## 핵심 개념
 
-Timer는 `record()` 한 번마다 count·totalTime·max를 갱신하고, Prometheus 포맷에서는 `_count`·`_sum`·`_max` 시계열로 나온다. max는 누적 최댓값이 아니라 최근 시간 창(기본 2분, `distributionStatisticExpiry`)의 최댓값이라 창이 회전하면 값이 바뀌므로 p100 대용으로 쓸 수 없다.
+Timer는 `record()` 한 번마다 count·totalTime·max를 갱신하고, Prometheus 포맷에서는 `_count`·`_sum`·`_max` 시계열로 나온다. ==max는 누적 최댓값이 아니라 최근 시간 창(기본 2분, `distributionStatisticExpiry`)의 최댓값이라 창이 회전하면 값이 바뀌므로 p100 대용으로 쓸 수 없다.==
 
 percentile은 특정 비율의 요청이 그 값 이하로 끝났음을 뜻하는 경계값이다. SLO는 "p99 < 500ms"처럼 percentile로 정의해야 꼬리 latency가 기준에 포함된다. Micrometer에서 percentile을 얻는 방식은 두 가지다.
 
@@ -25,11 +25,11 @@ percentile은 특정 비율의 요청이 그 값 이하로 끝났음을 뜻하�
 | 시계열 수 | percentile 개수만큼 | 버킷 개수만큼(수십 개) |
 | 적합한 환경 | 단일 인스턴스·로컬 확인 | 다중 인스턴스 프로덕션 |
 
-`publishPercentiles`는 이미 요약된 수치라 다른 인스턴스의 값과 합칠 수 없다. 인스턴스 3대의 p99가 100ms·200ms·900ms일 때 산술평균 400ms는 아무 분포의 p99도 아니다. 각 인스턴스가 "99번째 하나"만 남기면 전체 분포 정보가 사라지기 때문이다.
+`publishPercentiles`는 이미 요약된 수치라 다른 인스턴스의 값과 합칠 수 없다. ==인스턴스 3대의 p99가 100ms·200ms·900ms일 때 산술평균 400ms는 아무 분포의 p99도 아니다.== 각 인스턴스가 "99번째 하나"만 남기면 전체 분포 정보가 사라지기 때문이다.
 
 histogram은 이 문제를 버킷 카운트로 푼다. `le="0.01"` 버킷 값이 3841이면 10ms 이하 요청이 3841개라는 뜻이고, 이 카운트는 인스턴스 간에 더할 수 있다. Prometheus가 `le`별로 합산한 뒤 `histogram_quantile()`로 역산하면 전체 시스템의 p99가 나온다.
 
-자동 생성 버킷 경계는 1ms·5ms·10ms·25ms·50ms·100ms·250ms처럼 로그 스케일이라 SLO 기준이 120ms이면 100ms와 250ms 사이에 끼어 정확한 비율을 구할 수 없다. `serviceLevelObjectives`는 지정한 값에 버킷 경계를 정확히 추가하며, `publishPercentileHistogram` 없이 단독으로도 `_bucket` 시계열을 만든다. `minimumExpectedValue`·`maximumExpectedValue`는 자동 생성 버킷의 범위만 제한하고 SLO 경계에는 영향을 주지 않는다.
+자동 생성 버킷 경계는 1ms·5ms·10ms·25ms·50ms·100ms·250ms처럼 로그 스케일이라 SLO 기준이 120ms이면 100ms와 250ms 사이에 끼어 정확한 비율을 구할 수 없다. `serviceLevelObjectives`는 지정한 값에 버킷 경계를 정확히 추가하며, `publishPercentileHistogram` 없이 단독으로도 `_bucket` 시계열을 만든다. ==`minimumExpectedValue`·`maximumExpectedValue`는 자동 생성 버킷의 범위만 제한하고 SLO 경계에는 영향을 주지 않는다.==
 
 ## 코드
 

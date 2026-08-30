@@ -167,10 +167,10 @@ spec:
 
 ## 실무에서 걸리는 지점
 
-- **Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.** DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다. 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.
+- **Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.** ==DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다.== 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.
 - **Startup Probe 없이 JVM 앱을 올리면 기동 중에 죽는다.** `initialDelaySeconds`로 버티는 방식은 기동 시간이 늘면 깨진다. `failureThreshold × periodSeconds`를 최악의 기동 시간보다 넉넉히 잡는다.
-- **HPA는 CPU requests가 없으면 동작하지 않는다.** 사용률 분모가 requests이므로 생략하면 메트릭이 `unknown`이 된다. VPA와 HPA를 같은 메트릭에 동시에 걸면 서로 반대 방향으로 조정해 충돌한다.
-- **PDB와 AntiAffinity가 drain을 막을 수 있다.** `minAvailable: 2`에 replicas 2면 drain이 끝나지 않고, `required` AntiAffinity는 노드보다 replicas가 많으면 Pending을 만든다. 노드가 적으면 `preferred`로 완화한다.
+- **HPA는 CPU requests가 없으면 동작하지 않는다.** ==사용률 분모가 requests이므로 생략하면 메트릭이 `unknown`이 된다.== VPA와 HPA를 같은 메트릭에 동시에 걸면 서로 반대 방향으로 조정해 충돌한다.
+- **PDB와 AntiAffinity가 drain을 막을 수 있다.** ==`minAvailable: 2`에 replicas 2면 drain이 끝나지 않고, `required` AntiAffinity는 노드보다 replicas가 많으면 Pending을 만든다.== 노드가 적으면 `preferred`로 완화한다.
 - **JVM 힙과 limits를 맞추지 않으면 OOMKilled가 반복된다.** limits는 컨테이너 전체 RSS 기준이므로 `-XX:MaxRAMPercentage`로 힙 비율을 지정하고 메타스페이스 여유를 남긴다.
 
 ## 관련 글

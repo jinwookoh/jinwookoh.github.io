@@ -19,7 +19,7 @@ updated: 2026-08-30
 
 **Visibility Timeout**은 꺼낸 메시지를 다른 소비자에게 숨기는 시간이다. 기본 30초, 최대 12시간이며 시간 안에 삭제하지 않으면 다시 보인다. `ChangeMessageVisibility`로 연장한다.
 
-**Dead Letter Queue**는 `maxReceiveCount`만큼 수신됐는데도 삭제되지 않은 메시지를 격리하는 큐다. SQS→Lambda 구조는 큐에, SNS→Lambda 구조는 Lambda 쪽에 설정한다.
+**Dead Letter Queue**는 `maxReceiveCount`만큼 수신됐는데도 삭제되지 않은 메시지를 격리하는 큐다. ==SQS→Lambda 구조는 큐에, SNS→Lambda 구조는 Lambda 쪽에 설정한다.==
 
 **Long Polling**은 `WaitTimeSeconds`(최대 20초)만큼 응답을 미뤄 빈 응답과 비용을 줄인다.
 
@@ -34,7 +34,7 @@ FIFO의 순서는 같은 `MessageGroupId` 안에서만 보장되고 다른 그�
 
 ### SNS — 토픽에 한 번 게시하면 모든 구독자가 받는 Pub/Sub
 
-구독자는 SQS, Lambda, Firehose, HTTP/S, 이메일, SMS, 푸시다. SNS는 메시지를 저장하지 않아 전달 실패 시 사라진다. 유실이 허용되지 않으면 SNS 뒤에 SQS를 붙이는 **Fan-out** 패턴을 쓴다. 주문 이벤트 하나를 결제·재고·배송 큐가 각자 받아 독립적으로 처리하고, 새 소비자는 큐를 추가해 구독만 하면 된다. 이때 SQS 액세스 정책에서 토픽의 `sqs:SendMessage`를 허용해야 한다. 구독별 JSON 필터 정책으로 속성이 맞는 메시지만 받게 할 수 있고, SNS FIFO 토픽의 구독자는 SQS FIFO 큐로 제한된다.
+구독자는 SQS, Lambda, Firehose, HTTP/S, 이메일, SMS, 푸시다. ==SNS는 메시지를 저장하지 않아 전달 실패 시 사라진다.== 유실이 허용되지 않으면 SNS 뒤에 SQS를 붙이는 **Fan-out** 패턴을 쓴다. 주문 이벤트 하나를 결제·재고·배송 큐가 각자 받아 독립적으로 처리하고, 새 소비자는 큐를 추가해 구독만 하면 된다. 이때 SQS 액세스 정책에서 토픽의 `sqs:SendMessage`를 허용해야 한다. 구독별 JSON 필터 정책으로 속성이 맞는 메시지만 받게 할 수 있고, SNS FIFO 토픽의 구독자는 SQS FIFO 큐로 제한된다.
 
 ### Kinesis — 보존되고 재생 가능한 스트림
 
@@ -132,10 +132,10 @@ public class OrderTopicPublisher {
 
 ## 실무에서 걸리는 지점
 
-- **소비자 멱등성은 FIFO를 써도 필요하다.** Standard는 at-least-once가 기본이고, FIFO도 Visibility Timeout 안에 처리가 끝나지 않으면 재전달된다. 주문 ID 같은 비즈니스 키로 처리 여부를 기록해 둔다.
+- **소비자 멱등성은 FIFO를 써도 필요하다.** ==Standard는 at-least-once가 기본이고, FIFO도 Visibility Timeout 안에 처리가 끝나지 않으면 재전달된다.== 주문 ID 같은 비즈니스 키로 처리 여부를 기록해 둔다.
 - **Visibility Timeout은 최악 처리 시간에 맞춘다.** 짧으면 중복 처리, 길면 소비자 장애 시 재전달까지 공백이 생긴다.
 - **SNS만 쓰면 유실을 감지할 수 없다.** 처리 보장이 필요한 경로는 SQS를 사이에 둔다. Fan-out이 동작하지 않을 때 가장 흔한 원인은 SQS 액세스 정책 누락이다.
-- **FIFO 처리량은 그룹 수가 결정한다.** Message Group ID가 하나면 사실상 단일 스레드로 소비된다. 순서가 필요한 최소 범위로 그룹을 나눈다.
+- **FIFO 처리량은 그룹 수가 결정한다.** ==Message Group ID가 하나면 사실상 단일 스레드로 소비된다.== 순서가 필요한 최소 범위로 그룹을 나눈다.
 - **Kinesis는 샤드 핫스팟에 취약하다.** 편중된 Partition Key는 특정 샤드에서만 스로틀링을 일으키므로 키 분포를 점검한다.
 
 ## 관련 글

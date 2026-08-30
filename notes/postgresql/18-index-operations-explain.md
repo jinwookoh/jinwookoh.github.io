@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 운영 인덱스는 설계 → 생성 → 검증 → 모니터링 → 튜닝 → 제거의 순환을 따른다. 설계 단계에서는 자주 나오는 WHERE·JOIN·ORDER BY 컬럼을 기준으로 인덱스 집합을 정한다. PRIMARY KEY와 UNIQUE 제약은 인덱스를 자동으로 만들지만 외래 키는 만들지 않으므로 직접 추가한다. 카디널리티가 매우 낮거나 갱신이 잦은 컬럼은 대상에서 빼거나 부분 인덱스로 범위를 줄인다. 갱신이 잦은 컬럼을 인덱스에서 빼면 HOT 업데이트가 가능해져 인덱스 갱신 자체를 피할 수 있다.
 
-생성은 운영 환경에서 항상 `CREATE INDEX CONCURRENTLY`를 쓴다. 일반 `CREATE INDEX`는 완료될 때까지 테이블 쓰기를 막는다. `CONCURRENTLY`는 락 없이 진행하는 대신 실패하면 `pg_index.indisvalid = false`인 INVALID 인덱스를 남기며, 이 인덱스는 검색에 쓰이지 않으면서 쓰기 비용과 디스크만 소모한다.
+생성은 운영 환경에서 항상 `CREATE INDEX CONCURRENTLY`를 쓴다. ==일반 `CREATE INDEX`는 완료될 때까지 테이블 쓰기를 막는다.== ==`CONCURRENTLY`는 락 없이 진행하는 대신 실패하면 `pg_index.indisvalid = false`인 INVALID 인덱스를 남기며, 이 인덱스는 검색에 쓰이지 않으면서 쓰기 비용과 디스크만 소모한다.==
 
 튜닝은 두 축이다. 인덱스가 테이블 대비 비정상적으로 커졌으면 블로트를 의심하고 `REINDEX INDEX CONCURRENTLY`로 재구성한다. PostgreSQL 12부터 지원하며 기존 인덱스로 검색을 받으면서 새 인덱스를 만들어 교체한다. 대량 DML 이후에는 `ANALYZE`로 통계를 갱신한다. 계획자는 통계로 비용을 추정하므로 통계가 현실과 다르면 인덱스가 있어도 Seq Scan을 고른다.
 
@@ -25,7 +25,7 @@ updated: 2026-08-29
 
 `EXPLAIN`은 추정 계획만 보여주고 `EXPLAIN ANALYZE`는 쿼리를 실제로 실행해 실측치를 함께 출력한다. 운영 진단 표준은 `EXPLAIN (ANALYZE, BUFFERS)`다. `BUFFERS`는 `shared hit`(캐시 적중)과 `read`(디스크 읽기)를 구분해 I/O 병목을 드러낸다.
 
-`cost=START..TOTAL rows=N width=W`에서 START는 첫 행 반환까지의 추정 비용, TOTAL은 전체 완료 비용, rows는 추정 행 수다. `actual time=START..TOTAL rows=N loops=L`은 실측 ms와 실제 행 수, 노드 실행 횟수다. cost는 단위 없는 상대값이라 actual time과 직접 비교하지 않는다. 대신 추정 rows와 실제 rows를 비교하고, 수십 배 이상 어긋나면 `ANALYZE`를 돌린다. `loops`가 큰 노드는 time에 loops를 곱해야 총 소요 시간이 된다.
+`cost=START..TOTAL rows=N width=W`에서 START는 첫 행 반환까지의 추정 비용, TOTAL은 전체 완료 비용, rows는 추정 행 수다. `actual time=START..TOTAL rows=N loops=L`은 실측 ms와 실제 행 수, 노드 실행 횟수다. cost는 단위 없는 상대값이라 actual time과 직접 비교하지 않는다. 대신 추정 rows와 실제 rows를 비교하고, 수십 배 이상 어긋나면 `ANALYZE`를 돌린다. ==`loops`가 큰 노드는 time에 loops를 곱해야 총 소요 시간이 된다.==
 
 | 노드 | 진단 포인트 |
 |---|---|
@@ -140,7 +140,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
 ## 실무에서 걸리는 지점
 
-- **EXPLAIN ANALYZE는 실제 실행이다.** UPDATE·DELETE에 붙이면 데이터가 실제로 바뀐다. 쓰기 쿼리 진단은 `BEGIN`으로 열고 `ROLLBACK`으로 닫는다.
+- **EXPLAIN ANALYZE는 실제 실행이다.** ==UPDATE·DELETE에 붙이면 데이터가 실제로 바뀐다.== 쓰기 쿼리 진단은 `BEGIN`으로 열고 `ROLLBACK`으로 닫는다.
 - **`CONCURRENTLY`는 실패 흔적을 남긴다.** 배포 파이프라인에서 `pg_index.indisvalid`를 점검하고, INVALID 인덱스는 `DROP INDEX CONCURRENTLY` 후 재생성한다.
 - **통계 갱신을 잊으면 인덱스가 무시된다.** 대량 적재·삭제 뒤 autovacuum이 따라오기 전에는 계획자가 오래된 추정으로 Seq Scan을 고른다. 추정 rows와 실제 rows가 어긋나면 인덱스 추가보다 `ANALYZE`가 먼저다.
 - **미사용 판단에는 관찰 기간이 필요하다.** 월말 배치만 쓰는 인덱스가 있으므로 `idx_scan = 0`만 보고 지우지 않는다. 통계 초기화 시점을 확인하고 최소 몇 주 관찰 뒤 제거한다.

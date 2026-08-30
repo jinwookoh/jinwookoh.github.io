@@ -36,7 +36,7 @@ In-app Message는 Custom Event·Session Start·Purchase를 트리거로 노출�
 
 Liquid는 Shopify가 공개한 템플릿 언어로 Variable `{{ }}`, Tag `{% %}`, Filter `| name` 세 요소로 구성된다. Braze는 사용자 속성을 `${attr}`, 트리거 이벤트 속성을 `event_properties.${prop}`, Canvas 진입 속성을 `canvas_entry_properties.${prop}`로 노출하고, `catalog_items`(Catalog 조회)·`connected_content`(외부 API)·`abort_message`(해당 사용자만 발송 중단) 확장 태그를 더했다. Email·Push·SMS·In-app·Content Card 본문과 Deep link URL, Webhook body까지 거의 모든 필드에 들어간다.
 
-Connected Content는 발송 직전에 외부 API를 호출해 응답을 변수로 저장한다. `:cache_max_age`(초)로 응답을 캐싱하고, `:timeout`으로 한도를 두며, `:rescue`로 실패 시 플래그 변수를 세운다. 호출이 실패해도 발송은 진행되고 해당 구간만 fallback으로 대체된다.
+Connected Content는 발송 직전에 외부 API를 호출해 응답을 변수로 저장한다. `:cache_max_age`(초)로 응답을 캐싱하고, `:timeout`으로 한도를 두며, `:rescue`로 실패 시 플래그 변수를 세운다. ==호출이 실패해도 발송은 진행되고 해당 구간만 fallback으로 대체된다.==
 
 ## 코드
 
@@ -131,10 +131,10 @@ public class MarketingCacheConfig {
 
 ## 실무에서 걸리는 지점
 
-- **Connected Content timeout이 곧 발송 지연이다.** 수십만 명 캠페인이면 호출도 수십만 번 나간다. 자체 API는 500ms 이내 응답을 목표로 하고 `cache_max_age`·CDN·발송 직전 pre-warming으로 rate limit을 피한다.
+- **Connected Content timeout이 곧 발송 지연이다.** ==수십만 명 캠페인이면 호출도 수십만 번 나간다.== 자체 API는 500ms 이내 응답을 목표로 하고 `cache_max_age`·CDN·발송 직전 pre-warming으로 rate limit을 피한다.
 - **외부 API 응답의 PII가 메시지에 그대로 박힌다.** 발송 전용 응답 스키마를 분리하고 전화번호·이메일은 제외한다. URL에 들어가는 `${attr}`도 자체 API에서 검증한다.
 - **LLM 호출은 prompt injection과 비결정성을 함께 안고 있다.** 사용자 속성을 정제해서 넣고, system prompt에 금지 사항을 고정하며, 응답에 길이·키워드 필터를 건다. temperature를 낮추고 캐시를 병행한다.
-- **Liquid 문법 오류와 Push 인증 만료는 조용히 실패한다.** `endif`·`default` 누락은 콘솔 preview와 테스트 세그먼트 발송으로 걸러내고, .p12 만료와 앱 재설치 후 토큰 미갱신은 Auth Key 사용과 세션마다 토큰 등록으로 막는다.
+- ==**Liquid 문법 오류와 Push 인증 만료는 조용히 실패한다.**== `endif`·`default` 누락은 콘솔 preview와 테스트 세그먼트 발송으로 걸러내고, .p12 만료와 앱 재설치 후 토큰 미갱신은 Auth Key 사용과 세션마다 토큰 등록으로 막는다.
 - **Frequency cap 없이는 메시지 폭격이 된다.** 사용자·캠페인 단위 cap을 두고, 앱 사용 중 Push는 표시하지 않거나 In-app 하나로 대체한다. Content Card는 expiration을 걸어 오래된 카드가 남지 않게 한다.
 
 ## 관련 글

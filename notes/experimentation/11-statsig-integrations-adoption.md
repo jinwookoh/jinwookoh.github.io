@@ -21,9 +21,9 @@ Statsig가 사내 다른 시스템과 단절되어 있으면 운영 부담은 �
 
 모니터링은 OpenTelemetry가 축이다. 애플리케이션은 vendor-neutral OTel SDK로 metric·trace·log를 내보내고 Collector가 Statsig와 Datadog으로 동시에 export한다. Infra Analytics(Log Explorer·Alerts·Metrics Explorer)를 Product Analytics와 결합하면 gate를 켠 순간의 전환율 상승과 p99 latency 악화를 한 화면에서 대조한다.
 
-부수 기능은 셋이다. Session Replay는 rrweb 기반으로 DOM 변화와 입력 이벤트 시퀀스를 기록해 재생한다. 5분 세션이 수백 KB라 5~10% 샘플링이나 조건부 기록이 필수이고, `maskInputs` 활성·`data-private` 마킹·동의 배너 없이 production에 올리면 privacy 사고가 된다. Web Analytics는 GA를 대체하기보다 실험 결합 분석용으로 병행한다.
+부수 기능은 셋이다. Session Replay는 rrweb 기반으로 DOM 변화와 입력 이벤트 시퀀스를 기록해 재생한다. 5분 세션이 수백 KB라 5~10% 샘플링이나 조건부 기록이 필수이고, ==`maskInputs` 활성·`data-private` 마킹·동의 배너 없이 production에 올리면 privacy 사고가 된다.== Web Analytics는 GA를 대체하기보다 실험 결합 분석용으로 병행한다.
 
-도입 결정은 사용자 규모, 연간 실험 건수, 데이터 통제 요구, 기존 stack, 분석 인력, 예산 등으로 판단한다. 연 실험 4건 미만이거나 사용자 1,000명 미만이면 수작업이 낫고, 통제 요구가 강하면 Warehouse Native를 검토한다. Flag만 필요하면 LaunchDarkly·GrowthBook, self-host가 필수면 PostHog가 대안이며, Flag·실험·분석을 한 데이터로 묶는 가치가 클 때 Statsig가 우세하다. 마이그레이션은 진행 중 실험을 기존 도구에서 끝낸 뒤 새 실험부터 옮긴다.
+도입 결정은 사용자 규모, 연간 실험 건수, 데이터 통제 요구, 기존 stack, 분석 인력, 예산 등으로 판단한다. ==연 실험 4건 미만이거나 사용자 1,000명 미만이면 수작업이 낫고, 통제 요구가 강하면 Warehouse Native를 검토한다.== Flag만 필요하면 LaunchDarkly·GrowthBook, self-host가 필수면 PostHog가 대안이며, Flag·실험·분석을 한 데이터로 묶는 가치가 클 때 Statsig가 우세하다. 마이그레이션은 진행 중 실험을 기존 도구에서 끝낸 뒤 새 실험부터 옮긴다.
 
 ## 코드
 
@@ -138,8 +138,8 @@ public class CheckoutService {
 - Webhook endpoint가 일시 중단되면 Statsig가 재시도하므로 같은 이벤트가 여러 번 도착한다. 이벤트 ID로 중복을 거르지 않으면 audit DB 이중 기록이나 배포 자동화 중복 실행이 생긴다.
 - Console API에는 분당 rate limit이 있어 대량 cleanup 시 429가 난다. backoff와 시간 분산이 필요하고, 키가 git history에 남으면 즉시 rotation한다.
 - MCP에 콘솔 전체 권한을 주면 AI 도구가 production gate를 실수로 바꿀 수 있다. read-only로 시작해 저위험 범주부터 write를 넓히고 production gate 변경은 사람이 확인한다.
-- OTel metric label에 user_id·request_id 같은 high cardinality 값을 넣으면 시계열이 폭증한다. Collector 단일 인스턴스는 단일 실패점이므로 다중 인스턴스로 둔다.
-- Daily Digest는 전날 이벤트가 덜 도착한 상태에서 발송되면 지표가 거짓으로 하락해 보이므로 24~48시간 delay window를 둔다. Web Analytics와 GA는 샘플링·bot 필터가 달라 절대값이 아닌 추세로 비교한다.
+- ==OTel metric label에 user_id·request_id 같은 high cardinality 값을 넣으면 시계열이 폭증한다.== Collector 단일 인스턴스는 단일 실패점이므로 다중 인스턴스로 둔다.
+- ==Daily Digest는 전날 이벤트가 덜 도착한 상태에서 발송되면 지표가 거짓으로 하락해 보이므로 24~48시간 delay window를 둔다.== Web Analytics와 GA는 샘플링·bot 필터가 달라 절대값이 아닌 추세로 비교한다.
 
 ## 관련 글
 

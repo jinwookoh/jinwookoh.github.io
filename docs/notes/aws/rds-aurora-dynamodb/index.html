@@ -24,12 +24,12 @@
   <h1>RDS·Aurora·DynamoDB</h1>
   <p class="summary">관계형은 RDS·Aurora, 키-값 대규모 조회는 DynamoDB로 나누고 복제·캐시·키 설계 함정을 정리한다</p>
   <div class="content">
-<p>EC2에 직접 MySQL을 올리면 OS 패치, 백업, 장애 복구, 읽기 분산을 전부 직접 처리해야 하고, 한 AZ가 죽으면 데이터베이스도 함께 사라진다. 반대로 관계형 DB 하나에 세션과 초당 수만 건의 키 조회까지 몰아넣으면 Join이 필요 없는 워크로드가 커넥션과 CPU를 소모한다. AWS는 이를 관리형 관계형 DB(RDS·Aurora)와 서버리스 NoSQL(DynamoDB)로 나눈다. <mark>Join과 트랜잭션이 필요하면 관계형, 키 하나로 값을 찾는 조회가 대규모로 반복되면 DynamoDB를 고른다.</mark></p>
+<p>EC2에 직접 MySQL을 올리면 OS 패치, 백업, 장애 복구, 읽기 분산을 전부 직접 처리해야 하고, 한 AZ가 죽으면 데이터베이스도 함께 사라진다. 반대로 관계형 DB 하나에 세션과 초당 수만 건의 키 조회까지 몰아넣으면 Join이 필요 없는 워크로드가 커넥션과 CPU를 소모한다. AWS는 이를 관리형 관계형 DB(RDS·Aurora)와 서버리스 NoSQL(DynamoDB)로 나눈다. Join과 트랜잭션이 필요하면 관계형, 키 하나로 값을 찾는 조회가 대규모로 반복되면 DynamoDB를 고른다.</p>
 <h2>핵심 개념</h2>
 <h3>RDS</h3>
 <p>RDS는 MySQL, PostgreSQL, MariaDB, Oracle, SQL Server, DB2, Aurora를 지원하는 관리형 관계형 DB다. 인스턴스에 SSH로 접속할 수 없고, OS 접근이 필요하면 Oracle·SQL Server 전용인 RDS Custom을 쓴다.</p>
-<p>자동 백업은 1~35일 보존되고 트랜잭션 로그가 5분마다 저장되어 시점 복구가 가능하며, 수동 스냅샷은 영구 보존된다. 복원은 항상 새 인스턴스를 만든다. 저장 암호화는 생성 시에만 켤 수 있어 기존 DB는 스냅샷을 암호화 옵션으로 복원해야 한다. 스토리지 자동 확장은 여유 공간 10% 미만, 5분 이상 지속, 마지막 수정 후 6시간 경과가 모두 맞을 때만 동작한다.</p>
-<p><mark>Multi-AZ와 Read Replica는 목적이 다르다.</mark></p>
+<p>자동 백업은 1~35일 보존되고 트랜잭션 로그가 5분마다 저장되어 시점 복구가 가능하며, 수동 스냅샷은 영구 보존된다. 복원은 항상 새 인스턴스를 만든다. <mark>저장 암호화는 생성 시에만 켤 수 있어 기존 DB는 스냅샷을 암호화 옵션으로 복원해야 한다.</mark> <mark>스토리지 자동 확장은 여유 공간 10% 미만, 5분 이상 지속, 마지막 수정 후 6시간 경과가 모두 맞을 때만 동작한다.</mark></p>
+<p>Multi-AZ와 Read Replica는 목적이 다르다.</p>
 <table>
 <thead>
 <tr>
@@ -71,7 +71,7 @@
 <p>Writer 엔드포인트는 현재 마스터를 가리키고, Reader 엔드포인트는 복제본 전체에 연결 수준으로 로드 밸런싱하며, Custom 엔드포인트는 특정 인스턴스 묶음을 따로 노출한다.</p>
 <p>변형으로 Serverless v2(ACU 단위 자동 확장), Global Database(보조 리전 최대 10개, 복제 지연 1초 미만, 승격 1분 미만), Backtrack(과거 시점 되감기), Cloning(Copy-on-Write), Babelfish(T-SQL 호환)가 있다.</p>
 <h3>DynamoDB</h3>
-<p>DynamoDB는 서버리스 NoSQL로 밀리초 지연과 자동 Multi-AZ 복제를 제공한다. 기본 키는 Partition Key 단독 또는 Sort Key와의 조합이다. <mark>파티션 키는 UUID나 사용자 ID처럼 균등 분포해야 하며, 날짜처럼 값이 몰리는 키는 hot partition으로 스로틀링을 유발한다.</mark></p>
+<p>DynamoDB는 서버리스 NoSQL로 밀리초 지연과 자동 Multi-AZ 복제를 제공한다. 기본 키는 Partition Key 단독 또는 Sort Key와의 조합이다. 파티션 키는 UUID나 사용자 ID처럼 균등 분포해야 하며, 날짜처럼 값이 몰리는 키는 hot partition으로 스로틀링을 유발한다.</p>
 <p>인덱스는 GSI(다른 파티션 키, 별도 용량, 언제든 추가)와 LSI(같은 파티션 키에 다른 정렬 키, 생성 시에만)로 나뉜다. 용량 모드는 Provisioned와 On-Demand이며, RCU는 강한 일관성 4KB 읽기 1회, WCU는 1KB 쓰기 1회다.</p>
 <p>부가 기능으로 DAX(전용 마이크로초 캐시), Streams(변경 이벤트 24시간 보존, Lambda 트리거), Global Tables(Active-Active 멀티 리전), TTL(자동 삭제), Transactions(최대 100개 항목, 용량 2배), PITR(35일), 용량을 소비하지 않는 S3 Export/Import가 있다.</p>
 <h2>코드</h2>
@@ -110,7 +110,7 @@
         <span class="hljs-keyword">return</span> ds;
     }
 }</code></pre>
-<p><code>LazyConnectionDataSourceProxy</code>로 감싸야 <code>@Transactional(readOnly = true)</code>가 설정된 뒤에 커넥션을 얻어 Reader로 갈 수 있다.</p>
+<p><mark><code>LazyConnectionDataSourceProxy</code>로 감싸야 <code>@Transactional(readOnly = true)</code>가 설정된 뒤에 커넥션을 얻어 Reader로 갈 수 있다.</mark></p>
 <pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
 <span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderQueryService</span> {
 
@@ -175,10 +175,10 @@
                 .items().stream().toList();
     }
 }</code></pre>
-<p>TTL은 테이블 설정에서 <code>expiresAt</code> 속성을 지정해야 동작하며, 값은 초 단위 epoch여야 한다.</p>
+<p><mark>TTL은 테이블 설정에서 <code>expiresAt</code> 속성을 지정해야 동작하며, 값은 초 단위 epoch여야 한다.</mark></p>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark>Lambda가 RDS에 직접 붙으면 동시 실행 수만큼 커넥션이 생겨 <code>max_connections</code>를 넘긴다.</mark> RDS Proxy를 둔다.</li>
+<li>Lambda가 RDS에 직접 붙으면 동시 실행 수만큼 커넥션이 생겨 <code>max_connections</code>를 넘긴다. RDS Proxy를 둔다.</li>
 <li>Read Replica와 Aurora Reader는 비동기 복제라 방금 쓴 데이터가 바로 읽히지 않을 수 있다. 쓰기 직후 확인 조회는 Writer로 보내야 한다.</li>
 <li>Multi-AZ 장애 조치 후 JVM DNS 캐시 때문에 앱이 구 IP를 잡을 수 있다. <code>networkaddress.cache.ttl</code>을 짧게 둔다.</li>
 <li>DynamoDB는 파티션 키를 나중에 바꾸기 어렵다. 조회 패턴을 먼저 정의하고 키와 GSI를 설계한다.</li>

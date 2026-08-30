@@ -15,7 +15,7 @@ Prometheus 설정에 타깃을 손으로 적고 Grafana UI에서 패널을 클�
 
 **Micrometer와 OpenTelemetry는 같은 계층이 아니다.** Micrometer는 앱 안에서 메트릭과 trace를 생성하는 계측 facade이고, OpenTelemetry(OTel)는 벤더 중립 wire format(OTLP)과 OTel Collector를 포함하는 생태계다. "생성은 Micrometer, 전송은 OTLP"가 현실적인 구도다. `micrometer-registry-otlp`의 `OtlpMeterRegistry`가 메트릭을 push하고, `micrometer-tracing-bridge-otel`이 Micrometer Tracing과 OTel SDK를 잇는다. Spring Boot 3.x는 bridge와 `opentelemetry-exporter-otlp`만 추가하면 자동 설정된다.
 
-**OTel Collector는 팬아웃 허브다.** 앱은 Collector 하나에만 보내고, Collector가 Prometheus remote write, Grafana Cloud, Elastic 등으로 분배하므로 백엔드를 바꿔도 앱 재배포가 없다. Elastic도 OTel SDK를 받으며 신규 서비스에는 OTel 경로를 권장한다. SDK가 섞여도 W3C `traceparent` 헤더만 지키면 한 trace로 이어진다.
+**OTel Collector는 팬아웃 허브다.** 앱은 Collector 하나에만 보내고, Collector가 Prometheus remote write, Grafana Cloud, Elastic 등으로 분배하므로 백엔드를 바꿔도 앱 재배포가 없다. Elastic도 OTel SDK를 받으며 신규 서비스에는 OTel 경로를 권장한다. ==SDK가 섞여도 W3C `traceparent` 헤더만 지키면 한 trace로 이어진다.==
 
 **scrape 대상은 ServiceMonitor·PodMonitor CRD로 선언한다.** Prometheus Operator가 레이블 셀렉터로 대상을 자동 발견한다. ServiceMonitor가 기본이고, PodMonitor는 Service가 없는 DaemonSet·Job에만 쓴다.
 
@@ -181,10 +181,10 @@ resource "grafana_rule_group" "order_slo" {
 ## 실무에서 걸리는 지점
 
 - **actuator 공개망 노출.** ingress 실수로 `/actuator/prometheus`가 열리면 JVM 상태와 비즈니스 메트릭이 그대로 읽힌다. 포트 분리, NetworkPolicy, IP 필터 세 겹을 둔다.
-- **이중 수집.** 같은 Pod를 ServiceMonitor와 PodMonitor가 동시에 잡거나 OTLP와 Prometheus registry가 함께 켜지면 `rate()`가 두 배로 나온다. OTel Java agent와 tracing bridge를 함께 쓰면 span도 중복된다.
+- **이중 수집.** ==같은 Pod를 ServiceMonitor와 PodMonitor가 동시에 잡거나 OTLP와 Prometheus registry가 함께 켜지면 `rate()`가 두 배로 나온다.== OTel Java agent와 tracing bridge를 함께 쓰면 span도 중복된다.
 - **ServiceMonitor 미발견.** Operator는 `serviceMonitorSelector`와 맞는 레이블만 처리하므로 `metadata.labels`를 맞춘다. drop regex는 staging에서 먼저 검증한다.
-- **Collector 단일 장애점.** 큐 없이 batch만 쓰면 재시작 동안 데이터가 증발한다. `sending_queue`, `retry_on_failure`, `file_storage`로 디스크 큐를 두고 복수 replica를 둔다.
-- **IaC 상태와 비밀값.** Terraform state는 remote backend에 두고, Helm values의 비밀값은 Vault로 주입한다. Grafana Cloud Free 한도 초과는 자동 과금이므로 usage alert를 건다.
+- **Collector 단일 장애점.** ==큐 없이 batch만 쓰면 재시작 동안 데이터가 증발한다.== `sending_queue`, `retry_on_failure`, `file_storage`로 디스크 큐를 두고 복수 replica를 둔다.
+- **IaC 상태와 비밀값.** Terraform state는 remote backend에 두고, Helm values의 비밀값은 Vault로 주입한다. ==Grafana Cloud Free 한도 초과는 자동 과금이므로 usage alert를 건다.==
 
 ## 관련 글
 

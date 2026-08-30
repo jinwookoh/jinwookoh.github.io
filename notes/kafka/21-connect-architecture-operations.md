@@ -23,9 +23,9 @@ Distributed에서는 Connector properties 파일이 없다. Worker만 띄워 두
 
 Converter는 Connect 내부 표현과 Kafka 바이트 사이의 직렬화를 맡으며, 처리량이 큰 환경은 Avro + Schema Registry가 표준이다.
 
-REST API는 어느 Worker에 보내도 결과가 같다. `POST /connectors`는 `{name, config}` 본문으로 생성하고, `PUT /connectors/{name}/config`는 config만 보내며 없으면 생성·있으면 갱신하는 멱등 호출이다. `GET .../status`는 Connector와 Task 상태(RUNNING·PAUSED·STOPPED·FAILED 등)와 `trace`를 돌려주는데, Connector가 RUNNING이어도 Task가 FAILED일 수 있어 둘을 따로 본다. `POST .../restart?includeTasks=true&onlyFailed=true`는 실패 Task만 재시작한다.
+REST API는 어느 Worker에 보내도 결과가 같다. `POST /connectors`는 `{name, config}` 본문으로 생성하고, `PUT /connectors/{name}/config`는 config만 보내며 없으면 생성·있으면 갱신하는 멱등 호출이다. `GET .../status`는 Connector와 Task 상태(RUNNING·PAUSED·STOPPED·FAILED 등)와 `trace`를 돌려주는데, ==Connector가 RUNNING이어도 Task가 FAILED일 수 있어 둘을 따로 본다.== `POST .../restart?includeTasks=true&onlyFailed=true`는 실패 Task만 재시작한다.
 
-에러 처리는 `errors.tolerance`가 결정한다. 기본값 `none`은 레코드 하나가 실패해도 Task를 FAILED로 만들고, `all`은 건너뛰고 진행한다. `all`을 쓸 때 DLQ를 지정하지 않으면 실패 레코드는 유실된다. DLQ는 Sink Connector에서만 지원되며, `context.headers.enable=true`면 원본 토픽·파티션·오프셋·예외가 `__connect.errors.*` 헤더에 실린다.
+에러 처리는 `errors.tolerance`가 결정한다. 기본값 `none`은 레코드 하나가 실패해도 Task를 FAILED로 만들고, `all`은 건너뛰고 진행한다. ==`all`을 쓸 때 DLQ를 지정하지 않으면 실패 레코드는 유실된다.== DLQ는 Sink Connector에서만 지원되며, `context.headers.enable=true`면 원본 토픽·파티션·오프셋·예외가 `__connect.errors.*` 헤더에 실린다.
 
 ## 코드
 
@@ -135,7 +135,7 @@ connectAdminClient.deploy("s3-sink-events", s3Sink);
 - **내부 토픽 replication factor.** 단일 브로커 개발 환경에서 3으로 두면 토픽 생성이 실패하고, 운영에서 1로 두면 브로커 하나 장애에 클러스터 상태를 잃는다.
 - **`group.id` 불일치.** 일부 Worker만 `group.id`가 다르면 두 클러스터로 갈라진다. 일반 Consumer Group ID와 겹쳐도 안 된다.
 - **restart로 풀리지 않는 FAILED.** 설정 오류나 외부 시스템 장애는 재시작해도 같은 자리에서 죽으므로 `trace`를 먼저 읽는다.
-- **Rolling restart와 비밀 값 노출.** 3대 중 2대를 동시에 내리면 남은 1대에 Task가 몰리므로 한 대씩 RUNNING 복귀를 확인하며 진행한다. REST 본문의 비밀번호는 `connect-configs`에 그대로 저장되므로 비밀 값은 `config.providers` 참조로만 남긴다.
+- **Rolling restart와 비밀 값 노출.** 3대 중 2대를 동시에 내리면 남은 1대에 Task가 몰리므로 한 대씩 RUNNING 복귀를 확인하며 진행한다. ==REST 본문의 비밀번호는 `connect-configs`에 그대로 저장되므로 비밀 값은 `config.providers` 참조로만 남긴다.==
 
 ## 관련 글
 

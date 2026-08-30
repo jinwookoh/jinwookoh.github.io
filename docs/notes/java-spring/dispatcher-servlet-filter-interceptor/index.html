@@ -24,7 +24,7 @@
   <h1>요청 처리 흐름 — DispatcherServlet·Filter·Interceptor</h1>
   <p class="summary">HTTP 요청이 Tomcat에서 컨트롤러까지 거치는 단계와 Filter·Interceptor가 갈리는 지점을 정리한다.</p>
   <div class="content">
-<p><code>@RestController</code>에 메서드를 두면 URL 요청이 그 메서드로 도착한다. 이 과정을 모르면 인증·로깅·Trace ID 부여 같은 공통 처리를 어디에 둘지 판단할 수 없어 컨트롤러마다 같은 코드가 복제되고, 예외가 <code>@ControllerAdvice</code>에 잡히지 않는 현상의 원인을 찾지 못한다. <mark>요청이 거치는 단계와 각 단계가 Spring 안인지 밖인지 알면 두 문제가 함께 풀린다.</mark></p>
+<p><code>@RestController</code>에 메서드를 두면 URL 요청이 그 메서드로 도착한다. 이 과정을 모르면 인증·로깅·Trace ID 부여 같은 공통 처리를 어디에 둘지 판단할 수 없어 컨트롤러마다 같은 코드가 복제되고, 예외가 <code>@ControllerAdvice</code>에 잡히지 않는 현상의 원인을 찾지 못한다. 요청이 거치는 단계와 각 단계가 Spring 안인지 밖인지 알면 두 문제가 함께 풀린다.</p>
 <h2>핵심 개념</h2>
 <h3>DispatcherServlet — 단일 진입점</h3>
 <p>DispatcherServlet은 Spring MVC의 프런트 컨트롤러다. <code>jakarta.servlet.http.HttpServlet</code>의 서브클래스이며 Spring Boot가 기동 시 자동 생성해 <code>/</code> 전체에 매핑한다. 내장 Tomcat이 받은 요청은 Servlet Filter 체인을 지나 이 서블릿으로 들어오고, 이후 흐름은 다음 순서다.</p>
@@ -154,9 +154,9 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><mark><strong>Filter에서 던진 예외는 <code>@ControllerAdvice</code>에 도달하지 않는다.</strong></mark> 서블릿 컨테이너의 에러 처리로 넘어가 응답 형식이 API 규약과 달라진다. Filter 안에서 직접 JSON을 쓰거나 <code>HandlerExceptionResolver</code>를 주입해 위임한다.</li>
-<li><strong><code>@Component</code> Filter를 <code>FilterRegistrationBean</code>으로 다시 등록하면 두 번 실행된다.</strong> 경로나 순서를 제어하려면 <code>@Component</code>를 떼고 <code>FilterRegistrationBean</code>만 남긴다.</li>
-<li><mark><strong>요청 본문을 Filter에서 읽으면 컨트롤러는 빈 본문을 받는다.</strong> <code>InputStream</code>은 한 번만 소비된다.</mark> <code>ContentCachingRequestWrapper</code>·<code>ContentCachingResponseWrapper</code>로 감싸 체인에 넘기고, 응답은 <code>copyBodyToResponse()</code>를 호출해야 클라이언트에 전달된다.</li>
-<li><strong>Spring Boot 3부터 경로 매칭 기본값이 <code>PathPatternParser</code>다.</strong> <code>/**</code>는 패턴 끝에서만 허용되어 중간에 <code>/**/</code>가 들어간 패턴은 기동 시 실패한다.</li>
+<li><mark><strong><code>@Component</code> Filter를 <code>FilterRegistrationBean</code>으로 다시 등록하면 두 번 실행된다.</strong></mark> 경로나 순서를 제어하려면 <code>@Component</code>를 떼고 <code>FilterRegistrationBean</code>만 남긴다.</li>
+<li><mark><strong>요청 본문을 Filter에서 읽으면 컨트롤러는 빈 본문을 받는다.</strong></mark> <code>InputStream</code>은 한 번만 소비된다. <code>ContentCachingRequestWrapper</code>·<code>ContentCachingResponseWrapper</code>로 감싸 체인에 넘기고, 응답은 <code>copyBodyToResponse()</code>를 호출해야 클라이언트에 전달된다.</li>
+<li><strong>Spring Boot 3부터 경로 매칭 기본값이 <code>PathPatternParser</code>다.</strong> <mark><code>/**</code>는 패턴 끝에서만 허용되어 중간에 <code>/**/</code>가 들어간 패턴은 기동 시 실패한다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

@@ -17,7 +17,7 @@ EC2에 직접 MySQL을 올리면 OS 패치, 백업, 장애 복구, 읽기 분산
 
 RDS는 MySQL, PostgreSQL, MariaDB, Oracle, SQL Server, DB2, Aurora를 지원하는 관리형 관계형 DB다. 인스턴스에 SSH로 접속할 수 없고, OS 접근이 필요하면 Oracle·SQL Server 전용인 RDS Custom을 쓴다.
 
-자동 백업은 1~35일 보존되고 트랜잭션 로그가 5분마다 저장되어 시점 복구가 가능하며, 수동 스냅샷은 영구 보존된다. 복원은 항상 새 인스턴스를 만든다. 저장 암호화는 생성 시에만 켤 수 있어 기존 DB는 스냅샷을 암호화 옵션으로 복원해야 한다. 스토리지 자동 확장은 여유 공간 10% 미만, 5분 이상 지속, 마지막 수정 후 6시간 경과가 모두 맞을 때만 동작한다.
+자동 백업은 1~35일 보존되고 트랜잭션 로그가 5분마다 저장되어 시점 복구가 가능하며, 수동 스냅샷은 영구 보존된다. 복원은 항상 새 인스턴스를 만든다. ==저장 암호화는 생성 시에만 켤 수 있어 기존 DB는 스냅샷을 암호화 옵션으로 복원해야 한다.== ==스토리지 자동 확장은 여유 공간 10% 미만, 5분 이상 지속, 마지막 수정 후 6시간 경과가 모두 맞을 때만 동작한다.==
 
 Multi-AZ와 Read Replica는 목적이 다르다.
 
@@ -90,7 +90,7 @@ public class DataSourceConfig {
 }
 ```
 
-`LazyConnectionDataSourceProxy`로 감싸야 `@Transactional(readOnly = true)`가 설정된 뒤에 커넥션을 얻어 Reader로 갈 수 있다.
+==`LazyConnectionDataSourceProxy`로 감싸야 `@Transactional(readOnly = true)`가 설정된 뒤에 커넥션을 얻어 Reader로 갈 수 있다.==
 
 ```java
 @Service
@@ -163,7 +163,7 @@ public class SessionRepository {
 }
 ```
 
-TTL은 테이블 설정에서 `expiresAt` 속성을 지정해야 동작하며, 값은 초 단위 epoch여야 한다.
+==TTL은 테이블 설정에서 `expiresAt` 속성을 지정해야 동작하며, 값은 초 단위 epoch여야 한다.==
 
 ## 실무에서 걸리는 지점
 

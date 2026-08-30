@@ -23,11 +23,11 @@ Kafka Streams는 JVM 프로세스 안의 라이브러리이므로 테스트와 �
 
 `KafkaStreams`는 `CREATED → REBALANCING → RUNNING`을 오가다 `close()` 시 `NOT_RUNNING`, 예외 시 `ERROR`로 전이한다.
 
-예외 핸들러는 세 지점에 있다. `deserialization.exception.handler`의 기본값 `LogAndFailExceptionHandler`는 입력 포맷이 깨지면 스트림을 종료하므로 운영에서는 `LogAndContinueExceptionHandler`나 DLQ 커스텀 구현을 쓴다. `production.exception.handler`는 출력 쓰기 실패에서 `CONTINUE`/`FAIL`을 결정한다. `StreamsUncaughtExceptionHandler`는 새어 나온 예외를 받아 `REPLACE_THREAD`·`SHUTDOWN_CLIENT`·`SHUTDOWN_APPLICATION` 중 하나를 반환하며, 실패한 스레드만 교체하는 `REPLACE_THREAD`가 기본 선택이다.
+예외 핸들러는 세 지점에 있다. ==`deserialization.exception.handler`의 기본값 `LogAndFailExceptionHandler`는 입력 포맷이 깨지면 스트림을 종료하므로 운영에서는 `LogAndContinueExceptionHandler`나 DLQ 커스텀 구현을 쓴다.== `production.exception.handler`는 출력 쓰기 실패에서 `CONTINUE`/`FAIL`을 결정한다. `StreamsUncaughtExceptionHandler`는 새어 나온 예외를 받아 `REPLACE_THREAD`·`SHUTDOWN_CLIENT`·`SHUTDOWN_APPLICATION` 중 하나를 반환하며, 실패한 스레드만 교체하는 `REPLACE_THREAD`가 기본 선택이다.
 
 ### 상태와 무중단 배포
 
-상태는 `state.dir` 아래 RocksDB에 두고 변경분은 `<app-id>-<store>-changelog` 토픽에 기록된다. 인스턴스가 사라지면 다른 인스턴스가 changelog를 읽어 상태를 재구축하는데, `num.standby.replicas ≥ 1`이면 복제본을 가진 인스턴스가 즉시 인계받는다. 여기에 `group.instance.id`를 더하면 rolling update가 무중단으로 진행된다. Blue-Green은 `application.id`가 달라져 상태를 새로 빌드해야 하고, Canary는 두 버전이 파티션을 나눠 갖게 되므로 맞지 않는다.
+상태는 `state.dir` 아래 RocksDB에 두고 변경분은 `<app-id>-<store>-changelog` 토픽에 기록된다. 인스턴스가 사라지면 다른 인스턴스가 changelog를 읽어 상태를 재구축하는데, `num.standby.replicas ≥ 1`이면 복제본을 가진 인스턴스가 즉시 인계받는다. 여기에 `group.instance.id`를 더하면 rolling update가 무중단으로 진행된다. ==Blue-Green은 `application.id`가 달라져 상태를 새로 빌드해야 하고, Canary는 두 버전이 파티션을 나눠 갖게 되므로 맞지 않는다.==
 
 ### 보안과 Reset
 
@@ -162,7 +162,7 @@ spring:
 
 - **TopologyTestDriver가 통과해도 운영에서 어긋나는 영역이 있다.** 파티션 간 순서, 리밸런스 중 재처리, RocksDB 동작은 검증되지 않는다. 운영과 같은 Serializer를 써야 바이트 호환성도 검증된다.
 - **`advanceWallClockTime`은 Punctuator에만 영향을 준다.** 이벤트 시간 윈도는 `pipeInput`의 타임스탬프로 진행시키고, 닫으려면 grace period를 넘기는 후속 레코드를 넣는다.
-- **`state.dir` 기본값은 `/tmp` 아래다.** 재시작 시 상태가 사라져 changelog 전체를 다시 읽는다. 영구 볼륨과 standby 1 이상이 없으면 복구가 수 시간 걸릴 수 있다.
+- ==**`state.dir` 기본값은 `/tmp` 아래다.**== 재시작 시 상태가 사라져 changelog 전체를 다시 읽는다. 영구 볼륨과 standby 1 이상이 없으면 복구가 수 시간 걸릴 수 있다.
 - **EOS에서는 커밋 주기가 곧 트랜잭션 주기다.** `commit.interval.ms`를 지나치게 낮추면 처리량이 떨어진다. `exactly_once`(v1)는 deprecated이므로 `exactly_once_v2`를 쓴다.
 - **`application.id`가 겹치면 컨슈머 그룹과 내부 토픽이 섞인다.** 접두사로 환경을 분리한다. 메이저 업그레이드는 `upgrade.from`을 적고 rolling restart, 안정화 후 제거하고 다시 rolling restart한다.
 

@@ -24,7 +24,7 @@
   <h1>Consumer 동작 원리 — Pull·Group·Offset·Rebalance</h1>
   <p class="summary">Consumer가 Pull로 읽고 offset 하나로 위치를 기록하며, 그룹 단위로 파티션을 나눠 갖고 재분배하는 원리를 정리한다</p>
   <div class="content">
-<p>메시지마다 확인 상태를 추적하는 전통적인 큐는 브로커 부담이 크고, Push 방식은 느린 컨슈머를 넘어뜨리며, 소비 후 삭제하므로 재처리가 불가능하다. <mark>Kafka는 Pull 모델, 파티션당 정수 하나인 offset, Consumer Group으로 이를 푼다.</mark> 대신 멤버가 바뀔 때 파티션을 재분배하는 rebalance가 운영 부담으로 들어온다.</p>
+<p>메시지마다 확인 상태를 추적하는 전통적인 큐는 브로커 부담이 크고, Push 방식은 느린 컨슈머를 넘어뜨리며, 소비 후 삭제하므로 재처리가 불가능하다. Kafka는 Pull 모델, 파티션당 정수 하나인 offset, Consumer Group으로 이를 푼다. 대신 멤버가 바뀔 때 파티션을 재분배하는 rebalance가 운영 부담으로 들어온다.</p>
 <h2>핵심 개념</h2>
 <h3>Pull과 Long Polling</h3>
 <p>Producer에서 브로커로는 push, 브로커에서 Consumer로는 pull이다. Consumer가 <code>poll()</code>로 offset을 지정해 fetch하므로 처리 속도를 스스로 조절한다. 데이터가 없을 때의 busy loop는 브로커 측 long polling이 막는다. <code>fetch.min.bytes</code>가 차거나 <code>fetch.max.wait.ms</code>가 지날 때까지 브로커가 응답을 보류한다.</p>
@@ -38,8 +38,8 @@
 <p>Rebalance는 컨슈머 join·leave, session timeout, <code>max.poll.interval.ms</code> 초과, 파티션 수·구독 변경 때 발생한다. Eager(classic) 방식은 전 멤버가 모든 파티션을 반납한 뒤 그룹 리더 컨슈머가 재할당하는 stop-the-world다. 2.4의 <code>CooperativeStickyAssignor</code>는 이동할 파티션만 반납한다. 4.0의 KIP-848(<code>group.protocol=consumer</code>)은 브로커가 <code>group.remote.assignor</code>로 직접 할당하며, 브로커와 클라이언트 모두 4.0 이상이어야 한다.</p>
 <p>classic 전략 중 <code>RangeAssignor</code>는 다중 토픽 구독 시 부하가 쏠리고, <code>RoundRobinAssignor</code>·<code>StickyAssignor</code>는 고르지만 eager다. 3.0부터 기본값은 <code>[RangeAssignor, CooperativeStickyAssignor]</code>다.</p>
 <h3>생존 판정과 Static Membership</h3>
-<p>heartbeat(<code>heartbeat.interval.ms</code> 3초)가 <code>session.timeout.ms</code>(45초) 동안 끊기면 프로세스 사망으로, <code>poll()</code> 간격이 <code>max.poll.interval.ms</code>(5분)를 넘으면 처리 정체로 판정한다. heartbeat는 별도 스레드가 보내므로 두 시계는 독립적이다.</p>
-<p><code>group.instance.id</code>를 고정하면 session timeout 안에 재참가할 때 기존 파티션을 돌려받아 rebalance가 생략된다. ID가 중복되면 <code>FencedInstanceIdException</code>이 난다.</p>
+<p>heartbeat(<code>heartbeat.interval.ms</code> 3초)가 <code>session.timeout.ms</code>(45초) 동안 끊기면 프로세스 사망으로, <code>poll()</code> 간격이 <code>max.poll.interval.ms</code>(5분)를 넘으면 처리 정체로 판정한다. <mark>heartbeat는 별도 스레드가 보내므로 두 시계는 독립적이다.</mark></p>
+<p><mark><code>group.instance.id</code>를 고정하면 session timeout 안에 재참가할 때 기존 파티션을 돌려받아 rebalance가 생략된다.</mark> ID가 중복되면 <code>FencedInstanceIdException</code>이 난다.</p>
 <h2>코드</h2>
 <p>처리 완료 후 수동 커밋하는 폴링 루프. <code>wakeup()</code>으로 종료 신호를 받고 <code>close()</code>로 그룹을 떠난다.</p>
 <pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.consumer.*;
@@ -151,7 +151,7 @@
 <ul>
 <li><strong>파티션 수가 병렬도 상한이다.</strong> 컨슈머를 파티션 수 이상으로 늘려도 처리량은 늘지 않는다.</li>
 <li><strong>Rebalance storm.</strong> 한 컨슈머의 이탈이 rebalance를 부르고 그 사이 다른 컨슈머가 timeout을 넘겨 연쇄된다. <code>rebalance-rate-per-hour</code>가 10을 넘으면 session timeout 상향·Static Membership·cooperative 전략으로 대응한다.</li>
-<li><mark><strong>처리 시간 대비 poll 간격.</strong> 한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다.</mark> <code>max.poll.records</code>를 줄이거나 interval을 늘린다.</li>
+<li><strong>처리 시간 대비 poll 간격.</strong> <mark>한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다.</mark> <code>max.poll.records</code>를 줄이거나 interval을 늘린다.</li>
 <li><strong>assign()과 subscribe()는 함께 쓸 수 없다.</strong> <code>assign()</code>은 그룹과 무관하게 파티션을 직접 잡는 재처리·디버깅용이다.</li>
 <li><strong>Graceful shutdown 누락.</strong> <code>close()</code> 없이 죽으면 session timeout까지 파티션 재배정이 미뤄진다.</li>
 </ul>

@@ -24,13 +24,13 @@
   <h1>Spring Kafka — 배치·에러·트랜잭션·테스트</h1>
   <p class="summary">KafkaTemplate과 @KafkaListener 위에 배치 리스너·DefaultErrorHandler·@RetryableTopic·KafkaTransactionManager·Testcontainers를 얹는 방법</p>
   <div class="content">
-<p>순정 Java 클라이언트만으로 Consumer를 운영하면 poll 루프·오프셋 커밋·역직렬화 실패·재시도·종료 처리를 애플리케이션 코드가 전부 떠안는다. 하나라도 빠지면 처리 불가 메시지 한 건이 파티션을 막거나, 커밋 전에 죽은 인스턴스가 같은 메시지를 다시 보내 중복 이벤트를 만든다. <mark>Spring Kafka는 이 반복 코드를 컨테이너와 어노테이션으로 흡수하지만, 감춰진 기본값(ack 모드, 격리 수준, 재시도 횟수)을 모르면 예측하기 어려운 동작이 나온다.</mark></p>
+<p>순정 Java 클라이언트만으로 Consumer를 운영하면 poll 루프·오프셋 커밋·역직렬화 실패·재시도·종료 처리를 애플리케이션 코드가 전부 떠안는다. 하나라도 빠지면 처리 불가 메시지 한 건이 파티션을 막거나, 커밋 전에 죽은 인스턴스가 같은 메시지를 다시 보내 중복 이벤트를 만든다. Spring Kafka는 이 반복 코드를 컨테이너와 어노테이션으로 흡수하지만, 감춰진 기본값(ack 모드, 격리 수준, 재시도 횟수)을 모르면 예측하기 어려운 동작이 나온다.</p>
 <h2>핵심 개념</h2>
 <p>Producer는 <code>KafkaTemplate</code>, Consumer는 <code>@KafkaListener</code>와 <code>MessageListenerContainer</code>, Admin은 <code>KafkaAdmin</code>, Streams는 <code>@EnableKafkaStreams</code>가 담당하며 Spring Boot 자동 구성이 <code>spring.kafka.*</code> 프로퍼티로 빈을 만든다.</p>
 <p><strong>ack 모드.</strong> 리스너는 <code>concurrency</code>만큼의 스레드로 실행되고 커밋 시점은 <code>ack-mode</code>가 정한다. 기본 <code>BATCH</code>는 poll 결과를 모두 처리한 뒤, <code>RECORD</code>는 레코드마다, <code>MANUAL</code>은 <code>Acknowledgment.acknowledge()</code> 시점에 커밋한다. <code>enable-auto-commit=false</code>가 전제다.</p>
 <p><strong>배치 리스너.</strong> <code>listener.type=batch</code>로 바꾸면 인자가 <code>List&lt;T&gt;</code>가 된다. ack가 배치 단위라 한 건의 실패가 배치 전체 재처리로 번지며, 부분 실패는 <code>BatchListenerFailedException</code>으로 실패 인덱스를 알려 그 지점부터만 재처리한다.</p>
-<p><strong>에러 처리.</strong> 기본 핸들러 <code>DefaultErrorHandler</code>는 즉시 재시도 9회 후 recoverer를 호출하며, 재시도 동안 파티션 소비가 멈춘다. <code>DeadLetterPublishingRecoverer</code>를 붙이면 <code>&lt;topic&gt;.DLT</code>로 원본과 예외 헤더가 발행된다. 역직렬화 실패는 <code>ErrorHandlingDeserializer</code>로 감싸야 레코드 단위 예외가 되어 DLT로 보낼 수 있다. <code>@RetryableTopic</code>은 실패 레코드를 <code>orders-retry-0</code>, <code>orders-retry-1</code> 같은 토픽으로 보내 지연 후 재소비하므로 원본 파티션이 계속 흐르고, 최종 실패는 <code>-dlt</code> 토픽과 <code>@DltHandler</code>로 간다. 대신 같은 키의 순서는 깨진다.</p>
-<p><strong>트랜잭션.</strong> <code>producer.transaction-id-prefix</code>를 지정하면 <code>KafkaTransactionManager</code>가 등록되고 컨테이너가 poll마다 트랜잭션을 연다. 리스너가 보낸 메시지와 소비 오프셋이 <code>sendOffsetsToTransaction</code>으로 한 트랜잭션에 묶이고, 예외가 나면 abort되어 재처리된다. 다운스트림 Consumer는 <code>isolation.level=read_committed</code>(기본 <code>read_uncommitted</code>)여야 abort된 레코드를 읽지 않는다. DB와 Kafka를 묶던 <code>ChainedKafkaTransactionManager</code>는 제거되었으므로 그 경우는 Outbox 패턴을 쓴다.</p>
+<p><strong>에러 처리.</strong> <mark>기본 핸들러 <code>DefaultErrorHandler</code>는 즉시 재시도 9회 후 recoverer를 호출하며, 재시도 동안 파티션 소비가 멈춘다.</mark> <code>DeadLetterPublishingRecoverer</code>를 붙이면 <code>&lt;topic&gt;.DLT</code>로 원본과 예외 헤더가 발행된다. 역직렬화 실패는 <code>ErrorHandlingDeserializer</code>로 감싸야 레코드 단위 예외가 되어 DLT로 보낼 수 있다. <code>@RetryableTopic</code>은 실패 레코드를 <code>orders-retry-0</code>, <code>orders-retry-1</code> 같은 토픽으로 보내 지연 후 재소비하므로 원본 파티션이 계속 흐르고, 최종 실패는 <code>-dlt</code> 토픽과 <code>@DltHandler</code>로 간다. <mark>대신 같은 키의 순서는 깨진다.</mark></p>
+<p><strong>트랜잭션.</strong> <code>producer.transaction-id-prefix</code>를 지정하면 <code>KafkaTransactionManager</code>가 등록되고 컨테이너가 poll마다 트랜잭션을 연다. 리스너가 보낸 메시지와 소비 오프셋이 <code>sendOffsetsToTransaction</code>으로 한 트랜잭션에 묶이고, 예외가 나면 abort되어 재처리된다. <mark>다운스트림 Consumer는 <code>isolation.level=read_committed</code>(기본 <code>read_uncommitted</code>)여야 abort된 레코드를 읽지 않는다.</mark> DB와 Kafka를 묶던 <code>ChainedKafkaTransactionManager</code>는 제거되었으므로 그 경우는 Outbox 패턴을 쓴다.</p>
 <p><strong>테스트.</strong> <code>@EmbeddedKafka</code>는 JVM 내 브로커라 빠르지만 실제 브로커와 차이가 있다. Testcontainers <code>KafkaContainer</code>는 실제 이미지를 쓰고 Spring Boot 3.1부터 <code>@ServiceConnection</code>이 주소를 자동 주입한다. 어느 쪽이든 <code>auto-offset-reset=earliest</code>가 아니면 구독 완료 전에 발행된 메시지를 놓친다.</p>
 <h2>코드</h2>
 <p>DefaultErrorHandler에 지수 BackOff와 DLT recoverer를 붙이고, 역직렬화 실패는 재시도하지 않게 한다.</p>
@@ -95,11 +95,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>기본 재시도가 파티션을 막는다.</strong></mark> 즉시 재시도 10회는 일시 장애에는 짧고 영구 실패에는 지연만 만든다. BackOff를 명시하고 재시도 무의미한 예외는 <code>addNotRetryableExceptions</code>로 바로 DLT로 보낸다.</li>
+<li><strong>기본 재시도가 파티션을 막는다.</strong> 즉시 재시도 10회는 일시 장애에는 짧고 영구 실패에는 지연만 만든다. BackOff를 명시하고 재시도 무의미한 예외는 <code>addNotRetryableExceptions</code>로 바로 DLT로 보낸다.</li>
 <li><strong><code>max.poll.interval.ms</code> 초과.</strong> 블로킹 재시도나 배치 처리가 기본 5분을 넘으면 Consumer가 그룹에서 쫓겨나 리밸런스와 재처리가 반복된다. 재시도 총합을 이 값 아래로 둔다.</li>
 <li><strong><code>@RetryableTopic</code>의 순서와 토픽 수.</strong> 순서가 중요한 토픽에는 쓰지 않고 <code>SINGLE_TOPIC</code> 전략으로 토픽 수를 줄인다.</li>
 <li><strong>트랜잭션 비용.</strong> poll마다 begin/commit이 오가 처리량이 떨어진다. 대부분은 at-least-once에 멱등 저장으로 충분하며, 트랜잭션은 Kafka에서 Kafka로 이어지는 read-process-write에만 쓴다.</li>
-<li><strong><code>JsonDeserializer</code> 신뢰 패키지.</strong> <code>spring.json.trusted.packages=*</code>는 헤더의 타입 정보로 임의 클래스를 역직렬화한다. 도메인 패키지로 제한한다.</li>
+<li><strong><code>JsonDeserializer</code> 신뢰 패키지.</strong> <mark><code>spring.json.trusted.packages=*</code>는 헤더의 타입 정보로 임의 클래스를 역직렬화한다.</mark> 도메인 패키지로 제한한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

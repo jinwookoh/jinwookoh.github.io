@@ -30,7 +30,7 @@ CoreDNS는 kube-system 네임스페이스의 Deployment로 동작하며 `<svc>.<
 
 Ingress는 host와 path 규칙으로 HTTP 요청을 여러 Service에 분배하는 L7 리소스다. Ingress 리소스는 선언일 뿐이고, 실제 트래픽은 NGINX Ingress·Traefik·HAProxy·AWS ALB Controller 같은 Ingress Controller가 처리한다. Controller가 없으면 리소스를 만들어도 동작하지 않으며, `ingressClassName`으로 담당 Controller를 지정한다. TLS 종료는 `tls` 항목에 인증서 Secret을 연결해 Controller 단에서 수행한다. 헤더 기반 매칭과 gRPC·TCP 라우팅은 후속 표준인 Gateway API가 맡는다.
 
-Pod가 노드를 넘어 NAT 없이 서로 통신하는 것은 CNI 플러그인이 보장한다. Calico는 BGP 기반으로 NetworkPolicy 지원이 강하고, Cilium은 eBPF로 L7 정책까지 다루며, Flannel은 오버레이만 제공한다. CNI는 클러스터 생성 시 결정되며 운영 중 교체는 재구축에 가깝다.
+Pod가 노드를 넘어 NAT 없이 서로 통신하는 것은 CNI 플러그인이 보장한다. Calico는 BGP 기반으로 NetworkPolicy 지원이 강하고, Cilium은 eBPF로 L7 정책까지 다루며, Flannel은 오버레이만 제공한다. ==CNI는 클러스터 생성 시 결정되며 운영 중 교체는 재구축에 가깝다.==
 
 ## 코드
 
@@ -132,10 +132,10 @@ readinessProbe:
 ## 실무에서 걸리는 지점
 
 - Service는 있는데 `kubectl get endpointslices -l kubernetes.io/service-name=<svc>` 결과가 비어 있으면 셀렉터와 Pod 라벨 불일치이거나 Readiness 실패다.
-- kube-proxy의 iptables 모드는 연결 단위 랜덤 분배이므로 keep-alive를 오래 유지하는 클라이언트는 특정 Pod에 몰린다. HTTP/2·gRPC는 클라이언트 측 로드밸런싱이나 Service Mesh 없이는 스케일아웃 효과가 거의 없다.
-- `externalTrafficPolicy: Local`을 켜면 클라이언트 IP가 보존되지만 해당 노드에 Pod가 없으면 요청이 버려진다.
+- kube-proxy의 iptables 모드는 연결 단위 랜덤 분배이므로 keep-alive를 오래 유지하는 클라이언트는 특정 Pod에 몰린다. ==HTTP/2·gRPC는 클라이언트 측 로드밸런싱이나 Service Mesh 없이는 스케일아웃 효과가 거의 없다.==
+- ==`externalTrafficPolicy: Local`을 켜면 클라이언트 IP가 보존되지만 해당 노드에 Pod가 없으면 요청이 버려진다.==
 - Ingress의 `rewrite-target` 같은 어노테이션은 Controller 구현마다 이름과 의미가 다르다. Controller를 교체하면 무시되거나 오동작하므로 어노테이션 전수 점검이 필요하다.
-- 클러스터 내부 DNS 조회는 기본 `ndots:5` 설정 때문에 외부 도메인 하나에 여러 번의 검색 도메인 시도를 거친다. 외부 호출이 많으면 FQDN 끝에 점을 붙이거나 dnsConfig로 ndots를 낮춘다.
+- ==클러스터 내부 DNS 조회는 기본 `ndots:5` 설정 때문에 외부 도메인 하나에 여러 번의 검색 도메인 시도를 거친다.== 외부 호출이 많으면 FQDN 끝에 점을 붙이거나 dnsConfig로 ndots를 낮춘다.
 
 ## 관련 글
 

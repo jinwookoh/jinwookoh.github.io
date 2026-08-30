@@ -23,7 +23,7 @@ Replica는 노드 한 대의 장애를 넘기는 고가용성 장치이지 백�
 
 보안은 인증·인가·감사·암호화 네 축이다. 인증은 basic auth·API Key·PKI·LDAP·SAML/OIDC를 동시에 활성화할 수 있고, 인가는 cluster·index·application privilege를 묶은 Role로 표현하며 기본은 거부다. Transport TLS(9300)는 8.x에서 클러스터 형성 자체에 필수이고 HTTP TLS(9200)는 클라이언트 구간을 보호한다.
 
-서비스 간 호출은 API Key가 표준이다. 발급자 권한의 부분집합만 위임되며 `expiration`을 반드시 지정한다. Field-level Security는 role의 `field_security.grant`로 노출 필드를 제한하고, Document-level Security는 role의 `query`를 모든 검색에 필터로 강제한다. 둘 다 Platinum 이상에서 동작한다.
+서비스 간 호출은 API Key가 표준이다. 발급자 권한의 부분집합만 위임되며 `expiration`을 반드시 지정한다. Field-level Security는 role의 `field_security.grant`로 노출 필드를 제한하고, Document-level Security는 role의 `query`를 모든 검색에 필터로 강제한다. ==둘 다 Platinum 이상에서 동작한다.==
 
 ## 코드
 
@@ -103,9 +103,9 @@ public class RestoreVerifier {
 ## 실무에서 걸리는 지점
 
 - **복원을 한 번도 안 해 본 백업.** 사고 때 처음 복원하면 권한 누락·템플릿 충돌·디스크 부족으로 RTO를 넘긴다. 분기 1회 rename 복원으로 문서 수와 샘플 검색 결과를 원본과 비교하는 절차를 runbook으로 고정한다.
-- **Repository 버킷의 외부 수정.** S3 라이프사이클이 base_path 하위 객체를 지우면 그 segment를 참조하는 모든 snapshot이 `INCOMPATIBLE`이 된다. 버킷은 ES만 쓰게 하고, MinIO·Ceph는 `_analyze`로 일관성을 점검한다.
+- **Repository 버킷의 외부 수정.** ==S3 라이프사이클이 base_path 하위 객체를 지우면 그 segment를 참조하는 모든 snapshot이 `INCOMPATIBLE`이 된다.== 버킷은 ES만 쓰게 하고, MinIO·Ceph는 `_analyze`로 일관성을 점검한다.
 - **retention 누락과 wait_for_completion.** retention이 없으면 snapshot이 영구 누적된다. 큰 클러스터에서 `wait_for_completion=true`는 HTTP timeout으로 끊기므로 비동기 시작 후 `_status`를 polling한다.
-- **FLS와 `_source`의 우회.** FLS는 `_source` 직접 조회·집계·정렬 경로에서 완전하지 않다. PII는 별도 인덱스로 물리 분리하고 role에서 접근을 끊는 것이 주 방어선이다.
+- **FLS와 `_source`의 우회.** ==FLS는 `_source` 직접 조회·집계·정렬 경로에서 완전하지 않다.== PII는 별도 인덱스로 물리 분리하고 role에서 접근을 끊는 것이 주 방어선이다.
 - **superuser 일상 사용과 인증서 만료.** `elastic`은 break-glass 계정으로 봉인하고 `action.destructive_requires_name: true`로 와일드카드 삭제를 막는다. Transport 인증서가 만료되면 클러스터가 깨지므로 만료 30일 전 알람을 둔다. Audit Log는 별도 클러스터로 보내고 `emit_request_body`는 false를 유지한다.
 
 ## 관련 글

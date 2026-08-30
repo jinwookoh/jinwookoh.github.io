@@ -26,11 +26,11 @@ Elasticsearch는 운영 데이터의 단일 진실 원천이 아니다. 원본�
 
 **Index**는 같은 종류의 문서가 모이는 논리 컬렉션이다. 설정은 `_settings`(샤드·replica 수, refresh 주기)와 `_mappings`(필드 타입)로 나뉜다. `number_of_shards`는 생성 시점에만 정하는 static 설정이고 `number_of_replicas`·`refresh_interval`은 운영 중 바꿀 수 있다. 애플리케이션은 실제 인덱스 이름 대신 alias로 접근한다. 매핑 변경은 새 인덱스에 reindex한 뒤 alias를 교체하는 방식으로만 가능하기 때문이다.
 
-**Document**는 인덱스에 저장되는 JSON 한 건이며 `_id`가 PK 역할을 한다. ID를 지정한 PUT은 반복해도 update가 되어 멱등성이 확보되고, ID 없는 POST는 매번 새 문서를 만든다. `_source`는 색인 시 받은 원본 JSON으로, 끄면 reindex와 update API를 쓸 수 없다. `_routing`은 샤드를 결정하는 해시 입력값으로 기본은 `_id`이며, tenant_id로 바꾸면 같은 고객의 문서가 한 샤드에 모인다. 동시성 제어는 `if_seq_no`와 `if_primary_term`을 함께 보내는 방식이 표준이다.
+**Document**는 인덱스에 저장되는 JSON 한 건이며 `_id`가 PK 역할을 한다. ID를 지정한 PUT은 반복해도 update가 되어 멱등성이 확보되고, ID 없는 POST는 매번 새 문서를 만든다. `_source`는 색인 시 받은 원본 JSON으로, ==끄면 reindex와 update API를 쓸 수 없다==. `_routing`은 샤드를 결정하는 해시 입력값으로 기본은 `_id`이며, tenant_id로 바꾸면 같은 고객의 문서가 한 샤드에 모인다. 동시성 제어는 `if_seq_no`와 `if_primary_term`을 함께 보내는 방식이 표준이다.
 
-**Shard**는 인덱스를 쪼갠 물리 단위이며 각 샤드가 독립된 Lucene 인덱스다. Primary Shard가 쓰기를 먼저 받고 성공하면 Replica로 동기 복제된다. Primary 수는 생성 후 바꿀 수 없다. `_split`은 정수배로만 늘리고 `_shrink`는 조건이 까다로워 실제로는 reindex와 alias 교체로 푼다. 샤드 하나는 30~50GB, Primary 수는 데이터 노드 수의 1.5~3배가 기준이다.
+**Shard**는 인덱스를 쪼갠 물리 단위이며 각 샤드가 독립된 Lucene 인덱스다. Primary Shard가 쓰기를 먼저 받고 성공하면 Replica로 동기 복제된다. Primary 수는 생성 후 바꿀 수 없다. `_split`은 정수배로만 늘리고 `_shrink`는 조건이 까다로워 실제로는 reindex와 alias 교체로 푼다. ==샤드 하나는 30~50GB, Primary 수는 데이터 노드 수의 1.5~3배가 기준이다.==
 
-**Replica**는 Primary의 동기 사본으로 고가용성과 읽기 분산을 담당한다. `number_of_replicas: 1`은 Primary마다 사본 1개라는 뜻이므로 Primary 5개면 총 샤드는 10개다. Replica는 Primary와 다른 노드에만 배치되므로 단일 노드에서는 unassigned로 남아 클러스터가 yellow가 된다. Replica는 백업이 아니며, 인덱스를 삭제하면 함께 사라지므로 백업은 Snapshot으로 뜬다.
+**Replica**는 Primary의 동기 사본으로 고가용성과 읽기 분산을 담당한다. `number_of_replicas: 1`은 Primary마다 사본 1개라는 뜻이므로 Primary 5개면 총 샤드는 10개다. Replica는 Primary와 다른 노드에만 배치되므로 단일 노드에서는 unassigned로 남아 클러스터가 yellow가 된다. ==Replica는 백업이 아니며, 인덱스를 삭제하면 함께 사라지므로 백업은 Snapshot으로 뜬다.==
 
 **Mapping**은 필드 타입과 analyzer를 정의하는 스키마다. 매핑 없이 문서를 넣으면 첫 문서 기준으로 타입을 추론한다. `dynamic`은 `true`(자동 추가), `false`(`_source`에만 보존), `strict`(거부) 세 모드가 있고 운영 인덱스는 `strict`가 기본이다.
 

@@ -17,7 +17,7 @@ Spring Framework는 Core(IoC 컨테이너)·AOP·SpEL·Web MVC·Data Access·Tes
 
 자동 구성의 출발점은 `@SpringBootApplication`이다. `@SpringBootConfiguration`(설정 클래스 선언), `@ComponentScan`(메인 클래스 패키지 이하의 컴포넌트 등록), `@EnableAutoConfiguration`(인프라 Bean 자동 등록)의 합성이다. 내 코드는 `@ComponentScan`이, 나머지는 `@EnableAutoConfiguration`이 등록한다.
 
-`@EnableAutoConfiguration`이 활성화되면 Boot는 클래스패스의 모든 jar에서 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`를 읽어 후보 자동 구성 클래스 목록을 모은다. Boot 2.6 이하에서 `META-INF/spring.factories`가 하던 역할이다. 후보는 수백 개지만 적용되는 것은 `@Conditional` 계열 조건을 통과한 클래스뿐이다. `@ConditionalOnClass`는 특정 클래스가 클래스패스에 있을 때만 구성을 켜고, `@ConditionalOnMissingBean`은 같은 타입의 Bean을 사용자가 정의하지 않았을 때만 Bean을 만든다. 후자가 "사용자 정의가 항상 우선한다"는 규칙의 실체다.
+`@EnableAutoConfiguration`이 활성화되면 Boot는 클래스패스의 모든 jar에서 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`를 읽어 후보 자동 구성 클래스 목록을 모은다. Boot 2.6 이하에서 `META-INF/spring.factories`가 하던 역할이다. 후보는 수백 개지만 적용되는 것은 `@Conditional` 계열 조건을 통과한 클래스뿐이다. `@ConditionalOnClass`는 특정 클래스가 클래스패스에 있을 때만 구성을 켜고, ==`@ConditionalOnMissingBean`은 같은 타입의 Bean을 사용자가 정의하지 않았을 때만 Bean을 만든다.== 후자가 "사용자 정의가 항상 우선한다"는 규칙의 실체다.
 
 조건을 충족시키는 수단이 스타터(starter)다. 스타터는 코드가 아니라 의존성 묶음이며, `spring-boot-starter-web` 하나를 추가하면 톰캣·Spring MVC·Jackson이 클래스패스에 들어와 관련 `@ConditionalOnClass` 조건이 연쇄적으로 만족된다. `starter-data-jpa`는 DataSource·EntityManager·트랜잭션 매니저 구성을, `starter-security`는 기본 필터 체인을 켠다.
 
@@ -95,8 +95,8 @@ public class DataSourceConfig {
 ## 실무에서 걸리는 지점
 
 - 컴포넌트가 등록되지 않는 문제의 대부분은 스캔 범위다. `@ComponentScan`은 메인 클래스 패키지 이하만 훑으므로 `com.example.controller`에 둔 컨트롤러는 `com.example.app.Main`이 찾지 못한다.
-- 켜진 구성은 리포트로 확인한다. `debug: true` 또는 `--debug`로 실행하면 ConditionEvaluationReport가 Positive/Negative matches와 불발 이유를 출력하고, Actuator가 있으면 `/actuator/conditions`에서 같은 정보를 JSON으로 받는다.
-- 특정 자동 구성을 완전히 배제하려면 `@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)`를 쓴다. 클래스 자체가 후보에서 빠지므로 관련 프로퍼티 바인딩도 함께 사라진다.
+- 켜진 구성은 리포트로 확인한다. ==`debug: true` 또는 `--debug`로 실행하면 ConditionEvaluationReport가 Positive/Negative matches와 불발 이유를 출력하고, Actuator가 있으면 `/actuator/conditions`에서 같은 정보를 JSON으로 받는다.==
+- 특정 자동 구성을 완전히 배제하려면 `@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)`를 쓴다. ==클래스 자체가 후보에서 빠지므로 관련 프로퍼티 바인딩도 함께 사라진다.==
 - 같은 타입 Bean을 여러 개 정의하면 주입 지점에서 모호성 예외가 난다. 하나에 `@Primary`를 붙이거나 주입부에 `@Qualifier`를 지정한다.
 - Boot 2에서 3으로 올릴 때 가장 먼저 깨지는 것은 `javax.servlet`·`javax.persistence` import다. Jakarta로 치환하고, 직접 만든 라이브러리의 `spring.factories` 등록도 `AutoConfiguration.imports`로 옮긴다.
 

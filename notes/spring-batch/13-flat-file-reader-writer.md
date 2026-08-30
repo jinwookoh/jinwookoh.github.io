@@ -115,9 +115,9 @@ public FlatFileItemWriter<Customer> customerWriter(
 ## 실무에서 걸리는 지점
 
 - **encoding·lineSeparator 미명시.** 기본값이 JVM 설정을 따라 환경마다 달라진다. Windows에서 저장된 UTF-8 파일은 BOM이 첫 컬럼 값에 섞이므로 전처리로 제거한다.
-- **`strict`는 두 곳에 있고 의미가 다르다.** Reader의 `strict(false)`는 resource가 없을 때 예외 대신 0건 처리이고, Tokenizer의 `strict(false)`는 token 수·line 길이 불일치 시 `IncorrectTokenCountException` 대신 빈 값으로 padding한다.
-- **`transactional(true)`(기본)는 chunk commit까지 출력을 buffer에 쌓는다.** rollback 시 파일 변경을 취소하기 위한 장치다. `false`로 바꾸면 즉시 flush되지만 rollback 후 부분 데이터가 남아 재시도 시 row가 중복된다.
-- **`shouldDeleteIfExists(true)`는 재시작과 충돌한다.** 재시작 시 `open()`은 `ExecutionContext`의 마지막 write 위치까지 파일을 truncate하고 이어서 쓰는데, 시작 시 파일을 삭제하면 이전 결과가 사라진다. 매번 새로 쓰는 멱등 출력일 때만 `true`를 쓴다.
+- **`strict`는 두 곳에 있고 의미가 다르다.** ==Reader의 `strict(false)`는 resource가 없을 때 예외 대신 0건 처리이고, Tokenizer의 `strict(false)`는 token 수·line 길이 불일치 시 `IncorrectTokenCountException` 대신 빈 값으로 padding한다.==
+- **`transactional(true)`(기본)는 chunk commit까지 출력을 buffer에 쌓는다.** rollback 시 파일 변경을 취소하기 위한 장치다. ==`false`로 바꾸면 즉시 flush되지만 rollback 후 부분 데이터가 남아 재시도 시 row가 중복된다.==
+- **`shouldDeleteIfExists(true)`는 재시작과 충돌한다.** ==재시작 시 `open()`은 `ExecutionContext`의 마지막 write 위치까지 파일을 truncate하고 이어서 쓰는데, 시작 시 파일을 삭제하면 이전 결과가 사라진다.== 매번 새로 쓰는 멱등 출력일 때만 `true`를 쓴다.
 - **`PatternMatchingCompositeLineMapper`는 매치되지 않는 줄에서 예외를 던진다.** `*` catch-all을 마지막에 둔다.
 
 ## 관련 글

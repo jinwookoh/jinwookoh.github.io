@@ -99,11 +99,11 @@ GROUP BY 1, 2
 
 ## 실무에서 걸리는 지점
 
-- 이벤트 property의 의미 변경이나 제거는 과거 데이터와 호환되지 않으므로 `purchase_v2`처럼 새 이벤트로 분리한다. dbt 모델 컬럼이 바뀌면 Statsig Metric이 조용히 깨지므로 contract를 선언하고 함께 갱신한다.
-- 퍼널 step 간 시간 제한을 1시간처럼 짧게 두면 며칠에 걸쳐 전환하는 대다수가 제외된다.
+- 이벤트 property의 의미 변경이나 제거는 과거 데이터와 호환되지 않으므로 `purchase_v2`처럼 새 이벤트로 분리한다. ==dbt 모델 컬럼이 바뀌면 Statsig Metric이 조용히 깨지므로 contract를 선언하고 함께 갱신한다.==
+- ==퍼널 step 간 시간 제한을 1시간처럼 짧게 두면 며칠에 걸쳐 전환하는 대다수가 제외된다.==
 - 평균 주문 금액 상승만 보고 배포했더니 상위 5%의 일시 증가였던 사례가 흔하다. Distribution으로 median·P90·P99를 함께 본다. User Journeys는 3~5단계로 압축해야 경로가 unique해지지 않는다.
-- WHN의 최대 비용은 웨어하우스 compute다. 날짜 partition과 user_id·event_name clustering, materialized view, 전용 warehouse의 auto-suspend를 적용한다. 도입 전 PoC로 비용을 시뮬레이션하지 않으면 Metric 정의가 얽혀 Cloud로 돌아가기 어렵다.
-- CUPED는 실험 전 데이터가 noise인 지표에서 검정력을 오히려 떨어뜨리므로 preview로 확인 후 적용한다. Switchback은 carry-over가 생기므로 전환 구간을 길게 잡고, Existing 모델에서는 외부 할당의 SRM을 Exposure Analysis로 점검한다.
+- WHN의 최대 비용은 웨어하우스 compute다. 날짜 partition과 user_id·event_name clustering, materialized view, 전용 warehouse의 auto-suspend를 적용한다. ==도입 전 PoC로 비용을 시뮬레이션하지 않으면 Metric 정의가 얽혀 Cloud로 돌아가기 어렵다.==
+- ==CUPED는 실험 전 데이터가 noise인 지표에서 검정력을 오히려 떨어뜨리므로 preview로 확인 후 적용한다.== Switchback은 carry-over가 생기므로 전환 구간을 길게 잡고, Existing 모델에서는 외부 할당의 SRM을 Exposure Analysis로 점검한다.
 
 ## 관련 글
 

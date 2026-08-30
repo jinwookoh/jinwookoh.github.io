@@ -34,7 +34,7 @@ chunk 중간에 예외가 나면 그 chunk만 rollback되고 이미 commit된 �
 | 실패 시 rollback 범위 | 좁다 | 넓다 |
 | DB lock 유지 시간 | 짧다 | 길다 |
 
-일반적인 DB row 기준으로 100~1000이 출발점이다. 레코드 하나가 수 MB인 큰 객체는 10~50, Processor에서 외부 API를 호출한다면 10~100으로 낮춰 호출 지연이 트랜잭션 timeout으로 번지지 않게 한다. 100에서 시작해 2배·5배로 늘리며 처리량을 측정하고 정체되는 지점에서 멈춘다. chunk 크기는 commit 단위이고 JDBC fetch size는 드라이버가 한 번에 가져오는 row 수로, 별개다.
+일반적인 DB row 기준으로 100~1000이 출발점이다. 레코드 하나가 수 MB인 큰 객체는 10~50, Processor에서 외부 API를 호출한다면 10~100으로 낮춰 호출 지연이 트랜잭션 timeout으로 번지지 않게 한다. 100에서 시작해 2배·5배로 늘리며 처리량을 측정하고 정체되는 지점에서 멈춘다. ==chunk 크기는 commit 단위이고 JDBC fetch size는 드라이버가 한 번에 가져오는 row 수로, 별개다.==
 
 ### TaskletStep
 
@@ -112,8 +112,8 @@ public Step cleanupStep(JobRepository jobRepository,
 - **커스텀 Reader의 null 누락은 무한 루프다.** 직접 구현한 Reader는 종료 조건을 검증한다. `CONTINUABLE`을 반환하는 Tasklet도 같으며, 제한 없는 폴링은 스케줄러로 분리한다.
 - **chunk 크기를 10만 단위로 잡으면 OOM과 긴 rollback이 함께 온다.** 한 건의 실패가 chunk 전체를 되돌리므로 skip을 켜지 않은 환경에서 비용이 크다.
 - **Tasklet도 트랜잭션 안에서 실행된다.** 긴 작업은 timeout에 걸리고 외부 호출 실패가 곧 rollback이 된다. 긴 작업은 chunk로 쪼개거나 외부 호출을 트랜잭션 밖으로 뺀다.
-- **Tasklet 안에서 ItemReader를 직접 돌리면 ItemStream이 등록되지 않는다.** `.stream(reader)`를 명시해야 재시작 시 위치가 복원된다.
-- **Processor는 싱글톤이다.** 인스턴스 필드의 카운터는 chunk 사이에 공유되고 멀티스레드 Step에서 경쟁 조건이 된다. 누적값은 ExecutionContext에 둔다.
+- **Tasklet 안에서 ItemReader를 직접 돌리면 ItemStream이 등록되지 않는다.** ==`.stream(reader)`를 명시해야 재시작 시 위치가 복원된다.==
+- **Processor는 싱글톤이다.** ==인스턴스 필드의 카운터는 chunk 사이에 공유되고 멀티스레드 Step에서 경쟁 조건이 된다.== 누적값은 ExecutionContext에 둔다.
 
 ## 관련 글
 

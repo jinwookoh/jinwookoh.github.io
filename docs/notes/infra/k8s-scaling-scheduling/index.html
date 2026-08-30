@@ -24,7 +24,7 @@
   <h1>Scaling·Scheduling·Probes</h1>
   <p class="summary">HPA·Probe·Affinity·Taint·Quota로 Pod의 수·건강·배치·자원을 자동 제어하는 원리와 함정을 정리한다</p>
   <div class="content">
-<p>replicas를 고정해 두면 트래픽이 늘 때 사람이 숫자를 고쳐야 하고, 줄어도 비용이 남는다. 프로세스가 데드락에 빠져도 kubelet은 모른 채 트래픽을 흘려보낸다. 배치 기준이 없으면 replicas 3개가 한 노드에 모여 노드 장애 한 번에 서비스가 내려가고, 한 팀이 namespace 자원을 다 쓰면 다른 팀의 Pod이 Pending에 걸린다. <mark>자동 확장·Probe·스케줄링 제어·자원 한도가 이 네 문제를 맡는다.</mark></p>
+<p>replicas를 고정해 두면 트래픽이 늘 때 사람이 숫자를 고쳐야 하고, 줄어도 비용이 남는다. 프로세스가 데드락에 빠져도 kubelet은 모른 채 트래픽을 흘려보낸다. 배치 기준이 없으면 replicas 3개가 한 노드에 모여 노드 장애 한 번에 서비스가 내려가고, 한 팀이 namespace 자원을 다 쓰면 다른 팀의 Pod이 Pending에 걸린다. 자동 확장·Probe·스케줄링 제어·자원 한도가 이 네 문제를 맡는다.</p>
 <h2>핵심 개념</h2>
 <h3>자동 확장 3계층</h3>
 <table>
@@ -73,7 +73,7 @@
 <td align="left">재시작. 성공 전까지 나머지 두 Probe 비활성</td>
 </tr>
 </tbody></table>
-<p>Liveness는 프로세스는 살아 있지만 복구 불가능한 상태를 잡는다. Readiness는 워밍업 중이거나 외부 의존이 끊긴 상황에서 트래픽만 끊는다. <mark>Startup은 기동이 긴 앱에 <code>failureThreshold × periodSeconds</code> 만큼 유예를 주어 Liveness가 기동 중인 컨테이너를 죽이지 못하게 막는다.</mark> 검사 방식은 <code>httpGet</code>·<code>tcpSocket</code>·<code>exec</code>·<code>grpc</code>다.</p>
+<p>Liveness는 프로세스는 살아 있지만 복구 불가능한 상태를 잡는다. Readiness는 워밍업 중이거나 외부 의존이 끊긴 상황에서 트래픽만 끊는다. Startup은 기동이 긴 앱에 <code>failureThreshold × periodSeconds</code> 만큼 유예를 주어 Liveness가 기동 중인 컨테이너를 죽이지 못하게 막는다. 검사 방식은 <code>httpGet</code>·<code>tcpSocket</code>·<code>exec</code>·<code>grpc</code>다.</p>
 <h3>스케줄링 제어 4가지</h3>
 <p><code>nodeSelector</code>는 노드 라벨의 단순 일치다. <code>nodeAffinity</code>는 <code>In</code>·<code>Exists</code> 연산자와 <code>required</code>(필수)·<code>preferred</code>(가중치 선호)를 구분한다. <code>podAffinity</code>/<code>podAntiAffinity</code>는 다른 Pod의 라벨을 기준으로 같은 <code>topologyKey</code>에 모으거나 흩는다. Taint/Toleration은 반대로 노드가 받아들일 Pod을 제한한다. Effect는 <code>NoSchedule</code>(신규 거부), <code>PreferNoSchedule</code>(가능하면 거부), <code>NoExecute</code>(기존 Pod도 추방)다. Affinity는 Pod 관점, Taint는 노드 관점이며 함께 쓴다.</p>
 <h3>자원·가용성 정책</h3>
@@ -191,10 +191,10 @@
     <span class="hljs-attr">matchLabels:</span> { <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span> }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.</strong></mark> DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다. 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.</li>
+<li><strong>Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.</strong> <mark>DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다.</mark> 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.</li>
 <li><strong>Startup Probe 없이 JVM 앱을 올리면 기동 중에 죽는다.</strong> <code>initialDelaySeconds</code>로 버티는 방식은 기동 시간이 늘면 깨진다. <code>failureThreshold × periodSeconds</code>를 최악의 기동 시간보다 넉넉히 잡는다.</li>
-<li><strong>HPA는 CPU requests가 없으면 동작하지 않는다.</strong> 사용률 분모가 requests이므로 생략하면 메트릭이 <code>unknown</code>이 된다. VPA와 HPA를 같은 메트릭에 동시에 걸면 서로 반대 방향으로 조정해 충돌한다.</li>
-<li><strong>PDB와 AntiAffinity가 drain을 막을 수 있다.</strong> <code>minAvailable: 2</code>에 replicas 2면 drain이 끝나지 않고, <code>required</code> AntiAffinity는 노드보다 replicas가 많으면 Pending을 만든다. 노드가 적으면 <code>preferred</code>로 완화한다.</li>
+<li><strong>HPA는 CPU requests가 없으면 동작하지 않는다.</strong> <mark>사용률 분모가 requests이므로 생략하면 메트릭이 <code>unknown</code>이 된다.</mark> VPA와 HPA를 같은 메트릭에 동시에 걸면 서로 반대 방향으로 조정해 충돌한다.</li>
+<li><strong>PDB와 AntiAffinity가 drain을 막을 수 있다.</strong> <mark><code>minAvailable: 2</code>에 replicas 2면 drain이 끝나지 않고, <code>required</code> AntiAffinity는 노드보다 replicas가 많으면 Pending을 만든다.</mark> 노드가 적으면 <code>preferred</code>로 완화한다.</li>
 <li><strong>JVM 힙과 limits를 맞추지 않으면 OOMKilled가 반복된다.</strong> limits는 컨테이너 전체 RSS 기준이므로 <code>-XX:MaxRAMPercentage</code>로 힙 비율을 지정하고 메타스페이스 여유를 남긴다.</li>
 </ul>
 <h2>관련 글</h2>

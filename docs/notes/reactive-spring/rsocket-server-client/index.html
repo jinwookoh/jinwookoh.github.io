@@ -24,7 +24,7 @@
   <h1>RSocket — 서버·클라이언트·메타데이터 라우팅</h1>
   <p class="summary">Spring에서 @MessageMapping 서버와 RSocketRequester 클라이언트를 만들고 라우트·인증·trace를 Composite Metadata로 싣는 방법</p>
   <div class="content">
-<p>RSocket 프로토콜은 프레임과 네 가지 Interaction Model만 정의한다. 요청이 어느 핸들러로 가는지, 인증 토큰을 어디에 실을지는 프로토콜 밖의 일이다. 직접 구현하면 라우트 파싱·인코더·연결 관리 코드가 서비스마다 중복되고, 양쪽 규약이 어긋나는 순간 통신이 깨진다. <mark>Spring의 <code>@MessageMapping</code>과 <code>RSocketRequester</code>는 이 규약을 메타데이터 MIME Type 기준으로 표준화한다.</mark></p>
+<p>RSocket 프로토콜은 프레임과 네 가지 Interaction Model만 정의한다. 요청이 어느 핸들러로 가는지, 인증 토큰을 어디에 실을지는 프로토콜 밖의 일이다. 직접 구현하면 라우트 파싱·인코더·연결 관리 코드가 서비스마다 중복되고, 양쪽 규약이 어긋나는 순간 통신이 깨진다. Spring의 <code>@MessageMapping</code>과 <code>RSocketRequester</code>는 이 규약을 메타데이터 MIME Type 기준으로 표준화한다.</p>
 <h2>핵심 개념</h2>
 <h3>서버 — 반환 타입이 Interaction Model을 정한다</h3>
 <p><code>spring-boot-starter-rsocket</code>과 <code>spring.rsocket.server.port</code>만으로 서버가 뜬다. 핸들러는 <code>@Controller</code> 클래스의 <code>@MessageMapping</code> 메서드이며, 모델은 입력·반환 타입에서 추론된다.</p>
@@ -52,7 +52,7 @@
 <td align="left">Channel</td>
 </tr>
 </tbody></table>
-<p><mark>라우트 구분자는 <code>/</code>가 아니라 <code>.</code>이다.</mark> <code>user.{id}</code> 패턴 변수는 <code>@DestinationVariable</code>로 받고, <code>admin.**</code> 와일드카드와 클래스 레벨 prefix도 지원한다. 애노테이션 없는 인자가 페이로드, <code>@Header</code>가 메타데이터 단일 항목, <code>@Headers</code>가 전체 Map, <code>RSocketRequester</code> 인자가 현재 연결의 상대방을 호출하는 핸들이다.</p>
+<p>라우트 구분자는 <code>/</code>가 아니라 <code>.</code>이다. <code>user.{id}</code> 패턴 변수는 <code>@DestinationVariable</code>로 받고, <code>admin.**</code> 와일드카드와 클래스 레벨 prefix도 지원한다. 애노테이션 없는 인자가 페이로드, <code>@Header</code>가 메타데이터 단일 항목, <code>@Headers</code>가 전체 Map, <code>RSocketRequester</code> 인자가 현재 연결의 상대방을 호출하는 핸들이다.</p>
 <p>예외는 <code>@MessageExceptionHandler</code>(컨트롤러)와 <code>@ControllerAdvice</code>(전역)로 잡는다. 핸들러의 반환값은 정상 응답이 되고, 핸들러가 없으면 ERROR 프레임으로 내려간다. SETUP 프레임은 <code>@ConnectMapping</code>이 받으며, 인증은 여기서 한 번만 검증한다.</p>
 <h3>클라이언트 — RSocketRequester는 싱글턴</h3>
 <p>Spring Boot는 <code>RSocketStrategies</code>가 반영된 <code>RSocketRequester.Builder</code>를 자동 구성한다. <code>tcp(host, port)</code> 또는 <code>websocket(URI)</code>로 만든 requester는 첫 요청 시점에 연결을 연다. <code>retrieveMono</code>가 Request-Response, <code>retrieveFlux</code>가 Request-Stream과 Channel(입력이 <code>Flux</code>일 때), <code>send</code>가 Fire-and-Forget에 대응한다.</p>
@@ -159,11 +159,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>시그니처 불일치는 컴파일 타임에 잡히지 않는다.</strong></mark> 서버가 <code>Flux</code>인데 클라이언트가 <code>retrieveMono</code>를 쓰면 첫 요소 이후 취소된다. 라우트별 모델을 문서화해야 한다.</li>
+<li><strong>시그니처 불일치는 컴파일 타임에 잡히지 않는다.</strong> <mark>서버가 <code>Flux</code>인데 클라이언트가 <code>retrieveMono</code>를 쓰면 첫 요소 이후 취소된다.</mark> 라우트별 모델을 문서화해야 한다.</li>
 <li><strong>requester를 요청마다 생성하면 연결 비용이 폭발한다.</strong> 매번 TCP 연결과 SETUP 핸드셰이크가 발생한다. Bean 하나로 두고 <code>dispose()</code>는 종료 시에만 부른다.</li>
-<li><strong>RSocket에는 요청 타임아웃이 없다.</strong> keepalive는 연결 생존만 확인하므로 요청마다 Reactor <code>timeout()</code>을 붙인다.</li>
+<li><mark><strong>RSocket에는 요청 타임아웃이 없다.</strong></mark> keepalive는 연결 생존만 확인하므로 요청마다 Reactor <code>timeout()</code>을 붙인다.</li>
 <li><strong>메타데이터는 평문이다.</strong> 인증 토큰이 프레임에 그대로 실리므로 <code>spring.rsocket.server.ssl</code> 또는 mTLS 없이는 노출된다.</li>
-<li><strong>커스텀 메타데이터는 extractor 등록이 없으면 조용히 사라진다.</strong> 서버 <code>@Header</code>가 null이 되며 에러는 나지 않는다. <code>RSocketStrategies</code> 설정은 공유 모듈로 관리한다.</li>
+<li><strong>커스텀 메타데이터는 extractor 등록이 없으면 조용히 사라진다.</strong> <mark>서버 <code>@Header</code>가 null이 되며 에러는 나지 않는다.</mark> <code>RSocketStrategies</code> 설정은 공유 모듈로 관리한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

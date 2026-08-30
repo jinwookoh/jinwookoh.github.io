@@ -17,7 +17,7 @@ Spring MVC처럼 `User getUser()`를 반환하는 컨트롤러는 DB 응답을 �
 
 MVC와 같은 `@RestController`, `@GetMapping`을 쓰되 반환 타입만 `Mono<T>`·`Flux<T>`로 바뀐다. 요청 바디를 `@RequestBody Mono<Dto>`로 받으면 역직렬화까지 파이프라인 안에 들어가 서비스로 그대로 전달된다.
 
-상태 코드를 지정하려면 `Mono<ResponseEntity<T>>`를 반환한다. 빈 `Mono`를 처리하지 않으면 완료 신호만 전달되어 클라이언트는 200 빈 바디 또는 204를 받는다. `defaultIfEmpty`는 빈 결과를 기본값 하나로 대체하고, `switchIfEmpty`는 다른 Publisher로 교체한다.
+상태 코드를 지정하려면 `Mono<ResponseEntity<T>>`를 반환한다. ==빈 `Mono`를 처리하지 않으면 완료 신호만 전달되어 클라이언트는 200 빈 바디 또는 204를 받는다.== `defaultIfEmpty`는 빈 결과를 기본값 하나로 대체하고, `switchIfEmpty`는 다른 Publisher로 교체한다.
 
 계층은 컨트롤러(HTTP)·서비스(파이프라인)·리포지토리(데이터 접근)로 나눈다. Entity→DTO 같은 동기 변환은 `map`, `save()`처럼 Publisher를 반환하는 호출은 `flatMap`을 쓴다. `map` 안에서 `save()`를 호출하면 `Mono<Mono<T>>`가 된다.
 
@@ -208,8 +208,8 @@ public class CustomerHandler {
 ## 실무에서 걸리는 지점
 
 - **빈 Mono가 204로 새어 나간다.** `Mono<Dto>`를 그대로 반환하면 없는 리소스도 성공 응답이 된다. 단건 조회는 404를 명시하고, "없는 id → 404" 테스트를 넣어 회귀를 막는다.
-- **UPDATE가 INSERT로 바뀐다.** DTO에서 새로 만든 Entity는 id가 null이므로 `save()`는 새 행을 만든다. 경로 변수의 id를 `doOnNext`로 주입하거나 조회한 Entity의 필드만 갱신해서 저장한다.
-- **라우트 등록 순서와 Bean 우선순위.** `/customers/{id}`가 `/customers/search`보다 먼저 등록되면 `search`는 도달하지 못한다. `RouterFunction` Bean이 여럿이면 `@Order`로 순서를 고정한다.
+- **UPDATE가 INSERT로 바뀐다.** ==DTO에서 새로 만든 Entity는 id가 null이므로 `save()`는 새 행을 만든다.== 경로 변수의 id를 `doOnNext`로 주입하거나 조회한 Entity의 필드만 갱신해서 저장한다.
+- **라우트 등록 순서와 Bean 우선순위.** ==`/customers/{id}`가 `/customers/search`보다 먼저 등록되면 `search`는 도달하지 못한다.== `RouterFunction` Bean이 여럿이면 `@Order`로 순서를 고정한다.
 - **Functional에서는 `@Valid`와 타입 변환이 없다.** `Integer.parseInt` 실패 시 `NumberFormatException`이 500으로 나가고 검증도 `Validator`를 직접 호출해야 한다. 변환·검증 실패를 400으로 바꾸는 공통 처리를 핸들러 바깥에 두지 않으면 같은 코드가 반복된다.
 - **컨트롤러가 리포지토리를 직접 호출하는 구조.** 규칙을 재사용할 수 없고, 컨트롤러 테스트에 DB가 필요해지며, `@Transactional` 경계가 흐려진다. 리액티브에서도 트랜잭션 경계는 서비스 계층에 둔다.
 

@@ -21,7 +21,7 @@ updated: 2026-08-30
 | profile | AOT, 서비스 확장 유지 | 성능 측정 |
 | release | AOT, 디버그 정보 제거 | 스토어 배포 |
 
-성능 측정은 profile 모드로 실제 기기에서 한다. 에뮬레이터는 GPU·CPU 특성이 달라 프레임 시간이 의미가 없다. Spring으로 치면 debug는 devtools와 원격 디버거를 붙인 로컬 실행, release는 프로덕션 JAR에 해당한다.
+성능 측정은 profile 모드로 실제 기기에서 한다. ==에뮬레이터는 GPU·CPU 특성이 달라 프레임 시간이 의미가 없다.== Spring으로 치면 debug는 devtools와 원격 디버거를 붙인 로컬 실행, release는 프로덕션 JAR에 해당한다.
 
 ### Android 배포
 
@@ -33,7 +33,7 @@ iOS는 App ID(번들 ID), 배포용 인증서, 프로비저닝 프로파일이 �
 
 ### 성능 모델
 
-Flutter는 프레임마다 UI 스레드에서 Dart 코드(build·layout·paint 기록)를 실행하고, 래스터 스레드에서 그 결과를 GPU 명령으로 변환한다. 둘 중 하나라도 프레임 예산(60Hz 기준 약 16ms)을 넘기면 프레임이 밀리므로 병목이 어느 스레드인지 먼저 구분한다. UI 스레드 지연은 과도한 `build`, 무거운 동기 연산, 큰 위젯 서브트리 재구성이 원인이고, 래스터 스레드 지연은 `saveLayer`를 유발하는 `Opacity`·클리핑·그림자, 과도한 오프스크린 렌더링이 원인이다. 현재 기본 렌더러 Impeller는 셰이더를 미리 컴파일하므로 Skia 시절의 첫 애니메이션 셰이더 지연은 대부분 사라졌다.
+Flutter는 프레임마다 UI 스레드에서 Dart 코드(build·layout·paint 기록)를 실행하고, 래스터 스레드에서 그 결과를 GPU 명령으로 변환한다. ==둘 중 하나라도 프레임 예산(60Hz 기준 약 16ms)을 넘기면 프레임이 밀리므로 병목이 어느 스레드인지 먼저 구분한다.== UI 스레드 지연은 과도한 `build`, 무거운 동기 연산, 큰 위젯 서브트리 재구성이 원인이고, 래스터 스레드 지연은 `saveLayer`를 유발하는 `Opacity`·클리핑·그림자, 과도한 오프스크린 렌더링이 원인이다. 현재 기본 렌더러 Impeller는 셰이더를 미리 컴파일하므로 Skia 시절의 첫 애니메이션 셰이더 지연은 대부분 사라졌다.
 
 ### DevTools Performance
 
@@ -122,9 +122,9 @@ class _FadingCardState extends State<FadingCard>
 
 ## 실무에서 걸리는 지점
 
-- **업로드 키 분실**: Play App Signing을 사용하면 업로드 키는 재설정을 요청할 수 있지만, 사용하지 않은 채 배포 키를 잃으면 같은 패키지 이름으로 업데이트할 방법이 없다. keystore와 `key.properties`는 저장소 밖 비밀 관리 체계에 보관한다.
+- **업로드 키 분실**: Play App Signing을 사용하면 업로드 키는 재설정을 요청할 수 있지만, ==사용하지 않은 채 배포 키를 잃으면 같은 패키지 이름으로 업데이트할 방법이 없다==. keystore와 `key.properties`는 저장소 밖 비밀 관리 체계에 보관한다.
 - **iOS 서명 자동화의 한계**: Xcode 자동 서명은 로컬 계정에 묶이므로 CI에서는 인증서·프로파일을 별도로 설치하거나 fastlane match 같은 도구를 쓴다.
-- **난독화 후 크래시 분석 불가**: `--obfuscate`만 켜고 `--split-debug-info` 심볼을 버리면 Crashlytics 스택이 의미 없는 이름으로 남는다. 빌드 번호별 심볼 디렉터리를 아티팩트로 보관하고 `flutter symbolize`로 복원한다.
+- **난독화 후 크래시 분석 불가**: ==`--obfuscate`만 켜고 `--split-debug-info` 심볼을 버리면 Crashlytics 스택이 의미 없는 이름으로 남는다.== 빌드 번호별 심볼 디렉터리를 아티팩트로 보관하고 `flutter symbolize`로 복원한다.
 - **디버그 모드 기준 성능 판단**: 디버그 빌드의 느린 스크롤은 대부분 JIT·assert 비용이다. profile 모드에서 재현되지 않으면 문제가 아니다.
 - **`Column` + `SingleChildScrollView` 목록**: 화면 밖 위젯까지 전부 build·layout 되어 UI 스레드가 밀린다. `ListView.builder`로 보이는 항목만 생성하고, 높이가 고정이면 `itemExtent`를 지정한다.
 

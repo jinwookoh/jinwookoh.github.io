@@ -23,7 +23,7 @@ notification-service는 `Post` 토픽을 소비해 작성자와 구독자를 use
 
 ### 직렬화와 컨슈머 그룹
 
-`JsonSerializer`는 기본값으로 헤더에 Java 클래스 이름을 싣는데, 서비스마다 DTO 패키지가 달라 역직렬화가 실패한다. `spring.json.add.type.headers=false`로 두면 컨슈머가 리스너 파라미터 타입으로 역직렬화하며, 컨슈머 쪽에는 `spring.json.trusted.packages`를 명시한다. 같은 `group-id`의 인스턴스들은 파티션을 자동으로 나눠 갖는다.
+==`JsonSerializer`는 기본값으로 헤더에 Java 클래스 이름을 싣는데, 서비스마다 DTO 패키지가 달라 역직렬화가 실패한다.== `spring.json.add.type.headers=false`로 두면 컨슈머가 리스너 파라미터 타입으로 역직렬화하며, 컨슈머 쪽에는 `spring.json.trusted.packages`를 명시한다. 같은 `group-id`의 인스턴스들은 파티션을 자동으로 나눠 갖는다.
 
 ### Redis의 네 가지 역할
 
@@ -160,8 +160,8 @@ public class PostService {
 
 ## 실무에서 걸리는 지점
 
-- **`max.block.ms` 기본값 60초.** 브로커에 연결되지 않으면 `send()`가 최대 60초 블로킹되므로 직접 발행하는 notification-service는 5초 안팎으로 줄인다.
-- **Debezium은 at-least-once다.** 커넥터 재시작으로 같은 outbox 행이 두 번 발행될 수 있으므로 컨슈머는 outbox `id` 처리 이력이나 유니크 제약으로 멱등하게 만든다.
+- **`max.block.ms` 기본값 60초.** ==브로커에 연결되지 않으면 `send()`가 최대 60초 블로킹되므로 직접 발행하는 notification-service는 5초 안팎으로 줄인다.==
+- **Debezium은 at-least-once다.** ==커넥터 재시작으로 같은 outbox 행이 두 번 발행될 수 있으므로 컨슈머는 outbox `id` 처리 이력이나 유니크 제약으로 멱등하게 만든다.==
 - **랭킹 Sorted Set은 어긋난다.** Redis 재시작이나 `afterCommit` 예외로 점수가 DB와 달라지므로 Spring Batch Job이 `executePipelined()`로 ZADD를 묶어 주기적으로 재계산한다.
 - **캐시 SET 타이밍.** 트랜잭션 안에서 SET하면 롤백된 값이 캐시에 남으므로 SET은 `afterCommit`에서 한다.
 - **Redis 단일 장애점.** 블랙리스트 조회 실패 시 거부할지 통과시킬지 정책을 코드에 명시하고, 운영에서는 Sentinel 또는 Cluster로 가용성을 확보한다.

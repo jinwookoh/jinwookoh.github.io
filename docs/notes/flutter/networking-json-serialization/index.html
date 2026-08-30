@@ -24,7 +24,7 @@
   <h1>네트워크·JSON 직렬화</h1>
   <p class="summary">http 패키지로 요청을 보내고 dart:convert와 json_serializable로 JSON을 타입 안전한 모델로 바꾸는 방법을 정리한다.</p>
   <div class="content">
-<p>앱은 대부분 서버에서 받은 JSON을 화면에 그리는 일로 이루어진다. Dart에는 Java의 리플렉션 기반 라이브러리(Jackson 등)가 없다. Flutter는 트리 셰이킹으로 사용하지 않는 코드를 제거하는데, 런타임 리플렉션(<code>dart:mirrors</code>)은 이 최적화와 충돌하므로 앱 빌드에서 사용할 수 없다. <mark>그래서 JSON을 모델 객체로 바꾸는 코드를 직접 쓰거나 코드 생성으로 만들어야 한다.</mark> 이를 건너뛰고 <code>Map&lt;String, dynamic&gt;</code>을 위젯까지 넘기면 키 오타와 타입 오류가 런타임에서야 드러난다.</p>
+<p>앱은 대부분 서버에서 받은 JSON을 화면에 그리는 일로 이루어진다. Dart에는 Java의 리플렉션 기반 라이브러리(Jackson 등)가 없다. Flutter는 트리 셰이킹으로 사용하지 않는 코드를 제거하는데, <mark>런타임 리플렉션(<code>dart:mirrors</code>)은 이 최적화와 충돌하므로 앱 빌드에서 사용할 수 없다</mark>. 그래서 JSON을 모델 객체로 바꾸는 코드를 직접 쓰거나 코드 생성으로 만들어야 한다. 이를 건너뛰고 <code>Map&lt;String, dynamic&gt;</code>을 위젯까지 넘기면 키 오타와 타입 오류가 런타임에서야 드러난다.</p>
 <h2>핵심 개념</h2>
 <p><strong>HTTP 클라이언트.</strong> 공식 문서는 <code>http</code> 패키지를 기본으로 안내한다. <code>http.get</code>, <code>http.post</code> 같은 최상위 함수는 <code>Future&lt;Response&gt;</code>를 반환하고, 반복 호출이 필요하면 <code>http.Client</code> 인스턴스를 만들어 연결을 재사용한 뒤 <code>close()</code>한다. 인터셉터·취소가 필요하면 <code>dio</code>가 쓰이지만 기본 개념은 같다. Spring의 <code>RestClient</code>/<code>WebClient</code>에 대응하며, <code>http.Client</code>를 생성자로 주입하는 패턴은 테스트에서 <code>MockClient</code>로 교체하기 위한 것이다.</p>
 <p><strong>응답 처리.</strong> <code>Response.statusCode</code>와 <code>Response.body</code>를 확인하고, 본문 문자열을 <code>dart:convert</code>의 <code>jsonDecode</code>로 파싱한다. 결과는 <code>Map&lt;String, dynamic&gt;</code> 또는 <code>List&lt;dynamic&gt;</code>이다. 200이 아닌 응답에서는 예외를 던져 호출 측이 실패를 명확히 알 수 있게 한다. Spring의 <code>HttpMessageConverter</code>가 하던 일을 손으로 하는 셈이다.</p>
@@ -49,7 +49,7 @@
 </tr>
 </tbody></table>
 <p>수동 방식은 모델 클래스 안에 <code>factory User.fromJson(Map&lt;String, dynamic&gt; json)</code>과 <code>Map&lt;String, dynamic&gt; toJson()</code>을 쓴다. 코드 생성 방식은 클래스에 <code>@JsonSerializable()</code>을 붙이고 <code>part &#39;user.g.dart&#39;;</code>를 선언한 뒤 <code>dart run build_runner build</code>로 <code>_$UserFromJson</code>, <code>_$UserToJson</code> 함수를 생성한다. Java로 치면 Jackson의 런타임 리플렉션 대신 Lombok·MapStruct처럼 컴파일 타임에 코드를 만들어 두는 셈이다. <code>@JsonKey(name: &#39;registration_date_millis&#39;)</code>로 키 이름을 바꾸고, <code>explicitToJson: true</code>로 중첩 객체까지 재귀 직렬화한다.</p>
-<p><strong>UI와의 연결.</strong> 네트워크 호출은 <code>Future</code>를 반환하므로 <code>initState</code>에서 한 번 실행해 필드에 담고, <code>FutureBuilder</code>로 로딩·오류·데이터 상태를 분기한다. <mark><code>build</code> 메서드 안에서 직접 호출하면 리빌드마다 요청이 나가므로 피한다.</mark></p>
+<p><strong>UI와의 연결.</strong> 네트워크 호출은 <code>Future</code>를 반환하므로 <code>initState</code>에서 한 번 실행해 필드에 담고, <code>FutureBuilder</code>로 로딩·오류·데이터 상태를 분기한다. <code>build</code> 메서드 안에서 직접 호출하면 리빌드마다 요청이 나가므로 피한다.</p>
 <h2>코드</h2>
 <p><code>http.Client</code>를 주입받아 사용자 목록을 가져오고 상태 코드에 따라 실패를 던지는 함수다.</p>
 <pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;dart:convert&#x27;</span>;
@@ -140,11 +140,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>큰 JSON 파싱과 UI 프리즈.</strong> <code>jsonDecode</code>는 동기 작업이라 수 MB짜리 응답을 메인 isolate에서 파싱하면 프레임이 끊긴다.</mark> <code>compute()</code> 또는 <code>Isolate.run()</code>으로 파싱을 별도 isolate에 넘기고, 전달 대상은 문자열이나 순수 데이터로 제한한다.</li>
+<li><strong>큰 JSON 파싱과 UI 프리즈.</strong> <mark><code>jsonDecode</code>는 동기 작업이라 수 MB짜리 응답을 메인 isolate에서 파싱하면 프레임이 끊긴다.</mark> <code>compute()</code> 또는 <code>Isolate.run()</code>으로 파싱을 별도 isolate에 넘기고, 전달 대상은 문자열이나 순수 데이터로 제한한다.</li>
 <li><strong>플랫폼별 네트워크 허용 설정.</strong> Android는 <code>AndroidManifest.xml</code>의 <code>INTERNET</code> 권한이 필요하고, macOS는 entitlements에 네트워크 클라이언트 권한을 추가해야 한다. 웹 빌드는 브라우저의 CORS 제약을 그대로 받아 서버 헤더가 없으면 요청이 실패한다.</li>
 <li><strong>null과 타입 불일치.</strong> 서버 필드가 누락되면 non-nullable 필드의 <code>fromJson</code>에서 <code>TypeError</code>가 난다. 스펙상 선택 필드는 <code>?</code>로 선언하고, 숫자가 <code>int</code>와 <code>double</code>로 섞여 오는 API는 <code>num</code>으로 받거나 <code>@JsonKey(fromJson: ...)</code> 변환기를 둔다.</li>
 <li><strong>생성 파일 관리.</strong> <code>build_runner build</code>는 프로젝트 전체를 스캔해 느리므로 개발 중에는 <code>watch</code>를 쓴다. <code>.g.dart</code>를 커밋할지 CI에서 생성할지 팀 규칙을 정하지 않으면 PR마다 충돌이 생긴다.</li>
-<li><strong>클라이언트 수명과 타임아웃.</strong> 요청마다 <code>http.get</code>을 호출하면 연결이 재사용되지 않는다. 앱 수준에서 <code>Client</code> 하나를 유지하고, <code>http</code>에는 타임아웃이 없으므로 <code>Future.timeout</code>을 붙인다.</li>
+<li><strong>클라이언트 수명과 타임아웃.</strong> 요청마다 <code>http.get</code>을 호출하면 연결이 재사용되지 않는다. 앱 수준에서 <code>Client</code> 하나를 유지하고, <mark><code>http</code>에는 타임아웃이 없으므로 <code>Future.timeout</code>을 붙인다</mark>.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

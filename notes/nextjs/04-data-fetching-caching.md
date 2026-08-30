@@ -101,9 +101,9 @@ export async function createPost(formData: FormData) {
 
 - 15 기본값 역전. 14에서 캐시에 기대던 `fetch`가 15에서는 매 요청 원격 호출로 바뀐다. 업그레이드 후 외부 API 호출량이 급증하면 이 지점부터 확인한다.
 - 동적 요소 하나가 라우트 전체를 동적으로 만든다. layout에서 `cookies()`를 읽으면 그 아래 모든 page가 Full Route Cache에서 빠진다. 사용자별 정보는 Client Component나 별도 Suspense 경계로 분리한다.
-- revalidate 값은 라우트에서 가장 짧은 값이 이긴다. 한 `fetch`에 `revalidate: 0`이나 `no-store`가 있으면 라우트가 동적 렌더링으로 전환된다. `revalidate = 60 * 10` 같은 계산식은 빌드가 거부한다.
-- 다중 인스턴스 배포에서 기본 캐시는 파일 시스템이라 인스턴스마다 따로 존재한다. `revalidateTag`가 호출을 받은 인스턴스만 비우므로 Redis 등 공유 cacheHandler를 설정해야 한다.
-- 개발 서버에서는 페이지가 항상 즉시 렌더링되고 캐시되지 않는다. ISR 검증은 `next build` 후 `next start`로 하고, `next.config`의 `logging.fetches.fullUrl`을 켜면 어떤 `fetch`가 캐시를 탔는지 로그로 드러난다.
+- revalidate 값은 라우트에서 가장 짧은 값이 이긴다. ==한 `fetch`에 `revalidate: 0`이나 `no-store`가 있으면 라우트가 동적 렌더링으로 전환된다.== `revalidate = 60 * 10` 같은 계산식은 빌드가 거부한다.
+- ==다중 인스턴스 배포에서 기본 캐시는 파일 시스템이라 인스턴스마다 따로 존재한다.== `revalidateTag`가 호출을 받은 인스턴스만 비우므로 Redis 등 공유 cacheHandler를 설정해야 한다.
+- ==개발 서버에서는 페이지가 항상 즉시 렌더링되고 캐시되지 않는다.== ISR 검증은 `next build` 후 `next start`로 하고, `next.config`의 `logging.fetches.fullUrl`을 켜면 어떤 `fetch`가 캐시를 탔는지 로그로 드러난다.
 
 ## 관련 글
 

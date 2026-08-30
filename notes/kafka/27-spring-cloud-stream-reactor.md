@@ -130,10 +130,10 @@ public class OrderPipeline {
 
 ## 실무에서 걸리는 지점
 
-- **group 누락은 anonymous consumer가 된다.** `group`이 없으면 기동마다 새 그룹 ID를 받아 오프셋이 이어지지 않는다. 운영 바인딩은 group을 명시하고 `auto.offset.reset`도 의도에 맞게 고정한다.
-- **Reactive Kafka Binder와 Reactor Kafka는 Kafka 트랜잭션을 지원하지 않는다.** `transaction-id-prefix`는 일반 Kafka Binder에서만 동작한다. 리액티브 스택에서 DB 반영과 발행을 원자적으로 묶어야 하면 Outbox 패턴을 쓴다.
-- **`flatMap` 동시성은 반드시 명시한다.** 기본값이 사실상 무제한이라 백프레셔가 무력화된다. 순서가 필요하면 `concatMap`, 파티션 내 순서만 필요하면 `groupBy(partition)` 뒤 `concatMap`을 쓰고, 병렬 처리 시 재전달 중복에 대비해 처리를 멱등하게 만든다.
-- **ack는 발행 성공 이후에 한다.** 처리 직후 ack하고 발행이 실패하면 메시지가 유실된다. 발행 실패 시 ack를 건너뛰어야 재처리로 이어져 at-least-once가 유지된다. SCS 수동 ack 모드에서도 `KafkaHeaders.ACKNOWLEDGMENT`를 꺼내 같은 순서를 지킨다.
+- **group 누락은 anonymous consumer가 된다.** ==`group`이 없으면 기동마다 새 그룹 ID를 받아 오프셋이 이어지지 않는다.== 운영 바인딩은 group을 명시하고 `auto.offset.reset`도 의도에 맞게 고정한다.
+- ==**Reactive Kafka Binder와 Reactor Kafka는 Kafka 트랜잭션을 지원하지 않는다.**== `transaction-id-prefix`는 일반 Kafka Binder에서만 동작한다. 리액티브 스택에서 DB 반영과 발행을 원자적으로 묶어야 하면 Outbox 패턴을 쓴다.
+- **`flatMap` 동시성은 반드시 명시한다.** ==기본값이 사실상 무제한이라 백프레셔가 무력화된다.== 순서가 필요하면 `concatMap`, 파티션 내 순서만 필요하면 `groupBy(partition)` 뒤 `concatMap`을 쓰고, 병렬 처리 시 재전달 중복에 대비해 처리를 멱등하게 만든다.
+- **ack는 발행 성공 이후에 한다.** ==처리 직후 ack하고 발행이 실패하면 메시지가 유실된다.== 발행 실패 시 ack를 건너뛰어야 재처리로 이어져 at-least-once가 유지된다. SCS 수동 ack 모드에서도 `KafkaHeaders.ACKNOWLEDGMENT`를 꺼내 같은 순서를 지킨다.
 - **이기종 소비자와 `__TypeId__` 헤더.** SCS의 JSON 변환기는 Java 클래스명을 헤더에 싣는다. Go·Python 소비자와 연동할 때는 `use-native-encoding: true`와 표준 serializer로 우회하고, Java 소비자는 `spring.json.trusted.packages`를 제한해 임의 클래스 역직렬화를 막는다. `enable-dlq`를 켜지 않으면 `max-attempts` 재시도 후에도 실패 메시지가 파티션을 막고, StreamBridge로 사용자별 토픽을 만들면 메타데이터 부담이 커지므로 사용자 단위 분리는 `partition-key-expression`으로 파티션에 맡긴다.
 
 ## 관련 글

@@ -31,7 +31,7 @@ updated: 2026-08-29
 | 신선도 | 실시간 | REFRESH 시점 |
 | 인덱스 | 불가 | 가능 |
 
-기본 REFRESH는 ACCESS EXCLUSIVE 락을 잡아 갱신 중 SELECT까지 막는다. `REFRESH ... CONCURRENTLY`는 차이만 반영하므로 갱신 중에도 조회가 가능하지만, 모든 행을 식별하는 UNIQUE 인덱스가 있어야 하고 첫 REFRESH 전에는 쓸 수 없다. 내장 스케줄러는 없으므로 `pg_cron`, OS cron, Spring `@Scheduled` 중 하나로 주기 실행한다.
+==기본 REFRESH는 ACCESS EXCLUSIVE 락을 잡아 갱신 중 SELECT까지 막는다.== `REFRESH ... CONCURRENTLY`는 차이만 반영하므로 갱신 중에도 조회가 가능하지만, 모든 행을 식별하는 UNIQUE 인덱스가 있어야 하고 첫 REFRESH 전에는 쓸 수 없다. 내장 스케줄러는 없으므로 `pg_cron`, OS cron, Spring `@Scheduled` 중 하나로 주기 실행한다.
 
 ### 윈도우 함수 — 행을 줄이지 않는 그룹 계산
 
@@ -43,7 +43,7 @@ GROUP BY는 그룹당 한 행을 남기지만, 윈도우 함수는 원래 행을
 
 ### CTE와 재귀 CTE
 
-`WITH name AS (...)`는 쿼리 안의 임시 결과 집합에 이름을 붙여 여러 단계를 위에서 아래로 읽히게 만들며, 윈도우 결과로 필터링하는 그룹별 TOP-N의 표준 형태다. PostgreSQL 12부터 한 번만 참조되는 CTE는 본문에 인라인되고, 실행을 분리하려면 `MATERIALIZED`를 붙인다.
+`WITH name AS (...)`는 쿼리 안의 임시 결과 집합에 이름을 붙여 여러 단계를 위에서 아래로 읽히게 만들며, 윈도우 결과로 필터링하는 그룹별 TOP-N의 표준 형태다. ==PostgreSQL 12부터 한 번만 참조되는 CTE는 본문에 인라인되고, 실행을 분리하려면 `MATERIALIZED`를 붙인다.==
 
 `WITH RECURSIVE`는 앵커 쿼리와 재귀 쿼리를 UNION ALL로 연결해 조직도·카테고리 트리처럼 깊이를 모르는 계층을 순회한다. 재귀 쿼리가 행을 더 만들지 않을 때 끝나므로 종료 조건이 필수다. 테이블 상속(`INHERITS`)은 선언적 파티셔닝이 대체했다.
 
@@ -122,7 +122,7 @@ public class UserOrderSummary {
 
 - **뷰 위에 뷰를 쌓는 중첩**: 3단계 이상 중첩되면 실행 계획 추적이 어렵다. 뷰는 한두 단계까지만 쓰고 그 이상은 CTE로 쿼리 안에서 푼다.
 - **REFRESH 락과 UNIQUE 인덱스**: CONCURRENTLY 없는 REFRESH는 갱신 동안 조회를 막고, CONCURRENTLY는 UNIQUE 인덱스가 없으면 오류를 낸다. 뷰 생성과 인덱스 생성을 같은 마이그레이션에 묶는다.
-- **LAST_VALUE의 기본 프레임**: ORDER BY가 있는 윈도우의 기본 프레임은 현재 행까지라서 LAST_VALUE가 현재 행 자신을 돌려준다. 파티션 마지막 값이 필요하면 `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`을 명시한다.
+- **LAST_VALUE의 기본 프레임**: ==ORDER BY가 있는 윈도우의 기본 프레임은 현재 행까지라서 LAST_VALUE가 현재 행 자신을 돌려준다.== 파티션 마지막 값이 필요하면 `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`을 명시한다.
 - **재귀 CTE의 순환 데이터**: `manager_id`가 서로를 가리키면 무한히 돈다. PostgreSQL 14부터 `CYCLE` 절로 감지하고, 이전 버전은 깊이 상한으로 막는다.
 
 ## 관련 글

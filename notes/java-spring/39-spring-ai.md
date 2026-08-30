@@ -13,7 +13,7 @@ LLM API를 직접 호출하면 공급자마다 요청 형식·인증·응답 구
 
 ## 핵심 개념
 
-Spring AI는 LLM·임베딩·벡터 저장소를 공급자 중립 인터페이스로 추상화한 Spring 프로젝트다. 공급자별 스타터(`spring-ai-starter-model-openai` 등)를 추가하면 `ChatModel`과 `EmbeddingModel` 빈이 자동 구성되고, 그 위에 `ChatClient.Builder`가 준비된다. 서비스 코드는 `ChatClient`만 의존하므로 공급자 교체가 의존성과 설정 변경으로 끝난다. 버전은 `spring-ai-bom`으로 관리하며, 1.0 GA에서 스타터 좌표가 `spring-ai-openai-spring-boot-starter`에서 `spring-ai-starter-model-openai`로 바뀌었다.
+Spring AI는 LLM·임베딩·벡터 저장소를 공급자 중립 인터페이스로 추상화한 Spring 프로젝트다. 공급자별 스타터(`spring-ai-starter-model-openai` 등)를 추가하면 `ChatModel`과 `EmbeddingModel` 빈이 자동 구성되고, 그 위에 `ChatClient.Builder`가 준비된다. 서비스 코드는 `ChatClient`만 의존하므로 공급자 교체가 의존성과 설정 변경으로 끝난다. 버전은 `spring-ai-bom`으로 관리하며, ==1.0 GA에서 스타터 좌표가 `spring-ai-openai-spring-boot-starter`에서 `spring-ai-starter-model-openai`로 바뀌었다.==
 
 | 컴포넌트 | 역할 |
 |:---|:---|
@@ -177,10 +177,10 @@ public class RagService {
 
 - API 키 하드코딩. `spring.ai.openai.api-key`에 값을 직접 적으면 커밋과 함께 유출된다. 환경 변수나 시크릿 매니저에서 주입하고, 로컬은 `.gitignore`된 프로필 파일로 분리한다.
 - 토큰 비용 통제. 모든 문서를 컨텍스트로 넣으면 요청마다 비용이 급증한다. `topK`를 3~5로 제한하고 `similarityThreshold`로 무관한 문서를 걸러내며, `max-tokens`를 명시하고 개발 환경에는 저가 모델을 지정한다. `chatResponse().getMetadata().getUsage()`로 토큰 사용량을 기록해 이상치를 감지한다.
-- 프롬프트 인젝션. 사용자 입력을 시스템 지시와 같은 문자열에 결합하면 "이전 지시를 무시하라"류 공격이 통한다. 시스템 메시지와 사용자 메시지를 분리하고 입력은 템플릿 변수로만 넣는다. 도구 호출을 허용하는 경우 실행 권한을 최소화한다.
+- 프롬프트 인젝션. ==사용자 입력을 시스템 지시와 같은 문자열에 결합하면 "이전 지시를 무시하라"류 공격이 통한다.== 시스템 메시지와 사용자 메시지를 분리하고 입력은 템플릿 변수로만 넣는다. 도구 호출을 허용하는 경우 실행 권한을 최소화한다.
 - 응답 형식 불안정. 모델이 JSON을 코드 블록으로 감싸거나 필드를 빠뜨릴 수 있다. `.entity()`를 쓰되 역직렬화 실패 시 재시도하고, 파싱 결과에 Bean Validation을 적용해 검증한다. `temperature`를 낮추면 형식 일관성이 올라간다.
 - 테스트에서 실제 API 호출. 단위 테스트가 모델을 호출하면 비용이 늘고 결과가 비결정적이 된다. `ChatModel`을 목으로 대체하고, 실제 호출 테스트는 `@Tag("integration")`으로 분리해 CI 기본 실행에서 제외한다.
-- 벡터 저장소와 임베딩 모델. `SimpleVectorStore`는 인메모리라 개발용으로만 쓰고 운영은 pgvector 등 외부 저장소를 쓴다. 임베딩 모델을 바꾸면 기존 벡터와 호환되지 않아 전체 재색인이 필요하다.
+- 벡터 저장소와 임베딩 모델. `SimpleVectorStore`는 인메모리라 개발용으로만 쓰고 운영은 pgvector 등 외부 저장소를 쓴다. ==임베딩 모델을 바꾸면 기존 벡터와 호환되지 않아 전체 재색인이 필요하다.==
 
 ## 관련 글
 

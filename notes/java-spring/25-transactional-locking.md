@@ -19,7 +19,7 @@ updated: 2026-08-29
 
 전파(Propagation)는 트랜잭션 메서드가 다른 트랜잭션 메서드를 호출할 때 결합 방식을 정한다. 기본값 `REQUIRED`는 기존 트랜잭션이 있으면 참여하고 없으면 새로 시작한다. `REQUIRES_NEW`는 기존 트랜잭션을 일시 중단하고 새 트랜잭션을 열어 감사 로그처럼 본 작업의 실패와 무관하게 커밋해야 할 때 쓴다. `NESTED`는 savepoint로 중첩하고, 나머지 `SUPPORTS`·`NOT_SUPPORTED`·`MANDATORY`·`NEVER`는 드물게 쓴다.
 
-격리 수준(Isolation)은 `READ_UNCOMMITTED`, `READ_COMMITTED`, `REPEATABLE_READ`, `SERIALIZABLE` 순으로 강해진다. 기본값 `DEFAULT`는 DB 설정을 따르며 PostgreSQL은 READ_COMMITTED, MySQL InnoDB는 REPEATABLE_READ다. 읽고 계산해서 다시 쓰는 패턴의 갱신 손실은 격리 수준만으로 막히지 않는다.
+격리 수준(Isolation)은 `READ_UNCOMMITTED`, `READ_COMMITTED`, `REPEATABLE_READ`, `SERIALIZABLE` 순으로 강해진다. 기본값 `DEFAULT`는 DB 설정을 따르며 PostgreSQL은 READ_COMMITTED, MySQL InnoDB는 REPEATABLE_READ다. ==읽고 계산해서 다시 쓰는 패턴의 갱신 손실은 격리 수준만으로 막히지 않는다.==
 
 롤백은 기본적으로 `RuntimeException`과 `Error`만 대상이며 checked exception은 던져도 커밋된다. `rollbackFor`로 대상을 넓히거나 `noRollbackFor`로 제외한다.
 
@@ -142,9 +142,9 @@ public class PessimisticStockService {
 
 ## 실무에서 걸리는 지점
 
-- 자기 호출과 private 메서드. 같은 클래스 안에서 `this.save()`로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, private 메서드의 `@Transactional`은 무시된다. 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.
-- 예외 흡수. 트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다. 롤백하려면 `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`를 호출한다. 반대로 `REQUIRED`로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 `UnexpectedRollbackException`이 난다.
-- 재시도 위치. 낙관적 락 재시도를 트랜잭션 안에서 돌리면 영속성 컨텍스트가 낡은 version을 계속 들고 있어 무한 실패한다. 기존 테이블에 `@Version`을 추가할 때는 기존 행의 null version을 마이그레이션으로 0으로 채운다.
+- 자기 호출과 private 메서드. 같은 클래스 안에서 `this.save()`로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, ==private 메서드의 `@Transactional`은 무시된다==. 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.
+- 예외 흡수. ==트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다.== 롤백하려면 `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`를 호출한다. 반대로 `REQUIRED`로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 `UnexpectedRollbackException`이 난다.
+- 재시도 위치. ==낙관적 락 재시도를 트랜잭션 안에서 돌리면 영속성 컨텍스트가 낡은 version을 계속 들고 있어 무한 실패한다.== 기존 테이블에 `@Version`을 추가할 때는 기존 행의 null version을 마이그레이션으로 0으로 채운다.
 - 비관적 락 대기와 데드락. 락 타임아웃이 없으면 요청이 무한 대기하고, 두 트랜잭션이 서로의 행을 기다리면 데드락이 된다. `jakarta.persistence.lock.timeout` 힌트로 상한을 두고 여러 행은 항상 같은 순서로 잠근다.
 - 락이 필요 없는 경우. 이메일 중복 가입처럼 유일성만 필요하면 unique 제약이 락보다 싸고 확실하다. 조회 전용 메서드는 `readOnly = true`로 더티 체킹을 끈다. 트랜잭션 경계는 서비스 레이어에 두고 컨트롤러나 리포지토리에는 붙이지 않는다.
 

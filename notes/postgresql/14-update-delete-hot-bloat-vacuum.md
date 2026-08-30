@@ -15,7 +15,7 @@ PostgreSQL의 UPDATE는 기존 행을 제자리에서 고치지 않는다. 새 �
 
 ### HOT UPDATE
 
-HOT(Heap Only Tuple)는 새 행 버전을 옛 버전과 같은 데이터 페이지에 두고 인덱스를 갱신하지 않는 최적화다. 조건은 두 가지다. 새 버전이 들어갈 여유 공간이 같은 페이지에 있어야 하고, 변경된 컬럼이 어떤 인덱스에도 포함되지 않아야 한다. 둘 중 하나라도 어긋나면 일반 UPDATE가 되어 테이블의 모든 인덱스에 새 항목이 추가된다.
+HOT(Heap Only Tuple)는 새 행 버전을 옛 버전과 같은 데이터 페이지에 두고 인덱스를 갱신하지 않는 최적화다. 조건은 두 가지다. ==새 버전이 들어갈 여유 공간이 같은 페이지에 있어야 하고, 변경된 컬럼이 어떤 인덱스에도 포함되지 않아야 한다.== 둘 중 하나라도 어긋나면 일반 UPDATE가 되어 테이블의 모든 인덱스에 새 항목이 추가된다.
 
 HOT 비율은 `pg_stat_user_tables`의 `n_tup_hot_upd / n_tup_upd`로 계산한다. UPDATE가 잦은 테이블에서 이 비율이 낮으면 fillfactor나 인덱스 구성을 검토한다.
 
@@ -25,9 +25,9 @@ fillfactor는 페이지를 어느 비율까지 채울지 정하는 테이블 저
 
 ### bloat와 VACUUM
 
-죽은 행이 차지한 공간은 VACUUM이 재사용 가능한 빈 공간으로 마킹한다. 일반 VACUUM은 파일 크기를 줄이지 않고 이후 INSERT·UPDATE가 그 공간을 재사용하게 한다. 파일 크기를 실제로 줄이려면 테이블을 재작성하는 VACUUM FULL이 필요한데, 실행 동안 ACCESS EXCLUSIVE 락이 걸려 읽기까지 막힌다. 운영 중에는 락 없이 재작성하는 pg_repack 확장이 대안이다.
+죽은 행이 차지한 공간은 VACUUM이 재사용 가능한 빈 공간으로 마킹한다. ==일반 VACUUM은 파일 크기를 줄이지 않고 이후 INSERT·UPDATE가 그 공간을 재사용하게 한다.== 파일 크기를 실제로 줄이려면 테이블을 재작성하는 VACUUM FULL이 필요한데, 실행 동안 ACCESS EXCLUSIVE 락이 걸려 읽기까지 막힌다. 운영 중에는 락 없이 재작성하는 pg_repack 확장이 대안이다.
 
-autovacuum은 기본 활성화되어 있고, 변경 행 수가 `autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor × 행 수`를 넘으면 동작한다. 기본값은 50행 + 20%다. 1억 행 테이블이면 2천만 행이 변경되어야 실행되므로 큰 테이블은 scale_factor를 낮추고 threshold를 올리는 식으로 테이블 단위 튜닝이 필요하다.
+autovacuum은 기본 활성화되어 있고, 변경 행 수가 `autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor × 행 수`를 넘으면 동작한다. 기본값은 50행 + 20%다. ==1억 행 테이블이면 2천만 행이 변경되어야 실행되므로 큰 테이블은 scale_factor를 낮추고 threshold를 올리는 식으로 테이블 단위 튜닝이 필요하다.==
 
 ### 파티션 DROP
 
@@ -116,7 +116,7 @@ public class PriceService {
 ## 실무에서 걸리는 지점
 
 - 자주 바뀌는 컬럼에 인덱스를 걸면 HOT이 불가능해진다. `updated_at`이나 카운터 컬럼에 인덱스가 있으면 UPDATE마다 모든 인덱스가 갱신되므로, 정말 조회 조건에 쓰이는지 확인하고 없애는 편이 낫다.
-- `UPDATE ... FROM`에서 조인 결과가 대상 행 하나에 여러 건 매칭되면 어느 값이 반영될지 정해져 있지 않다. 집계나 `DISTINCT ON`으로 소스를 1:1로 만든 뒤 조인한다.
+- ==`UPDATE ... FROM`에서 조인 결과가 대상 행 하나에 여러 건 매칭되면 어느 값이 반영될지 정해져 있지 않다.== 집계나 `DISTINCT ON`으로 소스를 1:1로 만든 뒤 조인한다.
 - ON DELETE CASCADE가 걸린 부모 행 하나를 지우면 자식 수만 건이 연쇄 삭제되어 WAL과 락이 폭주한다. 운영 테이블은 NO ACTION으로 두고 애플리케이션에서 자식부터 청크로 지운다.
 - Soft Delete를 쓰면 `deleted_at IS NULL` 조건의 부분 인덱스로 활성 행만 UNIQUE를 걸고 인덱스 크기를 줄인다. 보존 기간이 지난 행을 실제로 지우는 배치를 별도로 돌려야 bloat와 개인정보 보존 요건을 함께 해결한다.
 - TRUNCATE는 트랜잭션 안에서 롤백되지만, 외래 키로 참조되는 테이블은 거부한다. CASCADE를 붙이면 참조하는 테이블까지 비우므로 운영에서는 대상 범위를 반드시 확인한다.

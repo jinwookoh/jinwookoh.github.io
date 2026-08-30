@@ -168,9 +168,9 @@ grpc:
 
 ## 실무에서 걸리는 지점
 
-- **DEADLINE_EXCEEDED를 무조건 재시도하지 않는다.** 처리 도중 만료되면 재시도는 같은 작업을 두 번 수행한다. 멱등하지 않은 메서드는 UNAVAILABLE만 재시도한다.
-- **MDC는 gRPC 스레드 모델과 맞지 않는다.** ThreadLocal이라 인터셉터에서 넣은 trace-id가 서비스 메서드의 executor 스레드로 전파되지 않는다. gRPC `Context`에 싣거나 OpenTelemetry `GrpcTelemetry` 인터셉터에 맡긴다.
-- **KeepAlive 시간이 서버 허용치보다 짧으면 연결이 끊긴다.** 클라이언트 `keep-alive-time`이 서버 `permit-keep-alive-time`보다 짧으면 서버가 GOAWAY로 연결을 닫는다. 두 값을 함께 조정한다.
+- **DEADLINE_EXCEEDED를 무조건 재시도하지 않는다.** ==처리 도중 만료되면 재시도는 같은 작업을 두 번 수행한다.== 멱등하지 않은 메서드는 UNAVAILABLE만 재시도한다.
+- **MDC는 gRPC 스레드 모델과 맞지 않는다.** ==ThreadLocal이라 인터셉터에서 넣은 trace-id가 서비스 메서드의 executor 스레드로 전파되지 않는다.== gRPC `Context`에 싣거나 OpenTelemetry `GrpcTelemetry` 인터셉터에 맡긴다.
+- **KeepAlive 시간이 서버 허용치보다 짧으면 연결이 끊긴다.** ==클라이언트 `keep-alive-time`이 서버 `permit-keep-alive-time`보다 짧으면 서버가 GOAWAY로 연결을 닫는다.== 두 값을 함께 조정한다.
 - **Reflection과 상세 에러는 정보 노출 경로다.** 운영에서 Reflection을 끄고, 원인 예외는 로그에만 남기며 INTERNAL의 Description은 일반 문구로 제한한다.
 
 ## 관련 글

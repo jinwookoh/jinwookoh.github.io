@@ -24,7 +24,7 @@
   <h1>이벤트 패턴 — Outbox·Saga·Fan-out</h1>
   <p class="summary">DB와 Kafka를 한 트랜잭션에 묶을 수 없을 때 Outbox·Saga·Fan-out이 원자성과 일관성을 어떻게 대신 보장하는가</p>
   <div class="content">
-<p>서비스마다 DB를 따로 두면 두 가지 원자성이 깨진다. 첫째, 한 서비스 안에서 DB 커밋과 Kafka 발행은 같은 트랜잭션이 아니다. DB는 저장됐는데 발행이 실패하면 이벤트가 유실되고, 발행 뒤 롤백되면 존재하지 않는 데이터에 대한 이벤트가 남는다. Kafka는 XA 2PC에 참여하지 않으므로 코디네이터로 묶을 수도 없다. 둘째, 주문·결제·재고처럼 여러 서비스에 걸친 트랜잭션은 분산 ACID로 처리할 수 없고, 한 단계가 실패하면 이미 커밋된 앞 단계를 되돌려야 한다. <mark>전자를 Outbox가, 후자를 Saga가 해결하며, 메시지를 나누고 모으는 배관이 Fan-out과 Fan-in이다.</mark></p>
+<p>서비스마다 DB를 따로 두면 두 가지 원자성이 깨진다. 첫째, 한 서비스 안에서 DB 커밋과 Kafka 발행은 같은 트랜잭션이 아니다. DB는 저장됐는데 발행이 실패하면 이벤트가 유실되고, 발행 뒤 롤백되면 존재하지 않는 데이터에 대한 이벤트가 남는다. <mark>Kafka는 XA 2PC에 참여하지 않으므로 코디네이터로 묶을 수도 없다.</mark> 둘째, 주문·결제·재고처럼 여러 서비스에 걸친 트랜잭션은 분산 ACID로 처리할 수 없고, 한 단계가 실패하면 이미 커밋된 앞 단계를 되돌려야 한다. 전자를 Outbox가, 후자를 Saga가 해결하며, 메시지를 나누고 모으는 배관이 Fan-out과 Fan-in이다.</p>
 <h2>핵심 개념</h2>
 <p><strong>Fan-out / Fan-in.</strong> Fan-out은 이벤트 하나를 여러 컨슈머가 받는 구조다. 단일 토픽에 서비스별 Consumer Group을 붙이는 방식이 가장 단순하지만, 보존 기간·ACL·스키마 진화가 토픽 단위로 묶이므로 도메인별 토픽으로 분리하는 편이 경계가 명확하다. Fan-in은 여러 토픽의 결과를 모아 최종 상태를 결정하는 구조다. 응답은 시점이 제각각이므로 <code>Flux.zip</code>처럼 인덱스로 묶는 연산자는 맞지 않고, 주문 ID를 키로 DB에 상태를 누적해야 한다.</p>
 <p><strong>Saga.</strong> 각 서비스가 자기 DB에서 로컬 트랜잭션을 커밋하고, 실패 시 앞 단계에 보상 트랜잭션을 실행해 되돌린다. ACID가 아니라 최종 일관성이며, 보상이 가능한 도메인에만 적용한다. 구현은 두 가지다.</p>
@@ -168,10 +168,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>outbox 테이블 비대화.</strong> 폴링 방식은 발행 후 삭제하면 되지만 CDC 방식은 Debezium이 읽은 뒤에도 행이 남는다. <code>created_at</code> 기준 RANGE 파티션과 pg_partman으로 월별 파티션을 DETACH/DROP하는 편이 DELETE보다 부하가 적다.</li>
-<li><strong>직렬화 타입 헤더.</strong> Spring Kafka <code>JsonSerializer</code>는 기본으로 Java 클래스명을 헤더에 넣으므로 패키지가 다른 컨슈머는 역직렬화에 실패한다. 프로듀서에 <code>spring.json.add.type.headers=false</code>, 컨슈머에 <code>spring.json.trusted.packages</code>를 설정하고 리스너 파라미터 타입으로 역직렬화한다.</li>
-<li><strong><code>max.block.ms</code>.</strong> 브로커에 연결되지 않으면 <code>KafkaTemplate.send()</code>가 메타데이터 조회에서 기본 60초 블로킹한다. Outbox를 쓰면 이 지연이 릴레이로 격리되지만, 직접 발행 경로가 남아 있다면 값을 수 초로 줄여야 한다.</li>
-<li><mark><strong>멱등성과 순서.</strong> 재전달과 리밸런스로 같은 이벤트가 두 번 올 수 있다.</mark> 처리 여부를 <code>orderId</code> 기준으로 DB에 남기고, 오케스트레이터는 현재 상태에서 허용되지 않는 응답을 무시한다. 같은 주문의 이벤트는 파티션 키를 <code>orderId</code>로 고정해 순서를 보장한다.</li>
+<li><strong>outbox 테이블 비대화.</strong> <mark>폴링 방식은 발행 후 삭제하면 되지만 CDC 방식은 Debezium이 읽은 뒤에도 행이 남는다.</mark> <code>created_at</code> 기준 RANGE 파티션과 pg_partman으로 월별 파티션을 DETACH/DROP하는 편이 DELETE보다 부하가 적다.</li>
+<li><strong>직렬화 타입 헤더.</strong> <mark>Spring Kafka <code>JsonSerializer</code>는 기본으로 Java 클래스명을 헤더에 넣으므로 패키지가 다른 컨슈머는 역직렬화에 실패한다.</mark> 프로듀서에 <code>spring.json.add.type.headers=false</code>, 컨슈머에 <code>spring.json.trusted.packages</code>를 설정하고 리스너 파라미터 타입으로 역직렬화한다.</li>
+<li><strong><code>max.block.ms</code>.</strong> <mark>브로커에 연결되지 않으면 <code>KafkaTemplate.send()</code>가 메타데이터 조회에서 기본 60초 블로킹한다.</mark> Outbox를 쓰면 이 지연이 릴레이로 격리되지만, 직접 발행 경로가 남아 있다면 값을 수 초로 줄여야 한다.</li>
+<li><strong>멱등성과 순서.</strong> 재전달과 리밸런스로 같은 이벤트가 두 번 올 수 있다. 처리 여부를 <code>orderId</code> 기준으로 DB에 남기고, 오케스트레이터는 현재 상태에서 허용되지 않는 응답을 무시한다. 같은 주문의 이벤트는 파티션 키를 <code>orderId</code>로 고정해 순서를 보장한다.</li>
 <li><strong>Choreography의 추적 난이도.</strong> 흐름이 서비스마다 흩어져 멈춘 단계를 찾기 어렵고 순환 구독이 생기기 쉽다. 헤더에 correlation id를 실어 분산 추적과 연결하고, 분기가 늘면 Orchestration으로 전환한다.</li>
 </ul>
 <h2>관련 글</h2>

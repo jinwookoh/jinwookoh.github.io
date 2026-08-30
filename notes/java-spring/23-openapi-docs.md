@@ -15,7 +15,7 @@ API 문서를 손으로 작성하면 코드와 문서가 어긋나는 순간이 
 
 OpenAPI는 REST API의 엔드포인트·파라미터·요청/응답 구조를 기계가 읽을 수 있는 형식으로 기술하는 표준이다. Swagger 프로젝트에서 출발해 OpenAPI Initiative로 이관되면서 명세 이름은 OpenAPI가 되었고, Swagger는 도구군의 이름으로 남았다.
 
-Springdoc은 핸들러 매핑과 DTO 클래스를 분석해 OpenAPI 명세를 생성하는 라이브러리다. Spring Boot 3(Jakarta 네임스페이스)에서는 Springdoc 2.x를 써야 한다. SpringFox는 2020년 이후 유지보수가 멈춰 Boot 3와 호환되지 않는다.
+Springdoc은 핸들러 매핑과 DTO 클래스를 분석해 OpenAPI 명세를 생성하는 라이브러리다. Spring Boot 3(Jakarta 네임스페이스)에서는 Springdoc 2.x를 써야 한다. ==SpringFox는 2020년 이후 유지보수가 멈춰 Boot 3와 호환되지 않는다.==
 
 `springdoc-openapi-starter-webmvc-ui` 의존성을 추가하면 다음 엔드포인트가 활성화된다.
 
@@ -152,7 +152,7 @@ public class SecurityConfig {
 
 **응답 타입이 `ResponseEntity<?>`나 `Object`면 스키마가 비어 있다.** 반환 타입을 구체적으로 선언하거나 `@ApiResponse`의 `@Content`로 명시한다. `@ControllerAdvice`의 공통 에러 응답도 같은 방식으로 등록해야 문서에 나타난다.
 
-**문서와 실제 응답이 다시 어긋난다.** `@ApiResponse`의 상태 코드나 `@ExampleObject`의 JSON은 사람이 쓴 것이라 실제 동작과 달라질 수 있다. 통합 테스트에 `OpenApiValidationFilter`(swagger-request-validator)를 끼워 응답이 `/v3/api-docs` 명세를 준수하는지 검증하면 빌드 단계에서 잡힌다. 이 라이브러리는 Boot 의존성 관리 대상이 아니므로 버전을 명시한다.
+**문서와 실제 응답이 다시 어긋난다.** `@ApiResponse`의 상태 코드나 `@ExampleObject`의 JSON은 사람이 쓴 것이라 실제 동작과 달라질 수 있다. ==통합 테스트에 `OpenApiValidationFilter`(swagger-request-validator)를 끼워 응답이 `/v3/api-docs` 명세를 준수하는지 검증하면 빌드 단계에서 잡힌다.== 이 라이브러리는 Boot 의존성 관리 대상이 아니므로 버전을 명시한다.
 ## 관련 글
 
 - [Controller와 요청 바인딩](/notes/java-spring/controller-request-binding/)

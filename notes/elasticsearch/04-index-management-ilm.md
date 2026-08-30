@@ -17,11 +17,11 @@ Elasticsearch 인덱스는 Primary Shard 수·analyzer·필드 타입이 생성 
 
 **Alias.** 인덱스를 가리키는 논리 이름이다. 앱은 `products`만 알고 실제로는 `products-v1`이나 `v2`를 본다. `POST /_aliases`에 remove와 add를 함께 넣으면 원자적으로 교체된다. 여러 인덱스를 가리킬 때는 `is_write_index: true`로 쓰기 대상을 하나 지정한다.
 
-**Reindex.** `POST /_reindex`는 source 문서를 dest로 복사한다. 대형 인덱스는 `wait_for_completion=false`로 띄워 `_tasks`로 추적하고, `slices=auto`로 병렬화하며, `conflicts: proceed`로 충돌 문서를 건너뛴다. dest를 미리 만들지 않으면 동적 매핑으로 생성되어 analyzer가 원본과 달라진다. 무중단 재색인은 새 인덱스 생성 → reindex → 증분 복사 → alias 원자 교체 → 옛 인덱스 3~7일 보존 순서다.
+**Reindex.** `POST /_reindex`는 source 문서를 dest로 복사한다. 대형 인덱스는 `wait_for_completion=false`로 띄워 `_tasks`로 추적하고, `slices=auto`로 병렬화하며, `conflicts: proceed`로 충돌 문서를 건너뛴다. ==dest를 미리 만들지 않으면 동적 매핑으로 생성되어 analyzer가 원본과 달라진다.== 무중단 재색인은 새 인덱스 생성 → reindex → 증분 복사 → alias 원자 교체 → 옛 인덱스 3~7일 보존 순서다.
 
 **Index Template.** 이름 패턴에 매칭되는 인덱스에 settings·mappings·aliases를 자동 적용한다. 여러 템플릿이 매칭되면 `priority`가 큰 쪽이 이긴다. `_component_template`으로 공통 조각을 만들고 `composed_of`로 조립한다.
 
-**ILM.** 인덱스를 Hot(쓰기·rollover) → Warm(읽기 전용·forcemerge·shrink) → Cold·Frozen(저가 스토리지·searchable_snapshot) → Delete 단계로 자동 전환하는 정책 엔진이다. 기본 10분 주기로 스캔하며 `min_age`는 rollover 완료 시점부터 계산된다. `searchable_snapshot` 액션만 Enterprise 라이선스가 필요하다.
+**ILM.** 인덱스를 Hot(쓰기·rollover) → Warm(읽기 전용·forcemerge·shrink) → Cold·Frozen(저가 스토리지·searchable_snapshot) → Delete 단계로 자동 전환하는 정책 엔진이다. ==기본 10분 주기로 스캔하며 `min_age`는 rollover 완료 시점부터 계산된다.== `searchable_snapshot` 액션만 Enterprise 라이선스가 필요하다.
 
 **Rollover.** `max_primary_shard_size`·`max_age`·`max_docs` 중 하나라도 만족하면 다음 번호 인덱스를 만들고 write alias를 옮긴다. 초기 인덱스의 `is_write_index: true` alias와 template의 `index.lifecycle.name`·`index.lifecycle.rollover_alias`가 모두 있어야 동작한다.
 
@@ -139,7 +139,7 @@ PUT _index_template/logs-app-template
 - **실제 인덱스 이름 노출.** 앱이 `products-v1`을 직접 호출하면 mapping 변경마다 배포가 따라붙는다. 앱은 alias만 쓰도록 강제한다.
 - **Template priority 충돌.** `logs-*`와 `logs-app-*`가 같은 priority면 결과를 예측할 수 없다. 100 단위로 분리하고 `_simulate_index`로 검증한다.
 - **refresh_interval 원복 누락.** 대량 색인 전 `-1`로 끈 뒤 원복을 잊으면 새 문서가 검색되지 않는다. try-finally에서 원복한다.
-- **rollover 침묵 실패.** write alias나 `rollover_alias`가 빠지면 에러 없이 인덱스가 수백 GB로 부푼다. `GET <index>/_ilm/explain`으로 멈춘 `step`을 확인하고, ERROR면 원인 해결 후 `POST <index>/_ilm/retry`한다.
+- **rollover 침묵 실패.** ==write alias나 `rollover_alias`가 빠지면 에러 없이 인덱스가 수백 GB로 부푼다.== `GET <index>/_ilm/explain`으로 멈춘 `step`을 확인하고, ERROR면 원인 해결 후 `POST <index>/_ilm/retry`한다.
 - **Data tier와 forcemerge.** `allocate`가 요구하는 `data_warm` 노드가 없으면 인덱스가 Hot에 남으므로 노드를 분리할 수 없다면 allocate를 뺀다. forcemerge는 쓰기가 멈춘 뒤 돌아야 하므로 Warm `min_age`를 1~2일 이상으로 두고, Delete 앞에 스냅샷이 먼저 잡히는지 확인한다.
 
 ## 관련 글

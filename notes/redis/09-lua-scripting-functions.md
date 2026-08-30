@@ -13,7 +13,7 @@ MULTI/EXEC는 명령을 묶어 격리해 줄 뿐, "GET한 값이 이 UUID와 같
 
 ## 핵심 개념
 
-EVAL의 시그니처는 `EVAL <script> <numkeys> <key...> <arg...>`다. 앞쪽 numkeys개는 Lua 안에서 `KEYS[]`, 나머지는 `ARGV[]`로 들어온다. 둘을 분리하는 이유는 Cluster 라우팅이다. 서버는 `KEYS[]`만 보고 해시 슬롯을 계산하므로, 키 이름을 `ARGV[]`로 넘기면 단일 인스턴스에서는 동작해도 Cluster에서는 잘못된 노드로 가거나 CROSSSLOT 에러가 난다.
+EVAL의 시그니처는 `EVAL <script> <numkeys> <key...> <arg...>`다. 앞쪽 numkeys개는 Lua 안에서 `KEYS[]`, 나머지는 `ARGV[]`로 들어온다. 둘을 분리하는 이유는 Cluster 라우팅이다. ==서버는 `KEYS[]`만 보고 해시 슬롯을 계산하므로, 키 이름을 `ARGV[]`로 넘기면 단일 인스턴스에서는 동작해도 Cluster에서는 잘못된 노드로 가거나 CROSSSLOT 에러가 난다.==
 
 스크립트 안에서 Redis 명령은 `redis.call`로 호출하며, 에러가 나면 스크립트 전체가 중단된다. `redis.pcall`은 에러를 `{err = "..."}` 테이블로 돌려주어 진행을 계속한다. 반환값은 Integer는 number, Bulk string은 string, Multi-bulk는 table, nil은 false로 변환된다.
 
@@ -147,9 +147,9 @@ public class LockFunctions {
 
 ## 실무에서 걸리는 지점
 
-- 스크립트는 메인 스레드를 점유한다. 실행이 `busy-reply-threshold`(기본 5,000ms, Redis 7 이전 이름은 `lua-time-limit`)를 넘으면 다른 클라이언트는 BUSY 응답을 받는다. `SCRIPT KILL`·`FUNCTION KILL`은 쓰기를 시작하지 않은 스크립트에만 통하고, 그 뒤에는 `SHUTDOWN NOSAVE`밖에 없다.
+- 스크립트는 메인 스레드를 점유한다. 실행이 `busy-reply-threshold`(기본 5,000ms, Redis 7 이전 이름은 `lua-time-limit`)를 넘으면 다른 클라이언트는 BUSY 응답을 받는다. ==`SCRIPT KILL`·`FUNCTION KILL`은 쓰기를 시작하지 않은 스크립트에만 통하고, 그 뒤에는 `SHUTDOWN NOSAVE`밖에 없다.==
 - Cluster에서는 한 스크립트가 만지는 모든 키가 같은 슬롯에 있어야 한다. `rate:{user42}`처럼 hash tag로 슬롯을 고정하고, 키 이름을 `ARGV`에 숨겨 검사를 우회하지 않는다.
-- `TIME`, `SRANDMEMBER`, `SPOP` 같은 비결정적 명령을 스크립트 안에서 호출하면 replica와 AOF 재생 결과가 달라질 수 있다. 시각이나 난수는 클라이언트가 `ARGV`로 넘긴다.
+- ==`TIME`, `SRANDMEMBER`, `SPOP` 같은 비결정적 명령을 스크립트 안에서 호출하면 replica와 AOF 재생 결과가 달라질 수 있다.== 시각이나 난수는 클라이언트가 `ARGV`로 넘긴다.
 - EVALSHA만 쓰는 코드는 `SCRIPT FLUSH`, 재시작, replica 승격 뒤 NOSCRIPT로 실패한다. 폴백이 내장된 클라이언트를 쓰거나 Functions로 옮긴다. Functions는 Redis 7.0 이상, Lettuce 6.2 이상·Jedis 5 이상이 필요하다.
 - Lua 엔진은 5.1이라 `goto`와 `bit32`가 없고 I/O·OS 모듈은 차단된다. 디버거가 없어 `redis.log`가 유일한 출력 수단이므로, 조건 분기가 있는 스크립트는 Testcontainers로 Redis를 띄워 테스트로 검증한다.
 

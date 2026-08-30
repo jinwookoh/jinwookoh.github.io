@@ -17,7 +17,7 @@ updated: 2026-08-30
 
 Loki는 로그 본문을 인덱싱하지 않는다. label 집합만 TSDB 인덱스에 올리고, 같은 label 조합의 로그 묶음을 stream이라 부른다. 로그는 압축된 chunk로 S3·GCS에 저장되고, 검색은 label로 stream을 좁힌 뒤 chunk를 스캔한다.
 
-label에는 정적 메타데이터만 둔다. request_id·user_id를 label로 쓰면 stream이 폭증해 Prometheus의 cardinality 장애와 같은 일이 난다. 동적 값은 로그 라인에 남기고 parser로 꺼낸다. 수집 agent는 Promtail 대신 Alloy가 권장이며, 배포 모드는 100GB/일 미만이면 Single Binary, 5TB/일까지는 Simple Scalable, 그 이상은 Microservices다.
+label에는 정적 메타데이터만 둔다. request_id·user_id를 label로 쓰면 stream이 폭증해 Prometheus의 cardinality 장애와 같은 일이 난다. 동적 값은 로그 라인에 남기고 parser로 꺼낸다. 수집 agent는 Promtail 대신 Alloy가 권장이며, ==배포 모드는 100GB/일 미만이면 Single Binary, 5TB/일까지는 Simple Scalable, 그 이상은 Microservices다.==
 
 ### LogQL — 파이프라인으로 좁히고 시계열로 바꾼다
 
@@ -33,7 +33,7 @@ TraceQL은 `{ resource.service.name = "api" && span.http.status_code = 500 }`처
 
 Tempo의 Metric Generator는 trace에서 RED metric(`traces_spanmetrics_*`)과 호출 관계 metric(`traces_service_graph_*`)을 만들어 Prometheus로 보내고, Grafana는 이를 Service Graph로 그린다. Exemplar는 histogram sample에 trace_id를 붙여 p99 그래프의 점에서 trace로 이동하게 한다. Loki의 Derived Field는 로그의 trace_id를 Tempo 링크로 바꾸고, Tempo의 Trace to logs는 span에서 같은 trace_id의 로그를 연다.
 
-sampling은 tail 방식을 쓴다. head sampling은 에러 trace도 같은 비율로 버리지만, tail sampling은 trace가 끝난 뒤 에러·느린 trace를 전부 남기고 정상 trace만 일부 남긴다.
+sampling은 tail 방식을 쓴다. ==head sampling은 에러 trace도 같은 비율로 버리지만, tail sampling은 trace가 끝난 뒤 에러·느린 trace를 전부 남기고 정상 trace만 일부 남긴다.==
 
 ## 코드
 
@@ -137,7 +137,7 @@ service:
 ## 실무에서 걸리는 지점
 
 - **LogQL 단계 순서가 성능을 결정한다.** selector는 app까지 좁히고, line filter는 매칭이 적은 패턴을 먼저 두며, `| json` parser는 양을 줄인 뒤 마지막에 건다.
-- **retention은 compactor가 켜져야 실제로 삭제된다.** `retention_period`만 두고 `compactor.retention_enabled: true`를 빼면 저장소가 끝없이 커진다.
+- **retention은 compactor가 켜져야 실제로 삭제된다.** ==`retention_period`만 두고 `compactor.retention_enabled: true`를 빼면 저장소가 끝없이 커진다.==
 - **Metric Generator의 dimension이 cardinality를 만든다.** service × operation × status에 dimension을 더할수록 시계열이 곱으로 늘어나므로 실제로 쓰는 것만 남긴다.
 - **service.name이 흔들리면 Service Graph와 Trace to logs가 끊긴다.** `spring.application.name`을 배포 설정에서 일원화한다.
 - **PII는 저장 전에 지운다.** 이메일·카드번호는 Alloy stage와 Collector의 attributes processor에서 걸러야 object storage에 남지 않는다.

@@ -133,11 +133,11 @@ CMD ["node", "dist/main.js"]
 
 ## 실무에서 걸리는 지점
 
-- **전역 설정 누락**: `useGlobalPipes`·`setGlobalPrefix`·`useGlobalFilters`는 `main.ts`에 있으므로 e2e에서 다시 적용하지 않으면 검증 에러가 200으로 통과한다. 부트스트랩 설정을 별도 함수로 뽑아 `main.ts`와 테스트가 공유하게 만드는 편이 안전하다.
+- **전역 설정 누락**: ==`useGlobalPipes`·`setGlobalPrefix`·`useGlobalFilters`는 `main.ts`에 있으므로 e2e에서 다시 적용하지 않으면 검증 에러가 200으로 통과한다.== 부트스트랩 설정을 별도 함수로 뽑아 `main.ts`와 테스트가 공유하게 만드는 편이 안전하다.
 - **`app.close()` 생략**: e2e에서 앱을 닫지 않으면 DB 풀·타이머·큐 커넥션이 남아 Jest가 종료되지 않거나 다음 테스트 파일과 포트가 충돌한다. `afterAll`에서 반드시 닫는다.
-- **`overrideProvider` 토큰 불일치**: `@Inject('CACHE')`처럼 문자열·심볼 토큰으로 주입한 프로바이더는 클래스가 아닌 그 토큰으로 override해야 한다. 클래스로 지정하면 조용히 실패하고 실제 구현이 로드된다.
-- **종료 훅 미활성화**: `enableShutdownHooks()`를 켜지 않으면 SIGTERM에서 `OnApplicationShutdown`이 실행되지 않아 롤링 배포 중 진행 요청이 잘린다. `npm start`로 띄우면 시그널이 npm에 머무르므로 Node를 직접 실행한다.
-- **헬스체크와 readiness 분리**: Terminus 엔드포인트 하나를 liveness와 readiness에 같이 쓰면 DB 일시 장애 때 파드가 재시작 루프에 빠진다. DB 인디케이터는 readiness에만 두고 liveness는 프로세스 생존만 본다.
+- **`overrideProvider` 토큰 불일치**: `@Inject('CACHE')`처럼 문자열·심볼 토큰으로 주입한 프로바이더는 클래스가 아닌 그 토큰으로 override해야 한다. ==클래스로 지정하면 조용히 실패하고 실제 구현이 로드된다.==
+- **종료 훅 미활성화**: `enableShutdownHooks()`를 켜지 않으면 SIGTERM에서 `OnApplicationShutdown`이 실행되지 않아 롤링 배포 중 진행 요청이 잘린다. ==`npm start`로 띄우면 시그널이 npm에 머무르므로 Node를 직접 실행한다.==
+- **헬스체크와 readiness 분리**: ==Terminus 엔드포인트 하나를 liveness와 readiness에 같이 쓰면 DB 일시 장애 때 파드가 재시작 루프에 빠진다.== DB 인디케이터는 readiness에만 두고 liveness는 프로세스 생존만 본다.
 
 ## 관련 글
 

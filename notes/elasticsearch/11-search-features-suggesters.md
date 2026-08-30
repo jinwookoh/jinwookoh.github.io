@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 `highlight`를 붙이면 `hits[].highlight.<field>`에 매칭 구간을 `<em>`으로 감싼 조각이 담긴다. `pre_tags`·`post_tags`로 태그를 바꾸고 `fragment_size`(기본 100)와 `number_of_fragments`(기본 5)로 응답 크기를 제한한다. highlighter는 기본 `unified`, 큰 본문용 `fvh`가 있으며 `fvh`는 매핑에 `term_vector: with_positions_offsets`가 필요하다.
 
-`sort`를 지정하면 `_score`를 계산하지 않는다. 동률은 배열 뒤쪽 기준으로 깨므로 마지막에 unique 필드를 두고, null 문서 위치는 `missing`으로 명시한다.
+==`sort`를 지정하면 `_score`를 계산하지 않는다.== 동률은 배열 뒤쪽 기준으로 깨므로 마지막에 unique 필드를 두고, null 문서 위치는 `missing`으로 명시한다.
 
 ### Pagination
 
@@ -136,10 +136,10 @@ public class SuggestController {
 
 ## 실무에서 걸리는 지점
 
-- **tiebreaker 누락.** `created_at` 하나로 `search_after`를 돌리면 같은 시각 문서가 구분되지 않아 페이지 사이에 중복·누락이 생긴다. sort 마지막에 항상 `_shard_doc`이나 unique 필드를 둔다.
+- **tiebreaker 누락.** ==`created_at` 하나로 `search_after`를 돌리면 같은 시각 문서가 구분되지 않아 페이지 사이에 중복·누락이 생긴다.== sort 마지막에 항상 `_shard_doc`이나 unique 필드를 둔다.
 - **PIT·scroll 미해제.** 예외로 끊겨도 keep_alive 만료 전까지 힙을 점유한다. try/finally로 닫고 keep_alive는 1~5분으로 짧게 잡는다.
 - **highlight 비용.** 수 MB 본문에 기본 옵션으로 걸면 전체 텍스트를 다시 분석해 응답이 수 초로 늘어난다. fragment 수와 크기를 명시하고 두 번째 페이지부터는 끈다.
-- **completion FST 힙 폭증.** 후보 수백만 건이면 FST만 수 GB가 되어 노드가 OOM에 이른다. 자동완성 인덱스를 분리하고 `completion.size_in_bytes`를 추적한다.
+- **completion FST 힙 폭증.** ==후보 수백만 건이면 FST만 수 GB가 되어 노드가 OOM에 이른다.== 자동완성 인덱스를 분리하고 `completion.size_in_bytes`를 추적한다.
 - **Suggester 전제 누락.** `text` 필드에 completion을 던지면 매핑 에러, `contexts`를 선언하고 쿼리에서 빠뜨리면 0건, phrase suggester가 standard 분석 필드를 가리키면 후보가 비어 있다.
 
 ## 관련 글

@@ -24,10 +24,10 @@
   <h1>String·Hash — 값 캐싱과 객체 저장</h1>
   <p class="summary">String은 값 하나·카운터·비트맵·락에, Hash는 부분 갱신이 잦은 flat 객체에 쓴다</p>
   <div class="content">
-<p>관계형 DB에서 조회수를 올리려면 읽고, 더하고, 쓰는 세 단계를 거치며 동시 요청이 겹치면 갱신이 유실된다. 세션이나 인증번호처럼 수명이 정해진 값은 만료 컬럼과 정리 배치가 따로 필요하다. 프로필을 캐시에 통째로 넣어 두면 이메일 하나를 바꿀 때도 전체를 읽어 파싱하고 다시 써야 한다. <mark>Redis의 String과 Hash는 이를 각각 원자적 증감, 키 단위 TTL, 필드 단위 갱신으로 해결한다.</mark></p>
+<p>관계형 DB에서 조회수를 올리려면 읽고, 더하고, 쓰는 세 단계를 거치며 동시 요청이 겹치면 갱신이 유실된다. 세션이나 인증번호처럼 수명이 정해진 값은 만료 컬럼과 정리 배치가 따로 필요하다. 프로필을 캐시에 통째로 넣어 두면 이메일 하나를 바꿀 때도 전체를 읽어 파싱하고 다시 써야 한다. Redis의 String과 Hash는 이를 각각 원자적 증감, 키 단위 TTL, 필드 단위 갱신으로 해결한다.</p>
 <h2>핵심 개념</h2>
 <h3>String — 모든 값의 기본 형태</h3>
-<p>String은 바이트 시퀀스다. 문자열, 숫자, 직렬화된 객체, 바이너리가 모두 들어가며 최대 크기는 512MB다. <code>SET</code>과 <code>GET</code>은 O(1)이고, <code>SET</code>은 기존 키가 Hash나 List여도 확인 없이 String으로 덮어쓴다. 반대로 <code>GET</code>을 다른 타입 키에 실행하면 <code>WRONGTYPE</code> 오류가 난다.</p>
+<p>String은 바이트 시퀀스다. 문자열, 숫자, 직렬화된 객체, 바이너리가 모두 들어가며 최대 크기는 512MB다. <code>SET</code>과 <code>GET</code>은 O(1)이고, <mark><code>SET</code>은 기존 키가 Hash나 List여도 확인 없이 String으로 덮어쓴다.</mark> 반대로 <code>GET</code>을 다른 타입 키에 실행하면 <code>WRONGTYPE</code> 오류가 난다.</p>
 <table>
 <thead>
 <tr>
@@ -103,7 +103,7 @@
 <td align="left">listpack</td>
 </tr>
 </tbody></table>
-<p><mark>통째로 넣고 빼는 비중이 압도적이거나 중첩이 있으면 String JSON, 필드 단위 접근과 카운터가 잦고 구조가 평면이면 Hash다.</mark></p>
+<p>통째로 넣고 빼는 비중이 압도적이거나 중첩이 있으면 String JSON, 필드 단위 접근과 카운터가 잦고 구조가 평면이면 Hash다.</p>
 <h2>코드</h2>
 <p><code>StringRedisTemplate</code>으로 원자 카운터, TTL이 있는 세션 값, <code>SET NX EX</code> 락 획득을 처리하는 예제다.</p>
 <pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.redis;
@@ -214,7 +214,7 @@
 <ul>
 <li><strong><code>SET</code>의 타입 덮어쓰기.</strong> 다른 타입 명령은 키 타입을 검사하지만 <code>SET</code>은 Hash든 List든 지우고 String으로 바꾼다. 키 접두사를 타입·서비스별로 분리한다.</li>
 <li><strong>큰 Hash에 <code>HGETALL</code>.</strong> 필드가 수천 개를 넘으면 O(N) 응답이 단일 스레드를 점유해 다른 명령까지 지연된다. <code>HMGET</code>으로 필요한 필드만 읽고, 수만 필드로 자라면 키를 분할한다.</li>
-<li><strong>listpack 경계를 넘는 값.</strong> 필드 하나라도 64바이트를 넘으면 Hash 전체가 hashtable로 바뀌어 메모리가 수 배 늘어난다. 긴 문자열이나 직렬화된 JSON을 Hash 필드에 넣는 순간 작은 객체의 이점이 사라진다.</li>
+<li><strong>listpack 경계를 넘는 값.</strong> <mark>필드 하나라도 64바이트를 넘으면 Hash 전체가 hashtable로 바뀌어 메모리가 수 배 늘어난다.</mark> 긴 문자열이나 직렬화된 JSON을 Hash 필드에 넣는 순간 작은 객체의 이점이 사라진다.</li>
 <li><strong>TTL 없는 갱신.</strong> <mark>옵션 없는 <code>SET</code>은 기존 TTL을 지워 영구 키를 만든다.</mark> <code>KEEPTTL</code>을 쓰거나 TTL을 다시 지정하고, Hash는 <code>HSET</code> 후 <code>EXPIRE</code>를 잊지 않는다. <code>@Cacheable</code>도 <code>entryTtl</code>이 없으면 만료 없이 쌓인다.</li>
 <li><strong>직렬화 불일치.</strong> <code>RedisTemplate</code> 기본값은 JDK 직렬화라서 CLI에서 읽을 수 없다. <code>StringRedisTemplate</code>이나 JSON 직렬화기로 통일한다.</li>
 </ul>

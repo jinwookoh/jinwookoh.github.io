@@ -96,8 +96,8 @@ public boolean liked(String articleId, long userId) {
 
 ## 실무에서 걸리는 지점
 
-- **`LPOP` 큐는 at-most-once다.** 꺼낸 직후 워커가 죽으면 작업이 사라진다. `LMOVE`로 processing 목록에 보관하면 at-least-once가 되지만 중복 실행이 가능해지므로 작업 처리는 멱등해야 하고, 죽은 워커가 남긴 항목을 processing에서 다시 pending으로 되돌리는 회수 로직이 별도로 필요하다.
-- **Blocking 명령은 연결을 점유한다.** `BLPOP`·`BLMOVE`는 대기 중 커넥션을 붙잡으므로 Lettuce의 공유 커넥션이나 작은 풀에서 다른 요청을 막는다. 워커 전용 커넥션을 분리하고, 무한 대기(0) 대신 유한 timeout으로 루프를 돌려 종료 신호를 처리할 수 있게 한다.
+- ==**`LPOP` 큐는 at-most-once다.**== 꺼낸 직후 워커가 죽으면 작업이 사라진다. `LMOVE`로 processing 목록에 보관하면 at-least-once가 되지만 중복 실행이 가능해지므로 작업 처리는 멱등해야 하고, 죽은 워커가 남긴 항목을 processing에서 다시 pending으로 되돌리는 회수 로직이 별도로 필요하다.
+- **Blocking 명령은 연결을 점유한다.** ==`BLPOP`·`BLMOVE`는 대기 중 커넥션을 붙잡으므로 Lettuce의 공유 커넥션이나 작은 풀에서 다른 요청을 막는다.== 워커 전용 커넥션을 분리하고, 무한 대기(0) 대신 유한 timeout으로 루프를 돌려 종료 신호를 처리할 수 있게 한다.
 - **큰 컬렉션의 O(N) 명령은 서버 전체를 막는다.** Redis는 명령을 단일 스레드로 실행하므로 수십만 원소 List의 `LINDEX`·`LRANGE 0 -1`, 수백만 멤버 Set의 `SMEMBERS`는 다른 요청을 지연시킨다. 전체 조회는 `SSCAN`으로 페이징하고, 인덱스 접근이 잦으면 Sorted Set으로 설계를 바꾼다.
 - **집합 연산은 Cluster에서 같은 슬롯을 요구한다.** `SINTER`·`SINTERSTORE` 대상 키가 다른 슬롯에 있으면 CROSSSLOT 오류가 나므로 hash tag(`{article}:...`)로 묶는다. 결과 개수만 필요하면 `SINTERCARD`(7.0+)가 결과 집합을 만들지 않아 가볍다.
 - **고유 방문자 카운팅에 Set을 쓰면 메모리가 선형으로 증가한다.** 정수 ID는 intset으로 압축되지만 문자열 ID는 원소당 수십 바이트를 차지한다. 정확한 멤버십 없이 수만 필요하면 HyperLogLog가 12KB 고정으로 근사값을 준다.

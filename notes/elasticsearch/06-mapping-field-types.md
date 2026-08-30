@@ -35,11 +35,11 @@ Static Mapping은 `mappings.properties`에 필드와 타입을 직접 선언한�
 
 ### object · nested · flattened
 
-`object`는 중첩 JSON을 평면 키로 푼다. 배열 객체를 `object`로 두면 각 키가 독립 배열로 평탄화되어 짝이 사라지고 `first=A AND last=Y` 같은 잘못된 조합이 매치된다. `nested`는 각 객체를 별도 Lucene 문서로 색인해 짝을 보존하지만 비용이 커진다. `flattened`는 키를 미리 알 수 없는 JSON을 한 필드로 압축해 Mapping Explosion을 막는 대신 하위 키별 집계가 제한된다.
+`object`는 중첩 JSON을 평면 키로 푼다. ==배열 객체를 `object`로 두면 각 키가 독립 배열로 평탄화되어 짝이 사라지고 `first=A AND last=Y` 같은 잘못된 조합이 매치된다.== `nested`는 각 객체를 별도 Lucene 문서로 색인해 짝을 보존하지만 비용이 커진다. `flattened`는 키를 미리 알 수 없는 JSON을 한 필드로 압축해 Mapping Explosion을 막는 대신 하위 키별 집계가 제한된다.
 
 ### Runtime Field와 Mapping 변경
 
-Runtime Field는 쿼리 시점에 스크립트로 계산하는 가상 필드로, reindex 없이 파생 값을 다루지만 느리므로 자주 쓰이면 정식 필드로 옮긴다. 변경 가능한 것은 필드 추가, 하위 필드 추가, runtime field 정도다. 기존 필드의 타입·analyzer 변경, 필드 삭제, `object`↔`nested` 전환은 불가능하며 새 인덱스 → `_reindex` → alias 전환으로 처리한다. 애플리케이션은 alias만 바라봐야 무중단 전환이 된다.
+Runtime Field는 쿼리 시점에 스크립트로 계산하는 가상 필드로, reindex 없이 파생 값을 다루지만 느리므로 자주 쓰이면 정식 필드로 옮긴다. 변경 가능한 것은 필드 추가, 하위 필드 추가, runtime field 정도다. ==기존 필드의 타입·analyzer 변경, 필드 삭제, `object`↔`nested` 전환은 불가능하며 새 인덱스 → `_reindex` → alias 전환으로 처리한다.== 애플리케이션은 alias만 바라봐야 무중단 전환이 된다.
 
 ## 코드
 
@@ -131,7 +131,7 @@ PUT /app-logs
 - **Mapping Explosion.** `dynamic: true`에서 가변 값을 필드 이름으로 쓰는 JSON이 들어오면 필드 수가 폭증해 클러스터 메모리가 소진된다. `strict`로 막고 가변 키 덩어리는 `flattened`로 받는다.
 - **keyword 하위 필드 누락.** `text`만으로 잡은 필드에 `terms` 집계를 걸면 "Fielddata is disabled on text fields"로 실패하고 해결에는 reindex가 필요하다.
 - **date 포맷 불일치.** 추론된 date 필드에 다른 형식이 들어오면 `mapper_parsing_exception`으로 거부된다. `format`을 명시하되 클라이언트를 ISO 8601 UTC로 통일하는 편이 낫다.
-- **nested 남용과 미사용.** `object`로 두면 짝이 깨진 조합이 매치되고, 모든 배열에 `nested`를 쓰면 색인·쿼리 비용이 1.5~3배 늘어난다. 수만 건이 붙는 관계는 별도 인덱스로 뺀다.
+- **nested 남용과 미사용.** `object`로 두면 짝이 깨진 조합이 매치되고, ==모든 배열에 `nested`를 쓰면 색인·쿼리 비용이 1.5~3배 늘어난다.== 수만 건이 붙는 관계는 별도 인덱스로 뺀다.
 
 ## 관련 글
 

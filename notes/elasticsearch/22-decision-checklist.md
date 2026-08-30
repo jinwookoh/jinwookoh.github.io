@@ -16,10 +16,10 @@ Elasticsearch는 검색·로그·관측·벡터를 하나의 엔진으로 처리
 도입 결정은 여섯 개 질문을 순서대로 답하면 배포 형태까지 정해진다.
 
 1. 검색·로그·관측·벡터 중 하나라도 필요한가. 아니면 PostgreSQL·Redis·Kafka로 충분하다.
-2. 데이터 규모는 어느 정도인가. 10만 행 미만, QPS 10 미만이면 PostgreSQL tsvector나 MySQL FULLTEXT가 운영비 대비 유리하다.
+2. 데이터 규모는 어느 정도인가. ==10만 행 미만, QPS 10 미만이면 PostgreSQL tsvector나 MySQL FULLTEXT가 운영비 대비 유리하다.==
 3. 주 용도는 무엇인가. 풀텍스트 검색이면 ES와 Nori, 로그·관측이면 ES와 Beats·Logstash·Kibana, 벡터·RAG면 dense_vector·kNN·hybrid search가 표준이다. 둘 이상이 섞이면 검색 클러스터와 로그 클러스터를 분리한다.
 4. 라이선스와 클라우드 환경은 어떠한가. AWS 단일 환경에 Apache 2.0이 필요하면 AWS OpenSearch Service, 멀티 클라우드거나 Elastic 최신 기능이 필요하면 Elastic Cloud, 온프레미스면 자체 운영이며 Kubernetes 환경이면 ECK를 쓴다.
-5. 벡터 검색만 사용하는가. 100만 벡터 미만이고 검색·로그와 함께 쓰면 ES가 유리하다. 벡터만 1억 개 이상이면 Qdrant·Milvus·Weaviate 같은 전용 Vector DB가 앞선다.
+5. 벡터 검색만 사용하는가. 100만 벡터 미만이고 검색·로그와 함께 쓰면 ES가 유리하다. ==벡터만 1억 개 이상이면 Qdrant·Milvus·Weaviate 같은 전용 Vector DB가 앞선다.==
 6. 매니지드와 자체 운영 중 무엇인가. DevOps 인력이 2명 미만이면 Elastic Cloud Serverless 또는 OpenSearch Serverless, 인력이 있고 비용에 민감하면 ECK, 온프레미스가 강제되면 Terraform·Helm·ECK Operator로 자체 운영한다.
 
 운영 30일 체크리스트는 시점별로 나눈다.

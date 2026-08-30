@@ -24,14 +24,14 @@
   <h1>Snapshot·Restore와 보안 (RBAC)</h1>
   <p class="summary">Replica는 백업이 아니다. S3 Repository·SLM으로 시점 백업을 자동화하고, API Key·Role·FLS/DLS·TLS로 접근을 통제한다.</p>
   <div class="content">
-<p><mark>Replica는 노드 한 대의 장애를 넘기는 고가용성 장치이지 백업이 아니다.</mark> 운영자가 <code>DELETE /orders</code>를 잘못 실행하면 그 변경은 replica에도 즉시 전파되고, AZ 전체 장애나 랜섬웨어도 마찬가지다. 클러스터 바깥에 시점 단위로 데이터를 떠 두는 Snapshot이 없으면 복구 수단이 없다. 접근 통제도 같은 층위다. 7.x까지는 Security가 옵션이라 노출된 클러스터가 통째로 삭제되는 사고가 잦았고, 8.0부터 Security by Default로 바뀌었다.</p>
+<p>Replica는 노드 한 대의 장애를 넘기는 고가용성 장치이지 백업이 아니다. 운영자가 <code>DELETE /orders</code>를 잘못 실행하면 그 변경은 replica에도 즉시 전파되고, AZ 전체 장애나 랜섬웨어도 마찬가지다. 클러스터 바깥에 시점 단위로 데이터를 떠 두는 Snapshot이 없으면 복구 수단이 없다. 접근 통제도 같은 층위다. 7.x까지는 Security가 옵션이라 노출된 클러스터가 통째로 삭제되는 사고가 잦았고, 8.0부터 Security by Default로 바뀌었다.</p>
 <h2>핵심 개념</h2>
 <p><strong>Repository</strong>는 snapshot 저장 위치의 추상이다. 운영은 S3 계열(AWS S3, MinIO)이 표준이며, 자격 증명은 노드의 IAM Role로 처리하고 등록 직후 <code>POST /_snapshot/{repo}/_verify</code>로 모든 데이터 노드가 쓰기 가능한지 확인한다. 최소 권한은 버킷에 <code>ListBucket</code>·<code>GetBucketLocation</code>·<code>ListBucketMultipartUploads</code>, 객체에 <code>GetObject</code>·<code>PutObject</code>·<code>DeleteObject</code>·<code>AbortMultipartUpload</code> 7개다.</p>
-<p><strong>Snapshot</strong>은 Lucene segment 파일을 물리적으로 복사하는 증분 백업이다. segment별 참조 수를 추적하므로 오래된 snapshot을 지워도 최신 snapshot은 깨지지 않는다. <mark>일부 shard만 성공한 <code>PARTIAL</code>은 백업으로 인정하지 않는다.</mark></p>
+<p><strong>Snapshot</strong>은 Lucene segment 파일을 물리적으로 복사하는 증분 백업이다. segment별 참조 수를 추적하므로 오래된 snapshot을 지워도 최신 snapshot은 깨지지 않는다. 일부 shard만 성공한 <code>PARTIAL</code>은 백업으로 인정하지 않는다.</p>
 <p><strong>Restore</strong>는 <code>rename_pattern</code>·<code>rename_replacement</code>로 원본 옆에 다른 이름으로 복원한 뒤 alias를 교체하는 방식이 무중단 복원의 기본이다. <code>include_global_state</code>는 템플릿·ILM·클러스터 설정까지 덮어쓰므로 운영에서는 false로 두고, tier 구성이 다른 클러스터로 옮길 때는 <code>ignore_index_settings</code>에 <code>_tier_preference</code>를 넣는다.</p>
 <p><strong>SLM</strong>은 클러스터 내부의 백업 스케줄러다. retention의 <code>expire_after</code>·<code>min_count</code>·<code>max_count</code>는 동시에 적용되어, 백업이 며칠 멈춰도 <code>min_count</code>만큼은 남고 <code>max_count</code>를 넘으면 기한과 무관하게 오래된 것부터 지운다. <strong>Searchable Snapshot</strong>은 S3를 주 저장소로 두고 로컬 디스크를 캐시로만 쓰는 인덱스 형태로, ILM의 cold·frozen phase와 결합된다.</p>
 <p>보안은 인증·인가·감사·암호화 네 축이다. 인증은 basic auth·API Key·PKI·LDAP·SAML/OIDC를 동시에 활성화할 수 있고, 인가는 cluster·index·application privilege를 묶은 Role로 표현하며 기본은 거부다. Transport TLS(9300)는 8.x에서 클러스터 형성 자체에 필수이고 HTTP TLS(9200)는 클라이언트 구간을 보호한다.</p>
-<p>서비스 간 호출은 API Key가 표준이다. 발급자 권한의 부분집합만 위임되며 <code>expiration</code>을 반드시 지정한다. Field-level Security는 role의 <code>field_security.grant</code>로 노출 필드를 제한하고, Document-level Security는 role의 <code>query</code>를 모든 검색에 필터로 강제한다. 둘 다 Platinum 이상에서 동작한다.</p>
+<p>서비스 간 호출은 API Key가 표준이다. 발급자 권한의 부분집합만 위임되며 <code>expiration</code>을 반드시 지정한다. Field-level Security는 role의 <code>field_security.grant</code>로 노출 필드를 제한하고, Document-level Security는 role의 <code>query</code>를 모든 검색에 필터로 강제한다. <mark>둘 다 Platinum 이상에서 동작한다.</mark></p>
 <h2>코드</h2>
 <p>Spring Boot 3.x에서 자체 서명 CA를 SSL Bundle로 신뢰하는 설정이다.</p>
 <pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
@@ -96,10 +96,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>복원을 한 번도 안 해 본 백업.</strong> 사고 때 처음 복원하면 권한 누락·템플릿 충돌·디스크 부족으로 RTO를 넘긴다.</mark> 분기 1회 rename 복원으로 문서 수와 샘플 검색 결과를 원본과 비교하는 절차를 runbook으로 고정한다.</li>
-<li><strong>Repository 버킷의 외부 수정.</strong> S3 라이프사이클이 base_path 하위 객체를 지우면 그 segment를 참조하는 모든 snapshot이 <code>INCOMPATIBLE</code>이 된다. 버킷은 ES만 쓰게 하고, MinIO·Ceph는 <code>_analyze</code>로 일관성을 점검한다.</li>
+<li><strong>복원을 한 번도 안 해 본 백업.</strong> 사고 때 처음 복원하면 권한 누락·템플릿 충돌·디스크 부족으로 RTO를 넘긴다. 분기 1회 rename 복원으로 문서 수와 샘플 검색 결과를 원본과 비교하는 절차를 runbook으로 고정한다.</li>
+<li><strong>Repository 버킷의 외부 수정.</strong> <mark>S3 라이프사이클이 base_path 하위 객체를 지우면 그 segment를 참조하는 모든 snapshot이 <code>INCOMPATIBLE</code>이 된다.</mark> 버킷은 ES만 쓰게 하고, MinIO·Ceph는 <code>_analyze</code>로 일관성을 점검한다.</li>
 <li><strong>retention 누락과 wait_for_completion.</strong> retention이 없으면 snapshot이 영구 누적된다. 큰 클러스터에서 <code>wait_for_completion=true</code>는 HTTP timeout으로 끊기므로 비동기 시작 후 <code>_status</code>를 polling한다.</li>
-<li><strong>FLS와 <code>_source</code>의 우회.</strong> FLS는 <code>_source</code> 직접 조회·집계·정렬 경로에서 완전하지 않다. PII는 별도 인덱스로 물리 분리하고 role에서 접근을 끊는 것이 주 방어선이다.</li>
+<li><strong>FLS와 <code>_source</code>의 우회.</strong> <mark>FLS는 <code>_source</code> 직접 조회·집계·정렬 경로에서 완전하지 않다.</mark> PII는 별도 인덱스로 물리 분리하고 role에서 접근을 끊는 것이 주 방어선이다.</li>
 <li><strong>superuser 일상 사용과 인증서 만료.</strong> <code>elastic</code>은 break-glass 계정으로 봉인하고 <code>action.destructive_requires_name: true</code>로 와일드카드 삭제를 막는다. Transport 인증서가 만료되면 클러스터가 깨지므로 만료 30일 전 알람을 둔다. Audit Log는 별도 클러스터로 보내고 <code>emit_request_body</code>는 false를 유지한다.</li>
 </ul>
 <h2>관련 글</h2>

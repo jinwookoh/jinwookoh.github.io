@@ -31,7 +31,7 @@ CodeDeploy는 `appspec.yml`에 따라 EC2·Lambda·ECS에 배포한다. EC2는 �
 | Lambda·ECS | Linear | 일정 간격으로 고정 비율씩 전환 |
 | Lambda·ECS | All-at-once | 즉시 100% 전환 |
 
-Canary·Linear는 Lambda 별칭 가중치 또는 ALB 리스너 가중치로 구현되므로 EC2에서는 선택할 수 없다.
+==Canary·Linear는 Lambda 별칭 가중치 또는 ALB 리스너 가중치로 구현되므로 EC2에서는 선택할 수 없다.==
 
 ### CloudFormation과 CDK
 
@@ -138,10 +138,10 @@ public class OrderApiStack extends Stack {
 
 ## 실무에서 걸리는 지점
 
-- **CodeBuild 환경 변수에 비밀값 직접 기입.** 빌드 로그에 평문으로 남는다. SSM·Secrets Manager 참조로 둔다.
+- **CodeBuild 환경 변수에 비밀값 직접 기입.** ==빌드 로그에 평문으로 남는다.== SSM·Secrets Manager 참조로 둔다.
 - **EC2에 Canary를 기대하는 설계.** 가중치 전환은 Lambda·ECS에서만 동작한다. EC2 무중단은 Blue/Green이며 전환 기간 인스턴스 비용이 두 배다.
-- **Change Set 없이 update-stack 실행.** Replacement를 유발하는 속성 변경은 기존 리소스를 삭제한다. 상태 저장 리소스에는 `DeletionPolicy: Retain`을 건다.
-- **콘솔 수동 변경으로 인한 Drift.** 다음 Stack 갱신이 변경을 되돌리거나 실패한다. 긴급 변경도 템플릿에 반영한다.
+- **Change Set 없이 update-stack 실행.** ==Replacement를 유발하는 속성 변경은 기존 리소스를 삭제한다.== 상태 저장 리소스에는 `DeletionPolicy: Retain`을 건다.
+- **콘솔 수동 변경으로 인한 Drift.** ==다음 Stack 갱신이 변경을 되돌리거나 실패한다.== 긴급 변경도 템플릿에 반영한다.
 - **CDK 실패를 CDK 로그에서만 찾는 습관.** 실제 원인은 CFN 콘솔의 Stack 이벤트에 있다. L2가 자동 생성하는 IAM 정책 범위도 `cdk diff`로 확인한다.
 
 ## 관련 글

@@ -24,13 +24,13 @@
   <h1>Job 설정 — JobBuilder·Validator·Listener</h1>
   <p class="summary">JobBuilder로 Step 흐름·재시작 정책·파라미터 검증·Incrementer·Listener를 한 번에 정의하는 방법</p>
   <div class="content">
-<p>Job 정의를 소홀히 하면 같은 문제가 반복된다. 같은 JobParameters로 두 번째 실행하면 JobInstance가 이미 완료됐다는 이유로 거부되고, 필수 파라미터가 빠진 Job은 Step 중간에서 NullPointerException으로 죽는다. <mark>JobBuilder의 Validator·Incrementer·Listener·restart 옵션은 이 문제를 정의 시점에 고정하는 장치다.</mark></p>
+<p>Job 정의를 소홀히 하면 같은 문제가 반복된다. 같은 JobParameters로 두 번째 실행하면 JobInstance가 이미 완료됐다는 이유로 거부되고, 필수 파라미터가 빠진 Job은 Step 중간에서 NullPointerException으로 죽는다. JobBuilder의 Validator·Incrementer·Listener·restart 옵션은 이 문제를 정의 시점에 고정하는 장치다.</p>
 <h2>핵심 개념</h2>
 <h3>JobBuilder와 Step 연결</h3>
 <p>Spring Batch 5부터 <code>JobBuilderFactory</code>·<code>StepBuilderFactory</code>는 deprecated 되었고 6에서 제거됐다. <code>@EnableBatchProcessing</code>도 Spring Boot 3.x에서는 붙이지 않는다. 붙이면 Boot 자동 구성이 물러난다. Job은 <code>new JobBuilder(name, jobRepository)</code>로 정의하고 <code>start()</code>·<code>next()</code>로 Step을 잇는다. 앞 Step이 실패하면 뒤 Step은 실행되지 않고 Job은 FAILED가 된다.</p>
-<p>Job·Step 이름은 메타데이터 테이블에 저장되므로, 이름을 바꾸면 이전 이력과 끊긴다.</p>
+<p><mark>Job·Step 이름은 메타데이터 테이블에 저장되므로, 이름을 바꾸면 이전 이력과 끊긴다.</mark></p>
 <h3>조건부 흐름</h3>
-<p>Step의 ExitStatus에 따라 분기할 때는 <code>on()</code>·<code>to()</code>·<code>from()</code>을 조합한다. <mark>이 체인을 쓰면 빌더가 <code>FlowJobBuilder</code>로 바뀌고, <code>build()</code> 직전에 반드시 <code>end()</code>를 호출해야 한다.</mark></p>
+<p>Step의 ExitStatus에 따라 분기할 때는 <code>on()</code>·<code>to()</code>·<code>from()</code>을 조합한다. 이 체인을 쓰면 빌더가 <code>FlowJobBuilder</code>로 바뀌고, <code>build()</code> 직전에 반드시 <code>end()</code>를 호출해야 한다.</p>
 <table>
 <thead>
 <tr>
@@ -60,7 +60,7 @@
 <p>Job은 기본적으로 restartable이다. 실패한 JobExecution은 같은 JobInstance의 새 JobExecution으로 재시작되며 완료된 Step은 건너뛴다. <code>preventRestart()</code>를 지정하면 재시작이 <code>JobRestartException</code>으로 거부된다. 멱등성이 없는 작업에만 쓴다.</p>
 <h3>Validator와 Incrementer</h3>
 <p><code>JobParametersValidator</code>는 시작 전에 파라미터를 검사하고 위반 시 <code>JobParametersInvalidException</code>으로 실행을 막는다. <code>DefaultJobParametersValidator</code>에 필수 키와 선택 키 배열만 넘기면 구현 없이 쓸 수 있다.</p>
-<p><code>JobParametersIncrementer</code>는 직전 파라미터로 다음 실행용 파라미터를 만든다. <code>RunIdIncrementer</code>는 <code>run.id</code>를 1씩 올려 매번 새 JobInstance를 만든다. Incrementer는 <code>JobOperator.startNextInstance()</code>와 Boot 커맨드라인 경로에서만 호출된다.</p>
+<p><code>JobParametersIncrementer</code>는 직전 파라미터로 다음 실행용 파라미터를 만든다. <code>RunIdIncrementer</code>는 <code>run.id</code>를 1씩 올려 매번 새 JobInstance를 만든다. <mark>Incrementer는 <code>JobOperator.startNextInstance()</code>와 Boot 커맨드라인 경로에서만 호출된다.</mark></p>
 <h3>JobExecutionListener</h3>
 <p><code>beforeJob()</code>·<code>afterJob()</code>으로 Job 전후에 개입한다. 외부 시스템 lock 획득·해제, 완료·실패 통지가 주된 용도다. <code>afterJob()</code>에서 <code>setExitStatus()</code>를 호출하면 Job의 ExitStatus를 커스텀 코드로 바꿀 수 있다. <code>@BeforeJob</code>·<code>@AfterJob</code>을 붙인 일반 빈을 <code>listener()</code>에 넘겨도 동일하다.</p>
 <h2>코드</h2>
@@ -151,9 +151,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Incrementer가 있어도 파라미터를 직접 넘기면 적용되지 않는다.</strong></mark> <code>JobLauncher.run(job, params)</code>로 실행한다면 타임스탬프 같은 식별 파라미터를 직접 추가한다. 빠뜨리면 두 번째 호출부터 <code>JobInstanceAlreadyCompleteException</code>이 난다.</li>
+<li><strong>Incrementer가 있어도 파라미터를 직접 넘기면 적용되지 않는다.</strong> <code>JobLauncher.run(job, params)</code>로 실행한다면 타임스탬프 같은 식별 파라미터를 직접 추가한다. 빠뜨리면 두 번째 호출부터 <code>JobInstanceAlreadyCompleteException</code>이 난다.</li>
 <li><strong><code>end()</code> 누락은 컴파일 시점에 잡히지 않는다.</strong> <code>on()</code>을 쓴 뒤 <code>end()</code> 없이 <code>build()</code>하면 런타임 예외로 컨텍스트 기동이 실패한다.</li>
-<li><strong><code>afterJob()</code> 안의 외부 호출 실패는 Job 상태를 오염시킨다.</strong> 알림 발송에서 예외가 나면 COMPLETED로 끝난 Job이 FAILED로 기록된다. 리스너 내부에서 예외를 잡아 별도 로그로 남긴다.</li>
+<li><strong><code>afterJob()</code> 안의 외부 호출 실패는 Job 상태를 오염시킨다.</strong> <mark>알림 발송에서 예외가 나면 COMPLETED로 끝난 Job이 FAILED로 기록된다.</mark> 리스너 내부에서 예외를 잡아 별도 로그로 남긴다.</li>
 <li><strong>분기가 다섯 개를 넘으면 Job을 나눈다.</strong> 재시작 시 어느 Step부터 이어지는지 추적하기 어려워진다. 독립 단계는 별도 Job으로 분리한다.</li>
 <li><strong>Boot 3.x에서 자동 실행을 끄지 않으면 기동마다 모든 Job이 돈다.</strong> 외부에서 실행을 제어하려면 <code>spring.batch.job.enabled=false</code>를 둔다.</li>
 </ul>

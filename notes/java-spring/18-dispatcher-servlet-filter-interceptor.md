@@ -132,10 +132,10 @@ public class WebConfig implements WebMvcConfigurer {
 
 ## 실무에서 걸리는 지점
 
-- **Filter에서 던진 예외는 `@ControllerAdvice`에 도달하지 않는다.** 서블릿 컨테이너의 에러 처리로 넘어가 응답 형식이 API 규약과 달라진다. Filter 안에서 직접 JSON을 쓰거나 `HandlerExceptionResolver`를 주입해 위임한다.
-- **`@Component` Filter를 `FilterRegistrationBean`으로 다시 등록하면 두 번 실행된다.** 경로나 순서를 제어하려면 `@Component`를 떼고 `FilterRegistrationBean`만 남긴다.
-- **요청 본문을 Filter에서 읽으면 컨트롤러는 빈 본문을 받는다.** `InputStream`은 한 번만 소비된다. `ContentCachingRequestWrapper`·`ContentCachingResponseWrapper`로 감싸 체인에 넘기고, 응답은 `copyBodyToResponse()`를 호출해야 클라이언트에 전달된다.
-- **Spring Boot 3부터 경로 매칭 기본값이 `PathPatternParser`다.** `/**`는 패턴 끝에서만 허용되어 중간에 `/**/`가 들어간 패턴은 기동 시 실패한다.
+- ==**Filter에서 던진 예외는 `@ControllerAdvice`에 도달하지 않는다.**== 서블릿 컨테이너의 에러 처리로 넘어가 응답 형식이 API 규약과 달라진다. Filter 안에서 직접 JSON을 쓰거나 `HandlerExceptionResolver`를 주입해 위임한다.
+- ==**`@Component` Filter를 `FilterRegistrationBean`으로 다시 등록하면 두 번 실행된다.**== 경로나 순서를 제어하려면 `@Component`를 떼고 `FilterRegistrationBean`만 남긴다.
+- ==**요청 본문을 Filter에서 읽으면 컨트롤러는 빈 본문을 받는다.**== `InputStream`은 한 번만 소비된다. `ContentCachingRequestWrapper`·`ContentCachingResponseWrapper`로 감싸 체인에 넘기고, 응답은 `copyBodyToResponse()`를 호출해야 클라이언트에 전달된다.
+- **Spring Boot 3부터 경로 매칭 기본값이 `PathPatternParser`다.** ==`/**`는 패턴 끝에서만 허용되어 중간에 `/**/`가 들어간 패턴은 기동 시 실패한다.==
 
 ## 관련 글
 

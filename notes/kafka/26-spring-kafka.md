@@ -19,9 +19,9 @@ Producer는 `KafkaTemplate`, Consumer는 `@KafkaListener`와 `MessageListenerCon
 
 **배치 리스너.** `listener.type=batch`로 바꾸면 인자가 `List<T>`가 된다. ack가 배치 단위라 한 건의 실패가 배치 전체 재처리로 번지며, 부분 실패는 `BatchListenerFailedException`으로 실패 인덱스를 알려 그 지점부터만 재처리한다.
 
-**에러 처리.** 기본 핸들러 `DefaultErrorHandler`는 즉시 재시도 9회 후 recoverer를 호출하며, 재시도 동안 파티션 소비가 멈춘다. `DeadLetterPublishingRecoverer`를 붙이면 `<topic>.DLT`로 원본과 예외 헤더가 발행된다. 역직렬화 실패는 `ErrorHandlingDeserializer`로 감싸야 레코드 단위 예외가 되어 DLT로 보낼 수 있다. `@RetryableTopic`은 실패 레코드를 `orders-retry-0`, `orders-retry-1` 같은 토픽으로 보내 지연 후 재소비하므로 원본 파티션이 계속 흐르고, 최종 실패는 `-dlt` 토픽과 `@DltHandler`로 간다. 대신 같은 키의 순서는 깨진다.
+**에러 처리.** ==기본 핸들러 `DefaultErrorHandler`는 즉시 재시도 9회 후 recoverer를 호출하며, 재시도 동안 파티션 소비가 멈춘다.== `DeadLetterPublishingRecoverer`를 붙이면 `<topic>.DLT`로 원본과 예외 헤더가 발행된다. 역직렬화 실패는 `ErrorHandlingDeserializer`로 감싸야 레코드 단위 예외가 되어 DLT로 보낼 수 있다. `@RetryableTopic`은 실패 레코드를 `orders-retry-0`, `orders-retry-1` 같은 토픽으로 보내 지연 후 재소비하므로 원본 파티션이 계속 흐르고, 최종 실패는 `-dlt` 토픽과 `@DltHandler`로 간다. ==대신 같은 키의 순서는 깨진다.==
 
-**트랜잭션.** `producer.transaction-id-prefix`를 지정하면 `KafkaTransactionManager`가 등록되고 컨테이너가 poll마다 트랜잭션을 연다. 리스너가 보낸 메시지와 소비 오프셋이 `sendOffsetsToTransaction`으로 한 트랜잭션에 묶이고, 예외가 나면 abort되어 재처리된다. 다운스트림 Consumer는 `isolation.level=read_committed`(기본 `read_uncommitted`)여야 abort된 레코드를 읽지 않는다. DB와 Kafka를 묶던 `ChainedKafkaTransactionManager`는 제거되었으므로 그 경우는 Outbox 패턴을 쓴다.
+**트랜잭션.** `producer.transaction-id-prefix`를 지정하면 `KafkaTransactionManager`가 등록되고 컨테이너가 poll마다 트랜잭션을 연다. 리스너가 보낸 메시지와 소비 오프셋이 `sendOffsetsToTransaction`으로 한 트랜잭션에 묶이고, 예외가 나면 abort되어 재처리된다. ==다운스트림 Consumer는 `isolation.level=read_committed`(기본 `read_uncommitted`)여야 abort된 레코드를 읽지 않는다.== DB와 Kafka를 묶던 `ChainedKafkaTransactionManager`는 제거되었으므로 그 경우는 Outbox 패턴을 쓴다.
 
 **테스트.** `@EmbeddedKafka`는 JVM 내 브로커라 빠르지만 실제 브로커와 차이가 있다. Testcontainers `KafkaContainer`는 실제 이미지를 쓰고 Spring Boot 3.1부터 `@ServiceConnection`이 주소를 자동 주입한다. 어느 쪽이든 `auto-offset-reset=earliest`가 아니면 구독 완료 전에 발행된 메시지를 놓친다.
 
@@ -105,7 +105,7 @@ class OrderListenerIT {
 - **`max.poll.interval.ms` 초과.** 블로킹 재시도나 배치 처리가 기본 5분을 넘으면 Consumer가 그룹에서 쫓겨나 리밸런스와 재처리가 반복된다. 재시도 총합을 이 값 아래로 둔다.
 - **`@RetryableTopic`의 순서와 토픽 수.** 순서가 중요한 토픽에는 쓰지 않고 `SINGLE_TOPIC` 전략으로 토픽 수를 줄인다.
 - **트랜잭션 비용.** poll마다 begin/commit이 오가 처리량이 떨어진다. 대부분은 at-least-once에 멱등 저장으로 충분하며, 트랜잭션은 Kafka에서 Kafka로 이어지는 read-process-write에만 쓴다.
-- **`JsonDeserializer` 신뢰 패키지.** `spring.json.trusted.packages=*`는 헤더의 타입 정보로 임의 클래스를 역직렬화한다. 도메인 패키지로 제한한다.
+- **`JsonDeserializer` 신뢰 패키지.** ==`spring.json.trusted.packages=*`는 헤더의 타입 정보로 임의 클래스를 역직렬화한다.== 도메인 패키지로 제한한다.
 
 ## 관련 글
 

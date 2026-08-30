@@ -15,11 +15,11 @@ updated: 2026-08-29
 
 WebFilter는 서버와 핸들러 사이에서 모든 요청·응답을 가로채는 컴포넌트다. 인터페이스는 `Mono<Void> filter(ServerWebExchange, WebFilterChain)` 하나이며 `@Component`로 등록하면 체인에 포함된다. `ServerWebExchange`는 요청, 응답, 필터 간 공유 맵(`getAttributes()`)을 묶은 객체다.
 
-`chain.filter(exchange)`가 다음 필터와 핸들러로 이어지는 지점이다. 이 호출 앞이 전처리, 뒤에 붙는 `doFinally` 등이 후처리다. 반환된 `Mono<Void>`를 return하지 않으면 구독이 일어나지 않아 요청이 사라진다. 차단하려면 상태 코드를 설정하고 `exchange.getResponse().setComplete()`를 반환한다. `Mono.empty()`를 반환하면 응답이 완료되지 않는다.
+`chain.filter(exchange)`가 다음 필터와 핸들러로 이어지는 지점이다. 이 호출 앞이 전처리, 뒤에 붙는 `doFinally` 등이 후처리다. ==반환된 `Mono<Void>`를 return하지 않으면 구독이 일어나지 않아 요청이 사라진다.== 차단하려면 상태 코드를 설정하고 `exchange.getResponse().setComplete()`를 반환한다. `Mono.empty()`를 반환하면 응답이 완료되지 않는다.
 
-실행 순서는 `@Order` 값이 낮을수록 앞선다. 애노테이션이 없으면 순서가 보장되지 않아 인증보다 권한 필터가 먼저 실행될 수 있다. CORS·보안은 `Ordered.HIGHEST_PRECEDENCE`, 인증 → 권한 순으로 낮은 값을 주고, 응답 헤더 필터는 `Ordered.LOWEST_PRECEDENCE`로 둔다.
+실행 순서는 `@Order` 값이 낮을수록 앞선다. ==애노테이션이 없으면 순서가 보장되지 않아 인증보다 권한 필터가 먼저 실행될 수 있다.== CORS·보안은 `Ordered.HIGHEST_PRECEDENCE`, 인증 → 권한 순으로 낮은 값을 주고, 응답 헤더 필터는 `Ordered.LOWEST_PRECEDENCE`로 둔다.
 
-이벤트 루프는 소수 스레드가 다수 요청을 번갈아 처리하므로 ThreadLocal 값은 스레드가 바뀌면 사라지거나 다른 요청의 값으로 오염된다. 요청 단위 값은 `getAttributes()`에 두거나, 다운스트림까지 전파해야 하면 `contextWrite`로 Reactor Context에 넣는다.
+이벤트 루프는 소수 스레드가 다수 요청을 번갈아 처리하므로 ==ThreadLocal 값은 스레드가 바뀌면 사라지거나 다른 요청의 값으로 오염된다.== 요청 단위 값은 `getAttributes()`에 두거나, 다운스트림까지 전파해야 하면 `contextWrite`로 Reactor Context에 넣는다.
 
 검증은 `spring-boot-starter-validation`을 추가하고 DTO에 Jakarta Bean Validation 제약을 붙인 뒤 `@Valid`를 붙이면 역직렬화 시점에 수행되며, `@RequestBody Mono<Dto>`에도 적용된다. 실패 예외는 `WebExchangeBindException`이다. `@PathVariable`·`@RequestParam`은 클래스에 `@Validated`를 붙이고 파라미터에 제약을 직접 선언해야 한다. 문자열에는 공백만 있는 값까지 거부하는 `@NotBlank`가 대개 맞다.
 
@@ -173,7 +173,7 @@ public class GlobalExceptionHandler {
 
 ## 실무에서 걸리는 지점
 
-- `@ControllerAdvice`는 핸들러 단계의 예외만 처리한다. WebFilter에서 난 예외는 기본 `ErrorWebExceptionHandler`로 가므로, 필터 단계 에러 응답까지 통일하려면 `WebExceptionHandler`를 직접 등록하거나 필터 안에서 응답을 완성한다.
+- ==`@ControllerAdvice`는 핸들러 단계의 예외만 처리한다.== WebFilter에서 난 예외는 기본 `ErrorWebExceptionHandler`로 가므로, 필터 단계 에러 응답까지 통일하려면 `WebExceptionHandler`를 직접 등록하거나 필터 안에서 응답을 완성한다.
 - 응답 헤더를 `doOnSuccess`에서 추가하면 이미 커밋된 응답에 쓰려다 예외가 나거나 무시된다. `beforeCommit` 또는 `chain.filter` 호출 전에 넣는다.
 - Reactor Context는 MDC에 자동 반영되지 않는다. 로그에 trace ID를 남기려면 Micrometer Context Propagation을 함께 구성한다.
 - `Exception` 핸들러가 `ResponseStatusException`까지 삼키면 상태 코드가 500으로 바뀐다. `ResponseEntityExceptionHandler`를 상속하고 `spring.webflux.problemdetails.enabled=true`를 켠다.

@@ -25,15 +25,15 @@ Redis는 데이터셋 전체를 메모리에 올리므로 메모리가 가장 �
 | Set (정수만) | intset | hashtable | 512개 초과 |
 | Set (일반, 7.2+) | listpack | hashtable | 128개 또는 값 64바이트 초과 |
 
-작은 인코딩은 3~10배 적은 메모리를 쓰고, O(N)이어도 N이 작아 CPU 캐시 친화적이라 실제로는 더 빠른 경우가 많다. 임계값은 `hash-max-listpack-entries` 같은 설정으로 조정하지만 기본값이 대체로 균형점이다. 한 번 큰 인코딩으로 전환된 키는 멤버를 다시 줄여도 되돌아오지 않으며, DEL 후 재생성해야 한다.
+작은 인코딩은 3~10배 적은 메모리를 쓰고, O(N)이어도 N이 작아 CPU 캐시 친화적이라 실제로는 더 빠른 경우가 많다. 임계값은 `hash-max-listpack-entries` 같은 설정으로 조정하지만 기본값이 대체로 균형점이다. ==한 번 큰 인코딩으로 전환된 키는 멤버를 다시 줄여도 되돌아오지 않으며, DEL 후 재생성해야 한다.==
 
 ### 키 오버헤드와 Hash 묶기
 
-키 하나마다 해시 테이블 슬롯·만료 정보 등으로 50~100바이트가 붙는다. 사용자 100만 명에 필드 10개를 `user:123:name` 식으로 나누면 1,000만 키에 약 1GB가 본문과 무관한 오버헤드로 빠진다. 객체 하나를 Hash 하나로 묶으면 오버헤드가 필드 수만큼 줄고, listpack 범위 안이면 추가로 절약된다. ID를 1000으로 나눠 같은 Hash에 여러 객체를 담는 Hash sharding은 접근 패턴이 복잡해지므로 키가 수천만 개 이상일 때만 고려한다.
+키 하나마다 해시 테이블 슬롯·만료 정보 등으로 50~100바이트가 붙는다. ==사용자 100만 명에 필드 10개를 `user:123:name` 식으로 나누면 1,000만 키에 약 1GB가 본문과 무관한 오버헤드로 빠진다.== 객체 하나를 Hash 하나로 묶으면 오버헤드가 필드 수만큼 줄고, listpack 범위 안이면 추가로 절약된다. ID를 1000으로 나눠 같은 Hash에 여러 객체를 담는 Hash sharding은 접근 패턴이 복잡해지므로 키가 수천만 개 이상일 때만 고려한다.
 
 ### Fragmentation
 
-jemalloc은 16·32·64바이트 같은 고정 등급으로 할당하므로 등급에 맞지 않는 크기의 남는 공간이 단편화로 쌓인다. `INFO memory`의 `mem_fragmentation_ratio`가 1.0~1.5면 정상, 1.5 초과면 완화가 필요하고, 1.0 미만이면 OS가 swap 중이라는 뜻으로 응답 시간이 밀리초 단위로 뛴다. `activedefrag yes`로 백그라운드 정리를 켜고, 키별 분석은 `MEMORY USAGE`, 큰 키 탐색은 `redis-cli --bigkeys`를 쓴다.
+jemalloc은 16·32·64바이트 같은 고정 등급으로 할당하므로 등급에 맞지 않는 크기의 남는 공간이 단편화로 쌓인다. `INFO memory`의 `mem_fragmentation_ratio`가 1.0~1.5면 정상, 1.5 초과면 완화가 필요하고, ==1.0 미만이면 OS가 swap 중이라는 뜻으로 응답 시간이 밀리초 단위로 뛴다.== `activedefrag yes`로 백그라운드 정리를 켜고, 키별 분석은 `MEMORY USAGE`, 큰 키 탐색은 `redis-cli --bigkeys`를 쓴다.
 
 ### 클라이언트 연결 모델
 
@@ -112,7 +112,7 @@ public class JedisExample {
 
 ## 실무에서 걸리는 지점
 
-- `maxmemory`를 지정하지 않으면 eviction이 발동하지 않고 OS OOM killer가 프로세스를 죽인다. `used_memory / maxmemory` 비율과 `mem_fragmentation_ratio`를 알림 대상으로 둔다.
+- ==`maxmemory`를 지정하지 않으면 eviction이 발동하지 않고 OS OOM killer가 프로세스를 죽인다.== `used_memory / maxmemory` 비율과 `mem_fragmentation_ratio`를 알림 대상으로 둔다.
 - 장시간 운영하면 단편화가 누적된다. `activedefrag`는 CPU 부담이 약간 늘고, `mem_allocator`가 jemalloc인지 확인한다.
 - Lettuce 공유 연결에 `BLPOP 0`·`SUBSCRIBE`를 보내면 그 연결의 모든 명령이 멈춘다. 블로킹 명령과 Pub/Sub은 전용 연결을 쓴다.
 - Jedis에서 `getResource()` 후 close를 빠뜨리면 connection leak으로 pool exhaustion이 온다. 인스턴스 하나를 여러 스레드가 공유하면 응답이 뒤섞인다.

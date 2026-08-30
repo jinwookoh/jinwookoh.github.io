@@ -34,7 +34,7 @@ Kafka는 메시지 큐의 빠른 버전이 아니라 append-only 분산 로그�
 - **Broker**: Kafka 서버 한 대. 각 partition은 replication factor(보통 3)만큼 복제되어 leader 하나가 읽기·쓰기를 받는다.
 - **Producer / Consumer**: 서로를 모른다. **Consumer Group**은 consumer 인스턴스 여러 개가 partition을 분담하는 단위다.
 
-메타데이터 관리는 Zookeeper에서 KRaft로 넘어갔다. Zookeeper는 별도 클러스터 운영, 이중 보안 모델, 10만 파티션 부근의 확장 한계가 문제였다. KRaft는 Raft 합의를 Kafka 내부에 넣어 broker 일부가 controller quorum을 구성한다. 2.8 미리보기, 3.3 프로덕션 정식, 4.0에서 Zookeeper 모드가 제거됐다. 3.0부터 producer 기본값은 `acks=all`, `enable.idempotence=true`다.
+메타데이터 관리는 Zookeeper에서 KRaft로 넘어갔다. Zookeeper는 별도 클러스터 운영, 이중 보안 모델, 10만 파티션 부근의 확장 한계가 문제였다. KRaft는 Raft 합의를 Kafka 내부에 넣어 broker 일부가 controller quorum을 구성한다. 2.8 미리보기, 3.3 프로덕션 정식, 4.0에서 Zookeeper 모드가 제거됐다. ==3.0부터 producer 기본값은 `acks=all`, `enable.idempotence=true`다.==
 
 활용 영역은 일곱 가지다. 마이크로서비스 간 비동기 메시징, 사용자 활동 추적(원래의 use case), 메트릭 전송(Prometheus가 저장·쿼리라면 Kafka는 transport), 로그 집계(Filebeat → Kafka → Elasticsearch), 스트림 처리(Kafka Streams·Flink), 이벤트 소싱(상태 변화를 저장해 재계산·감사), 분산 시스템의 commit log(log compaction으로 키별 최신 값 보존). API는 Producer·Consumer·Streams·Connect 네 가지이고, Schema Registry가 포맷 표준화를 맡는다.
 

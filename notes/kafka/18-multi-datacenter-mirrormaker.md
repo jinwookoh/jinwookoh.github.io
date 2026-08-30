@@ -40,7 +40,7 @@ MirrorMaker 2(MM2)는 Kafka Connect 위에서 동작하는 커넥터 세 개의 
 
 ### 토픽 네이밍과 루프 방지
 
-기본 `DefaultReplicationPolicy`는 타깃 토픽 이름에 소스 클러스터 별칭을 접두어로 붙여 `primary`의 `orders`가 `primary.orders`가 된다. MirrorSourceConnector는 접두어로 원산지를 식별해 이미 복제된 토픽을 다시 복제하지 않으므로 Active-Active에서도 레코드가 왕복하지 않는다. `IdentityReplicationPolicy`는 접두어가 없어 DR 시 같은 토픽 이름으로 갈아탈 수 있지만 루프 차단 근거가 사라지므로 단방향에서만 쓴다.
+기본 `DefaultReplicationPolicy`는 타깃 토픽 이름에 소스 클러스터 별칭을 접두어로 붙여 `primary`의 `orders`가 `primary.orders`가 된다. MirrorSourceConnector는 접두어로 원산지를 식별해 이미 복제된 토픽을 다시 복제하지 않으므로 Active-Active에서도 레코드가 왕복하지 않는다. ==`IdentityReplicationPolicy`는 접두어가 없어 DR 시 같은 토픽 이름으로 갈아탈 수 있지만 루프 차단 근거가 사라지므로 단방향에서만 쓴다.==
 
 ### WAN 환경 설정
 
@@ -137,10 +137,10 @@ public class DrFailoverRunner implements ApplicationRunner {
 
 ## 실무에서 걸리는 지점
 
-- **오프셋 변환은 근사치다.** 체크포인트는 주기적으로 기록되므로 마지막 체크포인트와 장애 시점 사이의 레코드는 재처리된다. at-least-once만 보장되며 컨슈머 쪽 멱등 처리가 전제다.
+- **오프셋 변환은 근사치다.** ==체크포인트는 주기적으로 기록되므로 마지막 체크포인트와 장애 시점 사이의 레코드는 재처리된다.== at-least-once만 보장되며 컨슈머 쪽 멱등 처리가 전제다.
 - **Active-Active에서의 중복.** 로컬 토픽과 상대 접두어 토픽을 하나의 스트림으로 합쳐 소비하면 같은 이벤트가 두 번 보일 수 있다. 원산지 DC를 네이밍과 ACL로 고정하고, 소비 측은 접두어 패턴 구독(`.*orders`)과 키 기준 중복 제거를 함께 설계한다.
-- **`refresh.topics.enabled` 기본값.** 소스에 새 토픽이 생기면 패턴에 맞는 한 자동으로 복제가 시작된다. 테스트용 토픽까지 WAN을 타지 않도록 허용 목록을 명시한다.
-- **MM2 워커의 가용성과 자격증명.** 워커는 최소 3개를 띄우고 소스와 타깃 양쪽의 자격증명을 모두 보유해야 한다. 한쪽 인증이 갱신되면 복제가 조용히 멈추므로 `heartbeats` 수신과 `record-age-ms-avg`에 경보를 건다.
+- **`refresh.topics.enabled` 기본값.** ==소스에 새 토픽이 생기면 패턴에 맞는 한 자동으로 복제가 시작된다.== 테스트용 토픽까지 WAN을 타지 않도록 허용 목록을 명시한다.
+- **MM2 워커의 가용성과 자격증명.** 워커는 최소 3개를 띄우고 소스와 타깃 양쪽의 자격증명을 모두 보유해야 한다. ==한쪽 인증이 갱신되면 복제가 조용히 멈추므로 `heartbeats` 수신과 `record-age-ms-avg`에 경보를 건다.==
 - **WAN 비용과 DR 훈련.** 복제 바이트가 곧 리전 간 전송 요금이므로 압축을 켜고 복제 대상 토픽을 최소화한다. DNS 전환, 오프셋 반영, 복구 후 역방향 복제까지 반복 훈련하지 않은 DR 구성은 장애 당일에 처음 검증된다.
 
 ## 관련 글

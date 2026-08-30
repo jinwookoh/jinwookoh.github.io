@@ -24,10 +24,10 @@
   <h1>Pipelining·Transaction·WATCH</h1>
   <p class="summary">Pipelining은 왕복을 줄이고 MULTI/EXEC는 격리만 보장한다. 롤백은 없고 조건부 갱신은 WATCH 재시도로 푼다.</p>
   <div class="content">
-<p>Redis 서버가 명령 하나를 처리하는 시간은 μs 단위지만, 클라이언트와 서버 사이의 네트워크 왕복(RTT)은 같은 리전에서도 수백 μs, 다른 AZ면 1ms 안팎이다. 명령 100개를 순서대로 보내면 응답 시간의 99%가 네트워크 대기로 채워진다. 여기에 &quot;잔액을 읽고, 충분하면 차감한다&quot; 같은 read-modify-write가 겹치면 두 클라이언트가 같은 값을 읽고 같은 결과를 쓰는 lost update가 생긴다. 앞의 문제는 Pipelining이, 뒤의 문제는 MULTI/EXEC와 WATCH가 담당한다. <mark>둘 다 여러 명령을 묶지만 해결하는 문제가 다르다.</mark></p>
+<p>Redis 서버가 명령 하나를 처리하는 시간은 μs 단위지만, 클라이언트와 서버 사이의 네트워크 왕복(RTT)은 같은 리전에서도 수백 μs, 다른 AZ면 1ms 안팎이다. 명령 100개를 순서대로 보내면 응답 시간의 99%가 네트워크 대기로 채워진다. 여기에 &quot;잔액을 읽고, 충분하면 차감한다&quot; 같은 read-modify-write가 겹치면 두 클라이언트가 같은 값을 읽고 같은 결과를 쓰는 lost update가 생긴다. 앞의 문제는 Pipelining이, 뒤의 문제는 MULTI/EXEC와 WATCH가 담당한다. 둘 다 여러 명령을 묶지만 해결하는 문제가 다르다.</p>
 <h2>핵심 개념</h2>
 <h3>Pipelining — 왕복 횟수 압축</h3>
-<p>Pipelining은 명령 N개를 응답을 기다리지 않고 연달아 전송하고, 응답 N개를 한 번에 받는 방식이다. 서버 처리 시간은 그대로이고 네트워크 왕복만 N회에서 1회로 줄어든다. 효과는 RTT에 비례하므로 로컬에서는 수 배, 다른 리전에서는 수십 배 차이가 난다. <mark>응답은 보낸 순서대로 돌아오지만 원자성은 없다.</mark> 다른 클라이언트의 명령이 묶음 사이에 끼어들 수 있고, 한 명령이 실패해도 나머지는 실행되며 응답 리스트에 에러 객체가 섞인다.</p>
+<p>Pipelining은 명령 N개를 응답을 기다리지 않고 연달아 전송하고, 응답 N개를 한 번에 받는 방식이다. 서버 처리 시간은 그대로이고 네트워크 왕복만 N회에서 1회로 줄어든다. 효과는 RTT에 비례하므로 로컬에서는 수 배, 다른 리전에서는 수십 배 차이가 난다. 응답은 보낸 순서대로 돌아오지만 원자성은 없다. 다른 클라이언트의 명령이 묶음 사이에 끼어들 수 있고, 한 명령이 실패해도 나머지는 실행되며 응답 리스트에 에러 객체가 섞인다.</p>
 <h3>MULTI/EXEC — 격리된 일괄 실행</h3>
 <p><code>MULTI</code> 이후의 명령은 실행되지 않고 큐에 쌓이며 <code>QUEUED</code> 응답만 받는다. <code>EXEC</code>가 호출되면 큐의 명령이 다른 클라이언트의 명령이 끼어들지 못하는 상태로 순차 실행되고 결과가 배열로 반환된다. <code>DISCARD</code>는 큐를 비운다.</p>
 <p>보장 범위를 정확히 잡아야 한다. <mark>Redis 트랜잭션이 제공하는 것은 격리와 묶음 응답뿐이고, RDBMS 의미의 all-or-nothing과 롤백은 없다.</mark> 에러 시점에 따라 동작이 갈린다.</p>
@@ -52,7 +52,7 @@
 </tbody></table>
 <p>&quot;잔액 차감 + 주문 기록&quot;을 MULTI/EXEC로 묶었을 때 차감이 런타임 에러로 실패하면 주문만 남는다. 둘 다 성공해야 하는 작업은 Lua 스크립트로 옮겨야 한다.</p>
 <h3>WATCH — Optimistic Locking</h3>
-<p><code>WATCH key</code>는 그 키를 감시 대상으로 등록한다. 이후 값을 읽고 판단한 뒤 <code>MULTI</code>로 명령을 큐잉하고 <code>EXEC</code>를 호출하면, 감시 중인 키가 그 사이에 다른 클라이언트에 의해 변경됐을 경우 트랜잭션 전체가 취소되고 <code>EXEC</code>는 nil(null)을 반환한다. 락 없이 진행하다 충돌을 감지하면 재시도하는 낙관적 잠금이며, 충돌이 드문 환경에서 <code>SELECT ... FOR UPDATE</code> 같은 비관적 잠금보다 오버헤드가 작다. 재시도 루프 없이 한 번만 시도하면 동시성 환경에서 조용히 실패한다. <code>UNWATCH</code>는 감시를 해제하며, <code>EXEC</code>·<code>DISCARD</code> 후에는 자동으로 풀린다.</p>
+<p><code>WATCH key</code>는 그 키를 감시 대상으로 등록한다. 이후 값을 읽고 판단한 뒤 <code>MULTI</code>로 명령을 큐잉하고 <code>EXEC</code>를 호출하면, 감시 중인 키가 그 사이에 다른 클라이언트에 의해 변경됐을 경우 트랜잭션 전체가 취소되고 <code>EXEC</code>는 nil(null)을 반환한다. 락 없이 진행하다 충돌을 감지하면 재시도하는 낙관적 잠금이며, 충돌이 드문 환경에서 <code>SELECT ... FOR UPDATE</code> 같은 비관적 잠금보다 오버헤드가 작다. <mark>재시도 루프 없이 한 번만 시도하면 동시성 환경에서 조용히 실패한다.</mark> <code>UNWATCH</code>는 감시를 해제하며, <code>EXEC</code>·<code>DISCARD</code> 후에는 자동으로 풀린다.</p>
 <h3>셋의 관계</h3>
 <table>
 <thead>

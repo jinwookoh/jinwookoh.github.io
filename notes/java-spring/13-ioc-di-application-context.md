@@ -105,7 +105,7 @@ public class ShopApplication {
 
 ## 실무에서 걸리는 지점
 
-- **singleton Bean의 인스턴스 필드는 공유 상태다.** 요청별 값을 필드로 두면 모든 스레드가 같은 객체를 쓰므로 데이터가 섞인다. 요청 단위 상태는 지역 변수로 다룬다.
+- **singleton Bean의 인스턴스 필드는 공유 상태다.** ==요청별 값을 필드로 두면 모든 스레드가 같은 객체를 쓰므로 데이터가 섞인다.== 요청 단위 상태는 지역 변수로 다룬다.
 - **순환 참조는 구조 문제다.** 생성자 주입은 순환 의존성을 기동 시점에 드러내며, Spring Boot 2.6부터 기본 금지다. `@Lazy`로 우회하기보다 의존 방향을 고친다.
 - **같은 타입의 Bean이 둘 이상이면 주입이 모호해진다.** `NoUniqueBeanDefinitionException`이 나면 `@Primary`나 `@Qualifier`로 대상을 지정한다.
 - **`getBean` 직접 호출은 IoC를 되돌린다.** 실행 시점에 구현체를 골라야 하면 `Map<String, PaymentGateway>` 주입을 쓴다.

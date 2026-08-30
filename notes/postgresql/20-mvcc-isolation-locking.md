@@ -29,7 +29,7 @@ MVCC(Multi-Version Concurrency Control)는 UPDATE를 제자리 덮어쓰기가 �
 | REPEATABLE READ | 첫 문장 시점 고정 | 방지 | 방지 | 발생 |
 | SERIALIZABLE | 고정 + SSI 충돌 검출 | 방지 | 방지 | 방지 |
 
-REPEATABLE READ는 SQL 표준보다 강해서 Phantom Read까지 막는다. 대신 스냅샷 이후 다른 트랜잭션이 커밋한 행을 UPDATE하면 `could not serialize access due to concurrent update` 오류로 중단되므로 재시도가 필요하다. SERIALIZABLE은 SSI(Serializable Snapshot Isolation)로 구현되어, 읽기·쓰기 의존성을 추적하다 직렬 실행으로 나올 수 없는 결과가 감지되면 한쪽을 롤백한다. MySQL InnoDB 기본값은 REPEATABLE READ이므로 같은 SQL이 DB마다 다르게 동작한다.
+REPEATABLE READ는 SQL 표준보다 강해서 Phantom Read까지 막는다. 대신 ==스냅샷 이후 다른 트랜잭션이 커밋한 행을 UPDATE하면 `could not serialize access due to concurrent update` 오류로 중단되므로 재시도가 필요하다.== SERIALIZABLE은 SSI(Serializable Snapshot Isolation)로 구현되어, 읽기·쓰기 의존성을 추적하다 직렬 실행으로 나올 수 없는 결과가 감지되면 한쪽을 롤백한다. MySQL InnoDB 기본값은 REPEATABLE READ이므로 같은 SQL이 DB마다 다르게 동작한다.
 
 ### 여전히 락이 걸리는 곳
 
@@ -151,10 +151,10 @@ public class CouponService {
 
 ## 실무에서 걸리는 지점
 
-- **오래 열린 트랜잭션이 bloat를 만든다.** 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. 방치된 `idle in transaction` 커넥션 하나가 테이블을 부풀린다. `idle_in_transaction_session_timeout`을 설정하고 트랜잭션을 짧게 끊는다.
-- **트랜잭션 ID Wraparound.** 트랜잭션 ID는 32bit이며 약 20억 개를 지나면 행의 가시성이 뒤집힌다. autovacuum이 오래된 행을 frozen 처리해 막는데, 밀리면 DB가 쓰기를 거부한다. `age(datfrozenxid)`를 모니터링하고 autovacuum을 끄지 않는다.
+- **오래 열린 트랜잭션이 bloat를 만든다.** 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. ==방치된 `idle in transaction` 커넥션 하나가 테이블을 부풀린다.== `idle_in_transaction_session_timeout`을 설정하고 트랜잭션을 짧게 끊는다.
+- **트랜잭션 ID Wraparound.** ==트랜잭션 ID는 32bit이며 약 20억 개를 지나면 행의 가시성이 뒤집힌다.== autovacuum이 오래된 행을 frozen 처리해 막는데, 밀리면 DB가 쓰기를 거부한다. `age(datfrozenxid)`를 모니터링하고 autovacuum을 끄지 않는다.
 - **SERIALIZABLE 남용.** 모든 트랜잭션에 걸면 SSI 추적 비용과 재시도가 처리량을 무너뜨린다. 일반 API는 READ COMMITTED, 보고서는 REPEATABLE READ, 돈·재고만 SERIALIZABLE에 재시도를 붙인다.
-- **낙관적 락 예외를 삼키면 갱신이 사라진다.** `ObjectOptimisticLockingFailureException`을 catch만 하고 넘기면 변경이 유실된다. 재시도하거나 충돌을 알린다.
+- **낙관적 락 예외를 삼키면 갱신이 사라진다.** ==`ObjectOptimisticLockingFailureException`을 catch만 하고 넘기면 변경이 유실된다.== 재시도하거나 충돌을 알린다.
 - **락 대기는 pg_stat_activity로 잡는다.** `wait_event_type = 'Lock'`인 세션과 `pg_blocking_pids(pid)`로 차단 관계를 확인한다. 작업 큐 처리에는 `FOR UPDATE SKIP LOCKED`를 쓴다.
 
 ## 관련 글

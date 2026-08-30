@@ -29,7 +29,7 @@ Auto commit은 `auto.commit.interval.ms`마다 poll 시점에 commit하므로 �
 
 ### Seek·Pause
 
-`seekToBeginning`, `seekToEnd`, `seek(tp, offset)`으로 읽기 위치를 옮기고, `offsetsForTimes`는 타임스탬프 이후 첫 offset을 돌려준다. `pause`는 레코드 반환만 멈추고 `poll` 호출 의무는 남는다.
+`seekToBeginning`, `seekToEnd`, `seek(tp, offset)`으로 읽기 위치를 옮기고, `offsetsForTimes`는 타임스탬프 이후 첫 offset을 돌려준다. ==`pause`는 레코드 반환만 멈추고 `poll` 호출 의무는 남는다.==
 
 ### 그룹 멤버십과 Fetch 설정
 
@@ -143,9 +143,9 @@ public class OrderListener {
 
 - **처리 시간이 `max.poll.interval.ms`를 넘는 경우.** 그룹에서 제외되고 다른 인스턴스가 같은 레코드를 다시 받아 중복 처리된다. 간격을 늘리거나 `max.poll.records`를 줄인다.
 - **Auto commit과 처리 실패.** commit 후 처리 중 장애가 나면 그 레코드는 다시 읽히지 않는다. 손실이 허용되지 않으면 `enable.auto.commit=false`로 둔다.
-- **큰 메시지와 `max.partition.fetch.bytes`.** 브로커·토픽의 `max.message.bytes`보다 작으면 그 파티션은 해당 레코드에서 멈춘다.
+- **큰 메시지와 `max.partition.fetch.bytes`.** ==브로커·토픽의 `max.message.bytes`보다 작으면 그 파티션은 해당 레코드에서 멈춘다.==
 - **heartbeat와 session 비율.** 두 값이 비슷하면 heartbeat 한 번만 놓쳐도 죽은 것으로 판정된다.
-- **`KafkaConsumer`는 thread-safe가 아니다.** 다른 스레드에서 호출해도 되는 것은 `wakeup()`뿐이다. 병렬화는 인스턴스를 늘려서 한다. `group.instance.id`가 중복되면 `FencedInstanceIdException`으로 종료된다.
+- **`KafkaConsumer`는 thread-safe가 아니다.** ==다른 스레드에서 호출해도 되는 것은 `wakeup()`뿐이다.== 병렬화는 인스턴스를 늘려서 한다. `group.instance.id`가 중복되면 `FencedInstanceIdException`으로 종료된다.
 
 ## 관련 글
 

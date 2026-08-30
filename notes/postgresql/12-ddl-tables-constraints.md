@@ -13,7 +13,7 @@ updated: 2026-08-29
 
 ## 핵심 개념
 
-PostgreSQL은 DDL이 트랜잭션 안에서 동작한다. ALTER TABLE과 CREATE INDEX를 하나의 BEGIN·COMMIT으로 묶고 실패 시 ROLLBACK할 수 있다는 점이 일부 DDL이 암묵 커밋되는 MySQL과의 차이다.
+==PostgreSQL은 DDL이 트랜잭션 안에서 동작한다.== ALTER TABLE과 CREATE INDEX를 하나의 BEGIN·COMMIT으로 묶고 실패 시 ROLLBACK할 수 있다는 점이 일부 DDL이 암묵 커밋되는 MySQL과의 차이다.
 
 ### 기본 키 생성 — IDENTITY
 
@@ -43,7 +43,7 @@ DEFERRABLE은 검증 시점을 커밋 시점으로 미룬다. `NOT DEFERRABLE`�
 
 ### 외래 키
 
-외래 키는 자식 테이블의 값이 부모 테이블에 존재함을 DB가 보장한다. 부모 삭제 시 동작은 ON DELETE로 정한다. `NO ACTION`이 기본으로 자식이 있으면 삭제를 거부하며 지연 검증이 가능하고, `RESTRICT`는 같은 거부지만 즉시 검증한다. `CASCADE`는 자식을 함께 삭제하고, `SET NULL`은 자식 컬럼을 NULL로 바꾸며(NOT NULL 컬럼에는 사용 불가), `SET DEFAULT`는 기본값으로 바꾼다. 외래 키 컬럼에는 인덱스가 자동 생성되지 않는다.
+외래 키는 자식 테이블의 값이 부모 테이블에 존재함을 DB가 보장한다. 부모 삭제 시 동작은 ON DELETE로 정한다. `NO ACTION`이 기본으로 자식이 있으면 삭제를 거부하며 지연 검증이 가능하고, `RESTRICT`는 같은 거부지만 즉시 검증한다. `CASCADE`는 자식을 함께 삭제하고, `SET NULL`은 자식 컬럼을 NULL로 바꾸며(NOT NULL 컬럼에는 사용 불가), `SET DEFAULT`는 기본값으로 바꾼다. ==외래 키 컬럼에는 인덱스가 자동 생성되지 않는다.==
 
 큰 테이블에 제약을 사후 추가할 때는 `NOT VALID`로 새 행에만 즉시 적용한 뒤 `VALIDATE CONSTRAINT`로 기존 행을 검증한다.
 
@@ -130,7 +130,7 @@ public class Order {
 - **외래 키 컬럼 인덱스 누락.** 부모 행을 삭제할 때마다 자식 테이블을 풀스캔하며 큰 테이블에서는 락과 실행 시간이 폭주한다. 외래 키를 선언하면 인덱스를 같이 만든다.
 - **CASCADE 남용.** 사용자 한 명을 지웠는데 주문 수만 건이 사라지는 사고는 대부분 ON DELETE CASCADE에서 나온다. order_items처럼 부모 없이 의미가 없는 의존 객체에만 쓴다.
 - **UNLOGGED를 운영 데이터에 사용.** 크래시 한 번으로 테이블 전체가 비워지고, 복제본에도 전달되지 않는다.
-- **운영 테이블에 제약 직접 추가.** `ADD CONSTRAINT`는 기존 행 전체를 검증하는 동안 ACCESS EXCLUSIVE 락을 잡는다. NOT VALID 후 VALIDATE CONSTRAINT는 SHARE UPDATE EXCLUSIVE 락만 잡아 읽기·쓰기가 계속된다.
+- **운영 테이블에 제약 직접 추가.** ==`ADD CONSTRAINT`는 기존 행 전체를 검증하는 동안 ACCESS EXCLUSIVE 락을 잡는다.== NOT VALID 후 VALIDATE CONSTRAINT는 SHARE UPDATE EXCLUSIVE 락만 잡아 읽기·쓰기가 계속된다.
 
 ## 관련 글
 

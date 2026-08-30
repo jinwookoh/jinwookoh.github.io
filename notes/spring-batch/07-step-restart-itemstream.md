@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 같은 JobInstance에서 이전 JobExecution이 FAILED로 끝난 뒤 재시작하면 새 JobExecution이 만들어진다. 이미 COMPLETED인 Step은 건너뛰고, FAILED Step은 직전 StepExecution이 남긴 ExecutionContext를 받아 그 위치부터 재개한다.
 
-`allowStartIfComplete(true)`는 COMPLETED 상태를 무시하고 매 재시작마다 다시 실행한다. 사전 검증, 외부 lock 해제에 쓴다. `startLimit(N)`은 총 시작 횟수를 N으로 제한하고 초과하면 `StartLimitExceededException`을 던진다. 재시작 횟수가 아니라 시작 횟수를 세므로 `startLimit(1)`은 첫 실행만 허용한다. DDL 실행, 결제 요청에 적용한다. Job 수준의 `preventRestart()`는 재시작 자체를 거부한다.
+`allowStartIfComplete(true)`는 COMPLETED 상태를 무시하고 매 재시작마다 다시 실행한다. 사전 검증, 외부 lock 해제에 쓴다. `startLimit(N)`은 총 시작 횟수를 N으로 제한하고 초과하면 `StartLimitExceededException`을 던진다. ==재시작 횟수가 아니라 시작 횟수를 세므로 `startLimit(1)`은 첫 실행만 허용한다.== DDL 실행, 결제 요청에 적용한다. Job 수준의 `preventRestart()`는 재시작 자체를 거부한다.
 
 ### ItemStream — 위치를 남기는 계약
 
@@ -35,7 +35,7 @@ updated: 2026-08-29
 
 Step은 등록된 ItemStream에 대해서만 세 메서드를 호출한다. ItemStream을 구현한 객체가 `StepBuilder`의 `reader()`·`processor()`·`writer()` 인자로 직접 전달되면 자동 등록되며, 표준 구현체 대부분이 여기 해당한다. 그 외에는 `StepBuilder.stream(itemStream)`으로 수동 등록한다.
 
-자동 등록은 `reader()`에 넘긴 객체 자체만 검사한다. ItemStream을 구현하지 않은 wrapper 안에 `FlatFileItemReader`가 있어도 delegate의 `open`·`update`는 호출되지 않는다. delegate를 `stream()`으로 따로 등록하거나, wrapper가 ItemStream을 구현해 delegate에 위임한다. Tasklet 안에서 ItemReader를 직접 쓰는 경우도 수동 등록이 필요하다. `ItemStreamSupport`를 상속하면 `setName()`의 이름이 ExecutionContext 키의 접두어가 되어 같은 클래스의 인스턴스가 여럿이어도 키가 충돌하지 않는다.
+자동 등록은 `reader()`에 넘긴 객체 자체만 검사한다. ==ItemStream을 구현하지 않은 wrapper 안에 `FlatFileItemReader`가 있어도 delegate의 `open`·`update`는 호출되지 않는다.== delegate를 `stream()`으로 따로 등록하거나, wrapper가 ItemStream을 구현해 delegate에 위임한다. Tasklet 안에서 ItemReader를 직접 쓰는 경우도 수동 등록이 필요하다. `ItemStreamSupport`를 상속하면 `setName()`의 이름이 ExecutionContext 키의 접두어가 되어 같은 클래스의 인스턴스가 여럿이어도 키가 충돌하지 않는다.
 
 ## 코드
 
@@ -162,7 +162,7 @@ public Step reportStep(JobRepository repo, PlatformTransactionManager tx,
 
 - 재시작이 처음부터 다시 처리된다면 원인은 거의 등록 누락이다. wrapper가 ItemStream을 구현하지 않았거나, Tasklet 안 Reader를 `stream()`에 넣지 않은 경우다.
 - `allowStartIfComplete(true)`는 재시작마다 Step 전체를 다시 돌린다. 짧은 Tasklet에만 붙인다.
-- `startLimit(1)` Step이 실패하면 코드 수정 후에도 같은 JobInstance로는 재시작할 수 없다. 새 JobInstance로 실행하는 운영 절차가 필요하다.
+- ==`startLimit(1)` Step이 실패하면 코드 수정 후에도 같은 JobInstance로는 재시작할 수 없다.== 새 JobInstance로 실행하는 운영 절차가 필요하다.
 - multi-threaded Step에서는 `read()`와 `update()`가 동시에 호출되므로 상태 변경이 thread-safe하거나 partitioning으로 스레드마다 독립 인스턴스를 준다.
 - `open()`에서 이전 위치까지 파일을 처음부터 읽어 skip하면 재시작 자체가 느려진다. `close()`는 정상 종료에서만 보장되므로 파일 핸들·커넥션은 `java.lang.ref.Cleaner` 같은 안전망을 둔다.
 

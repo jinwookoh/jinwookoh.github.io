@@ -24,7 +24,7 @@
   <h1>Kafka란 — 이벤트 스트리밍과 활용 영역</h1>
   <p class="summary">Kafka는 소비 후에도 보존되는 분산 커밋 로그이며, 시스템 간 데이터 통합과 이벤트 스트리밍의 허브 역할을 한다</p>
   <div class="content">
-<p>소스 시스템 4개가 타겟 시스템 6개에 데이터를 보내려면 24개의 통합 코드가 필요하고, 연결마다 프로토콜과 포맷이 다르며, 한쪽의 스키마 변경이 모든 곳을 깨뜨린다. 동기 REST 호출로 마이크로서비스를 엮으면 한 서비스의 장애가 전체를 멈춘다. <mark>중앙 허브를 두어 N×M 연결을 N+M으로 줄이고, 호출 대신 이벤트를 발행해 관심 있는 쪽이 각자 반응하게 만드는 것이 해법이며, Kafka는 그 허브의 사실상 표준이다.</mark></p>
+<p>소스 시스템 4개가 타겟 시스템 6개에 데이터를 보내려면 24개의 통합 코드가 필요하고, 연결마다 프로토콜과 포맷이 다르며, 한쪽의 스키마 변경이 모든 곳을 깨뜨린다. 동기 REST 호출로 마이크로서비스를 엮으면 한 서비스의 장애가 전체를 멈춘다. 중앙 허브를 두어 N×M 연결을 N+M으로 줄이고, 호출 대신 이벤트를 발행해 관심 있는 쪽이 각자 반응하게 만드는 것이 해법이며, Kafka는 그 허브의 사실상 표준이다.</p>
 <h2>핵심 개념</h2>
 <p>Apache Kafka는 분산 이벤트 스트리밍 플랫폼이다. 이벤트 스트림을 발행·구독하고, 디스크에 내구성 있게 저장하며, 실시간 또는 사후에 처리한다. LinkedIn이 사용자 활동 로그를 초당 수십만 건 수집하기 위해 커밋 로그 개념을 분산 환경에 적용해 만들었고, 2011년 Apache License 2.0으로 공개됐다.</p>
 <p>Kafka는 메시지 큐의 빠른 버전이 아니라 append-only 분산 로그다. 전통 브로커와의 차이가 여기서 갈린다.</p>
@@ -75,7 +75,7 @@
 <li><strong>Broker</strong>: Kafka 서버 한 대. 각 partition은 replication factor(보통 3)만큼 복제되어 leader 하나가 읽기·쓰기를 받는다.</li>
 <li><strong>Producer / Consumer</strong>: 서로를 모른다. <strong>Consumer Group</strong>은 consumer 인스턴스 여러 개가 partition을 분담하는 단위다.</li>
 </ul>
-<p>메타데이터 관리는 Zookeeper에서 KRaft로 넘어갔다. Zookeeper는 별도 클러스터 운영, 이중 보안 모델, 10만 파티션 부근의 확장 한계가 문제였다. KRaft는 Raft 합의를 Kafka 내부에 넣어 broker 일부가 controller quorum을 구성한다. 2.8 미리보기, 3.3 프로덕션 정식, 4.0에서 Zookeeper 모드가 제거됐다. 3.0부터 producer 기본값은 <code>acks=all</code>, <code>enable.idempotence=true</code>다.</p>
+<p>메타데이터 관리는 Zookeeper에서 KRaft로 넘어갔다. Zookeeper는 별도 클러스터 운영, 이중 보안 모델, 10만 파티션 부근의 확장 한계가 문제였다. KRaft는 Raft 합의를 Kafka 내부에 넣어 broker 일부가 controller quorum을 구성한다. 2.8 미리보기, 3.3 프로덕션 정식, 4.0에서 Zookeeper 모드가 제거됐다. <mark>3.0부터 producer 기본값은 <code>acks=all</code>, <code>enable.idempotence=true</code>다.</mark></p>
 <p>활용 영역은 일곱 가지다. 마이크로서비스 간 비동기 메시징, 사용자 활동 추적(원래의 use case), 메트릭 전송(Prometheus가 저장·쿼리라면 Kafka는 transport), 로그 집계(Filebeat → Kafka → Elasticsearch), 스트림 처리(Kafka Streams·Flink), 이벤트 소싱(상태 변화를 저장해 재계산·감사), 분산 시스템의 commit log(log compaction으로 키별 최신 값 보존). API는 Producer·Consumer·Streams·Connect 네 가지이고, Schema Registry가 포맷 표준화를 맡는다.</p>
 <h2>코드</h2>
 <p><code>spring-kafka</code>를 추가하고 브로커 주소를 지정하면 <code>KafkaTemplate</code>과 리스너 컨테이너가 자동 구성된다.</p>
@@ -148,7 +148,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>순서 보장 범위</strong>: partition 안에서만 유지된다.</mark> key 없이 보내면 흩어지고, partition 수를 나중에 늘리면 같은 key의 해시 결과가 바뀌어 다른 partition으로 간다.</li>
+<li><strong>순서 보장 범위</strong>: partition 안에서만 유지된다. key 없이 보내면 흩어지고, partition 수를 나중에 늘리면 같은 key의 해시 결과가 바뀌어 다른 partition으로 간다.</li>
 <li><strong>운반 계층이지 처리 계층이 아니다</strong>: Kafka는 바이트 스트림을 저장·전달할 뿐 해석하거나 조회하지 않는다. 필터·집계는 Kafka Streams나 consumer 코드가, 쿼리는 데이터베이스나 ksqlDB가 맡는다.</li>
 <li><strong>도입 기준</strong>: 초당 100건 미만의 단순 작업 큐라면 Redis Stream이나 SQS가 충분하다. 초당 1만 건 이상, 재처리, 다중 소비자, 영구 보존 중 둘 이상이 해당할 때 가치가 있다. 운영 인력이 부족하면 AWS MSK·Confluent Cloud로 시작한다.</li>
 <li><strong>스키마 없는 JSON</strong>: Schema Registry 없이도 동작하지만 필드가 바뀌면 consumer가 깨진다. 여러 팀이 topic을 공유하면 Registry로 호환성을 강제한다.</li>

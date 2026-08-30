@@ -24,7 +24,7 @@
   <h1>운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</h1>
   <p class="summary">Topic CRUD·파티션 재할당·무중단 재시작·KRaft 컨트롤러 쿼럼까지, 클러스터를 멈추지 않고 바꾸는 운영 절차를 정리한다.</p>
   <div class="content">
-<p>트래픽이 늘면 파티션과 브로커를 늘려야 하고, 패치와 업그레이드 때문에 모든 브로커를 주기적으로 재시작해야 한다. 절차 없이 하면 문제가 바로 드러난다. 브로커를 추가만 하면 새 브로커는 빈 채로 놀고, 재할당을 제한 없이 실행하면 복제 트래픽이 정상 트래픽을 밀어내며, <code>kill -9</code>로 내리면 ISR이 깨져 unclean leader election 위험이 생긴다. <mark>Kafka 4.0부터 ZooKeeper가 제거되어 KRaft가 유일한 모드이므로 컨트롤러 쿼럼 설계와 포맷도 운영자의 몫이다.</mark></p>
+<p>트래픽이 늘면 파티션과 브로커를 늘려야 하고, 패치와 업그레이드 때문에 모든 브로커를 주기적으로 재시작해야 한다. 절차 없이 하면 문제가 바로 드러난다. 브로커를 추가만 하면 새 브로커는 빈 채로 놀고, 재할당을 제한 없이 실행하면 복제 트래픽이 정상 트래픽을 밀어내며, <code>kill -9</code>로 내리면 ISR이 깨져 unclean leader election 위험이 생긴다. Kafka 4.0부터 ZooKeeper가 제거되어 KRaft가 유일한 모드이므로 컨트롤러 쿼럼 설계와 포맷도 운영자의 몫이다.</p>
 <h2>핵심 개념</h2>
 <h3>Topic·Consumer Group 관리</h3>
 <p>Topic CRUD는 <code>kafka-topics.sh</code>, 토픽별 설정은 <code>kafka-configs.sh</code>가 담당한다. 파티션 수는 늘릴 수만 있고, 늘려도 기존 메시지는 원래 파티션에 남아 같은 key의 순서 보장이 추가 시점을 경계로 끊어진다. 삭제는 비동기로 브로커가 백그라운드에서 처리한다.</p>
@@ -34,7 +34,7 @@
 <h3>Preferred Leader Election</h3>
 <p>레플리카 목록의 첫 브로커가 preferred leader다. 재할당이나 재시작 뒤 리더가 한쪽에 몰리면 <code>auto.leader.rebalance.enable=true</code>(기본)가 <code>leader.imbalance.per.broker.percentage</code> 기준으로 주기적으로 복구하고, 즉시 되돌리려면 <code>kafka-leader-election.sh --election-type preferred</code>를 실행한다.</p>
 <h3>Rolling Restart</h3>
-<p>브로커를 한 대씩 내리고 올리면서 매 단계 <code>--under-replicated-partitions</code> 결과가 비어 있는지 확인한 뒤 다음으로 넘어간다. 그 전에 다음 브로커를 내리면 ISR이 <code>min.insync.replicas</code> 아래로 떨어져 쓰기가 거부된다. 브로커는 정상 종료 신호를 받아야 리더십을 넘기고 내려간다.</p>
+<p>브로커를 한 대씩 내리고 올리면서 매 단계 <code>--under-replicated-partitions</code> 결과가 비어 있는지 확인한 뒤 다음으로 넘어간다. <mark>그 전에 다음 브로커를 내리면 ISR이 <code>min.insync.replicas</code> 아래로 떨어져 쓰기가 거부된다.</mark> 브로커는 정상 종료 신호를 받아야 리더십을 넘기고 내려간다.</p>
 <h3>KRaft 컨트롤러 쿼럼</h3>
 <p>KRaft는 Kafka가 자체 Raft 로그에 메타데이터를 저장하는 방식이다. 3.3에서 프로덕션 준비, 4.0에서 ZooKeeper 제거이며, 기존 ZooKeeper 클러스터는 3.9에서 마이그레이션을 마친 뒤 4.0으로 올린다.</p>
 <p>각 노드는 <code>process.roles</code>로 역할을 정한다. <code>controller</code>는 메타데이터 쿼럼에만 참여하고, <code>broker</code>는 데이터만 다루며, <code>broker,controller</code>는 둘을 한 프로세스에서 맡는 combined 모드다. Combined는 브로커 부하가 컨트롤러 응답에 영향을 주므로 개발·테스트용이며, 운영 환경은 컨트롤러 전용 노드를 분리한 dedicated 모드로 구성한다.</p>
@@ -164,11 +164,11 @@ kafka-reassign-partitions.sh --bootstrap-server broker-1:9092 \
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>파티션 추가는 되돌릴 수 없다.</strong></mark> 추가 시점 전후로 같은 key가 다른 파티션에 흩어지므로 key 순서에 의존하는 컨슈머의 영향을 먼저 확인한다.</li>
-<li><strong>스로틀은 재할당 자체도 느리게 만든다.</strong> 새 데이터가 스로틀 값보다 빠르게 쌓이면 재할당이 끝나지 않는다. 진행이 멈추면 <code>--additional --throttle</code>로 상한을 올린다.</li>
+<li><strong>파티션 추가는 되돌릴 수 없다.</strong> 추가 시점 전후로 같은 key가 다른 파티션에 흩어지므로 key 순서에 의존하는 컨슈머의 영향을 먼저 확인한다.</li>
+<li><strong>스로틀은 재할당 자체도 느리게 만든다.</strong> <mark>새 데이터가 스로틀 값보다 빠르게 쌓이면 재할당이 끝나지 않는다.</mark> 진행이 멈추면 <code>--additional --throttle</code>로 상한을 올린다.</li>
 <li><strong>재할당 중 리더 이동은 <code>NotLeaderOrFollowerException</code>으로 나타난다.</strong> 재시도를 끈 클라이언트는 이를 실패로 본다.</li>
-<li><strong>Combined 모드의 롤링 재시작은 쿼럼을 같이 흔든다.</strong> 3노드에서 한 노드를 내린 상태로 두 번째 노드에 문제가 생기면 메타데이터 변경 자체가 멈춘다.</li>
-<li><strong>cluster ID가 다르게 포맷된 노드는 조용히 분리된다.</strong> 프로비저닝 스크립트에서 <code>describe --status</code>의 ClusterId와 대조한다.</li>
+<li><strong>Combined 모드의 롤링 재시작은 쿼럼을 같이 흔든다.</strong> <mark>3노드에서 한 노드를 내린 상태로 두 번째 노드에 문제가 생기면 메타데이터 변경 자체가 멈춘다.</mark></li>
+<li><mark><strong>cluster ID가 다르게 포맷된 노드는 조용히 분리된다.</strong></mark> 프로비저닝 스크립트에서 <code>describe --status</code>의 ClusterId와 대조한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

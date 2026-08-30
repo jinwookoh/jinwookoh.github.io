@@ -19,7 +19,7 @@ MapStruct는 어노테이션 프로세서다. 개발자는 `@Mapper`가 붙은 �
 
 `componentModel = "spring"`을 주면 생성 클래스에 `@Component`가 붙어 일반 Bean처럼 주입받는다. Spring Boot 3 기준으로 `MappingConstants.ComponentModel.SPRING` 상수를 써도 된다.
 
-안전 장치로 가장 중요한 옵션은 `unmappedTargetPolicy = ReportingPolicy.ERROR`다. 대상 DTO에 매핑되지 않은 필드가 하나라도 남으면 컴파일이 실패하므로, Entity나 DTO에 필드를 추가하고 매퍼를 갱신하지 않는 실수가 빌드 단계에서 드러난다. 기본값은 WARN이라 경고가 로그에 묻히기 쉬우므로 프로젝트 전체에 ERROR를 적용하는 편이 낫다.
+안전 장치로 가장 중요한 옵션은 `unmappedTargetPolicy = ReportingPolicy.ERROR`다. 대상 DTO에 매핑되지 않은 필드가 하나라도 남으면 컴파일이 실패하므로, Entity나 DTO에 필드를 추가하고 매퍼를 갱신하지 않는 실수가 빌드 단계에서 드러난다. ==기본값은 WARN이라 경고가 로그에 묻히기 쉬우므로 프로젝트 전체에 ERROR를 적용하는 편이 낫다.==
 
 이 밖에 `@MappingTarget`은 새 객체를 만들지 않고 기존 객체의 필드를 덮어쓰는 업데이트 매핑에 쓰이고, `uses`는 다른 매퍼를 위임 대상으로 등록해 중첩 객체 그래프를 자동 변환하게 한다. `List<Order>`를 `List<OrderResponse>`로 바꾸는 컬렉션 매핑은 단일 객체 메서드가 있으면 시그니처만 선언해도 생성된다.
 
@@ -34,7 +34,7 @@ ModelMapper와의 차이는 다음과 같다.
 
 ## 코드
 
-Gradle 의존성. Lombok을 함께 쓰면 `lombok-mapstruct-binding`이 없을 때 MapStruct가 Lombok이 생성한 getter/setter를 보지 못하므로 반드시 추가한다.
+Gradle 의존성. ==Lombok을 함께 쓰면 `lombok-mapstruct-binding`이 없을 때 MapStruct가 Lombok이 생성한 getter/setter를 보지 못하므로 반드시 추가한다.==
 
 ```groovy
 dependencies {
@@ -113,7 +113,7 @@ public class OrderService {
 - **Lombok 어노테이션 프로세서 순서.** `lombok-mapstruct-binding` 없이 빌드하면 "Unknown property" 또는 setter를 찾지 못한다는 오류가 난다. Gradle의 `annotationProcessor` 선언만으로는 순서가 보장되지 않으므로 바인딩 아티팩트를 반드시 넣는다.
 - **`expression = "java(...)"` 남용.** 문자열 안의 자바 코드는 IDE 리팩터링과 컴파일 검증에서 빠진다. 복잡한 변환은 인터페이스에 `default` 메서드를 두거나 별도 클래스를 `uses`로 등록해 타입이 검증되는 경로로 처리한다.
 - **연관 Entity와 지연 로딩.** `user.name`처럼 연관 객체를 매핑하면 트랜잭션 밖에서 `LazyInitializationException`이 나거나 컬렉션 매핑에서 N+1이 발생한다. 매핑은 트랜잭션 안에서 수행하고, 목록 조회는 fetch join으로 미리 로딩한다.
-- **업데이트 매핑의 null 처리.** 부분 수정 API에서 요청 필드가 null이면 기본 전략은 대상 필드를 null로 덮어쓴다. `NullValuePropertyMappingStrategy.IGNORE`를 명시하지 않으면 의도치 않은 값 삭제가 DB에 반영된다.
+- **업데이트 매핑의 null 처리.** ==부분 수정 API에서 요청 필드가 null이면 기본 전략은 대상 필드를 null로 덮어쓴다.== `NullValuePropertyMappingStrategy.IGNORE`를 명시하지 않으면 의도치 않은 값 삭제가 DB에 반영된다.
 - **생성 코드 확인 습관.** 매핑 결과가 이상하면 `build/generated/sources/annotationProcessor` 아래 `OrderMapperImpl`을 직접 연다. 어떤 필드가 어떤 getter에서 왔는지 그대로 적혀 있으므로 추측할 이유가 없다.
 
 ## 관련 글

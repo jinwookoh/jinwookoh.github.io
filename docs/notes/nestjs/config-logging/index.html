@@ -24,7 +24,7 @@
   <h1>설정·환경·로깅</h1>
   <p class="summary">환경 변수를 검증된 타입 객체로 주입하고, 부트스트랩 로그까지 한 로거로 모으는 방법을 정리한다</p>
   <div class="content">
-<p>서비스 코드에서 <code>process.env</code>를 직접 읽으면 값이 항상 <code>string | undefined</code>라 파싱과 null 체크가 반복되고, 필수 변수가 빠진 채 기동해도 해당 코드가 실행되기 전까지 오류가 나지 않는다. 로깅도 마찬가지로 <code>console.log</code>를 흩어 쓰면 레벨을 한 곳에서 조절할 수 없고, 프레임워크 부트스트랩 로그와 애플리케이션 로그의 형식이 달라 수집기 파싱이 깨진다. <mark><code>@nestjs/config</code>와 내장 <code>Logger</code>가 이 둘을 DI 안에서 해결한다.</mark></p>
+<p>서비스 코드에서 <code>process.env</code>를 직접 읽으면 값이 항상 <code>string | undefined</code>라 파싱과 null 체크가 반복되고, 필수 변수가 빠진 채 기동해도 해당 코드가 실행되기 전까지 오류가 나지 않는다. 로깅도 마찬가지로 <code>console.log</code>를 흩어 쓰면 레벨을 한 곳에서 조절할 수 없고, 프레임워크 부트스트랩 로그와 애플리케이션 로그의 형식이 달라 수집기 파싱이 깨진다. <code>@nestjs/config</code>와 내장 <code>Logger</code>가 이 둘을 DI 안에서 해결한다.</p>
 <h2>핵심 개념</h2>
 <p>Spring 대응으로 <code>ConfigModule</code> ≈ <code>Environment</code> + <code>@ConfigurationProperties</code>, <code>Logger</code> ≈ SLF4J 파사드 + Logback 구현체다.</p>
 <h3>ConfigModule과 ConfigService</h3>
@@ -33,7 +33,7 @@
 <h3>네임스페이스 설정과 registerAs</h3>
 <p><code>registerAs(&#39;database&#39;, () =&gt; ({...}))</code>는 팩토리를 키 아래에 묶는다. <code>ConfigService.get(&#39;database.url&#39;)</code>처럼 점 표기로 읽거나, <code>@Inject(databaseConfig.KEY)</code>로 주입해 <code>ConfigType&lt;typeof databaseConfig&gt;</code> 타입을 받는다. 후자가 Spring의 <code>@ConfigurationProperties(prefix = &quot;database&quot;)</code>에 가장 가깝다. 기능 모듈에서만 필요한 설정은 <code>ConfigModule.forFeature()</code>로 부분 등록한다.</p>
 <h3>검증</h3>
-<p><code>validate</code>에는 <code>Record&lt;string, unknown&gt;</code>을 받아 검증된 객체를 반환하는 동기 함수를 넘긴다. <code>class-validator</code>와 <code>class-transformer</code>를 조합하면 DTO와 같은 데코레이터 방식이 되고, <code>validationSchema</code>에는 Standard Schema 호환 스키마(Zod 등)를 넘긴다. <mark>실패 시 기동이 중단되어 잘못된 배포가 트래픽을 받기 전에 걸러진다.</mark></p>
+<p><code>validate</code>에는 <code>Record&lt;string, unknown&gt;</code>을 받아 검증된 객체를 반환하는 동기 함수를 넘긴다. <code>class-validator</code>와 <code>class-transformer</code>를 조합하면 DTO와 같은 데코레이터 방식이 되고, <code>validationSchema</code>에는 Standard Schema 호환 스키마(Zod 등)를 넘긴다. 실패 시 기동이 중단되어 잘못된 배포가 트래픽을 받기 전에 걸러진다.</p>
 <h3>Logger와 LoggerService</h3>
 <p><code>@nestjs/common</code>의 <code>Logger</code>는 파사드이고 실제 출력은 <code>ConsoleLogger</code>가 맡는다. <code>NestFactory.create()</code>의 <code>logger</code> 옵션으로 구현체를 교체하거나 레벨 배열(<code>fatal</code>, <code>error</code>, <code>warn</code>, <code>log</code>, <code>debug</code>, <code>verbose</code>)로 출력을 제한한다. <code>LoggerService</code>를 구현하면 pino나 winston도 끼울 수 있다. <code>ConsoleLogger</code> 옵션 중 <code>json: true</code>는 한 줄 JSON 출력, <code>prefix</code>는 접두어, <code>colors: false</code>는 stdout의 ANSI 코드를 막는다.</p>
 <h2>코드</h2>
@@ -162,10 +162,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><mark><code>.env</code> 파일은 <code>process.env</code>를 덮어쓰지 않는다.</mark></strong> 셸이나 컨테이너 런타임이 설정한 변수가 우선한다. 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 <code>ignoreEnvFile: true</code>로 파일 의존을 끊는다.</li>
-<li><strong><mark><code>ConfigService</code>를 <code>forRoot()</code> 이전에 쓸 수 없다.</mark></strong> 설정에 의존하는 동적 모듈은 <code>TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })</code> 형태로 비동기 등록해야 한다. 동기 <code>forRoot()</code>에 <code>process.env</code>를 직접 넣으면 파일이 아직 읽히지 않아 <code>undefined</code>가 들어간다.</li>
+<li><strong><code>.env</code> 파일은 <code>process.env</code>를 덮어쓰지 않는다.</strong> <mark>셸이나 컨테이너 런타임이 설정한 변수가 우선한다.</mark> 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 <code>ignoreEnvFile: true</code>로 파일 의존을 끊는다.</li>
+<li><strong><code>ConfigService</code>를 <code>forRoot()</code> 이전에 쓸 수 없다.</strong> 설정에 의존하는 동적 모듈은 <code>TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })</code> 형태로 비동기 등록해야 한다. <mark>동기 <code>forRoot()</code>에 <code>process.env</code>를 직접 넣으면 파일이 아직 읽히지 않아 <code>undefined</code>가 들어간다.</mark></li>
 <li><strong><code>cache: true</code>는 런타임 변경을 반영하지 않는다.</strong> 기동 이후 <code>process.env</code>를 바꿔도 <code>ConfigService</code>에는 보이지 않으므로, 테스트에서 변수를 바꿔 가며 검증할 때 원인이 되기 쉽다.</li>
-<li><strong><code>bufferLogs</code> 없이 <code>useLogger()</code>를 호출하면 부트스트랩 로그는 기본 로거로 나간다.</strong> 모듈 초기화 로그가 텍스트로 먼저 찍히고 이후부터 JSON이 되어 수집기 파싱이 깨진다. 기동 실패 시 버퍼가 비워지지 않을 수 있으므로 <code>catch</code>에서 <code>app.flushLogs()</code>를 호출한다.</li>
+<li><strong><code>bufferLogs</code> 없이 <code>useLogger()</code>를 호출하면 부트스트랩 로그는 기본 로거로 나간다.</strong> 모듈 초기화 로그가 텍스트로 먼저 찍히고 이후부터 JSON이 되어 수집기 파싱이 깨진다. <mark>기동 실패 시 버퍼가 비워지지 않을 수 있으므로 <code>catch</code>에서 <code>app.flushLogs()</code>를 호출한다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

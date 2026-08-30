@@ -15,9 +15,9 @@ updated: 2026-08-29
 
 ### 노드 역할과 master 정족수
 
-`node.roles`로 `master`·`data`·`ingest` 등 역할을 지정한다. 소규모는 모든 역할을 합친 노드 3대로 시작해도 되지만, 규모가 커지면 master 전용 3대를 분리한다. master가 data 역할과 겹치면 집계가 유발하는 GC pause를 다른 노드가 장애로 판단해 재선출이 반복된다.
+`node.roles`로 `master`·`data`·`ingest` 등 역할을 지정한다. 소규모는 모든 역할을 합친 노드 3대로 시작해도 되지만, 규모가 커지면 master 전용 3대를 분리한다. ==master가 data 역할과 겹치면 집계가 유발하는 GC pause를 다른 노드가 장애로 판단해 재선출이 반복된다.==
 
-선출 정족수는 voting configuration의 노드 수 N에 대해 (N/2)+1이다. N=2면 한 대만 죽어도 선출이 불가능하므로 master-eligible은 3 또는 5로 두고 가용 영역에 분산한다. `cluster.initial_master_nodes`는 최초 bootstrap 전용이며, 기존 클러스터에 노드를 추가할 때 넣으면 별도 클러스터가 형성되어 split-brain의 원인이 된다. 7.x 이전의 `discovery.zen.*` 설정은 8.x에서 시작을 거부하므로 제거한다.
+선출 정족수는 voting configuration의 노드 수 N에 대해 (N/2)+1이다. N=2면 한 대만 죽어도 선출이 불가능하므로 master-eligible은 3 또는 5로 두고 가용 영역에 분산한다. ==`cluster.initial_master_nodes`는 최초 bootstrap 전용이며, 기존 클러스터에 노드를 추가할 때 넣으면 별도 클러스터가 형성되어 split-brain의 원인이 된다.== 7.x 이전의 `discovery.zen.*` 설정은 8.x에서 시작을 거부하므로 제거한다.
 
 ```yaml
 # master 전용 노드
@@ -37,7 +37,7 @@ discovery.seed_hosts: ["master-1:9300", "master-2:9300", "master-3:9300"]
 
 `_cluster/health`의 green은 모든 샤드가 active, yellow는 일부 replica 미할당, red는 일부 primary 미할당이다. yellow는 재시작 중에는 정상이지만, red는 해당 샤드를 읽지도 쓰지도 못하므로 즉시 대응한다. 원인은 `_cluster/allocation/explain`으로 확인한다.
 
-무중단 업그레이드는 rolling restart로 처리한다. `cluster.routing.allocation.enable`을 `primaries`로 바꿔 replica 재배치를 멈추고, `POST /_flush` 후 노드를 재시작하며, green이 될 때까지 기다린 뒤 설정을 `null`로 되돌린다. green 대기 없이 다음 노드를 끄면 어떤 인덱스의 모든 복사본이 동시에 사라져 red가 된다.
+무중단 업그레이드는 rolling restart로 처리한다. `cluster.routing.allocation.enable`을 `primaries`로 바꿔 replica 재배치를 멈추고, `POST /_flush` 후 노드를 재시작하며, green이 될 때까지 기다린 뒤 설정을 `null`로 되돌린다. ==green 대기 없이 다음 노드를 끄면 어떤 인덱스의 모든 복사본이 동시에 사라져 red가 된다.==
 
 ### 노드 제거와 Voting Exclusion
 
@@ -51,7 +51,7 @@ master 안의 shard allocator가 `allocation.enable` → filtering → awareness
 
 **Filtering**은 인덱스를 특정 노드 그룹에 고정한다. `include`는 하나라도 일치하면 허용, `exclude`는 일치하면 거부, `require`는 모두 일치해야 허용한다.
 
-**Disk watermark**는 low(85%)에서 새 샤드 할당을 멈추고, high(90%)에서 기존 샤드를 옮기며, flood_stage(95%)에서 인덱스에 `read_only_allow_delete` 블록을 건다.
+==**Disk watermark**는 low(85%)에서 새 샤드 할당을 멈추고, high(90%)에서 기존 샤드를 옮기며, flood_stage(95%)에서 인덱스에 `read_only_allow_delete` 블록을 건다.==
 
 primary shard 수를 바꾸려면 원본을 `index.blocks.write: true`로 잠근 뒤 shrink(약수)·split(배수)·clone으로 새 인덱스를 만들고 alias를 전환한다.
 

@@ -24,7 +24,7 @@
   <h1>실무 패턴 — strict 모드·타입 가드·에러 처리</h1>
   <p class="summary">strict 옵션을 켜고, 타입 가드로 좁히고, unknown 기반으로 에러를 다루는 실무 규칙을 정리한다</p>
   <div class="content">
-<p><code>strict</code>를 끄고 시작한 프로젝트는 타입 검사가 통과해도 런타임에서 <code>Cannot read properties of undefined</code>가 터진다. <code>null</code>이 모든 타입에 암묵적으로 포함되고, 타입을 적지 않은 매개변수는 <code>any</code>가 되어 검사를 빠져나가며, <code>catch</code>에서 받은 값의 <code>err.message</code>가 그대로 컴파일된다. <mark>컴파일러가 잡을 수 있는 오류를 런타임으로 미루는 구조다.</mark> strict 모드와 그 위에서 동작하는 좁히기(narrowing)·에러 처리 패턴이 기본값이어야 하는 이유다.</p>
+<p><code>strict</code>를 끄고 시작한 프로젝트는 타입 검사가 통과해도 런타임에서 <code>Cannot read properties of undefined</code>가 터진다. <code>null</code>이 모든 타입에 암묵적으로 포함되고, 타입을 적지 않은 매개변수는 <code>any</code>가 되어 검사를 빠져나가며, <code>catch</code>에서 받은 값의 <code>err.message</code>가 그대로 컴파일된다. 컴파일러가 잡을 수 있는 오류를 런타임으로 미루는 구조다. strict 모드와 그 위에서 동작하는 좁히기(narrowing)·에러 처리 패턴이 기본값이어야 하는 이유다.</p>
 <h2>핵심 개념</h2>
 <h3>strict 옵션군</h3>
 <p><code>strict: true</code>는 여러 검사를 한 번에 켜는 묶음이다. 개별 옵션을 뒤에 명시하면 그 항목만 끌 수 있다.</p>
@@ -59,10 +59,10 @@
 <p>새 프로젝트는 <code>strict: true</code>로 시작하고, 기존 프로젝트는 옵션을 하나씩 켜면서 오류를 줄여 나간다.</p>
 <h3>좁히기와 타입 가드</h3>
 <p>TypeScript는 코드 흐름을 따라가며 변수의 타입을 구체화한다. <code>typeof</code>, <code>instanceof</code>, <code>in</code>, 진릿값 검사, 판별 속성(discriminant)이 좁히기의 재료다. 유니온 멤버가 공통 리터럴 필드(<code>kind</code> 등)를 가지면 <code>switch</code>만으로 분기별 타입이 확정되고, <code>never</code> 대입으로 분기 누락을 컴파일 시점에 잡는다.</p>
-<p>내장 연산자로 표현하기 어려운 조건은 반환 타입이 <code>x is T</code>인 사용자 정의 타입 가드로 만든다. 5.5부터는 단순 술어 함수라면 명시하지 않아도 타입 가드로 추론된다. <code>asserts x is T</code>로 쓰면 정상 반환 이후 타입이 좁혀지는 단언 함수가 된다.</p>
+<p>내장 연산자로 표현하기 어려운 조건은 반환 타입이 <code>x is T</code>인 사용자 정의 타입 가드로 만든다. <mark>5.5부터는 단순 술어 함수라면 명시하지 않아도 타입 가드로 추론된다.</mark> <code>asserts x is T</code>로 쓰면 정상 반환 이후 타입이 좁혀지는 단언 함수가 된다.</p>
 <p>Java 기준으로 판별 유니온 + <code>switch</code>는 sealed 클래스 패턴 매칭에 해당하고, <code>strictNullChecks</code>는 <code>Optional</code>을 언어 차원에서 강제하는 것과 같다.</p>
 <h3>unknown 기반 에러 처리</h3>
-<p>JavaScript는 <code>throw</code>에 아무 값이나 던질 수 있으므로 strict 모드에서 <code>catch</code> 변수는 <code>unknown</code>이 되고, <code>instanceof Error</code>나 별도 가드를 통과해야 <code>message</code>에 접근할 수 있다. <mark>예상 가능한 실패는 판별 유니온 결과 타입으로 반환해 호출자가 반드시 분기하게 하고, 예상 밖 실패만 <code>throw</code>로 올린다.</mark></p>
+<p>JavaScript는 <code>throw</code>에 아무 값이나 던질 수 있으므로 strict 모드에서 <code>catch</code> 변수는 <code>unknown</code>이 되고, <code>instanceof Error</code>나 별도 가드를 통과해야 <code>message</code>에 접근할 수 있다. 예상 가능한 실패는 판별 유니온 결과 타입으로 반환해 호출자가 반드시 분기하게 하고, 예상 밖 실패만 <code>throw</code>로 올린다.</p>
 <h3>선언 파일 작성 규칙</h3>
 <p><code>.d.ts</code>를 직접 쓸 때의 원칙이다. <code>Number</code>·<code>String</code> 같은 래퍼 대신 원시 타입을 쓰고, 반환 타입에 <code>any</code> 대신 <code>unknown</code>을 쓴다. 콜백 반환 타입은 <code>void</code>로 두고 콜백 매개변수를 옵셔널로 만들지 않는다. 오버로드는 구체적인 시그니처를 앞에 두고, 매개변수 타입이나 옵셔널 여부만 다른 오버로드는 하나로 합친다.</p>
 <h2>코드</h2>
@@ -138,8 +138,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>non-null 단언(<code>!</code>)의 남용.</strong> <code>strictNullChecks</code> 오류를 <code>x!.foo</code>로 눌러 버리면 검사를 끈 것과 같다.</mark> 실제로 값이 보장되는 곳(초기화 직후, 방금 검사한 맵 조회)에만 제한하고, 그 외에는 조기 반환이나 옵셔널 체이닝으로 흐름을 바꾼다.</li>
-<li><strong>콜백 안에서 좁히기가 풀린다.</strong> <code>if (user) { list.forEach(() =&gt; user.name) }</code>에서 <code>user</code>가 <code>let</code>이면 콜백 안에서는 다시 <code>undefined</code>가 포함된다. 콜백 실행 시점에 값이 바뀔 수 있기 때문이다. 좁힌 값을 <code>const</code>에 담아 넘기면 해결된다.</li>
+<li><strong>non-null 단언(<code>!</code>)의 남용.</strong> <code>strictNullChecks</code> 오류를 <code>x!.foo</code>로 눌러 버리면 검사를 끈 것과 같다. 실제로 값이 보장되는 곳(초기화 직후, 방금 검사한 맵 조회)에만 제한하고, 그 외에는 조기 반환이나 옵셔널 체이닝으로 흐름을 바꾼다.</li>
+<li><strong>콜백 안에서 좁히기가 풀린다.</strong> <mark><code>if (user) { list.forEach(() =&gt; user.name) }</code>에서 <code>user</code>가 <code>let</code>이면 콜백 안에서는 다시 <code>undefined</code>가 포함된다.</mark> 콜백 실행 시점에 값이 바뀔 수 있기 때문이다. 좁힌 값을 <code>const</code>에 담아 넘기면 해결된다.</li>
 <li><strong>가드의 조건과 반환 타입이 어긋난다.</strong> <code>typeof x === &quot;object&quot;</code>는 <code>null</code>도 통과시킨다. 가드가 틀리면 컴파일러가 잘못된 타입을 믿게 되므로 가드 자체에 단위 테스트를 둔다.</li>
 <li><strong><code>strictPropertyInitialization</code>과 DI.</strong> NestJS 11의 프로퍼티 주입이나 ORM 엔티티 필드는 생성자에서 초기화하지 않아 오류가 난다. 생성자 주입으로 바꾸는 것이 우선이고, 프레임워크가 반드시 채우는 필드에만 <code>!</code> 확정 할당 단언을 쓴다.</li>
 <li><strong>점진 도입 시 오류 폭증.</strong> <code>strictNullChecks</code>를 켜면 대형 코드베이스는 수천 건의 오류가 나온다. <code>// @ts-expect-error</code>로 기록한 뒤 줄여 나가고, 오류가 사라져도 남는 <code>@ts-ignore</code>는 쓰지 않는다.</li>

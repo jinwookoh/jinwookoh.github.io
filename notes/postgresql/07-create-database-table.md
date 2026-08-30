@@ -19,7 +19,7 @@ PostgreSQL은 Cluster → Database → Schema → Table 네 단계로 객체를 
 
 ### CREATE DATABASE와 템플릿
 
-`CREATE DATABASE`는 기존 데이터베이스를 복사하는 방식으로 동작한다. 기본 원본은 `template1`이며, 여기에 추가된 객체는 이후 만드는 모든 DB에 복제된다. `template0`은 수정되지 않는 빈 템플릿이어서 다른 인코딩·로케일을 지정할 때 필수이고 깨끗한 시작을 위해서도 명시한다. `TEMPLATE original_db`로 임의의 DB를 복제할 수도 있으며, 원본에 다른 세션이 없어야 한다. 대용량·원격 복제는 `pg_dump -Fc`와 `pg_restore`를 쓴다.
+`CREATE DATABASE`는 기존 데이터베이스를 복사하는 방식으로 동작한다. ==기본 원본은 `template1`이며, 여기에 추가된 객체는 이후 만드는 모든 DB에 복제된다.== `template0`은 수정되지 않는 빈 템플릿이어서 다른 인코딩·로케일을 지정할 때 필수이고 깨끗한 시작을 위해서도 명시한다. `TEMPLATE original_db`로 임의의 DB를 복제할 수도 있으며, 원본에 다른 세션이 없어야 한다. 대용량·원격 복제는 `pg_dump -Fc`와 `pg_restore`를 쓴다.
 
 주요 옵션은 다음과 같다.
 
@@ -139,11 +139,11 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- **인코딩·로케일은 되돌릴 수 없다.** `SQL_ASCII`로 만든 DB는 덤프 후 새 DB에 복원해야 한다. `ko_KR.UTF-8` 콜레이션은 `C`보다 비교 비용이 크고 LIKE 접두 검색에 B-Tree 인덱스가 쓰이지 않으므로, `C` 로케일에 컬럼별 COLLATE를 얹는 선택도 검토한다.
+- **인코딩·로케일은 되돌릴 수 없다.** `SQL_ASCII`로 만든 DB는 덤프 후 새 DB에 복원해야 한다. ==`ko_KR.UTF-8` 콜레이션은 `C`보다 비교 비용이 크고 LIKE 접두 검색에 B-Tree 인덱스가 쓰이지 않으므로==, `C` 로케일에 컬럼별 COLLATE를 얹는 선택도 검토한다.
 - **DROP DATABASE는 접속이 있으면 실패하고 취소할 수 없다.** 자기 자신에게 접속한 채로는 지울 수 없어 `\c postgres`로 옮긴 뒤 실행하고, 다른 세션은 `pg_terminate_backend(pid)`로 끊거나 `ALLOW_CONNECTIONS = FALSE`로 차단한다. 백업 확인 후 운영 시간 외에 실행한다.
 - **CONNECTION LIMIT 기본값은 무제한이다.** 한 DB가 커넥션을 모두 점유하면 다른 DB까지 접속 불가가 된다. 커넥션 풀 합계보다 약간 큰 값으로 상한을 둔다.
-- **큰 테이블의 ALTER TABLE은 락을 잡는다.** `ALTER COLUMN ... TYPE`이나 `NOT NULL` 추가는 테이블 전체를 다시 쓰거나 검사하며 쓰기가 막힌다. 상수 DEFAULT 컬럼 추가는 즉시 끝나므로, 변경별 락 수준을 확인하고 필요하면 `pg_repack`이나 단계적 마이그레이션으로 나눈다.
-- **`idle in transaction` 세션이 DDL을 대기시킨다.** 열어 둔 트랜잭션이 있으면 ALTER와 DROP이 락을 기다리고 뒤따르는 쿼리까지 막힌다. `pg_stat_activity`에서 오래된 세션을 정리하고 DDL 전에 `lock_timeout`을 설정한다.
+- **큰 테이블의 ALTER TABLE은 락을 잡는다.** ==`ALTER COLUMN ... TYPE`이나 `NOT NULL` 추가는 테이블 전체를 다시 쓰거나 검사하며 쓰기가 막힌다.== 상수 DEFAULT 컬럼 추가는 즉시 끝나므로, 변경별 락 수준을 확인하고 필요하면 `pg_repack`이나 단계적 마이그레이션으로 나눈다.
+- **`idle in transaction` 세션이 DDL을 대기시킨다.** ==열어 둔 트랜잭션이 있으면 ALTER와 DROP이 락을 기다리고 뒤따르는 쿼리까지 막힌다.== `pg_stat_activity`에서 오래된 세션을 정리하고 DDL 전에 `lock_timeout`을 설정한다.
 
 ## 관련 글
 

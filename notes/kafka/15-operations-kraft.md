@@ -29,7 +29,7 @@ Consumer Group은 `kafka-consumer-groups.sh --describe`로 파티션별 LAG를 �
 
 ### Rolling Restart
 
-브로커를 한 대씩 내리고 올리면서 매 단계 `--under-replicated-partitions` 결과가 비어 있는지 확인한 뒤 다음으로 넘어간다. 그 전에 다음 브로커를 내리면 ISR이 `min.insync.replicas` 아래로 떨어져 쓰기가 거부된다. 브로커는 정상 종료 신호를 받아야 리더십을 넘기고 내려간다.
+브로커를 한 대씩 내리고 올리면서 매 단계 `--under-replicated-partitions` 결과가 비어 있는지 확인한 뒤 다음으로 넘어간다. ==그 전에 다음 브로커를 내리면 ISR이 `min.insync.replicas` 아래로 떨어져 쓰기가 거부된다.== 브로커는 정상 종료 신호를 받아야 리더십을 넘기고 내려간다.
 
 ### KRaft 컨트롤러 쿼럼
 
@@ -160,10 +160,10 @@ public class RollingRestartGate {
 ## 실무에서 걸리는 지점
 
 - **파티션 추가는 되돌릴 수 없다.** 추가 시점 전후로 같은 key가 다른 파티션에 흩어지므로 key 순서에 의존하는 컨슈머의 영향을 먼저 확인한다.
-- **스로틀은 재할당 자체도 느리게 만든다.** 새 데이터가 스로틀 값보다 빠르게 쌓이면 재할당이 끝나지 않는다. 진행이 멈추면 `--additional --throttle`로 상한을 올린다.
+- **스로틀은 재할당 자체도 느리게 만든다.** ==새 데이터가 스로틀 값보다 빠르게 쌓이면 재할당이 끝나지 않는다.== 진행이 멈추면 `--additional --throttle`로 상한을 올린다.
 - **재할당 중 리더 이동은 `NotLeaderOrFollowerException`으로 나타난다.** 재시도를 끈 클라이언트는 이를 실패로 본다.
-- **Combined 모드의 롤링 재시작은 쿼럼을 같이 흔든다.** 3노드에서 한 노드를 내린 상태로 두 번째 노드에 문제가 생기면 메타데이터 변경 자체가 멈춘다.
-- **cluster ID가 다르게 포맷된 노드는 조용히 분리된다.** 프로비저닝 스크립트에서 `describe --status`의 ClusterId와 대조한다.
+- **Combined 모드의 롤링 재시작은 쿼럼을 같이 흔든다.** ==3노드에서 한 노드를 내린 상태로 두 번째 노드에 문제가 생기면 메타데이터 변경 자체가 멈춘다.==
+- ==**cluster ID가 다르게 포맷된 노드는 조용히 분리된다.**== 프로비저닝 스크립트에서 `describe --status`의 ClusterId와 대조한다.
 
 ## 관련 글
 

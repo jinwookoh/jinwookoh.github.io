@@ -15,7 +15,7 @@ updated: 2026-08-29
 
 ### ExitStatus가 분기 키다
 
-조건 분기는 `.on(pattern).to(step)`으로 쓴다. `on()`이 비교하는 값은 enum인 `BatchStatus`가 아니라 문자열 `ExitStatus.exitCode`이며, `StepExecutionListener.afterStep()`의 반환값으로 바꿀 수 있다. 패턴에는 `*`(0개 이상)와 `?`(1개 문자)를 쓰고, 구체적인 패턴부터 매칭되므로 선언 순서는 무관하다. 어느 전이에도 매칭되지 않는 ExitStatus가 나오면 Job이 FAILED로 끝나므로 `.on("*")`을 기본 경로로 둔다.
+조건 분기는 `.on(pattern).to(step)`으로 쓴다. `on()`이 비교하는 값은 enum인 `BatchStatus`가 아니라 문자열 `ExitStatus.exitCode`이며, `StepExecutionListener.afterStep()`의 반환값으로 바꿀 수 있다. 패턴에는 `*`(0개 이상)와 `?`(1개 문자)를 쓰고, 구체적인 패턴부터 매칭되므로 선언 순서는 무관하다. ==어느 전이에도 매칭되지 않는 ExitStatus가 나오면 Job이 FAILED로 끝나므로 `.on("*")`을 기본 경로로 둔다.==
 
 `to(step)` 자리에는 종료 방식을 넣을 수 있다.
 
@@ -170,9 +170,9 @@ public Step processStep(JobRepository repo, PlatformTransactionManager tx,
 
 ## 실무에서 걸리는 지점
 
-- **`end()`로 닫은 Job은 되돌릴 수 없다.** 부분 실패를 `end()`로 마무리하면 같은 파라미터로 재실행할 수 없다. 재시도가 필요하면 `fail()`이나 `stopAndRestart()`를 쓴다.
-- **Split은 TaskExecutor에 달려 있다.** `SyncTaskExecutor`를 넘기면 순차 실행이 된다. `ThreadPoolTaskExecutor`를 쓰고, 병렬 Flow 안에서는 thread-safe하지 않은 `JdbcCursorItemReader` 대신 `JdbcPagingItemReader`를 택한다.
-- **`@StepScope` Bean의 반환 타입.** `ItemReader<T>`로 선언하면 CGLIB 프록시가 `ItemStream`을 구현하지 않아 `open`·`update`·`close`가 호출되지 않고 재시작 안전성이 사라진다. 구체 타입이나 `ItemStreamReader<T>`로 선언한다.
+- **`end()`로 닫은 Job은 되돌릴 수 없다.** ==부분 실패를 `end()`로 마무리하면 같은 파라미터로 재실행할 수 없다.== 재시도가 필요하면 `fail()`이나 `stopAndRestart()`를 쓴다.
+- **Split은 TaskExecutor에 달려 있다.** ==`SyncTaskExecutor`를 넘기면 순차 실행이 된다.== `ThreadPoolTaskExecutor`를 쓰고, 병렬 Flow 안에서는 thread-safe하지 않은 `JdbcCursorItemReader` 대신 `JdbcPagingItemReader`를 택한다.
+- **`@StepScope` Bean의 반환 타입.** ==`ItemReader<T>`로 선언하면 CGLIB 프록시가 `ItemStream`을 구현하지 않아 `open`·`update`·`close`가 호출되지 않고 재시작 안전성이 사라진다.== 구체 타입이나 `ItemStreamReader<T>`로 선언한다.
 - **JobParameters가 null이다.** 키 오타보다 `@StepScope` 누락이 흔하다. `DefaultJobParametersValidator`로 필수 키를 걸어 둔다.
 - **`proxyBeanMethods = false`.** Flow 정의 안에서 `stepA()`를 두 번 호출하면 다른 Step 인스턴스가 만들어져 흐름이 엉킨다. Step은 `@Bean` 메서드 파라미터로 주입받는다. Partitioned Step에서는 `@JobScope` 대신 `@StepScope`를 쓴다.
 

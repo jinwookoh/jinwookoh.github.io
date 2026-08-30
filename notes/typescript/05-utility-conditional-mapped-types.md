@@ -115,10 +115,10 @@ type Thawed = Mutable<Frozen>; // { a: number; b?: string } — 선택 수식자
 
 ## 실무에서 걸리는 지점
 
-- `Omit<T, K>`의 `K`는 `keyof any`로 제약되어 `T`에 없는 키를 넘겨도 오류가 없다. `K extends keyof T`로 제약한 `StrictOmit`을 두면 리팩터링 누락을 잡는다. 또 `Omit`은 유니온에 분배되지 않아 판별 유니온에 적용하면 공통 속성만 남은 객체로 뭉개진다.
-- `Partial`은 `undefined` 할당을 막지 못한다. `exactOptionalPropertyTypes`를 켜지 않으면 `{ status: undefined }`가 PATCH 입력으로 통과해 컬럼이 null로 덮이므로, `undefined` 키를 걸러내는 처리가 함께 있어야 한다.
+- ==`Omit<T, K>`의 `K`는 `keyof any`로 제약되어 `T`에 없는 키를 넘겨도 오류가 없다.== `K extends keyof T`로 제약한 `StrictOmit`을 두면 리팩터링 누락을 잡는다. 또 ==`Omit`은 유니온에 분배되지 않아 판별 유니온에 적용하면 공통 속성만 남은 객체로 뭉개진다.==
+- `Partial`은 `undefined` 할당을 막지 못한다. ==`exactOptionalPropertyTypes`를 켜지 않으면 `{ status: undefined }`가 PATCH 입력으로 통과해 컬럼이 null로 덮이므로, `undefined` 키를 걸러내는 처리가 함께 있어야 한다.==
 - 조건부 타입에 `any`가 들어오면 분기 양쪽의 유니온이 되고, `never`가 벗은 매개변수로 들어오면 분배 결과가 `never`가 된다. 예상과 다른 결과가 나오면 이 두 경우부터 의심한다.
-- 재귀 매핑 타입(`DeepPartial` 등)은 `Date`, `Map`, 클래스 인스턴스까지 속성 단위로 풀어 버리므로 내장 객체를 먼저 걸러내는 분기가 앞에 있어야 한다. 인스턴스화 깊이 한도가 있어 넓은 스키마에서는 tsc와 에디터 응답이 느려진다.
+- ==재귀 매핑 타입(`DeepPartial` 등)은 `Date`, `Map`, 클래스 인스턴스까지 속성 단위로 풀어 버리므로 내장 객체를 먼저 걸러내는 분기가 앞에 있어야 한다.== 인스턴스화 깊이 한도가 있어 넓은 스키마에서는 tsc와 에디터 응답이 느려진다.
 - 복잡한 파생 타입은 오류 메시지에서 원본 이름이 사라지고 전개된 구조만 보인다. 공개 API 경계에서는 한 번 평탄화하거나 명시적 인터페이스로 다시 선언하는 편이 가독성에 유리하다.
 
 ## 관련 글

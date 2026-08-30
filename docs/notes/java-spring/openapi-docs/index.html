@@ -24,10 +24,10 @@
   <h1>API 문서화 — Springdoc OpenAPI</h1>
   <p class="summary">Springdoc이 컨트롤러 코드에서 OpenAPI 명세를 생성하는 원리와 어노테이션 보강·보안 스키마·운영 노출 통제 방법</p>
   <div class="content">
-<p>API 문서를 손으로 작성하면 코드와 문서가 어긋나는 순간이 반드시 온다. 필드가 추가되거나 응답 코드가 바뀌어도 문서는 그대로 남고, 프론트엔드는 문서대로 구현했다가 실제 응답과 다르다는 사실을 런타임에 발견한다. <mark>해결책은 문서를 코드에서 생성하는 것이다.</mark> Spring Boot 3에서는 Springdoc OpenAPI가 컨트롤러와 DTO를 분석해 OpenAPI 3 명세를 만들고 Swagger UI로 렌더링한다.</p>
+<p>API 문서를 손으로 작성하면 코드와 문서가 어긋나는 순간이 반드시 온다. 필드가 추가되거나 응답 코드가 바뀌어도 문서는 그대로 남고, 프론트엔드는 문서대로 구현했다가 실제 응답과 다르다는 사실을 런타임에 발견한다. 해결책은 문서를 코드에서 생성하는 것이다. Spring Boot 3에서는 Springdoc OpenAPI가 컨트롤러와 DTO를 분석해 OpenAPI 3 명세를 만들고 Swagger UI로 렌더링한다.</p>
 <h2>핵심 개념</h2>
 <p>OpenAPI는 REST API의 엔드포인트·파라미터·요청/응답 구조를 기계가 읽을 수 있는 형식으로 기술하는 표준이다. Swagger 프로젝트에서 출발해 OpenAPI Initiative로 이관되면서 명세 이름은 OpenAPI가 되었고, Swagger는 도구군의 이름으로 남았다.</p>
-<p>Springdoc은 핸들러 매핑과 DTO 클래스를 분석해 OpenAPI 명세를 생성하는 라이브러리다. Spring Boot 3(Jakarta 네임스페이스)에서는 Springdoc 2.x를 써야 한다. SpringFox는 2020년 이후 유지보수가 멈춰 Boot 3와 호환되지 않는다.</p>
+<p>Springdoc은 핸들러 매핑과 DTO 클래스를 분석해 OpenAPI 명세를 생성하는 라이브러리다. Spring Boot 3(Jakarta 네임스페이스)에서는 Springdoc 2.x를 써야 한다. <mark>SpringFox는 2020년 이후 유지보수가 멈춰 Boot 3와 호환되지 않는다.</mark></p>
 <p><code>springdoc-openapi-starter-webmvc-ui</code> 의존성을 추가하면 다음 엔드포인트가 활성화된다.</p>
 <table>
 <thead>
@@ -154,10 +154,10 @@
     }
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
-<p><mark><strong>Swagger UI가 빈 화면이거나 깨져서 뜬다.</strong> Security에서 <code>/swagger-ui.html</code>만 허용하고 <code>/swagger-ui/**</code>와 <code>/v3/api-docs/**</code>를 막은 경우다.</mark> 메인 HTML은 열리지만 정적 리소스와 명세 JSON 요청이 401·403으로 떨어진다.</p>
-<p><mark><strong>운영 환경에 문서가 그대로 노출된다.</strong></mark> <code>application-prod.yml</code>에서 <code>springdoc.api-docs.enabled=false</code>, <code>springdoc.swagger-ui.enabled=false</code>로 끄거나 관리자 권한으로 제한한다.</p>
+<p><strong>Swagger UI가 빈 화면이거나 깨져서 뜬다.</strong> Security에서 <code>/swagger-ui.html</code>만 허용하고 <code>/swagger-ui/**</code>와 <code>/v3/api-docs/**</code>를 막은 경우다. 메인 HTML은 열리지만 정적 리소스와 명세 JSON 요청이 401·403으로 떨어진다.</p>
+<p><strong>운영 환경에 문서가 그대로 노출된다.</strong> <code>application-prod.yml</code>에서 <code>springdoc.api-docs.enabled=false</code>, <code>springdoc.swagger-ui.enabled=false</code>로 끄거나 관리자 권한으로 제한한다.</p>
 <p><strong>응답 타입이 <code>ResponseEntity&lt;?&gt;</code>나 <code>Object</code>면 스키마가 비어 있다.</strong> 반환 타입을 구체적으로 선언하거나 <code>@ApiResponse</code>의 <code>@Content</code>로 명시한다. <code>@ControllerAdvice</code>의 공통 에러 응답도 같은 방식으로 등록해야 문서에 나타난다.</p>
-<p><strong>문서와 실제 응답이 다시 어긋난다.</strong> <code>@ApiResponse</code>의 상태 코드나 <code>@ExampleObject</code>의 JSON은 사람이 쓴 것이라 실제 동작과 달라질 수 있다. 통합 테스트에 <code>OpenApiValidationFilter</code>(swagger-request-validator)를 끼워 응답이 <code>/v3/api-docs</code> 명세를 준수하는지 검증하면 빌드 단계에서 잡힌다. 이 라이브러리는 Boot 의존성 관리 대상이 아니므로 버전을 명시한다.</p>
+<p><strong>문서와 실제 응답이 다시 어긋난다.</strong> <code>@ApiResponse</code>의 상태 코드나 <code>@ExampleObject</code>의 JSON은 사람이 쓴 것이라 실제 동작과 달라질 수 있다. <mark>통합 테스트에 <code>OpenApiValidationFilter</code>(swagger-request-validator)를 끼워 응답이 <code>/v3/api-docs</code> 명세를 준수하는지 검증하면 빌드 단계에서 잡힌다.</mark> 이 라이브러리는 Boot 의존성 관리 대상이 아니므로 버전을 명시한다.</p>
 <h2>관련 글</h2>
 <ul>
 <li><a href="/notes/java-spring/controller-request-binding/">Controller와 요청 바인딩</a></li>

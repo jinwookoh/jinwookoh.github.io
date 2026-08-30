@@ -15,7 +15,7 @@ updated: 2026-08-30
 
 **카디널리티**는 label 조합으로 생성되는 고유 시계열 수다. `method(5) × status(30) × region(3) × service(20)`만으로 9,000개이고 raw path가 곱해지면 상한이 없다. `userId`·`requestId` 같은 값은 로그나 trace attribute로 보내고, URI는 `/products/{id}` 같은 route 패턴으로 정규화한다. `MeterFilter.maximumAllowableTags`, Prometheus relabel drop, `prometheus_tsdb_head_series` 감시가 세 겹의 방어선이다.
 
-**Gauge**는 관찰 대상을 `WeakReference`로 잡는다. `Gauge.builder(name, obj, fn)` 형태는 obj가 GC 대상이 될 수 있지만, `() -> cache.size()` 같은 람다는 객체를 강하게 캡처해 회수를 막는다. 같은 이름·태그의 Meter는 첫 등록만 유효하다.
+**Gauge**는 관찰 대상을 `WeakReference`로 잡는다. `Gauge.builder(name, obj, fn)` 형태는 obj가 GC 대상이 될 수 있지만, `() -> cache.size()` 같은 람다는 객체를 강하게 캡처해 회수를 막는다. ==같은 이름·태그의 Meter는 첫 등록만 유효하다.==
 
 **percentile**은 `publishPercentiles()`로 만든 클라이언트 측 값이 위치 통계량이라 인스턴스 간 `avg()`가 성립하지 않는다. 다중 인스턴스 SLO는 `publishPercentileHistogram()`으로 bucket을 내보내고 `histogram_quantile`로 서버 측에서 계산한다. bucket은 10~15개로 유지한다.
 
@@ -99,9 +99,9 @@ void 결제_성공시_카운터가_증가한다() {
 
 - **actuator 노출**: `/actuator/prometheus`는 기본으로 서비스 포트에 함께 열린다. `management.server.port: 8081`로 분리하고 NetworkPolicy로 monitoring namespace만 허용한다.
 - **이중 계측과 태그셋 충돌**: `@Timed`와 수동 `Timer.record()`를 겹치면 카운트가 두 배가 된다. 같은 이름의 Meter에 다른 태그 키 집합을 쓰면 `IllegalArgumentException`이 나므로 키 집합은 고정하고 없는 값은 `unknown`으로 채운다.
-- **비동기 컨텍스트 손실**: Observation과 span은 ThreadLocal로 전파되어 Reactor·`@Async` 경계에서 끊긴다. `context-propagation` 의존성을 추가하고 `Hooks.enableAutomaticContextPropagation()`을 호출한다.
-- **PII와 비용**: 경로에 실린 email이 Loki에 남으면 GDPR·PIPA 위반이다. Alloy `stage.replace`로 ingestion 전에 마스킹한다. Loki chunk가 작으면 S3 PUT 비용이 폭증하므로 1.5MB·2시간 단위로 키운다.
-- **Elasticsearch 임계 무시**: heap 75% 지속은 old GC와 circuit breaker로 이어지고, disk는 85%·90%·95% 순으로 할당 차단·강제 이동·read-only가 된다.
+- **비동기 컨텍스트 손실**: ==Observation과 span은 ThreadLocal로 전파되어 Reactor·`@Async` 경계에서 끊긴다.== `context-propagation` 의존성을 추가하고 `Hooks.enableAutomaticContextPropagation()`을 호출한다.
+- **PII와 비용**: 경로에 실린 email이 Loki에 남으면 GDPR·PIPA 위반이다. Alloy `stage.replace`로 ingestion 전에 마스킹한다. ==Loki chunk가 작으면 S3 PUT 비용이 폭증하므로 1.5MB·2시간 단위로 키운다.==
+- **Elasticsearch 임계 무시**: ==heap 75% 지속은 old GC와 circuit breaker로 이어지고, disk는 85%·90%·95% 순으로 할당 차단·강제 이동·read-only가 된다.==
 
 ## 관련 글
 

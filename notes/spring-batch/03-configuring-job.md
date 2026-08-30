@@ -17,7 +17,7 @@ Job 정의를 소홀히 하면 같은 문제가 반복된다. 같은 JobParamete
 
 Spring Batch 5부터 `JobBuilderFactory`·`StepBuilderFactory`는 deprecated 되었고 6에서 제거됐다. `@EnableBatchProcessing`도 Spring Boot 3.x에서는 붙이지 않는다. 붙이면 Boot 자동 구성이 물러난다. Job은 `new JobBuilder(name, jobRepository)`로 정의하고 `start()`·`next()`로 Step을 잇는다. 앞 Step이 실패하면 뒤 Step은 실행되지 않고 Job은 FAILED가 된다.
 
-Job·Step 이름은 메타데이터 테이블에 저장되므로, 이름을 바꾸면 이전 이력과 끊긴다.
+==Job·Step 이름은 메타데이터 테이블에 저장되므로, 이름을 바꾸면 이전 이력과 끊긴다.==
 
 ### 조건부 흐름
 
@@ -40,7 +40,7 @@ Job은 기본적으로 restartable이다. 실패한 JobExecution은 같은 JobIn
 
 `JobParametersValidator`는 시작 전에 파라미터를 검사하고 위반 시 `JobParametersInvalidException`으로 실행을 막는다. `DefaultJobParametersValidator`에 필수 키와 선택 키 배열만 넘기면 구현 없이 쓸 수 있다.
 
-`JobParametersIncrementer`는 직전 파라미터로 다음 실행용 파라미터를 만든다. `RunIdIncrementer`는 `run.id`를 1씩 올려 매번 새 JobInstance를 만든다. Incrementer는 `JobOperator.startNextInstance()`와 Boot 커맨드라인 경로에서만 호출된다.
+`JobParametersIncrementer`는 직전 파라미터로 다음 실행용 파라미터를 만든다. `RunIdIncrementer`는 `run.id`를 1씩 올려 매번 새 JobInstance를 만든다. ==Incrementer는 `JobOperator.startNextInstance()`와 Boot 커맨드라인 경로에서만 호출된다.==
 
 ### JobExecutionListener
 
@@ -149,7 +149,7 @@ public class TargetDateIncrementer implements JobParametersIncrementer {
 
 - **Incrementer가 있어도 파라미터를 직접 넘기면 적용되지 않는다.** `JobLauncher.run(job, params)`로 실행한다면 타임스탬프 같은 식별 파라미터를 직접 추가한다. 빠뜨리면 두 번째 호출부터 `JobInstanceAlreadyCompleteException`이 난다.
 - **`end()` 누락은 컴파일 시점에 잡히지 않는다.** `on()`을 쓴 뒤 `end()` 없이 `build()`하면 런타임 예외로 컨텍스트 기동이 실패한다.
-- **`afterJob()` 안의 외부 호출 실패는 Job 상태를 오염시킨다.** 알림 발송에서 예외가 나면 COMPLETED로 끝난 Job이 FAILED로 기록된다. 리스너 내부에서 예외를 잡아 별도 로그로 남긴다.
+- **`afterJob()` 안의 외부 호출 실패는 Job 상태를 오염시킨다.** ==알림 발송에서 예외가 나면 COMPLETED로 끝난 Job이 FAILED로 기록된다.== 리스너 내부에서 예외를 잡아 별도 로그로 남긴다.
 - **분기가 다섯 개를 넘으면 Job을 나눈다.** 재시작 시 어느 Step부터 이어지는지 추적하기 어려워진다. 독립 단계는 별도 Job으로 분리한다.
 - **Boot 3.x에서 자동 실행을 끄지 않으면 기동마다 모든 Job이 돈다.** 외부에서 실행을 제어하려면 `spring.batch.job.enabled=false`를 둔다.
 

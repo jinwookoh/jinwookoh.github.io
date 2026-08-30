@@ -24,10 +24,10 @@
   <h1>Pipes·검증·DTO</h1>
   <p class="summary">Pipe는 핸들러 진입 직전에 인자를 변환·검증하는 계층이며, ValidationPipe와 DTO 조합이 입력 검증의 표준이다</p>
   <div class="content">
-<p>HTTP 요청 값은 전부 문자열이거나 형태를 보장할 수 없는 JSON이다. 경로 파라미터 <code>:id</code>는 <code>&quot;abc&quot;</code>일 수 있고, 본문에는 정의하지 않은 필드가 섞여 들어온다. 컨트롤러마다 <code>if</code> 문으로 걸러내면 검증이 비즈니스 로직과 뒤섞이고, 누락된 검증 하나가 서비스 계층까지 잘못된 값을 흘려보낸다. <mark>NestJS는 이 문제를 Pipe 계층으로 분리한다.</mark></p>
+<p>HTTP 요청 값은 전부 문자열이거나 형태를 보장할 수 없는 JSON이다. 경로 파라미터 <code>:id</code>는 <code>&quot;abc&quot;</code>일 수 있고, 본문에는 정의하지 않은 필드가 섞여 들어온다. 컨트롤러마다 <code>if</code> 문으로 걸러내면 검증이 비즈니스 로직과 뒤섞이고, 누락된 검증 하나가 서비스 계층까지 잘못된 값을 흘려보낸다. NestJS는 이 문제를 Pipe 계층으로 분리한다.</p>
 <h2>핵심 개념</h2>
 <p>Pipe는 <code>PipeTransform</code>을 구현한 <code>@Injectable()</code> 클래스로, 라우트 핸들러 직전에 실행된다. 역할은 변환(문자열 <code>&quot;42&quot;</code>를 숫자 <code>42</code>로)과 검증(조건 불만족 시 예외) 두 가지다. 예외는 Exception Filter가 응답으로 바꾸므로 핸들러는 정제된 값만 받는다.</p>
-<p><code>transform(value, metadata)</code>의 <code>ArgumentMetadata</code>에는 인자 출처(<code>type</code>), 타입 정보(<code>metatype</code>), 데코레이터 인자(<code>data</code>)가 담긴다. <code>metatype</code>은 컴파일 시점 메타데이터라 인터페이스·제네릭은 런타임에 사라진다. <mark>DTO를 클래스로 선언해야 하는 이유다.</mark></p>
+<p><code>transform(value, metadata)</code>의 <code>ArgumentMetadata</code>에는 인자 출처(<code>type</code>), 타입 정보(<code>metatype</code>), 데코레이터 인자(<code>data</code>)가 담긴다. <code>metatype</code>은 컴파일 시점 메타데이터라 인터페이스·제네릭은 런타임에 사라진다. DTO를 클래스로 선언해야 하는 이유다.</p>
 <p>Spring과 대응시키면 DTO 검증은 <code>@Valid</code> + Bean Validation, <code>ParseIntPipe</code> 같은 변환 Pipe는 <code>Converter</code>·<code>@RequestParam</code> 타입 바인딩에 해당한다.</p>
 <p>내장 Pipe는 <code>ValidationPipe</code>, <code>ParseIntPipe</code>, <code>ParseBoolPipe</code>, <code>ParseArrayPipe</code>, <code>ParseUUIDPipe</code>, <code>ParseEnumPipe</code>, <code>ParseDatePipe</code>, <code>ParseFilePipe</code>, <code>DefaultValuePipe</code> 등이 있고, Zod·Valibot 같은 Standard Schema 호환 스키마를 받는 <code>StandardSchemaValidationPipe</code>도 추가됐다. 바인딩 범위는 파라미터·메서드(<code>@UsePipes</code>)·컨트롤러·전역 네 단계다. 전역 등록은 <code>app.useGlobalPipes()</code>와 <code>APP_PIPE</code> 프로바이더 두 방식이 있으며, <mark>후자만 DI 컨테이너 안에서 생성되므로 다른 프로바이더를 주입받는 Pipe는 <code>APP_PIPE</code>로 등록한다.</mark></p>
 <p><code>ValidationPipe</code>는 <code>class-validator</code>와 <code>class-transformer</code>를 사용하며 두 패키지는 직접 설치한다. plain object를 DTO 인스턴스로 변환한 뒤 데코레이터 규칙을 검사한다.</p>
@@ -154,10 +154,10 @@
 <span class="hljs-comment">// 사용: @Post() @UsePipes(new ZodValidationPipe(createCatSchema)) create(@Body() dto: CreateCat)</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><mark><code>whitelist</code> 없이 운영하면 mass assignment가 열린다.</mark></strong> 본문에 <code>isAdmin: true</code>가 섞여 들어와도 그대로 서비스로 넘어간다. <code>whitelist: true</code>를 기본으로 두고, 계약을 엄격히 지키려면 <code>forbidNonWhitelisted</code>까지 켠다.</li>
-<li><strong><code>enableImplicitConversion</code>은 boolean에서 함정이 있다.</strong> <code>class-transformer</code>는 <code>&quot;false&quot;</code> 문자열을 <code>Boolean(&quot;false&quot;)</code>, 즉 <code>true</code>로 바꾼다. 쿼리의 boolean 값은 <code>ParseBoolPipe</code>나 <code>@Transform</code>으로 명시 변환해야 한다.</li>
+<li><strong><code>whitelist</code> 없이 운영하면 mass assignment가 열린다.</strong> <mark>본문에 <code>isAdmin: true</code>가 섞여 들어와도 그대로 서비스로 넘어간다.</mark> <code>whitelist: true</code>를 기본으로 두고, 계약을 엄격히 지키려면 <code>forbidNonWhitelisted</code>까지 켠다.</li>
+<li><strong><code>enableImplicitConversion</code>은 boolean에서 함정이 있다.</strong> <mark><code>class-transformer</code>는 <code>&quot;false&quot;</code> 문자열을 <code>Boolean(&quot;false&quot;)</code>, 즉 <code>true</code>로 바꾼다.</mark> 쿼리의 boolean 값은 <code>ParseBoolPipe</code>나 <code>@Transform</code>으로 명시 변환해야 한다.</li>
 <li><strong>배열 본문은 타입 정보가 없다.</strong> <code>@Body() dtos: CreateCatDto[]</code>는 런타임 <code>metatype</code>이 <code>Array</code>로만 남아 검증이 통과되지 않는다. 배열을 감싸는 래퍼 DTO를 만들거나 <code>ParseArrayPipe({ items: CreateCatDto })</code>를 쓴다.</li>
-<li><strong>중첩 객체는 <code>@ValidateNested()</code>와 <code>@Type()</code>을 함께 붙여야 한다.</strong> 둘 중 하나라도 빠지면 중첩 객체가 plain object로 남아 내부 규칙이 검사되지 않는다.</li>
+<li><strong>중첩 객체는 <code>@ValidateNested()</code>와 <code>@Type()</code>을 함께 붙여야 한다.</strong> <mark>둘 중 하나라도 빠지면 중첩 객체가 plain object로 남아 내부 규칙이 검사되지 않는다.</mark></li>
 <li><strong>에러 응답 형식은 <code>exceptionFactory</code>로 통일한다.</strong> 기본 400 응답은 <code>message</code> 배열에 문자열만 나열되어 필드별 매핑이 어렵다. <code>ValidationError[]</code>를 <code>{ field, constraints }</code> 구조로 바꾸는 팩토리를 전역 Pipe에 넣는다.</li>
 </ul>
 <h2>관련 글</h2>

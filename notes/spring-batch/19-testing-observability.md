@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-testing.md, batch/2026-05-17-batch-observabilit
 updated: 2026-08-29
 ---
 
-배치 Job의 결과는 JobRepository 메타데이터와 대상 DB에 흩어져 남기 때문에 테스트 없이 배포하면 실패를 운영 로그에서 처음 발견한다. `@StepScope` Bean은 Step 실행 중에만 만들어지므로 일반 단위 테스트에서 주입하면 `IllegalStateException: No Scope registered`가 난다. 운영 중에는 어느 Step이 느린지 알 수단이 없고, GC나 I/O 대기 같은 원인은 로그에 나타나지 않는다. `spring-batch-test`, Micrometer Observation, JFR이 각각 이 공백을 메운다.
+배치 Job의 결과는 JobRepository 메타데이터와 대상 DB에 흩어져 남기 때문에 테스트 없이 배포하면 실패를 운영 로그에서 처음 발견한다. ==`@StepScope` Bean은 Step 실행 중에만 만들어지므로 일반 단위 테스트에서 주입하면 `IllegalStateException: No Scope registered`가 난다.== 운영 중에는 어느 Step이 느린지 알 수단이 없고, GC나 I/O 대기 같은 원인은 로그에 나타나지 않는다. `spring-batch-test`, Micrometer Observation, JFR이 각각 이 공백을 메운다.
 
 ## 핵심 개념
 
@@ -124,8 +124,8 @@ public class ApiEnrichmentProcessor implements ItemProcessor<Customer, EnrichedC
 
 - 같은 JobParameters로 두 번 실행하면 `JobInstanceAlreadyCompleteException`이 난다. 타임스탬프 파라미터를 주거나 `removeJobExecutions()`로 비운다.
 - 멀티스레드 Step은 처리 순서가 비결정적이라 테스트가 간헐적으로 깨진다. 테스트 프로파일에서 `SyncTaskExecutor`로 바꾼다.
-- `customer.id`처럼 unique 값이 많은 태그를 메트릭에 넣으면 시계열이 폭증한다. 식별자는 `highCardinalityKeyValue`로 span에만 남기고, 운영에서는 `management.tracing.sampling.probability`를 0.05~0.1로 낮춘다.
-- 비동기 TaskExecutor를 거치면 trace context가 끊겨 span이 분리된다. `ContextPropagatingTaskDecorator`를 executor에 적용한다. JFR은 JVM 단위이므로 worker JVM의 `.jfr` 파일은 각각 수집한다.
+- ==`customer.id`처럼 unique 값이 많은 태그를 메트릭에 넣으면 시계열이 폭증한다.== 식별자는 `highCardinalityKeyValue`로 span에만 남기고, 운영에서는 `management.tracing.sampling.probability`를 0.05~0.1로 낮춘다.
+- ==비동기 TaskExecutor를 거치면 trace context가 끊겨 span이 분리된다.== `ContextPropagatingTaskDecorator`를 executor에 적용한다. JFR은 JVM 단위이므로 worker JVM의 `.jfr` 파일은 각각 수집한다.
 - item마다 커스텀 JFR 이벤트를 `commit()`하면 파일이 처리 건수만큼 급증하므로 chunk 단위로 집계한다. `.jfr` 파일에는 클래스와 메서드 이름이 포함되므로 접근 권한을 관리한다.
 
 ## 관련 글

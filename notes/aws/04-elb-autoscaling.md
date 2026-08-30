@@ -116,11 +116,11 @@ public class TerminationHookHandler {
 
 ## 실무에서 걸리는 지점
 
-- Health Check에 DB 의존성을 넣으면 DB 장애 한 번에 모든 인스턴스가 비정상 판정되고 ASG가 정상 인스턴스를 연쇄 교체한다. readiness와 liveness를 분리하고 교체 기준은 프로세스 생존에 둔다.
-- Deregistration Delay와 graceful shutdown 타임아웃이 맞지 않으면 배포마다 5xx가 섞인다. 짧은 API는 30초 안팎으로 낮추고, 긴 업로드가 있으면 그 이상으로 잡는다.
-- NLB에서 Cross-Zone을 켜면 AZ 간 전송 요금이 붙고, 끄면 AZ별 인스턴스 수가 다를 때 부하가 편중된다. ASG의 AZ 균형 유지에 맡기는 편이 낫다.
+- ==Health Check에 DB 의존성을 넣으면 DB 장애 한 번에 모든 인스턴스가 비정상 판정되고 ASG가 정상 인스턴스를 연쇄 교체한다.== readiness와 liveness를 분리하고 교체 기준은 프로세스 생존에 둔다.
+- ==Deregistration Delay와 graceful shutdown 타임아웃이 맞지 않으면 배포마다 5xx가 섞인다.== 짧은 API는 30초 안팎으로 낮추고, 긴 업로드가 있으면 그 이상으로 잡는다.
+- ==NLB에서 Cross-Zone을 켜면 AZ 간 전송 요금이 붙고, 끄면 AZ별 인스턴스 수가 다를 때 부하가 편중된다.== ASG의 AZ 균형 유지에 맡기는 편이 낫다.
 - Sticky Session은 특정 인스턴스에 부하가 쏠리고 스케일 인 시 세션이 유실된다. 세션은 ElastiCache로 빼고 Sticky는 임시 수단으로 제한한다.
-- Cooldown보다 부팅이 오래 걸리면 워밍업 중인 인스턴스의 높은 CPU가 다시 스케일 아웃을 유발한다. Golden AMI로 부팅을 줄이고 warm-up 시간을 명시한다.
+- ==Cooldown보다 부팅이 오래 걸리면 워밍업 중인 인스턴스의 높은 CPU가 다시 스케일 아웃을 유발한다.== Golden AMI로 부팅을 줄이고 warm-up 시간을 명시한다.
 
 ## 관련 글
 

@@ -123,11 +123,11 @@ find "$BACKUP_DIR" -name 'dump.rdb.*' -mtime +30 -delete
 
 ## 실무에서 걸리는 지점
 
-- **fork 중 메모리 급증** — 쓰기가 폭증하는 대용량 데이터셋에서는 BGSAVE 직후 대부분의 페이지가 복사돼 메모리가 2배 가까이 오르고, fork 자체도 수십 ms에서 수 초까지 메인 스레드를 멈춘다. `vm.overcommit_memory=1`로 fork 실패를 막고 transparent hugepage를 끈다. 복제 동기화는 `repl-diskless-sync yes`로 디스크를 건너뛴다.
-- **디스크 가득 참** — `aof_last_write_status`나 `rdb_last_bgsave_status`가 err로 바뀌면 `stop-writes-on-bgsave-error yes`에 따라 Redis가 쓰기 명령을 거부한다. 디스크 사용량과 두 상태 값을 모니터링한다.
+- **fork 중 메모리 급증** — ==쓰기가 폭증하는 대용량 데이터셋에서는 BGSAVE 직후 대부분의 페이지가 복사돼 메모리가 2배 가까이 오르고, fork 자체도 수십 ms에서 수 초까지 메인 스레드를 멈춘다.== `vm.overcommit_memory=1`로 fork 실패를 막고 transparent hugepage를 끈다. 복제 동기화는 `repl-diskless-sync yes`로 디스크를 건너뛴다.
+- **디스크 가득 참** — ==`aof_last_write_status`나 `rdb_last_bgsave_status`가 err로 바뀌면 `stop-writes-on-bgsave-error yes`에 따라 Redis가 쓰기 명령을 거부한다.== 디스크 사용량과 두 상태 값을 모니터링한다.
 - **rewrite 시점의 부하** — fork와 새 파일 작성이 겹쳐 CPU·디스크 I/O를 크게 쓴다. `no-appendfsync-on-rewrite yes`로 rewrite 중 fsync를 미루면 지연은 줄지만 그 구간의 손실 폭이 커진다. 피크를 피하도록 threshold를 조정한다.
-- **RDB만 빈번히 찍는 함정** — 짧은 주기 RDB는 fork 비용이 계속 쌓여 오히려 AOF everysec보다 부담이 클 수 있다. 손실 폭을 줄이려면 RDB 주기를 당기기보다 AOF를 켠다.
-- **로컬 디스크 백업과 손상 복구** — 영속화 파일이 로컬에만 있으면 디스크 고장이 곧 영구 손실이므로 원격 스토리지로 자동 백업한다. `redis-check-aof --fix`는 손상 지점 이후를 잘라내므로 백업 없이 실행하면 그 이후 데이터를 잃는다. 영속화는 재시작 대응, 복제는 노드 장애 대응이므로 둘을 함께 쓴다.
+- **RDB만 빈번히 찍는 함정** — ==짧은 주기 RDB는 fork 비용이 계속 쌓여 오히려 AOF everysec보다 부담이 클 수 있다.== 손실 폭을 줄이려면 RDB 주기를 당기기보다 AOF를 켠다.
+- **로컬 디스크 백업과 손상 복구** — 영속화 파일이 로컬에만 있으면 디스크 고장이 곧 영구 손실이므로 원격 스토리지로 자동 백업한다. ==`redis-check-aof --fix`는 손상 지점 이후를 잘라내므로 백업 없이 실행하면 그 이후 데이터를 잃는다.== 영속화는 재시작 대응, 복제는 노드 장애 대응이므로 둘을 함께 쓴다.
 
 ## 관련 글
 

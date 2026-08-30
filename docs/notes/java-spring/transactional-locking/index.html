@@ -24,12 +24,12 @@
   <h1>@Transactional 원리와 낙관/비관 락</h1>
   <p class="summary">@Transactional은 원자성만 보장하며 동시 수정 충돌은 @Version 낙관적 락이나 @Lock 비관적 락으로 따로 막는다.</p>
   <div class="content">
-<p>계좌 이체는 출금과 입금이라는 두 번의 SQL로 이루어진다. 출금이 끝난 직후 예외가 발생하면 출금만 반영되고 입금은 누락된다. 여러 SQL을 하나의 단위로 묶어 모두 커밋되거나 모두 롤백되도록 보장하는 장치가 트랜잭션이고, Spring에서는 <code>@Transactional</code> 한 줄로 이를 선언한다. <mark>그러나 트랜잭션은 한 작업 묶음의 원자성을 보장할 뿐, 다른 트랜잭션이 같은 행을 동시에 수정하는 것까지 막지 않는다.</mark> 재고 1개짜리 상품에 주문 두 건이 동시에 들어오면 둘 다 &quot;1개 남음&quot;을 읽고 각자 0으로 저장해 실제로는 2개가 팔린다. 이 갱신 손실(lost update)은 락으로 별도 처리해야 한다.</p>
+<p>계좌 이체는 출금과 입금이라는 두 번의 SQL로 이루어진다. 출금이 끝난 직후 예외가 발생하면 출금만 반영되고 입금은 누락된다. 여러 SQL을 하나의 단위로 묶어 모두 커밋되거나 모두 롤백되도록 보장하는 장치가 트랜잭션이고, Spring에서는 <code>@Transactional</code> 한 줄로 이를 선언한다. 그러나 트랜잭션은 한 작업 묶음의 원자성을 보장할 뿐, 다른 트랜잭션이 같은 행을 동시에 수정하는 것까지 막지 않는다. 재고 1개짜리 상품에 주문 두 건이 동시에 들어오면 둘 다 &quot;1개 남음&quot;을 읽고 각자 0으로 저장해 실제로는 2개가 팔린다. 이 갱신 손실(lost update)은 락으로 별도 처리해야 한다.</p>
 <h2>핵심 개념</h2>
 <p>트랜잭션은 ACID, 즉 원자성(Atomicity)·일관성(Consistency)·격리성(Isolation)·지속성(Durability)을 보장한다.</p>
 <p><code>@Transactional</code>은 Spring AOP 프록시로 동작한다. 컨테이너는 어노테이션이 붙은 빈 대신 프록시를 등록하고, 프록시가 메서드 호출 전에 <code>PlatformTransactionManager</code>로 트랜잭션을 시작한 뒤 정상 종료 시 커밋, 예외 시 롤백한다. Spring Boot가 JPA·JDBC에 맞는 트랜잭션 매니저를 자동 등록한다.</p>
 <p>전파(Propagation)는 트랜잭션 메서드가 다른 트랜잭션 메서드를 호출할 때 결합 방식을 정한다. 기본값 <code>REQUIRED</code>는 기존 트랜잭션이 있으면 참여하고 없으면 새로 시작한다. <code>REQUIRES_NEW</code>는 기존 트랜잭션을 일시 중단하고 새 트랜잭션을 열어 감사 로그처럼 본 작업의 실패와 무관하게 커밋해야 할 때 쓴다. <code>NESTED</code>는 savepoint로 중첩하고, 나머지 <code>SUPPORTS</code>·<code>NOT_SUPPORTED</code>·<code>MANDATORY</code>·<code>NEVER</code>는 드물게 쓴다.</p>
-<p>격리 수준(Isolation)은 <code>READ_UNCOMMITTED</code>, <code>READ_COMMITTED</code>, <code>REPEATABLE_READ</code>, <code>SERIALIZABLE</code> 순으로 강해진다. 기본값 <code>DEFAULT</code>는 DB 설정을 따르며 PostgreSQL은 READ_COMMITTED, MySQL InnoDB는 REPEATABLE_READ다. 읽고 계산해서 다시 쓰는 패턴의 갱신 손실은 격리 수준만으로 막히지 않는다.</p>
+<p>격리 수준(Isolation)은 <code>READ_UNCOMMITTED</code>, <code>READ_COMMITTED</code>, <code>REPEATABLE_READ</code>, <code>SERIALIZABLE</code> 순으로 강해진다. 기본값 <code>DEFAULT</code>는 DB 설정을 따르며 PostgreSQL은 READ_COMMITTED, MySQL InnoDB는 REPEATABLE_READ다. <mark>읽고 계산해서 다시 쓰는 패턴의 갱신 손실은 격리 수준만으로 막히지 않는다.</mark></p>
 <p>롤백은 기본적으로 <code>RuntimeException</code>과 <code>Error</code>만 대상이며 checked exception은 던져도 커밋된다. <code>rollbackFor</code>로 대상을 넓히거나 <code>noRollbackFor</code>로 제외한다.</p>
 <p>갱신 손실을 막는 락 전략은 두 가지다.</p>
 <table>
@@ -157,9 +157,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark>자기 호출과 private 메서드. 같은 클래스 안에서 <code>this.save()</code>로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, private 메서드의 <code>@Transactional</code>은 무시된다.</mark> 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.</li>
-<li><mark>예외 흡수. 트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다.</mark> 롤백하려면 <code>TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()</code>를 호출한다. 반대로 <code>REQUIRED</code>로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 <code>UnexpectedRollbackException</code>이 난다.</li>
-<li>재시도 위치. 낙관적 락 재시도를 트랜잭션 안에서 돌리면 영속성 컨텍스트가 낡은 version을 계속 들고 있어 무한 실패한다. 기존 테이블에 <code>@Version</code>을 추가할 때는 기존 행의 null version을 마이그레이션으로 0으로 채운다.</li>
+<li>자기 호출과 private 메서드. 같은 클래스 안에서 <code>this.save()</code>로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, <mark>private 메서드의 <code>@Transactional</code>은 무시된다</mark>. 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.</li>
+<li>예외 흡수. <mark>트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다.</mark> 롤백하려면 <code>TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()</code>를 호출한다. 반대로 <code>REQUIRED</code>로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 <code>UnexpectedRollbackException</code>이 난다.</li>
+<li>재시도 위치. <mark>낙관적 락 재시도를 트랜잭션 안에서 돌리면 영속성 컨텍스트가 낡은 version을 계속 들고 있어 무한 실패한다.</mark> 기존 테이블에 <code>@Version</code>을 추가할 때는 기존 행의 null version을 마이그레이션으로 0으로 채운다.</li>
 <li>비관적 락 대기와 데드락. 락 타임아웃이 없으면 요청이 무한 대기하고, 두 트랜잭션이 서로의 행을 기다리면 데드락이 된다. <code>jakarta.persistence.lock.timeout</code> 힌트로 상한을 두고 여러 행은 항상 같은 순서로 잠근다.</li>
 <li>락이 필요 없는 경우. 이메일 중복 가입처럼 유일성만 필요하면 unique 제약이 락보다 싸고 확실하다. 조회 전용 메서드는 <code>readOnly = true</code>로 더티 체킹을 끈다. 트랜잭션 경계는 서비스 레이어에 두고 컨트롤러나 리포지토리에는 붙이지 않는다.</li>
 </ul>

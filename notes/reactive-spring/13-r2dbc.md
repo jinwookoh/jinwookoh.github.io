@@ -13,7 +13,7 @@ WebFlux로 웹 계층을 논블로킹으로 만들어도 데이터 접근이 JDB
 
 ## 핵심 개념
 
-R2DBC(Reactive Relational Database Connectivity)는 관계형 DB에 대한 리액티브 드라이버 명세다. 모든 결과는 `Mono`/`Flux`로 돌아오고, 결과 행은 소비자가 요청한 만큼만 DB에서 흘러온다. 즉 Reactive Streams의 backpressure가 DB 커넥션 수준까지 이어진다. `findAll()`이 반환하는 `Flux`는 구독 전까지 실행되지 않으며, 구독 후에도 메모리에는 처리 중인 일부 행만 머문다. 그래서 1,000만 건을 200MB 힙으로 순회할 수 있고, 같은 작업을 JPA `findAll()`로 `List`에 담으면 힙을 4GB로 늘려도 OOM이 난다.
+R2DBC(Reactive Relational Database Connectivity)는 관계형 DB에 대한 리액티브 드라이버 명세다. 모든 결과는 `Mono`/`Flux`로 돌아오고, 결과 행은 소비자가 요청한 만큼만 DB에서 흘러온다. 즉 Reactive Streams의 backpressure가 DB 커넥션 수준까지 이어진다. `findAll()`이 반환하는 `Flux`는 구독 전까지 실행되지 않으며, 구독 후에도 메모리에는 처리 중인 일부 행만 머문다. ==그래서 1,000만 건을 200MB 힙으로 순회할 수 있고, 같은 작업을 JPA `findAll()`로 `List`에 담으면 힙을 4GB로 늘려도 OOM이 난다.==
 
 연결 URL은 `r2dbc:postgresql://host:5432/db` 형식이며 JDBC URL을 그대로 넣으면 연결에 실패한다. 의존성은 `spring-boot-starter-data-r2dbc`와 DB별 드라이버(`r2dbc-postgresql` 등)를 함께 둔다.
 
@@ -36,7 +36,7 @@ JPA와의 차이는 다음으로 요약된다.
 
 ## 코드
 
-엔티티와 Repository. JPA 관계 애노테이션은 붙여도 무시되므로 연관 데이터는 `@Query`로 조회한다.
+엔티티와 Repository. ==JPA 관계 애노테이션은 붙여도 무시되므로 연관 데이터는 `@Query`로 조회한다.==
 
 ```java
 @Table("customer")
@@ -137,10 +137,10 @@ public class OrderQueryService {
 ## 실무에서 걸리는 지점
 
 - **처리량 이득은 동시성이 높을 때만 나타난다.** `findById` 10만 회를 동시성 256으로 돌린 측정에서 R2DBC는 약 2초, 256 스레드 풀의 JPA는 약 4초였다. 단일 요청 지연은 거의 같고, 낮은 동시성이나 CPU 집약 작업에서는 JPA가 단순하고 빠를 수 있다. JPA에 가상 스레드를 붙여도 짧은 DB I/O에서는 처리량이 거의 변하지 않는다.
-- **Dirty Checking 부재는 설계 선택이다.** 변경 추적은 영속성 컨텍스트에 스냅샷을 유지해야 하므로 대용량 스트리밍과 양립하지 않는다. 대신 수정 후 `save()`를 빠뜨리면 아무 것도 저장되지 않고 어떤 경고도 없다.
+- **Dirty Checking 부재는 설계 선택이다.** 변경 추적은 영속성 컨텍스트에 스냅샷을 유지해야 하므로 대용량 스트리밍과 양립하지 않는다. ==대신 수정 후 `save()`를 빠뜨리면 아무 것도 저장되지 않고 어떤 경고도 없다.==
 - **N+1을 막아 주는 장치가 없다.** `Flux`를 순회하며 건마다 `findById`를 호출하면 그대로 N+1이 된다. 처음부터 JOIN으로 설계하거나 `IN` 절로 묶어 조회한 뒤 조립한다.
 - **JPA를 병행해야 한다면 `boundedElastic`으로 격리한다.** `Mono.fromCallable(() -> jpaRepository.findById(id).orElse(null)).subscribeOn(Schedulers.boundedElastic())` 형태로 감싼다. `subscribeOn`을 빠뜨리면 이벤트 루프 스레드에서 블로킹이 실행되어 다른 요청을 막는다. 이 풀도 상한(CPU 코어 수 × 10)이 있으므로 임시 조치다.
-- **트랜잭션 경계는 구독 흐름을 따른다.** `@Transactional` 메서드가 반환한 `Mono`를 구독하지 않고 버리면 트랜잭션이 시작조차 되지 않는다. JPA Repository와 함께 두는 경우 `@EnableR2dbcRepositories(basePackages = ...)`로 스캔 범위를 제한한다.
+- **트랜잭션 경계는 구독 흐름을 따른다.** ==`@Transactional` 메서드가 반환한 `Mono`를 구독하지 않고 버리면 트랜잭션이 시작조차 되지 않는다.== JPA Repository와 함께 두는 경우 `@EnableR2dbcRepositories(basePackages = ...)`로 스캔 범위를 제한한다.
 
 ## 관련 글
 

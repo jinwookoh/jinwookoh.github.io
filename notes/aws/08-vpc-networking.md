@@ -25,13 +25,13 @@ VPC는 계정 안의 격리된 네트워크로, CIDR은 `/16`부터 `/28`까지 
 | 상태 | Stateful | Stateless |
 | 규칙 | Allow만 | Allow + Deny, 번호순 |
 
-특정 IP 차단은 Deny 규칙이 있는 NACL로 한다. NACL은 응답이 나갈 임시 포트(1024–65535) 아웃바운드를 따로 열어야 하며, Flow Logs에서 인바운드 ACCEPT 뒤 아웃바운드 REJECT가 보이면 이 규칙 누락이다.
+특정 IP 차단은 Deny 규칙이 있는 NACL로 한다. ==NACL은 응답이 나갈 임시 포트(1024–65535) 아웃바운드를 따로 열어야 하며, Flow Logs에서 인바운드 ACCEPT 뒤 아웃바운드 REJECT가 보이면 이 규칙 누락이다.==
 
 ### VPC 간 연결과 서비스 접근
 
-VPC Peering은 비전이적 1:1 연결이라 A–B, B–C를 맺어도 A–C가 열리지 않으며 CIDR 중복을 허용하지 않는다. VPC가 늘면 전이적 라우팅을 지원하는 Transit Gateway 허브로 모은다. PrivateLink는 서비스를 다수 VPC에 노출하며 CIDR 중복도 허용한다.
+==VPC Peering은 비전이적 1:1 연결이라 A–B, B–C를 맺어도 A–C가 열리지 않으며 CIDR 중복을 허용하지 않는다.== VPC가 늘면 전이적 라우팅을 지원하는 Transit Gateway 허브로 모은다. PrivateLink는 서비스를 다수 VPC에 노출하며 CIDR 중복도 허용한다.
 
-VPC Endpoint는 S3·DynamoDB 전용이며 무료인 Gateway Endpoint와, 그 외 서비스용으로 ENI를 만들고 요금이 붙는 Interface Endpoint로 나뉜다. 온프레미스 연결은 Site-to-Site VPN과 전용 회선인 Direct Connect가 있고, Direct Connect는 기본 암호화가 없어 필요하면 그 위에 VPN을 올린다.
+VPC Endpoint는 S3·DynamoDB 전용이며 무료인 Gateway Endpoint와, 그 외 서비스용으로 ENI를 만들고 요금이 붙는 Interface Endpoint로 나뉜다. 온프레미스 연결은 Site-to-Site VPN과 전용 회선인 Direct Connect가 있고, ==Direct Connect는 기본 암호화가 없어 필요하면 그 위에 VPN을 올린다.==
 
 ### CloudFront
 
@@ -115,7 +115,7 @@ public class InventoryClient {
 
 ## 실무에서 걸리는 지점
 
-- NAT Gateway 데이터 처리 요금은 S3·DynamoDB 트래픽에서 가장 크게 불어난다. 두 서비스는 무료인 Gateway Endpoint로 빼면 NAT 비용과 인터넷 경유를 동시에 없앤다.
+- ==NAT Gateway 데이터 처리 요금은 S3·DynamoDB 트래픽에서 가장 크게 불어난다.== 두 서비스는 무료인 Gateway Endpoint로 빼면 NAT 비용과 인터넷 경유를 동시에 없앤다.
 - NAT Gateway를 AZ 하나에만 두면 다른 AZ 트래픽이 AZ 간 요금을 내며 건너가고, 그 AZ가 죽으면 아웃바운드가 전부 끊긴다. AZ별 NAT와 라우팅 테이블을 짝짓는다.
 - CloudFront 무효화는 월 1,000건까지 무료지만 배포마다 `/*`를 호출하면 캐시 효과가 사라진다. 정적 자산은 해시 파일명으로 버전을 관리한다.
 - 오리진 교체 전에 TTL을 미리 낮추지 않으면 클라이언트가 예전 IP를 TTL 만큼 붙든다. 작업 전날 60초로 낮추고 안정화 뒤 되돌린다.

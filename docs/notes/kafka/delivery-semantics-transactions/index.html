@@ -24,7 +24,7 @@
   <h1>전달 보증 — at-most·at-least·exactly-once와 트랜잭션</h1>
   <p class="summary">세 가지 전달 보증의 차이와 멱등 프로듀서·트랜잭션·read_committed로 Kafka 내부 exactly-once가 성립하는 원리를 정리한다</p>
   <div class="content">
-<p>Producer가 ACK를 받지 못하면 재전송할지 포기할지, Consumer는 처리와 offset commit 중 무엇을 먼저 할지 정해야 한다. 어느 쪽이든 손실 또는 중복 중 하나를 감수하게 된다. 결제·정산처럼 둘 다 허용되지 않는 데이터에서는 이 선택이 곧 장애 원인이다. <mark>Kafka는 멱등 Producer와 트랜잭션으로 클러스터 내부에 한해 손실과 중복을 모두 제거하며, 그 범위와 비용을 알아야 올바르게 쓸 수 있다.</mark></p>
+<p>Producer가 ACK를 받지 못하면 재전송할지 포기할지, Consumer는 처리와 offset commit 중 무엇을 먼저 할지 정해야 한다. 어느 쪽이든 손실 또는 중복 중 하나를 감수하게 된다. 결제·정산처럼 둘 다 허용되지 않는 데이터에서는 이 선택이 곧 장애 원인이다. Kafka는 멱등 Producer와 트랜잭션으로 클러스터 내부에 한해 손실과 중복을 모두 제거하며, 그 범위와 비용을 알아야 올바르게 쓸 수 있다.</p>
 <h2>핵심 개념</h2>
 <h3>세 가지 보증</h3>
 <table>
@@ -153,9 +153,9 @@ cp.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class)
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><mark><strong>EOS 범위는 Kafka 클러스터 내부다.</strong></mark> DB·HTTP·파일로 sink하면 트랜잭션 밖이므로 키 기반 upsert 같은 멱등 쓰기, 또는 DB 트랜잭션 안에 outbox 테이블을 쓰고 CDC로 발행하는 Transactional Outbox가 필요하다. 다른 클러스터로 복제한 뒤에도 EOS는 보장되지 않는다.</li>
-<li><strong><code>transaction.timeout.ms</code>(기본 60초)를 넘기면 자동 abort된다.</strong> 배치가 크거나 외부 호출이 느리면 값을 올리되, 브로커 <code>transaction.max.timeout.ms</code>(기본 15분)를 넘길 수 없다.</li>
+<li><mark><strong><code>transaction.timeout.ms</code>(기본 60초)를 넘기면 자동 abort된다.</strong></mark> 배치가 크거나 외부 호출이 느리면 값을 올리되, 브로커 <code>transaction.max.timeout.ms</code>(기본 15분)를 넘길 수 없다.</li>
 <li><strong><code>transactional.id</code> 중복은 서로를 fencing한다.</strong> 두 인스턴스가 같은 ID를 쓰면 번갈아 <code>ProducerFencedException</code>으로 죽는다. 이 예외는 재시도하지 말고 종료해야 한다.</li>
-<li><strong>read_committed는 지연을 더한다.</strong> 커밋 주기만큼 Consumer가 늦게 본다. EOS는 at-least-once 대비 10~20% 정도 처리량 손실이 있다.</li>
+<li><strong>read_committed는 지연을 더한다.</strong> 커밋 주기만큼 Consumer가 늦게 본다. <mark>EOS는 at-least-once 대비 10~20% 정도 처리량 손실이 있다.</mark></li>
 <li><strong>기본 선택은 at-least-once + 멱등 처리다.</strong> 로그·메트릭만 at-most-once가 허용되고, Kafka 내부 스트림 처리는 exactly_once_v2, 외부 DB가 최종 목적지면 Outbox 패턴을 쓴다.</li>
 </ul>
 <h2>관련 글</h2>

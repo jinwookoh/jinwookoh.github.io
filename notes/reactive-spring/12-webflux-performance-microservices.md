@@ -25,7 +25,7 @@ WebFlux를 도입했다는 사실만으로 처리량이 오르지는 않는다. 
 
 **서비스 조합.** 독립적인 두 호출은 `Mono.zip`으로 동시에 시작해 총 시간을 max(A, B)로 줄인다. `flatMap`으로 이으면 A + B가 된다. 하위 서비스의 HTTP 상태는 `onStatus`로 도메인 예외로 변환하고, 존재 검사와 조건 검사는 `switchIfEmpty`를 단계별로 분리해 오류 원인을 구분한다.
 
-**트랜잭션.** R2DBC의 `@Transactional`은 구독 시점에 트랜잭션을 열고 완료 시 커밋, 오류 시 롤백한다. 같이 묶을 저장은 하나의 파이프라인 안에서 `Mono.zip`으로 실행해야 하며, 별도 `subscribe()`는 별도 트랜잭션이다. 서비스 간 2PC는 쓰지 않고 Saga 패턴으로 보상 트랜잭션을 설계한다.
+**트랜잭션.** R2DBC의 `@Transactional`은 구독 시점에 트랜잭션을 열고 완료 시 커밋, 오류 시 롤백한다. 같이 묶을 저장은 하나의 파이프라인 안에서 `Mono.zip`으로 실행해야 하며, ==별도 `subscribe()`는 별도 트랜잭션이다.== 서비스 간 2PC는 쓰지 않고 Saga 패턴으로 보상 트랜잭션을 설계한다.
 
 **탄력성.** 타임아웃과 `onErrorReturn`이 최소 방어선이고, 운영에서는 Resilience4j의 Circuit Breaker(CLOSED → OPEN → HALF-OPEN)와 Bulkhead를 붙인다. TraceID는 ThreadLocal이 아니라 Reactor Context로 전파되며, Micrometer Tracing이 `WebClient` 호출에 `traceparent` 헤더를 자동으로 싣는다.
 
@@ -130,11 +130,11 @@ public class PortfolioAggregator {
 
 ## 실무에서 걸리는 지점
 
-- `Mono.cache()`를 `ConcurrentHashMap`에 넣는 방식은 값의 TTL만 있고 맵 엔트리는 제거되지 않는다. 키 공간이 크거나 인스턴스가 여러 개면 Reactive Redis로 옮긴다.
-- `pendingAcquireTimeout`이 없으면 풀 고갈 시 요청이 무한 대기한다. Gzip 효과는 localhost에서 측정되지 않으므로 네트워크 구간이 있는 환경에서 부하 도구로 확인한다.
+- ==`Mono.cache()`를 `ConcurrentHashMap`에 넣는 방식은 값의 TTL만 있고 맵 엔트리는 제거되지 않는다.== 키 공간이 크거나 인스턴스가 여러 개면 Reactive Redis로 옮긴다.
+- ==`pendingAcquireTimeout`이 없으면 풀 고갈 시 요청이 무한 대기한다.== Gzip 효과는 localhost에서 측정되지 않으므로 네트워크 구간이 있는 환경에서 부하 도구로 확인한다.
 - `onStatus` 조건에 `HttpStatus.NOT_FOUND::equals`처럼 enum 동일성을 쓰면 `HttpStatusCode` 구현체에 따라 매칭이 빗나갈 수 있다. `status -> status.value() == 404`로 비교한다.
 - SSE를 릴레이하는 엔드포인트에 `produces = TEXT_EVENT_STREAM_VALUE`가 없으면 Flux가 JSON 배열로 수집돼 스트림이 끊긴다. 클라이언트 쪽도 `accept(MediaType.TEXT_EVENT_STREAM)`과 `bodyToFlux`로 받아야 한다.
-- Resilience4j 애노테이션은 `resilience4j-reactor` 어댑터가 있어야 Mono/Flux를 인식한다. 코어 모듈만 추가하면 리액티브 파이프라인에서 동작하지 않는다.
+- Resilience4j 애노테이션은 `resilience4j-reactor` 어댑터가 있어야 Mono/Flux를 인식한다. ==코어 모듈만 추가하면 리액티브 파이프라인에서 동작하지 않는다.==
 
 ## 관련 글
 

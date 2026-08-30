@@ -108,10 +108,10 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- **`--from-beginning`은 커밋된 offset이 없을 때만 동작한다.** 이미 offset을 커밋한 group에 붙이면 커밋 지점부터 이어 읽는다. 처음부터 다시 읽으려면 `--reset-offsets`를 써야 하고, 이 명령은 해당 group의 consumer가 모두 종료된 상태에서만 적용된다. 애플리케이션의 `auto.offset.reset=earliest`도 같은 조건으로만 효과가 있다.
-- **첫 연결은 되는데 그 다음부터 Connection refused가 난다면 `advertised.listeners`를 본다.** 클라이언트는 `bootstrap.servers`로 접속한 뒤 메타데이터에 실린 광고 주소로 재연결한다. Docker·Kubernetes·클라우드에서 브로커가 컨테이너 내부 주소를 광고하면 이 두 번째 연결이 실패한다.
+- ==**`--from-beginning`은 커밋된 offset이 없을 때만 동작한다.**== 이미 offset을 커밋한 group에 붙이면 커밋 지점부터 이어 읽는다. 처음부터 다시 읽으려면 `--reset-offsets`를 써야 하고, 이 명령은 해당 group의 consumer가 모두 종료된 상태에서만 적용된다. 애플리케이션의 `auto.offset.reset=earliest`도 같은 조건으로만 효과가 있다.
+- **첫 연결은 되는데 그 다음부터 Connection refused가 난다면 `advertised.listeners`를 본다.** ==클라이언트는 `bootstrap.servers`로 접속한 뒤 메타데이터에 실린 광고 주소로 재연결한다.== Docker·Kubernetes·클라우드에서 브로커가 컨테이너 내부 주소를 광고하면 이 두 번째 연결이 실패한다.
 - **Partition 수 이상의 consumer는 놀고 있다.** Lag가 쌓여 consumer를 늘렸는데 처리량이 그대로라면 partition 수부터 확인한다. 반대로 partition을 과도하게 잡으면 메타데이터·컨트롤러 부담과 장애 복구 시간이 늘어난다.
-- **`auto.create.topics.enable`에 의존하지 않는다.** 개발용 기본값이 켜져 있으면 오타 난 topic 이름으로 partition 1개짜리 topic이 조용히 생성된다. 운영에서는 끄고 `kafka-topics.sh --create` 또는 Admin Client로 명시적으로 만든다.
+- **`auto.create.topics.enable`에 의존하지 않는다.** ==개발용 기본값이 켜져 있으면 오타 난 topic 이름으로 partition 1개짜리 topic이 조용히 생성된다.== 운영에서는 끄고 `kafka-topics.sh --create` 또는 Admin Client로 명시적으로 만든다.
 - **콘솔 producer는 스모크 테스트 도구이지 부하 도구가 아니다.** 기본 설정이 운영 producer와 다르므로(`acks`, 배치, 압축) 성능 수치를 여기서 판단하면 안 된다. `--producer-property acks=all`처럼 설정을 맞춰도 처리량 비교는 별도 도구로 한다.
 
 ## 관련 글

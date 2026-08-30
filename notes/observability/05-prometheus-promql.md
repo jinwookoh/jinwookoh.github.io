@@ -103,10 +103,10 @@ groups:
 ## 실무에서 걸리는 지점
 
 - Cardinality 폭발이 가장 흔한 장애 원인이다. 직접 등록한 태그에 원시 경로나 사용자 ID가 섞이면 시계열이 급증하므로 `count by (__name__) ({__name__=~".+"})`로 상위 메트릭을 주기적으로 확인한다.
-- rate 윈도가 scrape_interval에 비해 짧으면 구간 안에 샘플이 1~2개뿐이라 값이 튄다. 15초 scrape에 `[1m]`이 하한이고 대시보드 기본값은 `[5m]`이 안전하다. 반대로 scrape_interval을 1~5초로 줄이면 저장 용량과 CPU가 비례해서 늘어난다.
-- Histogram bucket이 기대 지연 분포와 맞지 않으면 `histogram_quantile`은 bucket 경계 사이를 선형 보간한 값을 돌려주므로 결과가 실제와 어긋난다. Micrometer의 `slo` 설정으로 관심 구간 경계를 추가한다.
+- rate 윈도가 scrape_interval에 비해 짧으면 구간 안에 샘플이 1~2개뿐이라 값이 튄다. ==15초 scrape에 `[1m]`이 하한이고 대시보드 기본값은 `[5m]`이 안전하다.== 반대로 scrape_interval을 1~5초로 줄이면 저장 용량과 CPU가 비례해서 늘어난다.
+- ==Histogram bucket이 기대 지연 분포와 맞지 않으면 `histogram_quantile`은 bucket 경계 사이를 선형 보간한 값을 돌려주므로 결과가 실제와 어긋난다.== Micrometer의 `slo` 설정으로 관심 구간 경계를 추가한다.
 - Recording Rule interval을 scrape_interval보다 짧게 잡으면 평가 자체가 부하가 된다. 30초~1분을 기본으로 두고 raw → job 집계 → 비즈니스 지표의 계층으로 정리한다.
-- 단일 Prometheus는 retention(기본 15일)에 묶여 장기 추세를 볼 수 없으므로 Thanos나 Mimir로 remote write를 건다. Alert는 `for` 없이 걸면 flap마다 발화하므로 5~15분의 지속 조건을 두고, severity·team별로 receiver를 나누지 않으면 한 채널에 몰린 알림이 곧 무시된다.
+- ==단일 Prometheus는 retention(기본 15일)에 묶여 장기 추세를 볼 수 없으므로 Thanos나 Mimir로 remote write를 건다.== Alert는 `for` 없이 걸면 flap마다 발화하므로 5~15분의 지속 조건을 두고, severity·team별로 receiver를 나누지 않으면 한 채널에 몰린 알림이 곧 무시된다.
 
 ## 관련 글
 

@@ -99,11 +99,11 @@ String payload = """
 
 ## 실무에서 걸리는 지점
 
-- **불변 컬렉션과 null.** `List.of`·`Stream.toList()` 반환값에 `add`를 호출하면 런타임 예외다. 가변 리스트가 필요하면 `Collectors.toCollection(ArrayList::new)`를 쓴다. `Stream.toList()`는 `null` 요소를 허용하지만 `List.of`는 허용하지 않는다.
-- **Record와 JPA.** JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다. DTO·값 객체·프로젝션에 한정한다. 컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.
+- **불변 컬렉션과 null.** `List.of`·`Stream.toList()` 반환값에 `add`를 호출하면 런타임 예외다. 가변 리스트가 필요하면 `Collectors.toCollection(ArrayList::new)`를 쓴다. ==`Stream.toList()`는 `null` 요소를 허용하지만 `List.of`는 허용하지 않는다.==
+- **Record와 JPA.** JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다. DTO·값 객체·프로젝션에 한정한다. ==컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.==
 - **`var` 추론 함정.** `var list = new ArrayList<>();`는 `ArrayList<Object>`로 추론된다. 우변에서 타입이 드러나지 않는 메서드 호출 결과에는 쓰지 않는다.
-- **Sealed 계층의 모듈 경계.** permits의 하위 타입은 같은 모듈(무명 모듈이면 같은 패키지)에 있어야 한다. 멀티모듈로 계층을 나누면 컴파일이 실패한다.
-- **Switch 패턴의 지배(dominance)와 null.** 상위 타입 case나 가드 없는 case가 하위 타입 case·가드 case보다 앞에 오면 컴파일 오류다. `default`가 있어도 `null`은 처리되지 않으므로 `case null`을 명시한다.
+- **Sealed 계층의 모듈 경계.** ==permits의 하위 타입은 같은 모듈(무명 모듈이면 같은 패키지)에 있어야 한다.== 멀티모듈로 계층을 나누면 컴파일이 실패한다.
+- **Switch 패턴의 지배(dominance)와 null.** 상위 타입 case나 가드 없는 case가 하위 타입 case·가드 case보다 앞에 오면 컴파일 오류다. ==`default`가 있어도 `null`은 처리되지 않으므로 `case null`을 명시한다.==
 
 ## 관련 글
 

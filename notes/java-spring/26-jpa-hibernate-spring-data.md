@@ -29,7 +29,7 @@ JdbcTemplate만으로 데이터 접근 계층을 만들면 테이블마다 SQL �
 
 Spring Data 3.x의 `JpaRepository<T, ID>`는 `ListCrudRepository`와 `ListPagingAndSortingRepository`를 상속하고 `flush()`·`saveAndFlush()`·`deleteAllInBatch()` 같은 JPA 특화 메서드를 더한다. 3.x부터 `PagingAndSortingRepository`는 `CrudRepository`를 상속하지 않으므로 페이징과 CRUD를 함께 쓰려면 `JpaRepository`를 상속한다.
 
-`save()`는 식별자가 없는 새 객체면 `persist`, 식별자가 있는 준영속 객체면 `merge`를 호출한다. 영속 상태의 Entity는 커밋 시 변경 감지로 UPDATE가 나가므로 `save()`를 다시 부를 필요가 없다. `@Repository`는 필수가 아니며 컴포넌트 스캔 범위 안의 하위 인터페이스는 자동으로 Bean이 된다.
+==`save()`는 식별자가 없는 새 객체면 `persist`, 식별자가 있는 준영속 객체면 `merge`를 호출한다.== 영속 상태의 Entity는 커밋 시 변경 감지로 UPDATE가 나가므로 `save()`를 다시 부를 필요가 없다. `@Repository`는 필수가 아니며 컴포넌트 스캔 범위 안의 하위 인터페이스는 자동으로 Bean이 된다.
 
 ## 코드
 
@@ -151,9 +151,9 @@ public class OrderService {
 
 ## 실무에서 걸리는 지점
 
-- **`ddl-auto: update`를 운영에 남기는 실수.** Entity 필드 추가가 곧바로 운영 DB의 ALTER TABLE로 이어지고, 컬럼 삭제·타입 변경은 반영되지 않아 스키마가 서서히 어긋난다.
-- **`@Enumerated` 기본값은 `ORDINAL`이다.** enum 순서 번호가 저장되므로 상수 사이에 값을 끼워 넣으면 기존 데이터의 의미가 바뀐다. enum 필드는 항상 `EnumType.STRING`을 명시한다.
-- **Lombok `@Data`를 Entity에 쓰면 안 된다.** 전체 필드 기반 `equals`는 영속화 전후로 결과가 바뀌고 연관 필드가 섞이면 지연 로딩과 순환 호출을 유발한다. 식별자 기반으로 직접 구현하고 `hashCode`는 상수로 두어 id 부여 전후에도 `Set` 안에서 안정되게 한다.
+- **`ddl-auto: update`를 운영에 남기는 실수.** ==Entity 필드 추가가 곧바로 운영 DB의 ALTER TABLE로 이어지고, 컬럼 삭제·타입 변경은 반영되지 않아 스키마가 서서히 어긋난다.==
+- **`@Enumerated` 기본값은 `ORDINAL`이다.** ==enum 순서 번호가 저장되므로 상수 사이에 값을 끼워 넣으면 기존 데이터의 의미가 바뀐다.== enum 필드는 항상 `EnumType.STRING`을 명시한다.
+- **Lombok `@Data`를 Entity에 쓰면 안 된다.** ==전체 필드 기반 `equals`는 영속화 전후로 결과가 바뀌고 연관 필드가 섞이면 지연 로딩과 순환 호출을 유발한다.== 식별자 기반으로 직접 구현하고 `hashCode`는 상수로 두어 id 부여 전후에도 `Set` 안에서 안정되게 한다.
 - **Entity를 컨트롤러 응답으로 직접 반환하면** 트랜잭션 종료 후 Jackson이 지연 로딩 getter를 호출해 `LazyInitializationException`이 나고, 비밀번호 같은 내부 컬럼이 API에 노출된다. `open-in-view`를 `false`로 두고 서비스 안에서 DTO로 변환한다.
 
 ## 관련 글

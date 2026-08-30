@@ -125,9 +125,9 @@ public class OrderStats {
 
 ## 실무에서 걸리는 지점
 
-- **`parallelStream`은 기본 선택지가 아니다.** 공용 `ForkJoinPool.commonPool`을 다른 작업과 나눠 쓰고, 데이터가 수만 건 미만이면 분할·병합 오버헤드가 이득을 상회하며, I/O가 섞인 람다는 공용 풀을 블로킹한다. CPU 집약적이고 순서 무관하며 부작용 없는 작업에 한해 측정 후 적용한다.
+- **`parallelStream`은 기본 선택지가 아니다.** ==공용 `ForkJoinPool.commonPool`을 다른 작업과 나눠 쓰고, 데이터가 수만 건 미만이면 분할·병합 오버헤드가 이득을 상회하며, I/O가 섞인 람다는 공용 풀을 블로킹한다.== CPU 집약적이고 순서 무관하며 부작용 없는 작업에 한해 측정 후 적용한다.
 - **`forEach` 안에서 외부 컬렉션을 수정하지 않는다.** `ArrayList`에 `add`하는 부작용은 병렬 전환 시 race condition이 된다. 결과는 `toList`나 `collect`로 수집한다. 단순 순회만 있다면 for-each가 더 읽기 쉽다.
-- **`Collectors.toMap`은 키 중복 시 `IllegalStateException`을 던진다.** 중복 가능한 키에는 세 번째 인자로 병합 함수를 넘긴다.
+- ==**`Collectors.toMap`은 키 중복 시 `IllegalStateException`을 던진다.**== 중복 가능한 키에는 세 번째 인자로 병합 함수를 넘긴다.
 - **박싱 비용과 `Optional` 위치.** 합계·평균은 `mapToInt`로 원시 스트림에서 계산한다. `Optional`은 반환 타입에서만 쓰고 필드나 파라미터에는 쓰지 않으며, 기본값이 비싼 계산이면 `orElse` 대신 `orElseGet`을 쓴다.
 
 ## 관련 글

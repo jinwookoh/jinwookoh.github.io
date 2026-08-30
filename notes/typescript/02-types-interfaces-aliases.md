@@ -42,7 +42,7 @@ Spring 관점에서 `interface`는 Java의 interface보다 record의 필드 명�
 
 ### 튜플·enum·리터럴
 
-길이와 위치별 타입이 고정된 배열은 튜플 `[string, number]`로 선언한다. `enum`은 런타임 객체를 생성하는 유일한 타입 구문이며, 문자열 리터럴 유니온이 더 가볍고 tree-shaking에 유리해 실무에서는 후자를 더 많이 쓴다. `as const`를 붙이면 객체 리터럴의 값이 리터럴 타입으로 고정되고 `readonly`가 된다.
+길이와 위치별 타입이 고정된 배열은 튜플 `[string, number]`로 선언한다. ==`enum`은 런타임 객체를 생성하는 유일한 타입 구문이며, 문자열 리터럴 유니온이 더 가볍고 tree-shaking에 유리해 실무에서는 후자를 더 많이 쓴다.== `as const`를 붙이면 객체 리터럴의 값이 리터럴 타입으로 고정되고 `readonly`가 된다.
 
 ## 코드
 
@@ -98,9 +98,9 @@ type Status = (typeof STATUS)[keyof typeof STATUS]; // "active" | "inactive"
 ## 실무에서 걸리는 지점
 
 - **런타임 검증은 별개다.** 인터페이스는 컴파일 후 사라지므로 NestJS 요청 본문이 선언과 다르게 들어와도 오류가 나지 않는다. `class-validator` DTO나 `zod` 스키마 같은 실행 시 검증 수단을 따로 둔다.
-- **`readonly`는 얕다.** `readonly items: Item[]`은 `items` 재할당만 막고 `items.push()`는 허용한다. 배열까지 막으려면 `readonly Item[]` 또는 `ReadonlyArray<Item>`을 써야 한다.
+- **`readonly`는 얕다.** ==`readonly items: Item[]`은 `items` 재할당만 막고 `items.push()`는 허용한다.== 배열까지 막으려면 `readonly Item[]` 또는 `ReadonlyArray<Item>`을 써야 한다.
 - **선택 프로퍼티와 `undefined` 명시는 다르다.** `exactOptionalPropertyTypes`를 켜면 `email?: string`에 `undefined`를 직접 대입하는 것이 오류가 된다.
-- **초과 프로퍼티 검사는 리터럴에만 동작한다.** 변수를 거쳐 넘기면 통과하므로 오타 방어를 이 검사에 기대면 안 된다.
+- **초과 프로퍼티 검사는 리터럴에만 동작한다.** ==변수를 거쳐 넘기면 통과하므로 오타 방어를 이 검사에 기대면 안 된다.==
 - **교차 타입 남용은 검사 속도를 떨어뜨린다.** 대형 타입을 `&`로 겹겹이 합치면 오류 메시지가 길어지고 tsc 시간이 늘어난다. 확장 계층이 깊으면 `interface extends`로 바꾼다.
 - **선언 병합은 양날이다.** 라이브러리 타입 보강에는 유용하지만, 같은 이름의 `interface`가 우연히 병합되면 추적이 어렵다.
 

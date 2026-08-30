@@ -15,9 +15,9 @@ updated: 2026-08-29
 
 확장 전략은 단일 프로세스(Multi-threaded Step, Parallel Steps, AsyncItemProcessor, Spring Batch 6의 Local Chunking)와 다중 프로세스(Remote Chunking, Remote Partitioning, Spring Batch 6의 RemoteStep)로 나뉜다. Partitioning은 PartitionHandler 구현에 따라 양쪽 모두 가능하다.
 
-**Multi-threaded Step**은 `.taskExecutor()` 한 줄로 각 스레드가 chunk 하나를 read·process·write까지 수행하므로 Reader·Processor·Writer 모두 스레드 안전해야 한다. `FlatFileItemReader`·`JdbcCursorItemReader`는 `SynchronizedItemStreamReader`로 감싸야 하고, 감싸더라도 읽기 위치가 스레드 순서를 보장하지 못해 실패 지점 재시작은 신뢰할 수 없다.
+**Multi-threaded Step**은 `.taskExecutor()` 한 줄로 각 스레드가 chunk 하나를 read·process·write까지 수행하므로 Reader·Processor·Writer 모두 스레드 안전해야 한다. `FlatFileItemReader`·`JdbcCursorItemReader`는 `SynchronizedItemStreamReader`로 감싸야 하고, ==감싸더라도 읽기 위치가 스레드 순서를 보장하지 못해 실패 지점 재시작은 신뢰할 수 없다==.
 
-**AsyncItemProcessor**는 process만 TaskExecutor로 넘겨 `Future`를 반환하고, 짝인 `AsyncItemWriter`가 chunk의 Future를 전부 resolve한 뒤 delegate에 넘긴다. Reader 안전성이 필요 없고, 예외는 `Future.get()` 시점인 Writer 단계에서 드러나 skip·retry도 그때 적용된다.
+**AsyncItemProcessor**는 process만 TaskExecutor로 넘겨 `Future`를 반환하고, 짝인 `AsyncItemWriter`가 chunk의 Future를 전부 resolve한 뒤 delegate에 넘긴다. Reader 안전성이 필요 없고, ==예외는 `Future.get()` 시점인 Writer 단계에서 드러나 skip·retry도 그때 적용된다==.
 
 **Partitioning**은 `Partitioner`가 입력을 N등분한 `Map<String, ExecutionContext>`를 만들고, `PartitionHandler`가 각 컨텍스트로 worker Step 인스턴스를 실행한다. worker가 Reader·Writer·트랜잭션을 각자 가지므로 스레드 안전성 문제가 없고 실패한 partition만 재시작된다. 로컬은 `TaskExecutorPartitionHandler`, 원격은 `MessageChannelPartitionHandler`다.
 
@@ -175,7 +175,7 @@ public class RemoteChunkingConfig {
 - **Multi-threaded Step의 ChunkListener.** 다중 스레드에서 호환성이 보장되지 않으므로 `StepExecutionListener`로 옮기거나 Partitioning으로 전환한다.
 - **Async 짝 누락.** `AsyncItemProcessor`에 일반 Writer를 붙이면 Future 캐스팅에 실패하고, 일반 Processor에 `AsyncItemWriter`를 붙이면 비동기 효과가 없다. process가 수 ms면 스레드 전환 비용이 이득을 상쇄한다.
 - **Partition skew와 key 불일치.** 범위 분할이 데이터 분포와 맞지 않으면 한 partition이 대부분을 갖는다. hash 분할로 균등화한다. Partitioner의 key와 `#{stepExecutionContext['key']}`가 다르면 Reader가 null을 받는다.
-- **원격 구성의 메시지 손실.** `DirectChannel`은 in-memory라 프로세스가 죽으면 chunk가 사라진다. durable queue와 ack, 멱등한 worker가 필요하다. worker 처리가 `MessagingTemplate.receiveTimeout`을 넘기면 manager가 먼저 끊는다. manager와 worker는 같은 JobRepository를 공유해야 한다.
+- **원격 구성의 메시지 손실.** `DirectChannel`은 in-memory라 프로세스가 죽으면 chunk가 사라진다. durable queue와 ack, 멱등한 worker가 필요하다. worker 처리가 `MessagingTemplate.receiveTimeout`을 넘기면 manager가 먼저 끊는다. ==manager와 worker는 같은 JobRepository를 공유해야 한다.==
 
 ## 관련 글
 

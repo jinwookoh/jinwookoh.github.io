@@ -9,7 +9,7 @@ sources: [2026-05-03-kafka-outbox.md, 2026-05-03-kafka-saga-choreography.md, 202
 updated: 2026-08-29
 ---
 
-서비스마다 DB를 따로 두면 두 가지 원자성이 깨진다. 첫째, 한 서비스 안에서 DB 커밋과 Kafka 발행은 같은 트랜잭션이 아니다. DB는 저장됐는데 발행이 실패하면 이벤트가 유실되고, 발행 뒤 롤백되면 존재하지 않는 데이터에 대한 이벤트가 남는다. Kafka는 XA 2PC에 참여하지 않으므로 코디네이터로 묶을 수도 없다. 둘째, 주문·결제·재고처럼 여러 서비스에 걸친 트랜잭션은 분산 ACID로 처리할 수 없고, 한 단계가 실패하면 이미 커밋된 앞 단계를 되돌려야 한다. 전자를 Outbox가, 후자를 Saga가 해결하며, 메시지를 나누고 모으는 배관이 Fan-out과 Fan-in이다.
+서비스마다 DB를 따로 두면 두 가지 원자성이 깨진다. 첫째, 한 서비스 안에서 DB 커밋과 Kafka 발행은 같은 트랜잭션이 아니다. DB는 저장됐는데 발행이 실패하면 이벤트가 유실되고, 발행 뒤 롤백되면 존재하지 않는 데이터에 대한 이벤트가 남는다. ==Kafka는 XA 2PC에 참여하지 않으므로 코디네이터로 묶을 수도 없다.== 둘째, 주문·결제·재고처럼 여러 서비스에 걸친 트랜잭션은 분산 ACID로 처리할 수 없고, 한 단계가 실패하면 이미 커밋된 앞 단계를 되돌려야 한다. 전자를 Outbox가, 후자를 Saga가 해결하며, 메시지를 나누고 모으는 배관이 Fan-out과 Fan-in이다.
 
 ## 핵심 개념
 
@@ -146,9 +146,9 @@ public class InventoryResponseHandler {
 
 ## 실무에서 걸리는 지점
 
-- **outbox 테이블 비대화.** 폴링 방식은 발행 후 삭제하면 되지만 CDC 방식은 Debezium이 읽은 뒤에도 행이 남는다. `created_at` 기준 RANGE 파티션과 pg_partman으로 월별 파티션을 DETACH/DROP하는 편이 DELETE보다 부하가 적다.
-- **직렬화 타입 헤더.** Spring Kafka `JsonSerializer`는 기본으로 Java 클래스명을 헤더에 넣으므로 패키지가 다른 컨슈머는 역직렬화에 실패한다. 프로듀서에 `spring.json.add.type.headers=false`, 컨슈머에 `spring.json.trusted.packages`를 설정하고 리스너 파라미터 타입으로 역직렬화한다.
-- **`max.block.ms`.** 브로커에 연결되지 않으면 `KafkaTemplate.send()`가 메타데이터 조회에서 기본 60초 블로킹한다. Outbox를 쓰면 이 지연이 릴레이로 격리되지만, 직접 발행 경로가 남아 있다면 값을 수 초로 줄여야 한다.
+- **outbox 테이블 비대화.** ==폴링 방식은 발행 후 삭제하면 되지만 CDC 방식은 Debezium이 읽은 뒤에도 행이 남는다.== `created_at` 기준 RANGE 파티션과 pg_partman으로 월별 파티션을 DETACH/DROP하는 편이 DELETE보다 부하가 적다.
+- **직렬화 타입 헤더.** ==Spring Kafka `JsonSerializer`는 기본으로 Java 클래스명을 헤더에 넣으므로 패키지가 다른 컨슈머는 역직렬화에 실패한다.== 프로듀서에 `spring.json.add.type.headers=false`, 컨슈머에 `spring.json.trusted.packages`를 설정하고 리스너 파라미터 타입으로 역직렬화한다.
+- **`max.block.ms`.** ==브로커에 연결되지 않으면 `KafkaTemplate.send()`가 메타데이터 조회에서 기본 60초 블로킹한다.== Outbox를 쓰면 이 지연이 릴레이로 격리되지만, 직접 발행 경로가 남아 있다면 값을 수 초로 줄여야 한다.
 - **멱등성과 순서.** 재전달과 리밸런스로 같은 이벤트가 두 번 올 수 있다. 처리 여부를 `orderId` 기준으로 DB에 남기고, 오케스트레이터는 현재 상태에서 허용되지 않는 응답을 무시한다. 같은 주문의 이벤트는 파티션 키를 `orderId`로 고정해 순서를 보장한다.
 - **Choreography의 추적 난이도.** 흐름이 서비스마다 흩어져 멈춘 단계를 찾기 어렵고 순환 구독이 생기기 쉽다. 헤더에 correlation id를 실어 분산 추적과 연결하고, 분기가 늘면 Orchestration으로 전환한다.
 

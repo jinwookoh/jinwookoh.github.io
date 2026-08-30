@@ -24,7 +24,7 @@
   <h1>Consumer API와 설정</h1>
   <p class="summary">poll 루프·commit 방식·Rebalance 대응·seek과 그 동작을 좌우하는 설정을 한 번에 정리한다</p>
   <div class="content">
-<p>Consumer는 offset, 파티션 할당, 그룹 멤버십을 클라이언트가 스스로 관리하며 이 셋이 서로 맞물린다. <mark>commit 타이밍을 잘못 잡으면 메시지가 손실되거나 중복 처리되고, 처리 시간이 길어지면 브로커가 Consumer를 죽은 것으로 판정해 Rebalance를 일으킨다.</mark> API 호출 패턴과 설정값을 같이 봐야 한다.</p>
+<p>Consumer는 offset, 파티션 할당, 그룹 멤버십을 클라이언트가 스스로 관리하며 이 셋이 서로 맞물린다. commit 타이밍을 잘못 잡으면 메시지가 손실되거나 중복 처리되고, 처리 시간이 길어지면 브로커가 Consumer를 죽은 것으로 판정해 Rebalance를 일으킨다. API 호출 패턴과 설정값을 같이 봐야 한다.</p>
 <h2>핵심 개념</h2>
 <h3>구독과 Poll 루프</h3>
 <p>필수 설정은 <code>bootstrap.servers</code>, <code>group.id</code>, <code>key.deserializer</code>, <code>value.deserializer</code>다. <code>subscribe</code>는 Consumer Group에 참여해 파티션을 자동 할당받고, <code>assign</code>은 그룹 없이 <code>TopicPartition</code>을 직접 지정한다.</p>
@@ -34,7 +34,7 @@
 <h3>Rebalance 대응</h3>
 <p>파티션이 넘어가기 전 <code>onPartitionsRevoked</code>가 호출된다. 여기서 commit하지 않으면 새 담당자가 마지막 commit 지점부터 다시 읽어 중복이 생긴다. <code>onPartitionsAssigned</code>에서는 초기화나 <code>seek</code>을 수행한다. <code>partition.assignment.strategy</code>는 <code>CooperativeStickyAssignor</code>가 기존 할당을 유지하며 필요한 파티션만 점진적으로 옮겨 정지 시간이 가장 짧다. 기본값 <code>RangeAssignor</code>는 분배가 불균등하다. <code>group.instance.id</code>를 지정하면 Static Membership이 되어 롤링 배포 중 불필요한 Rebalance를 피한다.</p>
 <h3>Seek·Pause</h3>
-<p><code>seekToBeginning</code>, <code>seekToEnd</code>, <code>seek(tp, offset)</code>으로 읽기 위치를 옮기고, <code>offsetsForTimes</code>는 타임스탬프 이후 첫 offset을 돌려준다. <code>pause</code>는 레코드 반환만 멈추고 <code>poll</code> 호출 의무는 남는다.</p>
+<p><code>seekToBeginning</code>, <code>seekToEnd</code>, <code>seek(tp, offset)</code>으로 읽기 위치를 옮기고, <code>offsetsForTimes</code>는 타임스탬프 이후 첫 offset을 돌려준다. <mark><code>pause</code>는 레코드 반환만 멈추고 <code>poll</code> 호출 의무는 남는다.</mark></p>
 <h3>그룹 멤버십과 Fetch 설정</h3>
 <ul>
 <li><code>session.timeout.ms</code>(기본 45초): heartbeat 단절 후 죽음 판정까지의 시간</li>
@@ -130,9 +130,9 @@ consumer.offsetsForTimes(query).forEach((tp, ot) -&gt; {
 <ul>
 <li><strong>처리 시간이 <code>max.poll.interval.ms</code>를 넘는 경우.</strong> 그룹에서 제외되고 다른 인스턴스가 같은 레코드를 다시 받아 중복 처리된다. 간격을 늘리거나 <code>max.poll.records</code>를 줄인다.</li>
 <li><strong>Auto commit과 처리 실패.</strong> commit 후 처리 중 장애가 나면 그 레코드는 다시 읽히지 않는다. 손실이 허용되지 않으면 <code>enable.auto.commit=false</code>로 둔다.</li>
-<li><strong>큰 메시지와 <code>max.partition.fetch.bytes</code>.</strong> 브로커·토픽의 <code>max.message.bytes</code>보다 작으면 그 파티션은 해당 레코드에서 멈춘다.</li>
+<li><strong>큰 메시지와 <code>max.partition.fetch.bytes</code>.</strong> <mark>브로커·토픽의 <code>max.message.bytes</code>보다 작으면 그 파티션은 해당 레코드에서 멈춘다.</mark></li>
 <li><strong>heartbeat와 session 비율.</strong> 두 값이 비슷하면 heartbeat 한 번만 놓쳐도 죽은 것으로 판정된다.</li>
-<li><mark><strong><code>KafkaConsumer</code>는 thread-safe가 아니다.</strong></mark> 다른 스레드에서 호출해도 되는 것은 <code>wakeup()</code>뿐이다. 병렬화는 인스턴스를 늘려서 한다. <code>group.instance.id</code>가 중복되면 <code>FencedInstanceIdException</code>으로 종료된다.</li>
+<li><strong><code>KafkaConsumer</code>는 thread-safe가 아니다.</strong> <mark>다른 스레드에서 호출해도 되는 것은 <code>wakeup()</code>뿐이다.</mark> 병렬화는 인스턴스를 늘려서 한다. <code>group.instance.id</code>가 중복되면 <code>FencedInstanceIdException</code>으로 종료된다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

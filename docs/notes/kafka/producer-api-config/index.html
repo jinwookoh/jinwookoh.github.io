@@ -24,7 +24,7 @@
   <h1>Producer API와 설정</h1>
   <p class="summary">send() 세 가지 패턴과 Serializer·Interceptor, acks·idempotence·batch·timeout 설정의 상호작용을 정리한다</p>
   <div class="content">
-<p><code>producer.send(record)</code> 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. <mark>설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.</mark></p>
+<p><code>producer.send(record)</code> 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. 설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.</p>
 <h2>핵심 개념</h2>
 <h3>생성과 send() 패턴</h3>
 <p>필수 설정은 <code>bootstrap.servers</code>, <code>key.serializer</code>, <code>value.serializer</code> 세 가지다. broker를 여러 개 적어야 하나가 내려가도 fallback된다. <code>KafkaProducer</code>는 thread-safe하므로 애플리케이션 전체에서 인스턴스 하나를 공유한다.</p>
@@ -33,7 +33,7 @@
 <p>String은 단순 문자열, ByteArray는 이미 직렬화된 바이트를 보낼 때 쓴다. 스키마 진화가 필요한 대규모 환경은 Avro와 Schema Registry 조합이 표준이고, 개발 편의가 우선이면 Spring Kafka의 <code>JsonSerializer</code>를 쓴다. Serializer를 바꾸면 기존 consumer의 읽기가 실패하므로 포맷 전환은 Schema Registry의 호환성 검사 아래에서 진행한다.</p>
 <p>기본 partitioner는 key 없는 레코드를 batch 단위로 같은 partition에 붙이는 sticky 방식이며, 3.3부터 <code>partitioner.adaptive.partitioning.enable=true</code>가 기본이라 느린 partition을 피한다. <code>interceptor.classes</code>로 등록하는 <code>ProducerInterceptor</code>는 <code>onSend</code>와 <code>onAcknowledgement</code> 훅으로 trace header 주입과 메트릭 수집을 맡는다.</p>
 <h3>신뢰성 설정의 연쇄</h3>
-<p><code>acks=all</code>은 ISR 전체의 확인을 기다리고, <code>enable.idempotence=true</code>는 broker가 sequence number로 중복을 걸러낸다. 3.0부터 idempotence가 기본 true인데 <code>acks=all</code>, <code>retries&gt;0</code>, <code>max.in.flight.requests.per.connection&lt;=5</code>가 모두 만족될 때만 유효하다. 명시적으로 켠 채 조건을 깨면 <code>ConfigException</code>이 나고, 기본값 상태에서 깨면 조용히 꺼진다. <code>retries</code>는 사실상 무한이며 실제 상한은 send부터 최종 ACK까지의 총 시간인 <code>delivery.timeout.ms</code>(120초)가 정한다. 개별 요청은 <code>request.timeout.ms</code>(30초)로 끊고, 재시도 간격은 <code>retry.backoff.ms</code>부터 지수적으로 늘어난다. <code>acks=all</code>은 broker의 <code>min.insync.replicas</code>가 2 이상일 때 의미가 있다.</p>
+<p><code>acks=all</code>은 ISR 전체의 확인을 기다리고, <code>enable.idempotence=true</code>는 broker가 sequence number로 중복을 걸러낸다. 3.0부터 idempotence가 기본 true인데 <code>acks=all</code>, <code>retries&gt;0</code>, <code>max.in.flight.requests.per.connection&lt;=5</code>가 모두 만족될 때만 유효하다. <mark>명시적으로 켠 채 조건을 깨면 <code>ConfigException</code>이 나고, 기본값 상태에서 깨면 조용히 꺼진다.</mark> <code>retries</code>는 사실상 무한이며 실제 상한은 send부터 최종 ACK까지의 총 시간인 <code>delivery.timeout.ms</code>(120초)가 정한다. 개별 요청은 <code>request.timeout.ms</code>(30초)로 끊고, 재시도 간격은 <code>retry.backoff.ms</code>부터 지수적으로 늘어난다. <code>acks=all</code>은 broker의 <code>min.insync.replicas</code>가 2 이상일 때 의미가 있다.</p>
 <h3>Batching과 메모리</h3>
 <p><code>batch.size</code>(16KB)는 partition별 batch 버퍼이고 <code>linger.ms</code>(0)는 batch가 차지 않아도 기다릴 시간이다. 실시간은 0<del>5ms, 균형은 5</del>20ms, 처리량 우선은 50~100ms를 잡는다. <code>buffer.memory</code>(32MB)가 가득 차면 <code>send()</code>가 <code>max.block.ms</code>(60초)까지 블로킹된다. <code>compression.type</code>은 기본 none이지만 운영에서는 zstd가 균형이 좋고, 압축은 batch 단위라 <code>linger.ms</code>를 주면 압축률도 오른다. <code>client.id</code>는 broker 로그와 메트릭에 찍히므로 서비스 이름으로 둔다.</p>
 <h2>코드</h2>
@@ -154,8 +154,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><code>close()</code>나 <code>flush()</code> 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다.</mark> try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.</li>
-<li><code>delivery.timeout.ms</code>가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다. timeout 값들을 함께 설계한다.</li>
+<li><code>close()</code>나 <code>flush()</code> 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다. try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.</li>
+<li><mark><code>delivery.timeout.ms</code>가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다.</mark> timeout 값들을 함께 설계한다.</li>
 <li><code>max.request.size</code>(1MB)를 넘는 메시지는 <code>RecordTooLargeException</code>으로 즉시 실패하며 재시도되지 않는다. 대용량은 외부 저장소에 두고 키만 보낸다.</li>
 <li><code>buffer.memory</code>가 작으면 <code>send()</code>가 블로킹되어 애플리케이션 스레드가 묶인다. <code>buffer-available-bytes</code> 메트릭을 JMX로 확인한다.</li>
 </ul>

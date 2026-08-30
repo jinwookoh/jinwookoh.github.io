@@ -15,7 +15,7 @@ updated: 2026-08-29
 
 ### String — 모든 값의 기본 형태
 
-String은 바이트 시퀀스다. 문자열, 숫자, 직렬화된 객체, 바이너리가 모두 들어가며 최대 크기는 512MB다. `SET`과 `GET`은 O(1)이고, `SET`은 기존 키가 Hash나 List여도 확인 없이 String으로 덮어쓴다. 반대로 `GET`을 다른 타입 키에 실행하면 `WRONGTYPE` 오류가 난다.
+String은 바이트 시퀀스다. 문자열, 숫자, 직렬화된 객체, 바이너리가 모두 들어가며 최대 크기는 512MB다. `SET`과 `GET`은 O(1)이고, ==`SET`은 기존 키가 Hash나 List여도 확인 없이 String으로 덮어쓴다.== 반대로 `GET`을 다른 타입 키에 실행하면 `WRONGTYPE` 오류가 난다.
 
 | 옵션 | 동작 | 용도 |
 |:---|:---|:---|
@@ -172,8 +172,8 @@ class ProductService {
 
 - **`SET`의 타입 덮어쓰기.** 다른 타입 명령은 키 타입을 검사하지만 `SET`은 Hash든 List든 지우고 String으로 바꾼다. 키 접두사를 타입·서비스별로 분리한다.
 - **큰 Hash에 `HGETALL`.** 필드가 수천 개를 넘으면 O(N) 응답이 단일 스레드를 점유해 다른 명령까지 지연된다. `HMGET`으로 필요한 필드만 읽고, 수만 필드로 자라면 키를 분할한다.
-- **listpack 경계를 넘는 값.** 필드 하나라도 64바이트를 넘으면 Hash 전체가 hashtable로 바뀌어 메모리가 수 배 늘어난다. 긴 문자열이나 직렬화된 JSON을 Hash 필드에 넣는 순간 작은 객체의 이점이 사라진다.
-- **TTL 없는 갱신.** 옵션 없는 `SET`은 기존 TTL을 지워 영구 키를 만든다. `KEEPTTL`을 쓰거나 TTL을 다시 지정하고, Hash는 `HSET` 후 `EXPIRE`를 잊지 않는다. `@Cacheable`도 `entryTtl`이 없으면 만료 없이 쌓인다.
+- **listpack 경계를 넘는 값.** ==필드 하나라도 64바이트를 넘으면 Hash 전체가 hashtable로 바뀌어 메모리가 수 배 늘어난다.== 긴 문자열이나 직렬화된 JSON을 Hash 필드에 넣는 순간 작은 객체의 이점이 사라진다.
+- **TTL 없는 갱신.** ==옵션 없는 `SET`은 기존 TTL을 지워 영구 키를 만든다.== `KEEPTTL`을 쓰거나 TTL을 다시 지정하고, Hash는 `HSET` 후 `EXPIRE`를 잊지 않는다. `@Cacheable`도 `entryTtl`이 없으면 만료 없이 쌓인다.
 - **직렬화 불일치.** `RedisTemplate` 기본값은 JDK 직렬화라서 CLI에서 읽을 수 없다. `StringRedisTemplate`이나 JSON 직렬화기로 통일한다.
 
 ## 관련 글

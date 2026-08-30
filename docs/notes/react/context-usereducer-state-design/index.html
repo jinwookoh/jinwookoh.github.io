@@ -24,7 +24,7 @@
   <h1>Context·useReducer·상태 설계</h1>
   <p class="summary">prop drilling은 Context로, 흩어진 setState는 reducer로 모으고, 상태 구조는 중복·모순이 없게 설계한다</p>
   <div class="content">
-<p>컴포넌트 트리가 깊어지면 두 가지 문제가 동시에 나타난다. 첫째, 최상위에서 결정된 값(로그인 사용자, 테마, 현재 언어)을 말단 컴포넌트가 쓰려면 중간 컴포넌트들이 쓰지도 않는 prop을 계속 넘겨야 한다. 이른바 prop drilling이며, 중간 계층의 시그니처가 하위 요구사항에 끌려다니게 된다. 둘째, 하나의 상태를 바꾸는 이벤트 핸들러가 여러 곳에 흩어지면 &quot;이 상태가 어떤 경로로 바뀌는지&quot;를 한눈에 추적할 수 없다. <mark>React는 전자를 Context로, 후자를 reducer로 해결하며, 두 도구를 어떻게 쓰든 근본은 상태 구조 자체를 잘 잡는 데 있다.</mark></p>
+<p>컴포넌트 트리가 깊어지면 두 가지 문제가 동시에 나타난다. 첫째, 최상위에서 결정된 값(로그인 사용자, 테마, 현재 언어)을 말단 컴포넌트가 쓰려면 중간 컴포넌트들이 쓰지도 않는 prop을 계속 넘겨야 한다. 이른바 prop drilling이며, 중간 계층의 시그니처가 하위 요구사항에 끌려다니게 된다. 둘째, 하나의 상태를 바꾸는 이벤트 핸들러가 여러 곳에 흩어지면 &quot;이 상태가 어떤 경로로 바뀌는지&quot;를 한눈에 추적할 수 없다. React는 전자를 Context로, 후자를 reducer로 해결하며, 두 도구를 어떻게 쓰든 근본은 상태 구조 자체를 잘 잡는 데 있다.</p>
 <h2>핵심 개념</h2>
 <p><strong>Context</strong>는 트리의 한 지점에서 값을 &quot;제공&quot;하면 그 아래 어느 깊이의 컴포넌트든 중간을 거치지 않고 &quot;구독&quot;할 수 있게 하는 통로다. <code>createContext(defaultValue)</code>로 만들고, 상위에서 <code>&lt;MyContext value={...}&gt;</code>로 감싸며, 하위에서 <code>useContext(MyContext)</code>로 읽는다. React 19부터는 <code>&lt;MyContext.Provider&gt;</code> 대신 Context 객체 자체를 JSX 태그로 써서 제공할 수 있고, 읽기 쪽에서는 조건문 안에서도 호출 가능한 <code>use(MyContext)</code>가 추가됐다. 값을 읽는 컴포넌트는 가장 가까운 상위 provider의 값을 받으며, provider가 없으면 <code>createContext</code>에 준 기본값을 받는다. 공식 문서는 Context를 꺼내기 전에 먼저 두 가지를 시도하라고 권한다. 하나는 그냥 prop을 넘기는 것이고, 다른 하나는 컴포넌트를 <code>children</code>으로 합성해서 중간 계층이 데이터를 몰라도 되게 만드는 것이다. 이 둘로 해결되지 않을 때 Context가 적절하다.</p>
 <p><strong>useReducer</strong>는 상태 갱신 로직을 컴포넌트 밖의 순수 함수 <code>reducer(state, action)</code>으로 분리한다. 이벤트 핸들러는 &quot;무슨 일이 일어났는지&quot;를 action 객체로 <code>dispatch</code>하고, 새 상태를 계산하는 책임은 reducer가 진다. <code>useState</code>와 같은 역할이지만 상태 전이가 여러 종류이고 서로 얽힐 때 읽기 쉽고 테스트하기 쉽다. reducer는 순수해야 하며 기존 상태를 직접 수정하지 않고 새 객체를 돌려준다. action 하나는 사용자 관점의 한 행위를 나타내야 한다.</p>
@@ -100,10 +100,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Context 값이 바뀌면 구독자 전체가 다시 렌더링된다.</strong> <code>value={{ user, theme }}</code>처럼 렌더링마다 새 객체를 만들면 내용이 같아도 매번 갱신으로 간주된다.</mark> 객체는 <code>useMemo</code>로 묶고, 자주 바뀌는 값과 거의 안 바뀌는 값은 Context를 분리한다.</li>
+<li><strong>Context 값이 바뀌면 구독자 전체가 다시 렌더링된다.</strong> <mark><code>value={{ user, theme }}</code>처럼 렌더링마다 새 객체를 만들면 내용이 같아도 매번 갱신으로 간주된다.</mark> 객체는 <code>useMemo</code>로 묶고, 자주 바뀌는 값과 거의 안 바뀌는 값은 Context를 분리한다.</li>
 <li><strong>reducer 안에서 부수 효과를 일으키면 안 된다.</strong> 네트워크 호출, 타이머, <code>Date.now()</code> 같은 비결정적 값을 reducer에 넣으면 StrictMode의 이중 호출에서 곧바로 드러난다. 부수 효과는 이벤트 핸들러나 <code>useEffect</code>에 두고 reducer에는 결과만 전달한다.</li>
 <li><strong>Context는 전역 상태 저장소가 아니다.</strong> 서버 데이터 캐시, 낙관적 갱신, 셀렉터 기반 부분 구독이 필요하면 Context만으로 감당하기 어렵다. 그 경우 TanStack Query나 Zustand 같은 라이브러리를 쓰는 편이 낫고, Context는 의존성 주입 통로로만 남긴다.</li>
-<li><strong>기본값에 의존하는 설계는 버그를 숨긴다.</strong> provider 없이도 동작하게 기본값을 그럴듯하게 주면 provider를 빠뜨려도 조용히 지나간다. 기본값을 <code>null</code>로 두고 커스텀 훅에서 <code>null</code>이면 예외를 던지게 하면 배선 실수를 즉시 잡을 수 있다.</li>
+<li><strong>기본값에 의존하는 설계는 버그를 숨긴다.</strong> <mark>provider 없이도 동작하게 기본값을 그럴듯하게 주면 provider를 빠뜨려도 조용히 지나간다.</mark> 기본값을 <code>null</code>로 두고 커스텀 훅에서 <code>null</code>이면 예외를 던지게 하면 배선 실수를 즉시 잡을 수 있다.</li>
 <li><strong>Server Components 경계를 넘지 못한다.</strong> Context와 <code>useReducer</code>는 클라이언트 전용이므로 Next.js App Router에서는 provider 파일 상단에 <code>&quot;use client&quot;</code>가 필요하고, 서버 컴포넌트는 provider로 감싸는 역할만 할 수 있다.</li>
 </ul>
 <h2>관련 글</h2>

@@ -30,7 +30,7 @@ updated: 2026-08-29
 
 ### 영역별 핵심 파라미터
 
-메모리는 `shared_buffers` RAM 25%, `effective_cache_size` 75%다. 후자는 할당이 아니라 OS 캐시까지 포함한 기대 캐시량을 계획자에게 알려주는 힌트다. `work_mem`은 정렬·해시 연산 하나당 할당되므로 세션 수와 곱해 총량을 본다. WAL은 `wal_level = replica`, `max_wal_size` 4GB, `checkpoint_timeout` 15min이 시작점이며 `fsync`와 `synchronous_commit`은 켜 둔다. 계획자는 SSD라면 `random_page_cost` 1.1, `effective_io_concurrency` 200으로 바꾼다. 기본값은 HDD 기준이라 인덱스 스캔의 랜덤 I/O 비용을 과대평가한다. 로그는 슬로우 쿼리·체크포인트·락 대기·임시 파일·autovacuum을 켜고 pgBadger로 집계한다. 확장은 `pg_stat_statements`(쿼리별 누적 통계)와 `auto_explain`(임계 초과 쿼리의 실행 계획 자동 로깅)을 적재한다. 인증은 `pg_hba.conf`에서 `scram-sha-256`을 쓴다.
+메모리는 `shared_buffers` RAM 25%, `effective_cache_size` 75%다. 후자는 할당이 아니라 OS 캐시까지 포함한 기대 캐시량을 계획자에게 알려주는 힌트다. `work_mem`은 정렬·해시 연산 하나당 할당되므로 세션 수와 곱해 총량을 본다. WAL은 `wal_level = replica`, `max_wal_size` 4GB, `checkpoint_timeout` 15min이 시작점이며 `fsync`와 `synchronous_commit`은 켜 둔다. 계획자는 SSD라면 `random_page_cost` 1.1, `effective_io_concurrency` 200으로 바꾼다. ==기본값은 HDD 기준이라 인덱스 스캔의 랜덤 I/O 비용을 과대평가한다.== 로그는 슬로우 쿼리·체크포인트·락 대기·임시 파일·autovacuum을 켜고 pgBadger로 집계한다. 확장은 `pg_stat_statements`(쿼리별 누적 통계)와 `auto_explain`(임계 초과 쿼리의 실행 계획 자동 로깅)을 적재한다. 인증은 `pg_hba.conf`에서 `scram-sha-256`을 쓴다.
 
 ## 코드
 
@@ -135,11 +135,11 @@ ALTER TABLE orders SET (autovacuum_vacuum_scale_factor = 0.05,
 
 ## 실무에서 걸리는 지점
 
-- **`ALTER SYSTEM`과 파일 편집의 충돌.** `postgresql.auto.conf`가 `postgresql.conf`보다 우선한다. 파일을 고쳤는데 값이 안 바뀌면 `pg_settings.source`로 auto.conf에 같은 키가 있는지 확인한다. IaC로 관리한다면 `ALTER SYSTEM` 사용을 금지하는 편이 안전하다.
+- **`ALTER SYSTEM`과 파일 편집의 충돌.** ==`postgresql.auto.conf`가 `postgresql.conf`보다 우선한다.== 파일을 고쳤는데 값이 안 바뀌면 `pg_settings.source`로 auto.conf에 같은 키가 있는지 확인한다. IaC로 관리한다면 `ALTER SYSTEM` 사용을 금지하는 편이 안전하다.
 - **`max_connections`를 키워서 연결 문제를 푸는 것.** 연결 하나가 프로세스 하나이며 `work_mem`도 연결마다 곱해진다. HikariCP와 PgBouncer를 두고 `max_connections`는 100 안팎으로 유지한다.
 - **`shared_preload_libraries` 변경은 재시작 대상.** 첫 셋업에 넣고, RDS는 `apply_method = "pending-reboot"`로 지정해 유지보수 창에 반영한다.
 - **autovacuum 기본 임계가 큰 테이블에 너무 느슨함.** `autovacuum_vacuum_scale_factor` 0.2는 1억 행 테이블에서 2천만 행이 죽어야 VACUUM이 시작된다는 뜻이다. 큰 테이블에 개별 저장 파라미터를 설정하고 autovacuum 로그로 실행 주기를 검증한다.
-- **관리 서비스의 제약을 설계 전에 확인하지 않음.** RDS는 일부 확장과 서버 파일 경로 `COPY`를 쓸 수 없고, Aurora는 일부 WAL 파라미터를 무시한다. 필요한 확장과 파라미터가 지원되는지 인스턴스 생성 전에 확인한다.
+- **관리 서비스의 제약을 설계 전에 확인하지 않음.** ==RDS는 일부 확장과 서버 파일 경로 `COPY`를 쓸 수 없고, Aurora는 일부 WAL 파라미터를 무시한다.== 필요한 확장과 파라미터가 지원되는지 인스턴스 생성 전에 확인한다.
 
 ## 관련 글
 

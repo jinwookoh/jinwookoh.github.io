@@ -24,14 +24,14 @@
   <h1>리액티브 Redis — 연동·Template·자료구조</h1>
   <p class="summary">WebFlux에서 Lettuce 기반 ReactiveRedisTemplate으로 Redis를 연동하고 5대 자료구조를 논블로킹으로 다루는 방법을 정리한다.</p>
   <div class="content">
-<p>WebFlux는 적은 수의 이벤트 루프 스레드로 많은 요청을 처리한다. 여기서 블로킹 <code>RedisTemplate</code>을 호출하면 <code>get()</code> 한 줄이 이벤트 루프를 점유한 채 응답을 기다리고, 같은 스레드의 다른 요청이 전부 밀린다. 요청마다 Redis를 거치는 경로가 많을수록 처리량 손실은 커진다. <mark>Spring Data Redis는 Lettuce의 논블로킹 I/O 위에 <code>ReactiveRedisTemplate</code>을 얹어 모든 명령을 <code>Mono</code>/<code>Flux</code>로 반환하게 한다.</mark></p>
+<p>WebFlux는 적은 수의 이벤트 루프 스레드로 많은 요청을 처리한다. 여기서 블로킹 <code>RedisTemplate</code>을 호출하면 <code>get()</code> 한 줄이 이벤트 루프를 점유한 채 응답을 기다리고, 같은 스레드의 다른 요청이 전부 밀린다. 요청마다 Redis를 거치는 경로가 많을수록 처리량 손실은 커진다. Spring Data Redis는 Lettuce의 논블로킹 I/O 위에 <code>ReactiveRedisTemplate</code>을 얹어 모든 명령을 <code>Mono</code>/<code>Flux</code>로 반환하게 한다.</p>
 <h2>핵심 개념</h2>
 <h3>Redis는 인메모리 데이터 구조 서버다</h3>
 <p>Redis는 String·Hash·List·Set·ZSet에 Stream·GeoSpatial·HyperLogLog·Bitmap까지 제공한다. 디스크 저장소보다 수천 배 빠르지만 휘발성이므로 영속이 필요하면 RDB·AOF를 설정한다.</p>
 <h3>Lettuce와 ReactiveRedisTemplate</h3>
 <p>Spring Boot의 기본 드라이버는 Lettuce다. Jedis는 동기 전용이라 리액티브 스택에 맞지 않고, Redisson은 분산 락 같은 고수준 API를 <code>RedissonReactiveClient</code>로 제공한다. 단순 명령과 캐시는 <code>ReactiveRedisTemplate</code>으로 충분하고, 분산 락이 필요한 지점에만 Redisson을 더하는 혼합 구성이 일반적이다.</p>
 <p><code>spring-boot-starter-data-redis-reactive</code>를 추가하면 <code>ReactiveRedisConnectionFactory</code>, <code>ReactiveRedisTemplate&lt;Object, Object&gt;</code>, <code>ReactiveStringRedisTemplate</code>이 자동 구성된다. 설정 키는 Spring Boot 3.x 기준 <code>spring.data.redis.*</code>다.</p>
-<p><code>ReactiveRedisTemplate</code>은 자료구조별 <code>opsFor*()</code> 다섯 개를 제공한다. <mark>모든 메서드는 <code>Mono</code>/<code>Flux</code>를 반환하며 구독 전에는 명령이 전송되지 않는다.</mark> 컨트롤러가 반환한 <code>Mono</code>를 WebFlux가 구독하므로 서비스 계층은 체인을 끊지 않고 반환한다.</p>
+<p><code>ReactiveRedisTemplate</code>은 자료구조별 <code>opsFor*()</code> 다섯 개를 제공한다. 모든 메서드는 <code>Mono</code>/<code>Flux</code>를 반환하며 구독 전에는 명령이 전송되지 않는다. 컨트롤러가 반환한 <code>Mono</code>를 WebFlux가 구독하므로 서비스 계층은 체인을 끊지 않고 반환한다.</p>
 <h3>직렬화</h3>
 <p>Key는 <code>StringRedisSerializer</code>로 고정한다. Value는 <code>Jackson2JsonRedisSerializer</code>(단일 타입)나 <code>GenericJackson2JsonRedisSerializer</code>(<code>@class</code> 포함, 다형성 지원) 중에서 고른다. <code>JdkSerializationRedisSerializer</code>는 Java 전용 바이너리라 운영에서는 피한다. <code>GenericJackson2JsonRedisSerializer</code>는 <code>BasicPolymorphicTypeValidator</code>로 역직렬화 허용 패키지를 제한해야 임의 클래스 로딩을 막을 수 있다.</p>
 <h3>자료구조 선택 기준</h3>
@@ -159,9 +159,9 @@
 <li><strong>구독되지 않은 체인.</strong> <code>ops.set(...)</code>의 반환값을 버리면 명령이 전송되지 않는다. <code>doOnNext</code> 안에서 <code>.subscribe()</code>를 따로 호출하면 순서와 에러 전파가 보장되지 않으므로 <code>then</code>·<code>flatMap</code>으로 메인 체인에 합성한다.</li>
 <li><strong><code>KEYS *</code>와 대형 컬렉션 전체 조회.</strong> <mark>O(N) 명령 하나가 단일 스레드인 Redis 전체를 멈춘다.</mark> 키 순회는 <code>SCAN</code>, 큰 Hash·Set은 <code>HSCAN</code>·<code>SSCAN</code>으로 나눈다.</li>
 <li><strong>TTL 없는 캐시 키.</strong> 캐시 키에는 <code>set(key, value, Duration)</code>으로 TTL을 항상 지정하고, <code>INCR</code> 카운터는 첫 증가 시 <code>expire</code>를 건다. List는 <code>LTRIM</code>, ZSet은 <code>removeRangeByScore</code>로 길이를 제한한다.</li>
-<li><strong>Lettuce 풀 설정.</strong> Lettuce는 단일 연결을 멀티플렉싱하므로 일반 명령에는 풀이 필요 없다. <code>spring.data.redis.lettuce.pool</code>은 트랜잭션이나 <code>BLPOP</code> 같은 전용 연결이 필요한 경우에만 의미가 있고, 켜려면 <code>commons-pool2</code> 의존성이 필요하다.</li>
-<li><strong><code>@class</code> 결합.</strong> <code>GenericJackson2JsonRedisSerializer</code>는 클래스명을 저장하므로 클래스를 옮기면 기존 데이터 역직렬화가 실패한다. 배포 전 키를 비우는 절차를 정하고, 다른 언어와 공유하는 키는 타입 정보 없는 <code>Jackson2JsonRedisSerializer</code>를 쓴다.</li>
-<li><strong>Cluster의 논리 DB.</strong> Cluster는 0번 DB만 지원하므로 처음부터 키 접두어로 네임스페이스를 분리한다.</li>
+<li><strong>Lettuce 풀 설정.</strong> <mark>Lettuce는 단일 연결을 멀티플렉싱하므로 일반 명령에는 풀이 필요 없다.</mark> <code>spring.data.redis.lettuce.pool</code>은 트랜잭션이나 <code>BLPOP</code> 같은 전용 연결이 필요한 경우에만 의미가 있고, 켜려면 <code>commons-pool2</code> 의존성이 필요하다.</li>
+<li><strong><code>@class</code> 결합.</strong> <mark><code>GenericJackson2JsonRedisSerializer</code>는 클래스명을 저장하므로 클래스를 옮기면 기존 데이터 역직렬화가 실패한다.</mark> 배포 전 키를 비우는 절차를 정하고, 다른 언어와 공유하는 키는 타입 정보 없는 <code>Jackson2JsonRedisSerializer</code>를 쓴다.</li>
+<li><strong>Cluster의 논리 DB.</strong> <mark>Cluster는 0번 DB만 지원하므로 처음부터 키 접두어로 네임스페이스를 분리한다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

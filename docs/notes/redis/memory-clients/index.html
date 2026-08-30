@@ -24,7 +24,7 @@
   <h1>메모리 최적화와 클라이언트 (Jedis·Lettuce)</h1>
   <p class="summary">인코딩 임계값과 키 오버헤드로 메모리를 줄이고, 연결 모델 차이로 Jedis와 Lettuce를 고르는 기준을 정리한다.</p>
   <div class="content">
-<p>Redis는 데이터셋 전체를 메모리에 올리므로 메모리가 가장 비싼 자원이다. 같은 데이터라도 키를 나누는 방식과 내부 인코딩에 따라 사용량이 몇 배씩 달라지고, 단편화는 모니터링하지 않으면 조용히 쌓인다. <mark>서버를 잘 튜닝해도 클라이언트가 요청마다 TCP 연결을 새로 열거나 공유 연결에 블로킹 명령을 보내면 지연과 장애는 애플리케이션 쪽에서 발생한다.</mark></p>
+<p>Redis는 데이터셋 전체를 메모리에 올리므로 메모리가 가장 비싼 자원이다. 같은 데이터라도 키를 나누는 방식과 내부 인코딩에 따라 사용량이 몇 배씩 달라지고, 단편화는 모니터링하지 않으면 조용히 쌓인다. 서버를 잘 튜닝해도 클라이언트가 요청마다 TCP 연결을 새로 열거나 공유 연결에 블로킹 명령을 보내면 지연과 장애는 애플리케이션 쪽에서 발생한다.</p>
 <h2>핵심 개념</h2>
 <h3>내부 인코딩 자동 전환</h3>
 <p>작은 자료구조는 연속된 메모리 블록 하나에 필드와 값을 packing한 인코딩을 쓰고, 임계값을 넘으면 전통적인 자료구조로 바뀐다. Redis 6.2 이하의 ziplist는 7.0부터 listpack으로 대체됐다.</p>
@@ -70,9 +70,9 @@
 </tbody></table>
 <p>작은 인코딩은 3~10배 적은 메모리를 쓰고, O(N)이어도 N이 작아 CPU 캐시 친화적이라 실제로는 더 빠른 경우가 많다. 임계값은 <code>hash-max-listpack-entries</code> 같은 설정으로 조정하지만 기본값이 대체로 균형점이다. <mark>한 번 큰 인코딩으로 전환된 키는 멤버를 다시 줄여도 되돌아오지 않으며, DEL 후 재생성해야 한다.</mark></p>
 <h3>키 오버헤드와 Hash 묶기</h3>
-<p>키 하나마다 해시 테이블 슬롯·만료 정보 등으로 50~100바이트가 붙는다. 사용자 100만 명에 필드 10개를 <code>user:123:name</code> 식으로 나누면 1,000만 키에 약 1GB가 본문과 무관한 오버헤드로 빠진다. 객체 하나를 Hash 하나로 묶으면 오버헤드가 필드 수만큼 줄고, listpack 범위 안이면 추가로 절약된다. ID를 1000으로 나눠 같은 Hash에 여러 객체를 담는 Hash sharding은 접근 패턴이 복잡해지므로 키가 수천만 개 이상일 때만 고려한다.</p>
+<p>키 하나마다 해시 테이블 슬롯·만료 정보 등으로 50~100바이트가 붙는다. <mark>사용자 100만 명에 필드 10개를 <code>user:123:name</code> 식으로 나누면 1,000만 키에 약 1GB가 본문과 무관한 오버헤드로 빠진다.</mark> 객체 하나를 Hash 하나로 묶으면 오버헤드가 필드 수만큼 줄고, listpack 범위 안이면 추가로 절약된다. ID를 1000으로 나눠 같은 Hash에 여러 객체를 담는 Hash sharding은 접근 패턴이 복잡해지므로 키가 수천만 개 이상일 때만 고려한다.</p>
 <h3>Fragmentation</h3>
-<p>jemalloc은 16·32·64바이트 같은 고정 등급으로 할당하므로 등급에 맞지 않는 크기의 남는 공간이 단편화로 쌓인다. <code>INFO memory</code>의 <code>mem_fragmentation_ratio</code>가 1.0~1.5면 정상, 1.5 초과면 완화가 필요하고, 1.0 미만이면 OS가 swap 중이라는 뜻으로 응답 시간이 밀리초 단위로 뛴다. <code>activedefrag yes</code>로 백그라운드 정리를 켜고, 키별 분석은 <code>MEMORY USAGE</code>, 큰 키 탐색은 <code>redis-cli --bigkeys</code>를 쓴다.</p>
+<p>jemalloc은 16·32·64바이트 같은 고정 등급으로 할당하므로 등급에 맞지 않는 크기의 남는 공간이 단편화로 쌓인다. <code>INFO memory</code>의 <code>mem_fragmentation_ratio</code>가 1.0~1.5면 정상, 1.5 초과면 완화가 필요하고, <mark>1.0 미만이면 OS가 swap 중이라는 뜻으로 응답 시간이 밀리초 단위로 뛴다.</mark> <code>activedefrag yes</code>로 백그라운드 정리를 켜고, 키별 분석은 <code>MEMORY USAGE</code>, 큰 키 탐색은 <code>redis-cli --bigkeys</code>를 쓴다.</p>
 <h3>클라이언트 연결 모델</h3>
 <p>클라이언트는 RESP라는 텍스트 프로토콜로 통신하며 Redis 6부터 <code>HELLO 3</code>로 RESP3를 협상한다. TCP 연결 생성 비용이 작지 않으므로 Pool이나 공유 연결로 재사용하는 것이 표준이며, 동기·비동기·반응형 중 애플리케이션 모델에 맞는 API를 고른다.</p>
 <p>Java 공식 클라이언트는 Jedis와 Lettuce다. Jedis는 인스턴스 하나가 연결 하나에 대응하는 동기 클라이언트로 스레드 안전하지 않아 JedisPool이 필수이고, 100 스레드면 100 연결이 필요하다. Lettuce는 Netty 기반으로 연결 하나를 여러 스레드가 multiplexing해 공유하며 스레드 안전하다. 동기·비동기·반응형 API를 같은 연결에서 제공하고 auto-reconnect·Cluster topology adaptive refresh·Master/Replica 읽기 라우팅을 내장한다. Spring Boot 2.0부터 기본 클라이언트가 Lettuce인 이유다. 단순 명령 성능은 둘이 거의 같고, 차이는 고동시성 환경에서 연결 수로 벌어진다. Redisson은 <code>RLock</code> 같은 분산 객체와 Watchdog(TTL 자동 연장)을 제공하는 세 번째 선택지로, Lettuce와 함께 쓰는 조합이 흔하다.</p>
@@ -136,7 +136,7 @@
 <ul>
 <li><mark><code>maxmemory</code>를 지정하지 않으면 eviction이 발동하지 않고 OS OOM killer가 프로세스를 죽인다.</mark> <code>used_memory / maxmemory</code> 비율과 <code>mem_fragmentation_ratio</code>를 알림 대상으로 둔다.</li>
 <li>장시간 운영하면 단편화가 누적된다. <code>activedefrag</code>는 CPU 부담이 약간 늘고, <code>mem_allocator</code>가 jemalloc인지 확인한다.</li>
-<li><mark>Lettuce 공유 연결에 <code>BLPOP 0</code>·<code>SUBSCRIBE</code>를 보내면 그 연결의 모든 명령이 멈춘다.</mark> 블로킹 명령과 Pub/Sub은 전용 연결을 쓴다.</li>
+<li>Lettuce 공유 연결에 <code>BLPOP 0</code>·<code>SUBSCRIBE</code>를 보내면 그 연결의 모든 명령이 멈춘다. 블로킹 명령과 Pub/Sub은 전용 연결을 쓴다.</li>
 <li>Jedis에서 <code>getResource()</code> 후 close를 빠뜨리면 connection leak으로 pool exhaustion이 온다. 인스턴스 하나를 여러 스레드가 공유하면 응답이 뒤섞인다.</li>
 <li>Cluster-aware 클라이언트라도 MGET·SINTER 같은 multi-key 명령은 슬롯이 다르면 CROSSSLOT 오류를 낸다. 구버전 Jedis 3.x는 Redis 7 신규 명령을 지원하지 않는다.</li>
 </ul>

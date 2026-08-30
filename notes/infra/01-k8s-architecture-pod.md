@@ -136,11 +136,11 @@ public class WarmupGate {
 
 ## 실무에서 걸리는 지점
 
-- **Memory limit 초과는 OOMKilled, CPU limit 초과는 throttle이다.** JVM은 기본으로 컨테이너 메모리의 25%만 힙으로 잡으므로 `-XX:MaxRAMPercentage`를 명시하고, limit은 메타스페이스·스레드 스택을 포함한 전체 footprint 기준으로 잡는다.
-- **CPU limit은 JVM 시작을 늦춘다.** JIT가 throttle에 걸려 readiness까지 수십 초가 걸리고, 그 사이 liveness가 실패하면 재시작 루프에 빠진다. startupProbe로 시작 구간을 분리한다.
+- **Memory limit 초과는 OOMKilled, CPU limit 초과는 throttle이다.** ==JVM은 기본으로 컨테이너 메모리의 25%만 힙으로 잡으므로 `-XX:MaxRAMPercentage`를 명시하고==, limit은 메타스페이스·스레드 스택을 포함한 전체 footprint 기준으로 잡는다.
+- **CPU limit은 JVM 시작을 늦춘다.** ==JIT가 throttle에 걸려 readiness까지 수십 초가 걸리고, 그 사이 liveness가 실패하면 재시작 루프에 빠진다.== startupProbe로 시작 구간을 분리한다.
 - **직접 만든 Pod은 노드 장애 시 복구되지 않는다.** restartPolicy는 같은 노드 안의 컨테이너 재시작만 다루며, 노드 간 재배치는 Deployment 같은 상위 컨트롤러의 몫이다.
 - **Init Container가 멈추면 STATUS가 `Init:0/1`에 고정된다.** `kubectl logs <pod> -c <init-container>`로 원인을 본다.
-- **Event 누적이 etcd를 키운다.** 잦은 재시작과 CronJob은 Event 객체를 대량으로 쌓아 API Server 응답을 늦춘다.
+- **Event 누적이 etcd를 키운다.** ==잦은 재시작과 CronJob은 Event 객체를 대량으로 쌓아 API Server 응답을 늦춘다.==
 
 ## 관련 글
 

@@ -128,7 +128,7 @@ public class SettlementRunner {
 ## 실무에서 걸리는 지점
 
 - **같은 파라미터 재실행** — COMPLETED된 JobInstance를 같은 identifying 파라미터로 다시 실행하면 `JobInstanceAlreadyCompleteException`이 발생한다. 개발 중 반복 실행에만 `RunIdIncrementer`를 붙인다.
-- **기동 시 자동 실행** — Spring Boot는 시작 시 등록된 Job을 자동 실행한다. 실행 시점을 직접 제어하려면 `spring.batch.job.enabled=false`로 끄고, Job이 여럿이면 `spring.batch.job.name`으로 대상을 지정한다.
+- **기동 시 자동 실행** — ==Spring Boot는 시작 시 등록된 Job을 자동 실행한다.== 실행 시점을 직접 제어하려면 `spring.batch.job.enabled=false`로 끄고, Job이 여럿이면 `spring.batch.job.name`으로 대상을 지정한다.
 - **메타데이터 스키마** — H2 인메모리는 재기동 시 이력이 사라진다. 운영에서는 `spring.batch.jdbc.initialize-schema=never`로 두고 마이그레이션 도구로 `BATCH_*` 테이블을 관리한다.
 - **Chunk 크기** — 키우면 커밋 횟수는 줄지만 메모리 점유, 실패 시 롤백 범위, DB lock 유지 시간이 함께 커진다.
 - **Tasklet의 `CONTINUABLE`** — 종료 조건 없이 `RepeatStatus.CONTINUABLE`을 반환하면 무한 반복된다. 기본은 `FINISHED`다.

@@ -21,9 +21,9 @@ updated: 2026-08-29
 
 **UPDATE**는 `SET`에 어떤 표현식이든 올 수 있다. 현재 값 기반 계산, 다른 컬럼 참조, `COALESCE`, `CASE` 조건 분기가 모두 가능하다. 다른 테이블 값으로 갱신할 때는 `UPDATE ... FROM`이 표준이다. 서브쿼리 방식은 행마다 재실행되어 느리고, FROM 절은 조인 한 번으로 끝난다. `UPDATE ... LIMIT`는 없으므로 분할 처리는 `WITH targets AS (SELECT id ... LIMIT n FOR UPDATE)` 뒤 `WHERE id IN (SELECT id FROM targets)`로 우회한다.
 
-**DELETE**는 다른 테이블 조건으로 지울 때 `USING` 절을 쓴다. 전체 삭제는 `TRUNCATE`가 훨씬 빠르지만 행 트리거가 발동하지 않고 다른 테이블이 참조 중이면 거부된다. 외래 키가 걸린 부모 행 삭제는 `ON DELETE` 옵션에 따라 거부(NO ACTION·RESTRICT), 연쇄 삭제(CASCADE), NULL 대입(SET NULL), 기본값 대입(SET DEFAULT) 중 하나로 동작한다.
+**DELETE**는 다른 테이블 조건으로 지울 때 `USING` 절을 쓴다. ==전체 삭제는 `TRUNCATE`가 훨씬 빠르지만 행 트리거가 발동하지 않고 다른 테이블이 참조 중이면 거부된다.== 외래 키가 걸린 부모 행 삭제는 `ON DELETE` 옵션에 따라 거부(NO ACTION·RESTRICT), 연쇄 삭제(CASCADE), NULL 대입(SET NULL), 기본값 대입(SET DEFAULT) 중 하나로 동작한다.
 
-Soft Delete는 `deleted_at TIMESTAMPTZ` 컬럼을 두고 삭제를 UPDATE로 대체하는 방식이며 사용자·주문·결제처럼 감사·복구가 필요한 데이터에 쓴다. 세션·캐시·오래된 로그는 Hard Delete, 테스트 초기화는 TRUNCATE가 맞다. 조회마다 `deleted_at IS NULL` 필터가 붙어야 하고, 유일 제약은 `WHERE deleted_at IS NULL` 부분 인덱스로 활성 행에만 걸어야 탈퇴 후 재가입이 가능하다. GDPR 같은 삭제 요청은 실제 삭제 또는 익명화가 필요하므로 Soft Delete만으로 충족되지 않는다.
+Soft Delete는 `deleted_at TIMESTAMPTZ` 컬럼을 두고 삭제를 UPDATE로 대체하는 방식이며 사용자·주문·결제처럼 감사·복구가 필요한 데이터에 쓴다. 세션·캐시·오래된 로그는 Hard Delete, 테스트 초기화는 TRUNCATE가 맞다. 조회마다 `deleted_at IS NULL` 필터가 붙어야 하고, ==유일 제약은 `WHERE deleted_at IS NULL` 부분 인덱스로 활성 행에만 걸어야 탈퇴 후 재가입이 가능하다.== GDPR 같은 삭제 요청은 실제 삭제 또는 익명화가 필요하므로 Soft Delete만으로 충족되지 않는다.
 
 ## 코드
 
@@ -118,7 +118,7 @@ public class LogPurger {
 
 - **WHERE 누락.** UPDATE·DELETE에서 가장 치명적인 사고다. 서버 설정으로 막는 기능은 없으므로 운영 콘솔에서는 `BEGIN` → `SELECT COUNT(*)`로 영향 행 확인 → 실행 후 행 수 대조 → `RETURNING` 검증 → `COMMIT` 또는 `ROLLBACK` 순서를 표준 절차로 고정한다.
 - **한 트랜잭션에 수백만 건.** 락 유지 시간, WAL 양, 메모리를 한꺼번에 키운다. 1,000~10,000건 단위로 나누어 커밋하고, 파일 적재는 COPY로 대체하며, 오래된 데이터의 주기적 삭제는 파티션 DROP이 가장 싸다.
-- **JPA 변경 감지의 조건.** Dirty Checking은 트랜잭션 안에서만 UPDATE를 만든다. `@Modifying` 벌크 쿼리는 영속성 컨텍스트를 우회하므로 `clearAutomatically`로 1차 캐시를 비우지 않으면 같은 트랜잭션에서 읽은 엔티티가 옛 값을 보여준다.
+- **JPA 변경 감지의 조건.** Dirty Checking은 트랜잭션 안에서만 UPDATE를 만든다. ==`@Modifying` 벌크 쿼리는 영속성 컨텍스트를 우회하므로 `clearAutomatically`로 1차 캐시를 비우지 않으면 같은 트랜잭션에서 읽은 엔티티가 옛 값을 보여준다.==
 - **updated_at과 통계 갱신.** 갱신 시각은 BEFORE UPDATE 트리거로 강제해야 누락이 없다. 대량 삭제 뒤에는 플래너 통계가 낡아 실행 계획이 틀어지므로 `ANALYZE`를 직접 실행한다.
 - **CASCADE 남용.** 부모 한 건 삭제로 자식 수만 건이 사라질 수 있다. 운영 테이블은 NO ACTION을 기본으로 두고, 연쇄 삭제가 의도된 종속 관계에만 CASCADE를 명시한다.
 

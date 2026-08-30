@@ -36,11 +36,11 @@ ORDER BY의 기본은 ASC이고, `NULLS FIRST`·`NULLS LAST`로 NULL 위치를 �
 | CROSS JOIN | m × n 데카르트 곱 | 모든 조합 생성 |
 | LATERAL | 서브쿼리에서 외부 컬럼 참조 | 그룹별 Top-N |
 
-`INNER`는 생략 가능하다. 같은 테이블에 두 별칭을 붙이는 SELF JOIN은 계층 구조에 쓴다. `USING (col)`은 양쪽 컬럼 이름이 같을 때 `ON`을 줄인 형태다. `NATURAL JOIN`은 이름이 같은 모든 컬럼을 자동 매칭하므로 컬럼이 추가되면 의미가 바뀐다.
+`INNER`는 생략 가능하다. 같은 테이블에 두 별칭을 붙이는 SELF JOIN은 계층 구조에 쓴다. `USING (col)`은 양쪽 컬럼 이름이 같을 때 `ON`을 줄인 형태다. ==`NATURAL JOIN`은 이름이 같은 모든 컬럼을 자동 매칭하므로 컬럼이 추가되면 의미가 바뀐다.==
 
 ### ON과 WHERE의 차이
 
-ON 조건은 매칭 규칙에만 영향을 주고, WHERE는 JOIN이 끝난 뒤 결과를 필터링한다. LEFT JOIN에서 오른쪽 컬럼 조건을 WHERE에 두면 NULL로 채워진 행이 제거되어 INNER JOIN과 같은 결과가 된다.
+ON 조건은 매칭 규칙에만 영향을 주고, WHERE는 JOIN이 끝난 뒤 결과를 필터링한다. ==LEFT JOIN에서 오른쪽 컬럼 조건을 WHERE에 두면 NULL로 채워진 행이 제거되어 INNER JOIN과 같은 결과가 된다.==
 
 ### JOIN 실행 방식
 
@@ -121,7 +121,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 - **선행 와일드카드 LIKE.** `LIKE '%alice'`는 B-Tree 인덱스를 쓰지 못해 전체 스캔이 된다. 접두 검색으로 바꾸거나 pg_trgm 기반 GIN 인덱스를 검토한다.
 - **깊은 OFFSET.** `LIMIT 10 OFFSET 1000000`은 백만 행을 읽고 버린다. 커서 방식으로 바꾸고, ORDER BY 키에 유일 컬럼을 덧붙여 페이지 경계에서 행이 중복·누락되지 않게 한다.
 - **JOIN 조건 누락과 컬럼 모호성.** 쉼표 구분(`FROM users, orders`)에 WHERE를 빠뜨리면 데카르트 곱이 그대로 실행된다. 같은 이름의 컬럼은 `column reference "id" is ambiguous` 오류가 나므로 항상 별칭으로 한정한다.
-- **JPA의 N+1과 fetch join 제약.** 지연 로딩 컬렉션을 반복문에서 접근하면 행 수만큼 쿼리가 나간다. fetch join으로 한 번에 가져오되, 컬렉션 fetch join에 Pageable을 결합하면 메모리 페이징이 되므로 `@BatchSize`나 별도 조회로 분리한다.
+- **JPA의 N+1과 fetch join 제약.** 지연 로딩 컬렉션을 반복문에서 접근하면 행 수만큼 쿼리가 나간다. fetch join으로 한 번에 가져오되, ==컬렉션 fetch join에 Pageable을 결합하면 메모리 페이징이 되므로== `@BatchSize`나 별도 조회로 분리한다.
 
 ## 관련 글
 

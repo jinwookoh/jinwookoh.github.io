@@ -39,7 +39,7 @@ Pod은 PVC를 참조하고, PVC는 PV에 바인딩되며, StorageClass가 PV를 
 
 AccessMode는 ReadWriteOnce(한 노드), ReadOnlyMany, ReadWriteMany(여러 노드 쓰기), ReadWriteOncePod(한 Pod만)이 있다. EBS 같은 블록 스토리지는 RWX를 지원하지 않으므로 여러 Pod이 같은 데이터를 쓰려면 NFS·EFS·CephFS 같은 파일 스토리지가 필요하다.
 
-StorageClass의 `reclaimPolicy`는 PVC 삭제 시 스토리지까지 지우는 `Delete`와 보존하는 `Retain`이 있고 동적 프로비저닝의 기본값은 `Delete`다. `volumeBindingMode: WaitForFirstConsumer`는 Pod이 스케줄될 때까지 바인딩을 미뤄 PV가 Pod과 같은 AZ에 생성되도록 한다. CSI는 표준 스토리지 플러그인 인터페이스로 in-tree 드라이버는 모두 CSI로 이관됐고 VolumeSnapshot도 CSI로 제공된다.
+StorageClass의 `reclaimPolicy`는 PVC 삭제 시 스토리지까지 지우는 `Delete`와 보존하는 `Retain`이 있고 동적 프로비저닝의 기본값은 `Delete`다. ==`volumeBindingMode: WaitForFirstConsumer`는 Pod이 스케줄될 때까지 바인딩을 미뤄 PV가 Pod과 같은 AZ에 생성되도록 한다.== CSI는 표준 스토리지 플러그인 인터페이스로 in-tree 드라이버는 모두 CSI로 이관됐고 VolumeSnapshot도 CSI로 제공된다.
 
 ## 코드
 
@@ -179,10 +179,10 @@ spec:
 ## 실무에서 걸리는 지점
 
 - Secret은 시작 시 설정 덤프나 열려 있는 Actuator `env` 엔드포인트로 평문이 샌다. Secret의 `get`·`list` 권한을 RBAC로 최소화하고 Actuator는 인증 뒤에 둔다.
-- 볼륨 마운트로 ConfigMap을 갱신해도 Spring Boot는 파일을 다시 읽지 않는다. Deployment 어노테이션에 ConfigMap 해시를 넣어 롤링 재시작을 유도하는 편이 예측 가능하다.
-- 기본 `Delete` 정책 때문에 네임스페이스나 Helm 릴리스를 지우면 DB 데이터가 같이 사라진다. 기존 PV는 `kubectl patch pv`로 `Retain`으로 바꿀 수 있고, `Released` 상태의 PV는 재사용 전 `claimRef`를 수동 제거해야 한다.
+- ==볼륨 마운트로 ConfigMap을 갱신해도 Spring Boot는 파일을 다시 읽지 않는다.== Deployment 어노테이션에 ConfigMap 해시를 넣어 롤링 재시작을 유도하는 편이 예측 가능하다.
+- ==기본 `Delete` 정책 때문에 네임스페이스나 Helm 릴리스를 지우면 DB 데이터가 같이 사라진다.== 기존 PV는 `kubectl patch pv`로 `Retain`으로 바꿀 수 있고, `Released` 상태의 PV는 재사용 전 `claimRef`를 수동 제거해야 한다.
 - PVC가 `Pending`에 멈추는 원인은 맞는 PV 부재, 없는 StorageClass 지정, `WaitForFirstConsumer`의 정상 대기가 대부분이다. `kubectl describe pvc`의 이벤트로 구분한다.
-- Deployment에 RWO PVC를 붙이고 replicas를 올리면 다른 노드의 Pod이 마운트에 실패한다. RWX 파일 스토리지로 옮기거나 StatefulSet의 Pod별 PVC로 바꾼다. 볼륨 축소는 지원하지 않는다.
+- ==Deployment에 RWO PVC를 붙이고 replicas를 올리면 다른 노드의 Pod이 마운트에 실패한다.== RWX 파일 스토리지로 옮기거나 StatefulSet의 Pod별 PVC로 바꾼다. 볼륨 축소는 지원하지 않는다.
 
 ## 관련 글
 

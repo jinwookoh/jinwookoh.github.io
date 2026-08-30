@@ -23,9 +23,9 @@ ACL 한 건은 Principal · Operation · Resource 세 요소로 구성되며 "Pr
 
 PREFIXED가 표준인 이유는 새 topic이 늘어나도 ACL을 다시 추가할 필요가 없기 때문이다. 이 이점은 topic 이름에 팀 접두사가 일관되게 붙어 있을 때만 성립하므로 ACL 설계와 naming convention은 분리되지 않는다. 권장 형식은 `{env}.{team}.{domain}.{event-type}[.v{N}]`이다. Kafka에는 topic rename이 없어 컨벤션은 처음에 고정하고, `auto.create.topics.enable=false`와 Create 권한 제한으로 컨벤션 밖 topic 생성을 막는다.
 
-Authorizer는 요청마다 매칭되는 DENY가 있으면 거부, ALLOW가 있으면 허용, 둘 다 없으면 `allow.everyone.if.no.acl.found`(기본 `false`)를 따른다. DENY가 우선하므로 전체 허용 후 특정 principal만 차단할 수 있다. `super.users`의 principal은 평가를 건너뛴다. KRaft에서는 `org.apache.kafka.metadata.authorizer.StandardAuthorizer`가 ACL을 metadata log에 저장하며, ZooKeeper용 `AclAuthorizer`는 쓰지 않는다. 외부 정책 시스템과 통합하려면 `org.apache.kafka.server.authorizer.Authorizer`를 직접 구현한다.
+Authorizer는 요청마다 매칭되는 DENY가 있으면 거부, ALLOW가 있으면 허용, 둘 다 없으면 `allow.everyone.if.no.acl.found`(기본 `false`)를 따른다. DENY가 우선하므로 전체 허용 후 특정 principal만 차단할 수 있다. ==`super.users`의 principal은 평가를 건너뛴다.== KRaft에서는 `org.apache.kafka.metadata.authorizer.StandardAuthorizer`가 ACL을 metadata log에 저장하며, ZooKeeper용 `AclAuthorizer`는 쓰지 않는다. 외부 정책 시스템과 통합하려면 `org.apache.kafka.server.authorizer.Authorizer`를 직접 구현한다.
 
-Quota는 user · client.id · (user, client.id) 또는 default 단위로 걸린다. `producer_byte_rate`와 `consumer_byte_rate`는 대역폭을, `request_percentage`는 network · I/O 스레드 점유율을 제한한다. 초과 시 broker는 거부하지 않고 응답에 `throttle_time_ms`를 실어 보내며 클라이언트가 그만큼 대기한다. 메시지 손실 없이 속도만 내려간다.
+Quota는 user · client.id · (user, client.id) 또는 default 단위로 걸린다. `producer_byte_rate`와 `consumer_byte_rate`는 대역폭을, `request_percentage`는 network · I/O 스레드 점유율을 제한한다. ==초과 시 broker는 거부하지 않고 응답에 `throttle_time_ms`를 실어 보내며 클라이언트가 그만큼 대기한다.== 메시지 손실 없이 속도만 내려간다.
 
 격리 수준은 공유 클러스터의 논리 분리, broker pool 분리, 별도 클러스터 순으로 강해진다. 장애 영향이 큰 영역만 별도 클러스터로 빼는 혼합 구성이 대규모 환경의 일반 형태다.
 
@@ -124,7 +124,7 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- **Group ACL 누락.** Topic Read만 주면 poll은 되다가 offset commit에서 `GroupAuthorizationException`이 난다. `kafka-acls.sh --consumer`는 Topic Read · Describe와 Group Read를, `--producer`는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.
+- **Group ACL 누락.** ==Topic Read만 주면 poll은 되다가 offset commit에서 `GroupAuthorizationException`이 난다.== `kafka-acls.sh --consumer`는 Topic Read · Describe와 Group Read를, `--producer`는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.
 - **mTLS principal 불일치.** `ssl.principal.mapping.rules`가 어긋나면 ACL의 이름과 실제 principal이 달라 모든 요청이 거부된다. broker 로그의 principal 문자열을 ACL과 대조한다.
 - **`super.users` 남발과 `allow.everyone.if.no.acl.found=true`.** 둘 다 ACL을 무력화한다. 운영 admin 1~2명만 super.users에 둔다.
 - **Quota 부재 또는 과소.** 없으면 producer 하나가 대역폭을 차지하고, 너무 낮으면 throttle이 정상 트래픽에 번진다. user · client-id 별 throttle-time 메트릭을 보며 점진적으로 조정한다.

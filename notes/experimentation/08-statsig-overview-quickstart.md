@@ -23,7 +23,7 @@ Feature Flag라고 부르는 것은 실제로 세 유형으로 갈린다.
 | Dynamic Config | JSON 파라미터 묶음 | 가격·임계값·문구처럼 재배포 없이 바꾸는 값 |
 | Experiment | variant 할당 + 파라미터 | 가설 검증과 통계 비교, exposure 자동 기록 |
 
-세 유형은 같은 평가 엔진 위에 있다. Experiment만 exposure를 통계 분석에 연결한다.
+세 유형은 같은 평가 엔진 위에 있다. ==Experiment만 exposure를 통계 분석에 연결한다.==
 
 무작위화 단위는 실험 설계에서 가장 먼저 정한다. B2C는 user 단위, 로그인 전 구간은 device 단위, B2B는 같은 회사의 사용자가 다른 variant를 받지 않도록 organization 단위를 쓴다. Session 단위는 매 세션 variant가 바뀌므로 피한다. Statsig는 식별자를 결정론적 해시로 variant에 매핑하므로 같은 ID를 넘기면 모든 SDK가 같은 결과를 반환한다.
 
@@ -116,10 +116,10 @@ public class CheckoutController {
 
 ## 실무에서 걸리는 지점
 
-- 초기화 전 호출은 모두 기본값을 반환한다. `initialize()` 완료를 기다리지 않으면 기동 직후 요청이 전부 OFF로 평가되고, `initTimeoutMs`를 넘겨도 같은 fallback 모드에 들어간다. 기본값이 운영에 노출되어도 안전하도록 둔다.
+- 초기화 전 호출은 모두 기본값을 반환한다. ==`initialize()` 완료를 기다리지 않으면 기동 직후 요청이 전부 OFF로 평가되고, `initTimeoutMs`를 넘겨도 같은 fallback 모드에 들어간다.== 기본값이 운영에 노출되어도 안전하도록 둔다.
 - userID가 요청마다 바뀌면 같은 사용자가 다른 variant를 받는다. DB의 안정적인 ID를 쓰고, 익명 구간은 deviceID로 무작위화한 뒤 로그인 시점에 userID를 붙인다.
-- Client SDK를 SSR과 함께 쓰면 서버 렌더와 클라이언트 마운트 후 결과가 달라 화면이 깜빡인다. Server SDK의 `getClientInitializeResponse`로 평가값을 미리 만들어 bootstrap으로 주입한다.
-- 이벤트 이름이 `checkoutCompleted`와 `checkout_completed`로 섞이면 두 이벤트로 갈린다. 상수로 고정한다. 모든 행동을 이벤트로 보내면 무료 plan 한도를 빠르게 넘기므로 핵심 지표 위주로 보낸다.
+- ==Client SDK를 SSR과 함께 쓰면 서버 렌더와 클라이언트 마운트 후 결과가 달라 화면이 깜빡인다.== Server SDK의 `getClientInitializeResponse`로 평가값을 미리 만들어 bootstrap으로 주입한다.
+- ==이벤트 이름이 `checkoutCompleted`와 `checkout_completed`로 섞이면 두 이벤트로 갈린다.== 상수로 고정한다. 모든 행동을 이벤트로 보내면 무료 plan 한도를 빠르게 넘기므로 핵심 지표 위주로 보낸다.
 - gate는 기능마다 생기고 좀처럼 지워지지 않는다. temporary와 permanent를 구분하고 정식 출시 후 gate와 분기 코드를 함께 제거한다.
 
 ## 관련 글

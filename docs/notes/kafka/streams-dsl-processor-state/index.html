@@ -24,10 +24,10 @@
   <h1>Streams — DSL·Processor API·상태 저장</h1>
   <p class="summary">DSL로 변환·집계·조인·윈도우를 선언하고, 시간 기반 작업과 복잡한 상태 조작은 Processor API로 내려가며, 저장된 상태는 Interactive Queries로 외부에 노출한다.</p>
   <div class="content">
-<p>Consumer API만으로 실시간 집계를 구현하면 키별 누적값 보관, 재시작 시 복구, 파티션 재할당 시 상태 이동, 늦은 레코드 처리를 전부 애플리케이션이 떠안는다. Kafka Streams는 이를 세 층으로 나눈다. <mark>DSL은 변환·집계·조인·윈도우를 선언적으로 표현하고, Processor API는 시간 기반 작업과 상태 조작을 저수준으로 제어하며, state store는 changelog로 복구되고 Interactive Queries로 외부에 노출된다.</mark></p>
+<p>Consumer API만으로 실시간 집계를 구현하면 키별 누적값 보관, 재시작 시 복구, 파티션 재할당 시 상태 이동, 늦은 레코드 처리를 전부 애플리케이션이 떠안는다. Kafka Streams는 이를 세 층으로 나눈다. DSL은 변환·집계·조인·윈도우를 선언적으로 표현하고, Processor API는 시간 기반 작업과 상태 조작을 저수준으로 제어하며, state store는 changelog로 복구되고 Interactive Queries로 외부에 노출된다.</p>
 <h2>핵심 개념</h2>
 <h3>DSL 연산의 네 영역</h3>
-<p>Stateless 연산(<code>filter</code>·<code>mapValues</code>·<code>flatMap</code>·<code>peek</code>·<code>selectKey</code>·<code>split</code>)은 상태 없이 레코드를 하나씩 처리한다. Stateful 연산(<code>groupByKey</code>·<code>groupBy</code> 뒤의 <code>count</code>·<code>reduce</code>·<code>aggregate</code>)은 키별 누적값을 state store에 유지하고 KTable을 돌려준다. Join은 KStream-KStream(시간 윈도우 기반), KStream-KTable(테이블의 현재 값을 붙이는 enrichment), KTable-KTable(두 상태의 최신값 결합) 세 조합이 있다. Window는 Tumbling(겹치지 않는 고정 구간), Hopping(advance 간격으로 겹침), Sliding(레코드 간 시간 차 기준), Session(비활동 gap 기준 가변 구간)으로 나뉘며, 윈도우가 닫힌 뒤 grace period 안에 도착한 레코드만 반영되고 그 이후는 버려진다.</p>
+<p>Stateless 연산(<code>filter</code>·<code>mapValues</code>·<code>flatMap</code>·<code>peek</code>·<code>selectKey</code>·<code>split</code>)은 상태 없이 레코드를 하나씩 처리한다. Stateful 연산(<code>groupByKey</code>·<code>groupBy</code> 뒤의 <code>count</code>·<code>reduce</code>·<code>aggregate</code>)은 키별 누적값을 state store에 유지하고 KTable을 돌려준다. Join은 KStream-KStream(시간 윈도우 기반), KStream-KTable(테이블의 현재 값을 붙이는 enrichment), KTable-KTable(두 상태의 최신값 결합) 세 조합이 있다. Window는 Tumbling(겹치지 않는 고정 구간), Hopping(advance 간격으로 겹침), Sliding(레코드 간 시간 차 기준), Session(비활동 gap 기준 가변 구간)으로 나뉘며, <mark>윈도우가 닫힌 뒤 grace period 안에 도착한 레코드만 반영되고 그 이후는 버려진다.</mark></p>
 <h3>Repartition</h3>
 <p><code>selectKey</code>·<code>groupBy</code>처럼 키를 바꾸는 연산 뒤에 집계나 조인이 오면 같은 키를 같은 파티션에 모으기 위해 내부 repartition 토픽이 생기고 브로커 I/O가 추가된다. 키를 건드리지 않는 <code>mapValues</code>·<code>groupByKey</code>는 repartition을 일으키지 않는다.</p>
 <h3>Processor API</h3>
@@ -143,9 +143,9 @@ builder.stream(<span class="hljs-string">&quot;events&quot;</span>, Consumed.wit
 <ul>
 <li><strong>윈도우 상태 누적</strong>: 윈도우 크기·키 카디널리티·grace period가 함께 커지면 state store와 changelog가 비례해 커진다. KStream-KStream 조인 윈도우는 업무상 필요한 최소 범위로 잡는다.</li>
 <li><strong>SerDe 미지정</strong>: <code>Grouped.with</code>·<code>Produced.with</code>·<code>Materialized.with</code>로 명시하지 않으면 기본 SerDe로 떨어지고 타입이 어긋나면 런타임 예외가 난다. 윈도우 결과 출력에는 <code>WindowedSerdes</code>가 필요하다.</li>
-<li><strong>Punctuator 종류</strong>: <code>STREAM_TIME</code>은 레코드가 없으면 호출되지 않으므로 heartbeat·주기적 정리는 <code>WALL_CLOCK_TIME</code>으로 등록한다.</li>
+<li><strong>Punctuator 종류</strong>: <mark><code>STREAM_TIME</code>은 레코드가 없으면 호출되지 않으므로 heartbeat·주기적 정리는 <code>WALL_CLOCK_TIME</code>으로 등록한다.</mark></li>
 <li><strong>외부 호출과 iterator 누수</strong>: <code>process</code>에서 HTTP·DB를 동기 호출하면 stream thread가 막힌다. <code>store.all()</code>·<code>range()</code>의 iterator는 try-with-resources로 닫는다.</li>
-<li><strong>IQ 일관성과 메모리</strong>: IQ는 커밋 전 상태와 standby의 지연된 상태를 그대로 보여 주므로 stale read를 허용하는 조회에만 쓴다. <mark>RocksDB는 JVM heap 밖 native 메모리를 쓰므로 컨테이너 한도를 heap 기준으로만 잡으면 OOM kill이 난다.</mark> store 이름을 바꾸면 상태를 다시 빌드한다.</li>
+<li><strong>IQ 일관성과 메모리</strong>: <mark>IQ는 커밋 전 상태와 standby의 지연된 상태를 그대로 보여 주므로 stale read를 허용하는 조회에만 쓴다.</mark> <mark>RocksDB는 JVM heap 밖 native 메모리를 쓰므로 컨테이너 한도를 heap 기준으로만 잡으면 OOM kill이 난다.</mark> store 이름을 바꾸면 상태를 다시 빌드한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

@@ -92,10 +92,10 @@ public class BrazeUserTracker {
 
 ## 실무에서 걸리는 지점
 
-- **External ID 매핑 누락.** SDK 초기화 시 `changeUser`로 우리 DB의 user.id를 넘기지 않으면 익명 프로필과 로그인 프로필이 별개 사용자로 남는다. 로그인 직후 반드시 External ID를 설정하고, 서버 API도 같은 값을 쓴다.
+- **External ID 매핑 누락.** ==SDK 초기화 시 `changeUser`로 우리 DB의 user.id를 넘기지 않으면 익명 프로필과 로그인 프로필이 별개 사용자로 남는다.== 로그인 직후 반드시 External ID를 설정하고, 서버 API도 같은 값을 쓴다.
 - **Custom Attribute의 카디널리티 폭증.** 가입 timestamp처럼 사용자마다 고유한 값을 속성으로 넣으면 세그먼트 조건으로 쓸 수 없고 저장 비용만 늘어난다. 범주형 값만 속성으로 두고 고유 값은 이벤트 property로 보낸다.
 - **Liquid default 누락.** 속성이 비어 있는 사용자에게 "안녕하세요, 님" 형태의 메시지가 나간다. 모든 개인화 변수에 `default` 필터를 붙인다.
-- **Connected Content 지연.** 발송 시점에 우리 API를 호출하므로 응답이 느리면 발송 전체가 밀린다. 해당 엔드포인트는 500ms 이내 응답을 보장하고 캐시를 앞단에 둔다.
+- **Connected Content 지연.** ==발송 시점에 우리 API를 호출하므로 응답이 느리면 발송 전체가 밀린다.== 해당 엔드포인트는 500ms 이내 응답을 보장하고 캐시를 앞단에 둔다.
 - **Subscription State 무시.** 수신 거부 사용자에게 마케팅 메시지를 보내면 정보통신망법·CAN-SPAM 위반이므로 채널별 동의 상태를 발송 전에 필터링한다.
 
 ## 관련 글

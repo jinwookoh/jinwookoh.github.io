@@ -117,8 +117,8 @@ public class TopologyLogger implements ApplicationRunner {
 ## 실무에서 걸리는 지점
 
 - **파티션 수가 스케일 상한이다.** 입력 파티션 수를 넘는 인스턴스는 유휴 상태로 남는다. 예상 인스턴스 수의 4~8배로 파티션을 잡는다.
-- **`application.id` 변경은 state 재빌드다.** 내부 토픽·state 디렉토리 이름이 바뀌어 처음부터 다시 쌓는다.
-- **changelog RF와 standby 기본값은 복구를 길게 만든다.** RF 1은 브로커 한 대 손실로 state를 잃을 수 있고, standby 0이면 인스턴스 교체마다 changelog 전체를 다시 읽는다. 운영은 RF 3, standby 1 이상으로 둔다.
+- ==**`application.id` 변경은 state 재빌드다.**== 내부 토픽·state 디렉토리 이름이 바뀌어 처음부터 다시 쌓는다.
+- **changelog RF와 standby 기본값은 복구를 길게 만든다.** RF 1은 브로커 한 대 손실로 state를 잃을 수 있고, ==standby 0이면 인스턴스 교체마다 changelog 전체를 다시 읽는다.== 운영은 RF 3, standby 1 이상으로 둔다.
 - **Serde 누락은 런타임에야 드러난다.** `count()` 결과를 `Produced.with` 없이 내보내면 기본 String Serde가 `ClassCastException`을 던진다.
 - **스레드와 디스크는 호스트 자원에 맞춘다.** `num.stream.threads`가 CPU 코어를 넘으면 context switch 비용만 늘고, RocksDB state는 데이터 크기에 비례해 디스크를 점유한다.
 

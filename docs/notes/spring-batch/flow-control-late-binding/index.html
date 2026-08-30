@@ -24,10 +24,10 @@
   <h1>Flow 제어 — Decision·Split·Late Binding</h1>
   <p class="summary">ExitStatus·Decider·Split으로 Job 흐름을 분기·병렬화하고, 실행 시점 값을 @StepScope로 주입하는 방법</p>
   <div class="content">
-<p><code>.start(a).next(b)</code>만으로 Job을 구성하면 Step은 항상 같은 순서로 돌고, 하나라도 FAILED면 Job 전체가 실패한다. 결과에 따른 분기나 병렬 실행은 순차 연결로 표현할 수 없다. 입력값도 문제다. <mark>파일 경로는 실행 시 JobParameters로 들어오지만 ItemReader Bean은 컨텍스트 초기화 시점에 만들어지므로 그 값을 받을 수 없고, 시스템 프로퍼티로 우회하면 JobRepository에 파라미터가 남지 않아 재시작이 무너진다.</mark></p>
+<p><code>.start(a).next(b)</code>만으로 Job을 구성하면 Step은 항상 같은 순서로 돌고, 하나라도 FAILED면 Job 전체가 실패한다. 결과에 따른 분기나 병렬 실행은 순차 연결로 표현할 수 없다. 입력값도 문제다. 파일 경로는 실행 시 JobParameters로 들어오지만 ItemReader Bean은 컨텍스트 초기화 시점에 만들어지므로 그 값을 받을 수 없고, 시스템 프로퍼티로 우회하면 JobRepository에 파라미터가 남지 않아 재시작이 무너진다.</p>
 <h2>핵심 개념</h2>
 <h3>ExitStatus가 분기 키다</h3>
-<p>조건 분기는 <code>.on(pattern).to(step)</code>으로 쓴다. <mark><code>on()</code>이 비교하는 값은 enum인 <code>BatchStatus</code>가 아니라 문자열 <code>ExitStatus.exitCode</code>이며, <code>StepExecutionListener.afterStep()</code>의 반환값으로 바꿀 수 있다.</mark> 패턴에는 <code>*</code>(0개 이상)와 <code>?</code>(1개 문자)를 쓰고, 구체적인 패턴부터 매칭되므로 선언 순서는 무관하다. 어느 전이에도 매칭되지 않는 ExitStatus가 나오면 Job이 FAILED로 끝나므로 <code>.on(&quot;*&quot;)</code>을 기본 경로로 둔다.</p>
+<p>조건 분기는 <code>.on(pattern).to(step)</code>으로 쓴다. <code>on()</code>이 비교하는 값은 enum인 <code>BatchStatus</code>가 아니라 문자열 <code>ExitStatus.exitCode</code>이며, <code>StepExecutionListener.afterStep()</code>의 반환값으로 바꿀 수 있다. 패턴에는 <code>*</code>(0개 이상)와 <code>?</code>(1개 문자)를 쓰고, 구체적인 패턴부터 매칭되므로 선언 순서는 무관하다. <mark>어느 전이에도 매칭되지 않는 ExitStatus가 나오면 Job이 FAILED로 끝나므로 <code>.on(&quot;*&quot;)</code>을 기본 경로로 둔다.</mark></p>
 <p><code>to(step)</code> 자리에는 종료 방식을 넣을 수 있다.</p>
 <table>
 <thead>
@@ -182,8 +182,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>end()</code>로 닫은 Job은 되돌릴 수 없다.</strong> 부분 실패를 <code>end()</code>로 마무리하면 같은 파라미터로 재실행할 수 없다. 재시도가 필요하면 <code>fail()</code>이나 <code>stopAndRestart()</code>를 쓴다.</li>
-<li><strong>Split은 TaskExecutor에 달려 있다.</strong> <code>SyncTaskExecutor</code>를 넘기면 순차 실행이 된다. <code>ThreadPoolTaskExecutor</code>를 쓰고, 병렬 Flow 안에서는 thread-safe하지 않은 <code>JdbcCursorItemReader</code> 대신 <code>JdbcPagingItemReader</code>를 택한다.</li>
+<li><strong><code>end()</code>로 닫은 Job은 되돌릴 수 없다.</strong> <mark>부분 실패를 <code>end()</code>로 마무리하면 같은 파라미터로 재실행할 수 없다.</mark> 재시도가 필요하면 <code>fail()</code>이나 <code>stopAndRestart()</code>를 쓴다.</li>
+<li><strong>Split은 TaskExecutor에 달려 있다.</strong> <mark><code>SyncTaskExecutor</code>를 넘기면 순차 실행이 된다.</mark> <code>ThreadPoolTaskExecutor</code>를 쓰고, 병렬 Flow 안에서는 thread-safe하지 않은 <code>JdbcCursorItemReader</code> 대신 <code>JdbcPagingItemReader</code>를 택한다.</li>
 <li><strong><code>@StepScope</code> Bean의 반환 타입.</strong> <mark><code>ItemReader&lt;T&gt;</code>로 선언하면 CGLIB 프록시가 <code>ItemStream</code>을 구현하지 않아 <code>open</code>·<code>update</code>·<code>close</code>가 호출되지 않고 재시작 안전성이 사라진다.</mark> 구체 타입이나 <code>ItemStreamReader&lt;T&gt;</code>로 선언한다.</li>
 <li><strong>JobParameters가 null이다.</strong> 키 오타보다 <code>@StepScope</code> 누락이 흔하다. <code>DefaultJobParametersValidator</code>로 필수 키를 걸어 둔다.</li>
 <li><strong><code>proxyBeanMethods = false</code>.</strong> Flow 정의 안에서 <code>stepA()</code>를 두 번 호출하면 다른 Step 인스턴스가 만들어져 흐름이 엉킨다. Step은 <code>@Bean</code> 메서드 파라미터로 주입받는다. Partitioned Step에서는 <code>@JobScope</code> 대신 <code>@StepScope</code>를 쓴다.</li>

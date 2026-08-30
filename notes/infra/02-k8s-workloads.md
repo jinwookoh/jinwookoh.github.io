@@ -23,7 +23,7 @@ updated: 2026-08-30
 
 **DaemonSet.** `replicas` 없이 Pod 수가 노드 수를 따른다. 노드가 추가되면 자동 배포되고, 일부 노드에만 두려면 `nodeSelector`나 affinity를 쓴다.
 
-**Job과 CronJob.** Job은 컨테이너가 exit 0으로 끝날 때까지 실행하고 실패하면 `backoffLimit`까지 재시도한다. `restartPolicy`는 `Never`·`OnFailure`만 허용된다. `completions`와 `parallelism`으로 병렬 배치를 표현한다. CronJob은 `schedule`에 맞춰 Job을 생성하며, 컨트롤 플레인이 멈춰 있던 시각의 실행은 `startingDeadlineSeconds`를 넘기면 건너뛴다.
+**Job과 CronJob.** Job은 컨테이너가 exit 0으로 끝날 때까지 실행하고 실패하면 `backoffLimit`까지 재시도한다. `restartPolicy`는 `Never`·`OnFailure`만 허용된다. `completions`와 `parallelism`으로 병렬 배치를 표현한다. CronJob은 `schedule`에 맞춰 Job을 생성하며, ==컨트롤 플레인이 멈춰 있던 시각의 실행은 `startingDeadlineSeconds`를 넘기면 건너뛴다.==
 
 ## 코드
 
@@ -142,10 +142,10 @@ spec:
 
 ## 실무에서 걸리는 지점
 
-- **롤링 업데이트 중 두 버전 공존.** 교체가 끝날 때까지 구버전과 신버전이 같이 요청을 받는다. 스키마나 API 형식 변경은 양쪽이 읽을 수 있는 중간 단계를 거쳐야 하며, Canary·Blue-Green은 Argo Rollouts 같은 별도 컨트롤러가 필요하다. readinessProbe가 없으면 JVM이 준비되기 전에 옛 Pod이 내려가므로 `maxUnavailable: 0`도 무중단을 보장하지 못한다.
-- **StatefulSet의 PVC는 삭제되지 않는다.** StatefulSet을 지워도 PVC는 남아 비용이 계속 나간다. `persistentVolumeClaimRetentionPolicy`를 설정하거나 정리 절차를 문서화한다. `volumeClaimTemplates`는 생성 후 수정할 수 없어 용량 변경은 PVC를 직접 편집한다.
+- **롤링 업데이트 중 두 버전 공존.** 교체가 끝날 때까지 구버전과 신버전이 같이 요청을 받는다. 스키마나 API 형식 변경은 양쪽이 읽을 수 있는 중간 단계를 거쳐야 하며, Canary·Blue-Green은 Argo Rollouts 같은 별도 컨트롤러가 필요하다. ==readinessProbe가 없으면 JVM이 준비되기 전에 옛 Pod이 내려가므로 `maxUnavailable: 0`도 무중단을 보장하지 못한다.==
+- **StatefulSet의 PVC는 삭제되지 않는다.** ==StatefulSet을 지워도 PVC는 남아 비용이 계속 나간다.== `persistentVolumeClaimRetentionPolicy`를 설정하거나 정리 절차를 문서화한다. `volumeClaimTemplates`는 생성 후 수정할 수 없어 용량 변경은 PVC를 직접 편집한다.
 - **Job의 restartPolicy.** `OnFailure`는 같은 Pod에서 컨테이너를 재시작하고 `Never`는 새 Pod을 만든다. 실패 로그 보존에는 `Never`가 낫지만 Pod이 backoffLimit만큼 쌓이며, 재시도 간격은 지수 백오프로 최대 6분까지 벌어진다.
-- **CronJob의 동시 실행과 누락.** 이전 Job이 끝나기 전에 다음 스케줄이 오면 기본값 `concurrencyPolicy: Allow`로 겹쳐 실행되므로 백업류는 `Forbid`로 막는다. 정확한 실행 보장이 필요하면 Argo Workflows 같은 워크플로 엔진을 쓴다. 완료된 Job은 `ttlSecondsAfterFinished`로 정리하지 않으면 계속 쌓인다.
+- **CronJob의 동시 실행과 누락.** ==이전 Job이 끝나기 전에 다음 스케줄이 오면 기본값 `concurrencyPolicy: Allow`로 겹쳐 실행되므로 백업류는 `Forbid`로 막는다.== 정확한 실행 보장이 필요하면 Argo Workflows 같은 워크플로 엔진을 쓴다. 완료된 Job은 `ttlSecondsAfterFinished`로 정리하지 않으면 계속 쌓인다.
 
 ## 관련 글
 

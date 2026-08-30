@@ -119,11 +119,11 @@ flutter test integration_test         # 연결된 기기에서 통합 테스트
 
 ## 실무에서 걸리는 지점
 
-- **`pump`와 `pumpAndSettle` 혼동.** `pumpAndSettle`은 프레임이 안정될 때까지 기다리므로 무한 반복 애니메이션(`CircularProgressIndicator` 등)이 있으면 타임아웃으로 실패한다. 이 경우 `pump(Duration)`으로 시간을 명시적으로 진행시켜야 한다.
-- **실제 비동기 대기 불가.** 위젯 테스트는 `FakeAsync` 위에서 돌기 때문에 `Future.delayed`나 실제 네트워크 호출은 완료되지 않는다. HTTP 클라이언트나 저장소는 반드시 mock으로 주입하고, 지연이 필요하면 `tester.pump(Duration)`으로 가짜 시간을 밀어야 한다.
+- **`pump`와 `pumpAndSettle` 혼동.** ==`pumpAndSettle`은 프레임이 안정될 때까지 기다리므로 무한 반복 애니메이션(`CircularProgressIndicator` 등)이 있으면 타임아웃으로 실패한다.== 이 경우 `pump(Duration)`으로 시간을 명시적으로 진행시켜야 한다.
+- **실제 비동기 대기 불가.** ==위젯 테스트는 `FakeAsync` 위에서 돌기 때문에 `Future.delayed`나 실제 네트워크 호출은 완료되지 않는다.== HTTP 클라이언트나 저장소는 반드시 mock으로 주입하고, 지연이 필요하면 `tester.pump(Duration)`으로 가짜 시간을 밀어야 한다.
 - **플랫폼 채널 호출.** `SharedPreferences`, `path_provider` 같은 플러그인은 테스트 환경에 네이티브 구현이 없다. `SharedPreferences.setMockInitialValues()`처럼 플러그인이 제공하는 mock을 쓰거나, `TestDefaultBinaryMessenger`로 메서드 채널 핸들러를 직접 등록해야 한다.
 - **Finder가 여러 개를 찾는 문제.** `find.text('0')`이 리스트 안 여러 항목에 매칭되면 `tap`이 실패한다. 테스트 대상 위젯에 `Key`를 붙이고 `find.byKey`로 좁히는 편이 안정적이다. 접근성 라벨 기준의 `find.bySemanticsLabel`도 대안이다.
-- **통합 테스트 CI 비용.** 통합 테스트는 에뮬레이터 부팅이 필요해 수십 초에서 수 분이 걸린다. 핵심 사용자 흐름 몇 개로 범위를 제한하고, 나머지는 위젯 테스트로 내려 보내는 편이 유지 비용을 낮춘다. 골든 테스트(`matchesGoldenFile`)는 OS·폰트 렌더링 차이로 CI와 로컬 결과가 달라질 수 있으므로 실행 환경을 고정해야 한다.
+- **통합 테스트 CI 비용.** 통합 테스트는 에뮬레이터 부팅이 필요해 수십 초에서 수 분이 걸린다. 핵심 사용자 흐름 몇 개로 범위를 제한하고, 나머지는 위젯 테스트로 내려 보내는 편이 유지 비용을 낮춘다. ==골든 테스트(`matchesGoldenFile`)는 OS·폰트 렌더링 차이로 CI와 로컬 결과가 달라질 수 있으므로 실행 환경을 고정해야 한다.==
 
 ## 관련 글
 

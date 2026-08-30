@@ -40,7 +40,7 @@ text 필드의 토큰은 Analyzer가 결정한다. **Character filter**(`html_st
 
 ### Doc Values — 문서 → 필드 값
 
-역색인은 "term → 문서" 방향에만 빠르다. 정렬·집계·스크립트처럼 "문서 → 필드 값"을 읽기 위해 Lucene은 필드 값을 문서 ID 순으로 나열한 컬럼 지향 파일인 Doc Values를 둔다. keyword·numeric·date·boolean·geo_point는 기본으로 켜져 있고 text는 꺼져 있다. text 필드를 정렬·집계에 쓰면 fielddata가 JVM heap에 역색인을 뒤집어 올려 OOM의 원인이 된다.
+역색인은 "term → 문서" 방향에만 빠르다. 정렬·집계·스크립트처럼 "문서 → 필드 값"을 읽기 위해 Lucene은 필드 값을 문서 ID 순으로 나열한 컬럼 지향 파일인 Doc Values를 둔다. keyword·numeric·date·boolean·geo_point는 기본으로 켜져 있고 text는 꺼져 있다. ==text 필드를 정렬·집계에 쓰면 fielddata가 JVM heap에 역색인을 뒤집어 올려 OOM의 원인이 된다.==
 
 ## 코드
 
@@ -117,11 +117,11 @@ public long segmentCount() throws IOException {
 
 ## 실무에서 걸리는 지점
 
-- **refresh_interval 단축.** 100ms 단위로 내리면 작은 Segment가 폭증해 merge 부하와 검색 지연이 함께 오른다. 로그성 인덱스는 30s~60s가 표준이고, 대량 bulk 중에는 `-1`로 껐다가 복원한다.
-- **쓰기가 살아 있는 인덱스에 force merge.** 대용량 IO가 노드를 장시간 점유하고, 합쳐진 거대 Segment는 자동 merge 후보에서 빠져 삭제 문서가 회수되지 않는다. ILM warm 단계처럼 읽기 전용이 보장된 시점에 자동화한다.
+- **refresh_interval 단축.** ==100ms 단위로 내리면 작은 Segment가 폭증해 merge 부하와 검색 지연이 함께 오른다.== 로그성 인덱스는 30s~60s가 표준이고, 대량 bulk 중에는 `-1`로 껐다가 복원한다.
+- **쓰기가 살아 있는 인덱스에 force merge.** 대용량 IO가 노드를 장시간 점유하고, ==합쳐진 거대 Segment는 자동 merge 후보에서 빠져 삭제 문서가 회수되지 않는다.== ILM warm 단계처럼 읽기 전용이 보장된 시점에 자동화한다.
 - **Segment 수천 개 누적.** `ulimit -n` 한도에 걸리거나 P99 지연이 급등한다. 시간 데이터는 인덱스를 기간별로 나눈다.
 - **text 필드 정렬·집계.** `title.raw` 같은 keyword sub-field로 보낸다. `doc_values: false`는 정렬·집계가 없다고 확신하는 필드에만 적용하며, 되돌리려면 재색인이 필요하다.
-- **색인·검색 analyzer 불일치.** 색인에만 lowercase가 있으면 결과가 0건이 된다. 매핑에 `analyzer` 하나만 지정해 통일한다.
+- **색인·검색 analyzer 불일치.** ==색인에만 lowercase가 있으면 결과가 0건이 된다.== 매핑에 `analyzer` 하나만 지정해 통일한다.
 
 ## 관련 글
 

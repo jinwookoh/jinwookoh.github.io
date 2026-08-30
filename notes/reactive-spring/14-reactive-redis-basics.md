@@ -140,11 +140,11 @@ public class RankingService {
 ## 실무에서 걸리는 지점
 
 - **구독되지 않은 체인.** `ops.set(...)`의 반환값을 버리면 명령이 전송되지 않는다. `doOnNext` 안에서 `.subscribe()`를 따로 호출하면 순서와 에러 전파가 보장되지 않으므로 `then`·`flatMap`으로 메인 체인에 합성한다.
-- **`KEYS *`와 대형 컬렉션 전체 조회.** O(N) 명령 하나가 단일 스레드인 Redis 전체를 멈춘다. 키 순회는 `SCAN`, 큰 Hash·Set은 `HSCAN`·`SSCAN`으로 나눈다.
+- **`KEYS *`와 대형 컬렉션 전체 조회.** ==O(N) 명령 하나가 단일 스레드인 Redis 전체를 멈춘다.== 키 순회는 `SCAN`, 큰 Hash·Set은 `HSCAN`·`SSCAN`으로 나눈다.
 - **TTL 없는 캐시 키.** 캐시 키에는 `set(key, value, Duration)`으로 TTL을 항상 지정하고, `INCR` 카운터는 첫 증가 시 `expire`를 건다. List는 `LTRIM`, ZSet은 `removeRangeByScore`로 길이를 제한한다.
-- **Lettuce 풀 설정.** Lettuce는 단일 연결을 멀티플렉싱하므로 일반 명령에는 풀이 필요 없다. `spring.data.redis.lettuce.pool`은 트랜잭션이나 `BLPOP` 같은 전용 연결이 필요한 경우에만 의미가 있고, 켜려면 `commons-pool2` 의존성이 필요하다.
-- **`@class` 결합.** `GenericJackson2JsonRedisSerializer`는 클래스명을 저장하므로 클래스를 옮기면 기존 데이터 역직렬화가 실패한다. 배포 전 키를 비우는 절차를 정하고, 다른 언어와 공유하는 키는 타입 정보 없는 `Jackson2JsonRedisSerializer`를 쓴다.
-- **Cluster의 논리 DB.** Cluster는 0번 DB만 지원하므로 처음부터 키 접두어로 네임스페이스를 분리한다.
+- **Lettuce 풀 설정.** ==Lettuce는 단일 연결을 멀티플렉싱하므로 일반 명령에는 풀이 필요 없다.== `spring.data.redis.lettuce.pool`은 트랜잭션이나 `BLPOP` 같은 전용 연결이 필요한 경우에만 의미가 있고, 켜려면 `commons-pool2` 의존성이 필요하다.
+- **`@class` 결합.** ==`GenericJackson2JsonRedisSerializer`는 클래스명을 저장하므로 클래스를 옮기면 기존 데이터 역직렬화가 실패한다.== 배포 전 키를 비우는 절차를 정하고, 다른 언어와 공유하는 키는 타입 정보 없는 `Jackson2JsonRedisSerializer`를 쓴다.
+- **Cluster의 논리 DB.** ==Cluster는 0번 DB만 지원하므로 처음부터 키 접두어로 네임스페이스를 분리한다.==
 
 ## 관련 글
 

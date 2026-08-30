@@ -24,9 +24,9 @@
   <h1>R2DBC — 리액티브 DB 연동과 JPA 비교</h1>
   <p class="summary">WebFlux 이벤트 루프를 막지 않는 DB 접근 방법과, JPA에서 사라지는 것·얻는 것의 경계를 정리한다</p>
   <div class="content">
-<p>WebFlux로 웹 계층을 논블로킹으로 만들어도 데이터 접근이 JDBC라면 이벤트 루프가 DB 응답을 기다리며 멈춘다. JDBC는 호출 스레드가 결과를 받을 때까지 블로킹되고, 이벤트 루프 스레드는 수가 적어 요청 몇 개만 DB에서 대기해도 서버 전체 처리량이 무너진다. JPA를 별도 스레드 풀로 격리할 수 있지만 풀 크기가 곧 동시성 상한이 된다. <mark>R2DBC는 이 구간을 처음부터 논블로킹으로 설계한 드라이버 명세이며, Spring Data R2DBC는 그 위에 Repository·<code>@Query</code>·트랜잭션 같은 Spring Data 패턴을 얹는다.</mark></p>
+<p>WebFlux로 웹 계층을 논블로킹으로 만들어도 데이터 접근이 JDBC라면 이벤트 루프가 DB 응답을 기다리며 멈춘다. JDBC는 호출 스레드가 결과를 받을 때까지 블로킹되고, 이벤트 루프 스레드는 수가 적어 요청 몇 개만 DB에서 대기해도 서버 전체 처리량이 무너진다. JPA를 별도 스레드 풀로 격리할 수 있지만 풀 크기가 곧 동시성 상한이 된다. R2DBC는 이 구간을 처음부터 논블로킹으로 설계한 드라이버 명세이며, Spring Data R2DBC는 그 위에 Repository·<code>@Query</code>·트랜잭션 같은 Spring Data 패턴을 얹는다.</p>
 <h2>핵심 개념</h2>
-<p>R2DBC(Reactive Relational Database Connectivity)는 관계형 DB에 대한 리액티브 드라이버 명세다. 모든 결과는 <code>Mono</code>/<code>Flux</code>로 돌아오고, 결과 행은 소비자가 요청한 만큼만 DB에서 흘러온다. <mark>즉 Reactive Streams의 backpressure가 DB 커넥션 수준까지 이어진다.</mark> <code>findAll()</code>이 반환하는 <code>Flux</code>는 구독 전까지 실행되지 않으며, 구독 후에도 메모리에는 처리 중인 일부 행만 머문다. 그래서 1,000만 건을 200MB 힙으로 순회할 수 있고, 같은 작업을 JPA <code>findAll()</code>로 <code>List</code>에 담으면 힙을 4GB로 늘려도 OOM이 난다.</p>
+<p>R2DBC(Reactive Relational Database Connectivity)는 관계형 DB에 대한 리액티브 드라이버 명세다. 모든 결과는 <code>Mono</code>/<code>Flux</code>로 돌아오고, 결과 행은 소비자가 요청한 만큼만 DB에서 흘러온다. 즉 Reactive Streams의 backpressure가 DB 커넥션 수준까지 이어진다. <code>findAll()</code>이 반환하는 <code>Flux</code>는 구독 전까지 실행되지 않으며, 구독 후에도 메모리에는 처리 중인 일부 행만 머문다. <mark>그래서 1,000만 건을 200MB 힙으로 순회할 수 있고, 같은 작업을 JPA <code>findAll()</code>로 <code>List</code>에 담으면 힙을 4GB로 늘려도 OOM이 난다.</mark></p>
 <p>연결 URL은 <code>r2dbc:postgresql://host:5432/db</code> 형식이며 JDBC URL을 그대로 넣으면 연결에 실패한다. 의존성은 <code>spring-boot-starter-data-r2dbc</code>와 DB별 드라이버(<code>r2dbc-postgresql</code> 등)를 함께 둔다.</p>
 <p>접근 계층은 세 단계다. <code>ReactiveCrudRepository</code>는 인터페이스 선언만으로 CRUD와 파생 쿼리 메서드를 제공한다. <code>@Query</code>는 고정된 JOIN·집계 SQL을 네임드 파라미터(<code>:name</code>)로 작성한다. <code>DatabaseClient</code>는 동적 SQL과 DTO 매핑용 저수준 API다.</p>
 <p>트랜잭션은 <code>@Transactional</code>을 그대로 쓰되 반환 타입이 <code>Mono</code>/<code>Flux</code>여야 한다. Spring Boot가 <code>R2dbcTransactionManager</code>를 자동 구성하고, 상태는 ThreadLocal이 아니라 Reactor Context에 담긴다. 구독 시 시작, <code>onComplete</code>에 커밋, <code>onError</code>에 롤백된다.</p>
@@ -72,7 +72,7 @@
 </tbody></table>
 <p><code>@Id</code>는 필수지만 <code>@GeneratedValue</code>는 없다. <code>save()</code>는 id가 <code>null</code>이면 INSERT, 아니면 UPDATE로 동작하고, DB의 SERIAL이나 IDENTITY가 키를 채운다.</p>
 <h2>코드</h2>
-<p>엔티티와 Repository. JPA 관계 애노테이션은 붙여도 무시되므로 연관 데이터는 <code>@Query</code>로 조회한다.</p>
+<p>엔티티와 Repository. <mark>JPA 관계 애노테이션은 붙여도 무시되므로 연관 데이터는 <code>@Query</code>로 조회한다.</mark></p>
 <pre><code class="hljs language-java"><span class="hljs-meta">@Table(&quot;customer&quot;)</span>
 <span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Customer</span> {
     <span class="hljs-meta">@Id</span>
@@ -160,11 +160,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>처리량 이득은 동시성이 높을 때만 나타난다.</strong></mark> <code>findById</code> 10만 회를 동시성 256으로 돌린 측정에서 R2DBC는 약 2초, 256 스레드 풀의 JPA는 약 4초였다. 단일 요청 지연은 거의 같고, 낮은 동시성이나 CPU 집약 작업에서는 JPA가 단순하고 빠를 수 있다. JPA에 가상 스레드를 붙여도 짧은 DB I/O에서는 처리량이 거의 변하지 않는다.</li>
+<li><strong>처리량 이득은 동시성이 높을 때만 나타난다.</strong> <code>findById</code> 10만 회를 동시성 256으로 돌린 측정에서 R2DBC는 약 2초, 256 스레드 풀의 JPA는 약 4초였다. 단일 요청 지연은 거의 같고, 낮은 동시성이나 CPU 집약 작업에서는 JPA가 단순하고 빠를 수 있다. JPA에 가상 스레드를 붙여도 짧은 DB I/O에서는 처리량이 거의 변하지 않는다.</li>
 <li><strong>Dirty Checking 부재는 설계 선택이다.</strong> 변경 추적은 영속성 컨텍스트에 스냅샷을 유지해야 하므로 대용량 스트리밍과 양립하지 않는다. <mark>대신 수정 후 <code>save()</code>를 빠뜨리면 아무 것도 저장되지 않고 어떤 경고도 없다.</mark></li>
 <li><strong>N+1을 막아 주는 장치가 없다.</strong> <code>Flux</code>를 순회하며 건마다 <code>findById</code>를 호출하면 그대로 N+1이 된다. 처음부터 JOIN으로 설계하거나 <code>IN</code> 절로 묶어 조회한 뒤 조립한다.</li>
 <li><strong>JPA를 병행해야 한다면 <code>boundedElastic</code>으로 격리한다.</strong> <code>Mono.fromCallable(() -&gt; jpaRepository.findById(id).orElse(null)).subscribeOn(Schedulers.boundedElastic())</code> 형태로 감싼다. <code>subscribeOn</code>을 빠뜨리면 이벤트 루프 스레드에서 블로킹이 실행되어 다른 요청을 막는다. 이 풀도 상한(CPU 코어 수 × 10)이 있으므로 임시 조치다.</li>
-<li><strong>트랜잭션 경계는 구독 흐름을 따른다.</strong> <code>@Transactional</code> 메서드가 반환한 <code>Mono</code>를 구독하지 않고 버리면 트랜잭션이 시작조차 되지 않는다. JPA Repository와 함께 두는 경우 <code>@EnableR2dbcRepositories(basePackages = ...)</code>로 스캔 범위를 제한한다.</li>
+<li><strong>트랜잭션 경계는 구독 흐름을 따른다.</strong> <mark><code>@Transactional</code> 메서드가 반환한 <code>Mono</code>를 구독하지 않고 버리면 트랜잭션이 시작조차 되지 않는다.</mark> JPA Repository와 함께 두는 경우 <code>@EnableR2dbcRepositories(basePackages = ...)</code>로 스캔 범위를 제한한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

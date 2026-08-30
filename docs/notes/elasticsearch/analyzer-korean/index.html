@@ -24,11 +24,11 @@
   <h1>Analyzer와 한국어 분석 (Nori)</h1>
   <p class="summary">text 필드가 역색인에 들어가기까지의 3단계 분석 파이프라인과, 한국어 검색에서 Nori 토크나이저를 어떻게 구성해야 하는지 정리한다.</p>
   <div class="content">
-<p>Elasticsearch의 풀텍스트 검색은 문자열을 그대로 비교하지 않는다. <mark>색인 시 본문을 토큰으로 쪼개 역색인에 저장하고, 검색어도 같은 규칙으로 쪼개 매칭하므로 쪼개는 규칙이 곧 검색 결과를 결정한다.</mark> 규칙을 지정하지 않으면 <code>text</code> 필드는 <code>standard</code> analyzer로 처리되는데, 영어에서는 <code>running</code>으로 색인된 문서가 <code>run</code>으로 검색되지 않고, 한국어에서는 <code>신촌에서</code>가 한 토큰으로 들어가 <code>신촌</code>으로 검색되지 않는다. 한국어는 띄어쓰기가 느슨하고 조사·어미가 어절에 붙으며 복합명사가 흔해 공백 분리만으로는 검색이 성립하지 않는다.</p>
+<p>Elasticsearch의 풀텍스트 검색은 문자열을 그대로 비교하지 않는다. 색인 시 본문을 토큰으로 쪼개 역색인에 저장하고, 검색어도 같은 규칙으로 쪼개 매칭하므로 쪼개는 규칙이 곧 검색 결과를 결정한다. 규칙을 지정하지 않으면 <code>text</code> 필드는 <code>standard</code> analyzer로 처리되는데, 영어에서는 <code>running</code>으로 색인된 문서가 <code>run</code>으로 검색되지 않고, 한국어에서는 <code>신촌에서</code>가 한 토큰으로 들어가 <code>신촌</code>으로 검색되지 않는다. 한국어는 띄어쓰기가 느슨하고 조사·어미가 어절에 붙으며 복합명사가 흔해 공백 분리만으로는 검색이 성립하지 않는다.</p>
 <h2>핵심 개념</h2>
 <p>모든 analyzer는 세 단계로 동작한다. <strong>Character Filter</strong>는 토큰화 전에 원문 문자열을 손본다(<code>html_strip</code>, <code>mapping</code>, <code>pattern_replace</code>). <strong>Tokenizer</strong>는 문자열을 토큰 배열로 쪼갠다(<code>standard</code>, <code>whitespace</code>, <code>ngram</code>, <code>edge_ngram</code>, <code>nori_tokenizer</code>). <strong>Token Filter</strong>는 쪼개진 토큰을 변환·삭제·추가한다(<code>lowercase</code>, <code>stop</code>, <code>stemmer</code>, <code>synonym_graph</code>). Character Filter와 Token Filter는 0개 이상을 순서대로 체인할 수 있고, Tokenizer는 정확히 하나만 온다. 빌트인 analyzer(<code>standard</code>, <code>simple</code>, <code>whitespace</code>, <code>stop</code>, <code>keyword</code>, <code>pattern</code>, 언어별)는 이 조합을 미리 묶어 둔 것이며, 부족하면 <code>settings.analysis</code>에서 직접 조립해 custom analyzer를 만든다.</p>
 <p>색인 시 analyzer와 검색 시 analyzer는 기본적으로 동일하다. <code>search_analyzer</code>를 따로 두는 경우는 자동완성처럼 비대칭이 필요한 자리뿐이다. 색인은 <code>edge_ngram</code>으로 prefix 토큰을 만들고, 검색은 <code>standard</code>로 둔다.</p>
-<p><mark>한국어 형태소 분석은 <code>analysis-nori</code> 플러그인이 표준이다.</mark> Nori는 mecab-ko-dic 사전을 Lucene 인메모리 구조로 재가공해 JVM 안에서 동작하므로 별도 데몬이 필요 없다. 과거 표준이던 mecab-ko(seunjeon)는 사전 배포 비용이 크고 갱신이 멈춰 기존 인덱스 유지보수용으로만 남았다. Nori의 품질을 결정하는 옵션은 세 가지다.</p>
+<p>한국어 형태소 분석은 <code>analysis-nori</code> 플러그인이 표준이다. Nori는 mecab-ko-dic 사전을 Lucene 인메모리 구조로 재가공해 JVM 안에서 동작하므로 별도 데몬이 필요 없다. 과거 표준이던 mecab-ko(seunjeon)는 사전 배포 비용이 크고 갱신이 멈춰 기존 인덱스 유지보수용으로만 남았다. Nori의 품질을 결정하는 옵션은 세 가지다.</p>
 <table>
 <thead>
 <tr>
@@ -53,7 +53,7 @@
 <td>기본값에서 도메인에 맞춰 조정</td>
 </tr>
 </tbody></table>
-<p>동의어는 형태소 분석으로 풀 수 없는 영역이다. <code>synonym_graph</code> 필터에 <code>신촌, 신촌역</code>처럼 양방향, <code>노트북 =&gt; 랩탑</code>처럼 단방향 규칙을 등록한다. 색인 시점에 넣으면 표를 바꿀 때마다 재색인이 필요하므로, <code>search_analyzer</code>에 <code>updateable: true</code>로 붙이고 <code>_reload_search_analyzers</code> API로 무중단 갱신한다. 8.10 이상은 synonyms set API로 규칙을 인덱스 밖에서 관리한다.</p>
+<p>동의어는 형태소 분석으로 풀 수 없는 영역이다. <code>synonym_graph</code> 필터에 <code>신촌, 신촌역</code>처럼 양방향, <code>노트북 =&gt; 랩탑</code>처럼 단방향 규칙을 등록한다. <mark>색인 시점에 넣으면 표를 바꿀 때마다 재색인이 필요하므로, <code>search_analyzer</code>에 <code>updateable: true</code>로 붙이고 <code>_reload_search_analyzers</code> API로 무중단 갱신한다.</mark> 8.10 이상은 synonyms set API로 규칙을 인덱스 밖에서 관리한다.</p>
 <h2>코드</h2>
 <p>Nori 토크나이저에 사용자 사전·품사 필터·검색 시점 동의어를 조합한 인덱스 설정이다.</p>
 <pre><code class="hljs language-json">PUT /products
@@ -133,10 +133,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>플러그인 미설치 노드.</strong> <code>analysis-nori</code>는 모든 노드에 설치하고 재시작해야 한다. 한 노드라도 빠지면 그 노드의 샤드만 분석이 달라 간헐적으로 결과가 누락된다. <code>_cat/plugins?v</code>로 확인한다.</li>
-<li><strong>사용자 사전은 인덱스 open 시점에 로딩된다.</strong> 파일만 바꿔서는 기존 인덱스에 반영되지 않으며 <code>_close</code>/<code>_open</code> 또는 reindex가 필요하다. 사전이 수만 줄로 커지면 힙 사용량과 open 시간이 늘어나므로 도메인 단어만 남긴다. 파일 배포가 막힌 매니지드 환경에서는 <code>user_dictionary_rules</code>로 설정에 직접 넣는다.</li>
-<li><mark><strong>analyzer 변경은 재색인이다.</strong> <code>text</code> 필드의 analyzer는 매핑 생성 후 바꿀 수 없다.</mark> <code>standard</code>로 색인한 뒤 Nori로 바꾸려면 새 인덱스를 만들고 alias를 교체한다.</li>
-<li><strong>n-gram 범위 폭주.</strong> <code>min_gram=1, max_gram=20</code> 같은 설정은 토큰 수를 수십 배로 키워 인덱스 크기와 색인 속도를 악화시킨다. 자동완성은 <code>edge_ngram</code> 2<del>10 범위로 별도 multi-field에만 적용한다. <code>decompound_mode: mixed</code>도 인덱스 크기를 30</del>50% 늘린다.</li>
+<li><strong>플러그인 미설치 노드.</strong> <code>analysis-nori</code>는 모든 노드에 설치하고 재시작해야 한다. <mark>한 노드라도 빠지면 그 노드의 샤드만 분석이 달라 간헐적으로 결과가 누락된다.</mark> <code>_cat/plugins?v</code>로 확인한다.</li>
+<li><strong>사용자 사전은 인덱스 open 시점에 로딩된다.</strong> <mark>파일만 바꿔서는 기존 인덱스에 반영되지 않으며 <code>_close</code>/<code>_open</code> 또는 reindex가 필요하다.</mark> 사전이 수만 줄로 커지면 힙 사용량과 open 시간이 늘어나므로 도메인 단어만 남긴다. 파일 배포가 막힌 매니지드 환경에서는 <code>user_dictionary_rules</code>로 설정에 직접 넣는다.</li>
+<li><strong>analyzer 변경은 재색인이다.</strong> <code>text</code> 필드의 analyzer는 매핑 생성 후 바꿀 수 없다. <code>standard</code>로 색인한 뒤 Nori로 바꾸려면 새 인덱스를 만들고 alias를 교체한다.</li>
+<li><strong>n-gram 범위 폭주.</strong> <code>min_gram=1, max_gram=20</code> 같은 설정은 토큰 수를 수십 배로 키워 인덱스 크기와 색인 속도를 악화시킨다. 자동완성은 <code>edge_ngram</code> 2<del>10 범위로 별도 multi-field에만 적용한다. ==<code>decompound_mode: mixed</code>도 인덱스 크기를 30</del>50% 늘린다.==</li>
 <li><strong>오타 허용.</strong> 완성형 한글은 한 글자 차이가 자모 하나 차이인 경우가 많아 글자 단위 fuzzy query가 잘 맞지 않는다. 자모 분리 토크나이저는 Nori에 없으므로 별도 플러그인으로 <code>name.jamo</code> multi-field를 두고 <code>should</code> 절로 함께 묶는다.</li>
 </ul>
 <h2>관련 글</h2>

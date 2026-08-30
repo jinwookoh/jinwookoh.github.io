@@ -121,10 +121,10 @@ export class OrdersModule implements NestModule {
 
 ## 실무에서 걸리는 지점
 
-- **Interceptor는 핸들러가 던진 예외를 먼저 본다.** `catchError`로 삼켜 버리면 Filter까지 도달하지 않아 에러 로그와 모니터링이 조용히 빠진다. 변환만 하고 다시 던지든가, 아예 손대지 않는 편이 안전하다.
-- **`handle()`을 두 번 구독하면 핸들러가 두 번 실행된다.** Observable은 lazy이므로 `firstValueFrom` 같은 변환을 여러 번 걸거나, 스트림을 분기해 각각 구독하면 DB 쓰기가 중복된다. 파이프 하나로 끝내야 한다.
-- **Middleware 예외는 Filter가 받지 못한다.** Middleware는 라우트 결정 전이라 Nest 예외 레이어 밖에서 돈다. `next(err)`로 넘기면 Express 기본 에러 핸들러가 처리하며, 응답 형식이 Filter에서 만든 것과 달라진다. 인증처럼 라우트 정보가 필요한 판단은 Guard로 옮긴다.
-- **Filter 안에서 또 예외가 나면 응답이 끊긴다.** 응답 직렬화나 외부 로깅 호출이 Filter 안에서 실패하면 잡아 줄 상위 레이어가 없다. Filter 내부 로직은 최소화하고, 로깅 실패는 삼킨다.
+- **Interceptor는 핸들러가 던진 예외를 먼저 본다.** ==`catchError`로 삼켜 버리면 Filter까지 도달하지 않아 에러 로그와 모니터링이 조용히 빠진다.== 변환만 하고 다시 던지든가, 아예 손대지 않는 편이 안전하다.
+- **`handle()`을 두 번 구독하면 핸들러가 두 번 실행된다.** ==Observable은 lazy이므로 `firstValueFrom` 같은 변환을 여러 번 걸거나, 스트림을 분기해 각각 구독하면 DB 쓰기가 중복된다.== 파이프 하나로 끝내야 한다.
+- ==**Middleware 예외는 Filter가 받지 못한다.**== Middleware는 라우트 결정 전이라 Nest 예외 레이어 밖에서 돈다. `next(err)`로 넘기면 Express 기본 에러 핸들러가 처리하며, 응답 형식이 Filter에서 만든 것과 달라진다. 인증처럼 라우트 정보가 필요한 판단은 Guard로 옮긴다.
+- **Filter 안에서 또 예외가 나면 응답이 끊긴다.** ==응답 직렬화나 외부 로깅 호출이 Filter 안에서 실패하면 잡아 줄 상위 레이어가 없다.== Filter 내부 로직은 최소화하고, 로깅 실패는 삼킨다.
 - **`useGlobal*`과 `APP_*` 토큰을 섞으면 순서가 헷갈린다.** 전역 Interceptor는 등록 순서대로 감싸고, Filter는 같은 범위에서 나중에 등록된 것이 먼저 평가된다. 전역 등록은 테스트에서 재현이 쉬운 `APP_*` 토큰 한 방식으로 통일한다.
 
 ## 관련 글

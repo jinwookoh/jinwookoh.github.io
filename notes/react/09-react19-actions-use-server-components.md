@@ -157,11 +157,11 @@ export function LikeButton({ postId, likes }: { postId: string; likes: number })
 
 ## 실무에서 걸리는 지점
 
-- **Server Function은 공개 HTTP 엔드포인트다.** `'use server'` 파일에서 export한 함수는 누구나 호출할 수 있다. Controller에서 하던 인증 확인과 입력 검증을 함수 안에서 그대로 수행해야 한다.
-- **렌더 중 생성한 Promise를 `use`에 넘기면 무한 로딩에 빠진다.** 매 렌더마다 새 Promise가 만들어져 suspend가 반복된다. Server Component에서 만들어 props로 넘기거나 `cache`·TanStack Query를 거친 Promise만 전달한다.
+- **Server Function은 공개 HTTP 엔드포인트다.** ==`'use server'` 파일에서 export한 함수는 누구나 호출할 수 있다.== Controller에서 하던 인증 확인과 입력 검증을 함수 안에서 그대로 수행해야 한다.
+- ==**렌더 중 생성한 Promise를 `use`에 넘기면 무한 로딩에 빠진다.**== 매 렌더마다 새 Promise가 만들어져 suspend가 반복된다. Server Component에서 만들어 props로 넘기거나 `cache`·TanStack Query를 거친 Promise만 전달한다.
 - **Server에서 Client로 넘기는 props는 직렬화 가능해야 한다.** 함수·클래스 인스턴스·Symbol은 넘길 수 없고 Server Function만 참조로 전달된다. Prisma의 `Decimal` 같은 타입이 섞이면 경계에서 에러가 난다.
 - **`useActionState`의 Action은 첫 인자로 이전 상태를 받는다.** 일반 폼 `action`과 시그니처가 달라 같은 함수를 두 곳에 재사용하면 인자가 어긋난다.
-- **`'use client'`를 너무 위쪽에 두면 Server Components 이점이 사라진다.** 레이아웃 최상단에 붙이면 하위 트리 전부가 클라이언트 번들에 포함된다. 버튼·입력 같은 최소 단위만 분리한다.
+- **`'use client'`를 너무 위쪽에 두면 Server Components 이점이 사라진다.** ==레이아웃 최상단에 붙이면 하위 트리 전부가 클라이언트 번들에 포함된다.== 버튼·입력 같은 최소 단위만 분리한다.
 
 ## 관련 글
 

@@ -133,10 +133,10 @@ WHERE JOB_EXECUTION_ID = ?;
 
 ## 실무에서 걸리는 지점
 
-- **STARTED 잔존.** `kill -9`·OOM 뒤에는 `END_TIME`이 NULL인 STARTED 레코드가 남아 재시작이 막힌다. `LAST_UPDATED` 기준으로 탐지해 ABANDONED 처리하는 절차를 마련한다.
+- **STARTED 잔존.** ==`kill -9`·OOM 뒤에는 `END_TIME`이 NULL인 STARTED 레코드가 남아 재시작이 막힌다.== `LAST_UPDATED` 기준으로 탐지해 ABANDONED 처리하는 절차를 마련한다.
 - **트랜잭션 매니저 분리.** 메타데이터 DB와 업무 DB가 다르면 `StepBuilder.chunk(size, businessTxManager)`에 업무 DB의 매니저를 넘긴다. XA 없이 두 DB를 한 트랜잭션에 묶을 수 없다.
-- **격리 수준 완화.** 데드락이 잦다고 `READ_COMMITTED`로 낮추면 같은 JobInstance가 두 번 생성될 수 있다. 완화 전에 스케줄러 단의 단일 실행 보장을 갖춘다.
-- **ExecutionContext 비대화.** 큰 객체를 넣으면 chunk 커밋마다 CLOB이 다시 쓰여 병목이 된다. 단순 값만 저장하고, 직렬화기 교체 시 기존 레코드의 역직렬화 호환을 확인한다.
+- **격리 수준 완화.** ==데드락이 잦다고 `READ_COMMITTED`로 낮추면 같은 JobInstance가 두 번 생성될 수 있다.== 완화 전에 스케줄러 단의 단일 실행 보장을 갖춘다.
+- **ExecutionContext 비대화.** ==큰 객체를 넣으면 chunk 커밋마다 CLOB이 다시 쓰여 병목이 된다.== 단순 값만 저장하고, 직렬화기 교체 시 기존 레코드의 역직렬화 호환을 확인한다.
 - **스키마 관리.** 운영에서 `always`는 기동마다 DDL을 시도하고, 업그레이드 시 `migration/` 스크립트를 빠뜨리면 컬럼 불일치로 실패한다. 이력이 쌓이면 `JOB_NAME`·`STATUS`·`START_TIME`에 인덱스를 둔다.
 
 ## 관련 글

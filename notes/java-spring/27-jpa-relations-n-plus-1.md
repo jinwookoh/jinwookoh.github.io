@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 JPA는 관계를 `@ManyToOne`·`@OneToMany`·`@OneToOne`·`@ManyToMany`로 분류한다. 외래 키 컬럼 하나가 `@ManyToOne` 필드 하나에 대응하므로 실무에서 가장 자주 쓰는 것은 `@ManyToOne`이다.
 
-양방향으로 매핑해도 데이터베이스의 외래 키는 한 곳에만 있다. 그래서 JPA는 **연관관계의 주인(owning side)** 을 정한다. 외래 키를 가진 쪽이 주인이며 `@JoinColumn`으로 컬럼명을 지정하고, 반대편은 `mappedBy`로 주인 필드명을 가리키는 읽기 전용이다. 주인이 아닌 쪽 컬렉션에 객체를 추가해도 SQL은 나가지 않으므로, 양방향일 때는 두 참조를 한 번에 맞추는 편의 메서드를 엔티티에 둔다.
+양방향으로 매핑해도 데이터베이스의 외래 키는 한 곳에만 있다. 그래서 JPA는 **연관관계의 주인(owning side)** 을 정한다. 외래 키를 가진 쪽이 주인이며 `@JoinColumn`으로 컬럼명을 지정하고, 반대편은 `mappedBy`로 주인 필드명을 가리키는 읽기 전용이다. ==주인이 아닌 쪽 컬렉션에 객체를 추가해도 SQL은 나가지 않으므로, 양방향일 때는 두 참조를 한 번에 맞추는 편의 메서드를 엔티티에 둔다.==
 
 단방향이 기본이다. 양방향은 반대편 컬렉션을 실제로 탐색해야 할 때만 추가한다. JSON 직렬화 순환과 동기화 누락이 양방향의 대가다.
 
@@ -30,11 +30,11 @@ JPA는 관계를 `@ManyToOne`·`@OneToMany`·`@OneToOne`·`@ManyToMany`로 분�
 | `@ManyToOne`, `@OneToOne` | EAGER | 사용하지 않는 연관 객체까지 매번 조인 |
 | `@OneToMany`, `@ManyToMany` | LAZY | 컬렉션 접근 시 행마다 추가 쿼리 |
 
-N+1은 부모 N건을 한 번에 조회한 뒤 각 부모의 연관 객체에 접근할 때 N번의 SELECT가 추가로 나가는 현상이다. EAGER는 해결책이 아니다. JPQL로 목록을 조회하면 EAGER 연관마다 별도 쿼리가 나가 숨은 N+1이 된다. 정석은 모든 연관관계를 `FetchType.LAZY`로 명시하고, 함께 필요한 연관 객체만 조회 시점에 `JOIN FETCH` 또는 `@EntityGraph`로 한 번의 조인에 끌어오는 것이다.
+N+1은 부모 N건을 한 번에 조회한 뒤 각 부모의 연관 객체에 접근할 때 N번의 SELECT가 추가로 나가는 현상이다. EAGER는 해결책이 아니다. ==JPQL로 목록을 조회하면 EAGER 연관마다 별도 쿼리가 나가 숨은 N+1이 된다.== 정석은 모든 연관관계를 `FetchType.LAZY`로 명시하고, 함께 필요한 연관 객체만 조회 시점에 `JOIN FETCH` 또는 `@EntityGraph`로 한 번의 조인에 끌어오는 것이다.
 
 ### Cascade와 orphanRemoval
 
-`cascade`는 부모의 영속성 작업을 자식에게 전파한다. `CascadeType.ALL`은 `PERSIST`·`MERGE`·`REMOVE`·`REFRESH`·`DETACH` 전부를 포함하며, `REMOVE`는 부모 삭제 시 자식 전부를 지운다. `orphanRemoval = true`는 부모 컬렉션에서 빠진 자식을 DELETE한다. 둘 다 주문–주문항목처럼 부모 없이는 자식이 의미가 없는 소유 관계에만 붙인다. 고객–주문에 `ALL`을 붙이면 고객 정리 한 번에 과거 주문 이력이 사라진다.
+`cascade`는 부모의 영속성 작업을 자식에게 전파한다. `CascadeType.ALL`은 `PERSIST`·`MERGE`·`REMOVE`·`REFRESH`·`DETACH` 전부를 포함하며, `REMOVE`는 부모 삭제 시 자식 전부를 지운다. `orphanRemoval = true`는 부모 컬렉션에서 빠진 자식을 DELETE한다. 둘 다 주문–주문항목처럼 부모 없이는 자식이 의미가 없는 소유 관계에만 붙인다. ==고객–주문에 `ALL`을 붙이면 고객 정리 한 번에 과거 주문 이력이 사라진다.==
 
 ### 값 객체 — @Embeddable
 

@@ -24,7 +24,7 @@
   <h1>Kubernetes 아키텍처와 Pod</h1>
   <p class="summary">Control Plane과 Worker Node가 선언된 상태를 어떻게 유지하는지, 그 최소 단위인 Pod이 왜 휘발성인지 정리한다.</p>
   <div class="content">
-<p>컨테이너 한두 개는 <code>docker run</code>으로 충분하다. 문제는 컨테이너가 여러 서버에 걸쳐 수십 개를 넘어갈 때 생긴다. 죽은 프로세스의 재시작, 부하에 따른 증감, 무중단 배포, IP가 바뀐 컨테이너의 탐색을 수동으로 처리하는 순간 운영은 사람의 반응 속도에 묶인다. <mark>Kubernetes는 &quot;이 상태로 유지하라&quot;는 선언을 받아 클러스터가 스스로 그 상태로 수렴하게 만드는 시스템이다.</mark></p>
+<p>컨테이너 한두 개는 <code>docker run</code>으로 충분하다. 문제는 컨테이너가 여러 서버에 걸쳐 수십 개를 넘어갈 때 생긴다. 죽은 프로세스의 재시작, 부하에 따른 증감, 무중단 배포, IP가 바뀐 컨테이너의 탐색을 수동으로 처리하는 순간 운영은 사람의 반응 속도에 묶인다. Kubernetes는 &quot;이 상태로 유지하라&quot;는 선언을 받아 클러스터가 스스로 그 상태로 수렴하게 만드는 시스템이다.</p>
 <h2>핵심 개념</h2>
 <h3>Desired State와 Reconciliation Loop</h3>
 <p>Kubernetes의 모든 동작은 선언형이다. 사용자는 YAML로 원하는 상태를 제출하고, 컨트롤러는 현재 상태와의 차이를 찾아 리소스를 만들거나 지워 좁힌다. 이 무한 반복이 Reconciliation Loop이며, 자가 치유·수평 확장·롤링 업데이트는 전부 이 루프의 결과물이다.</p>
@@ -53,7 +53,7 @@
 <td align="left">Node·ReplicaSet·Endpoint 등 수십 개 컨트롤러를 한 프로세스로 묶은 것. 각각 Reconciliation Loop를 돈다.</td>
 </tr>
 </tbody></table>
-<p><mark>API Server는 stateless이고 etcd가 단일 진실이므로, etcd를 잃으면 클러스터 전체를 잃는다.</mark> 운영 환경에서 etcd를 홀수 노드로 구성하고 정기 스냅샷을 남기는 이유다.</p>
+<p>API Server는 stateless이고 etcd가 단일 진실이므로, etcd를 잃으면 클러스터 전체를 잃는다. 운영 환경에서 etcd를 홀수 노드로 구성하고 정기 스냅샷을 남기는 이유다.</p>
 <h3>Worker Node</h3>
 <p>kubelet은 자기 노드에 배정된 Pod 명세를 받아 Container Runtime에 실행을 지시하고 상태와 Probe 결과를 보고하는 노드 에이전트다. kube-proxy는 Service 트래픽을 Pod으로 보내는 iptables 또는 IPVS 규칙을 관리한다. Container Runtime은 CRI를 구현한 containerd나 CRI-O를 쓴다. 1.24에서 dockershim이 제거되어 Docker Engine은 런타임으로 쓰지 않는다.</p>
 <p>kube-proxy와 CNI는 층위가 다르다. CNI는 Pod에 IP를 부여하고 노드 간 Pod 네트워크를 구성하며, kube-proxy는 그 위에서 Service 라우팅만 담당한다.</p>
@@ -141,11 +141,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Memory limit 초과는 OOMKilled, CPU limit 초과는 throttle이다.</strong></mark> JVM은 기본으로 컨테이너 메모리의 25%만 힙으로 잡으므로 <code>-XX:MaxRAMPercentage</code>를 명시하고, limit은 메타스페이스·스레드 스택을 포함한 전체 footprint 기준으로 잡는다.</li>
-<li><strong>CPU limit은 JVM 시작을 늦춘다.</strong> JIT가 throttle에 걸려 readiness까지 수십 초가 걸리고, 그 사이 liveness가 실패하면 재시작 루프에 빠진다. startupProbe로 시작 구간을 분리한다.</li>
+<li><strong>Memory limit 초과는 OOMKilled, CPU limit 초과는 throttle이다.</strong> <mark>JVM은 기본으로 컨테이너 메모리의 25%만 힙으로 잡으므로 <code>-XX:MaxRAMPercentage</code>를 명시하고</mark>, limit은 메타스페이스·스레드 스택을 포함한 전체 footprint 기준으로 잡는다.</li>
+<li><strong>CPU limit은 JVM 시작을 늦춘다.</strong> <mark>JIT가 throttle에 걸려 readiness까지 수십 초가 걸리고, 그 사이 liveness가 실패하면 재시작 루프에 빠진다.</mark> startupProbe로 시작 구간을 분리한다.</li>
 <li><strong>직접 만든 Pod은 노드 장애 시 복구되지 않는다.</strong> restartPolicy는 같은 노드 안의 컨테이너 재시작만 다루며, 노드 간 재배치는 Deployment 같은 상위 컨트롤러의 몫이다.</li>
 <li><strong>Init Container가 멈추면 STATUS가 <code>Init:0/1</code>에 고정된다.</strong> <code>kubectl logs &lt;pod&gt; -c &lt;init-container&gt;</code>로 원인을 본다.</li>
-<li><strong>Event 누적이 etcd를 키운다.</strong> 잦은 재시작과 CronJob은 Event 객체를 대량으로 쌓아 API Server 응답을 늦춘다.</li>
+<li><strong>Event 누적이 etcd를 키운다.</strong> <mark>잦은 재시작과 CronJob은 Event 객체를 대량으로 쌓아 API Server 응답을 늦춘다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

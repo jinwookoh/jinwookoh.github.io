@@ -24,7 +24,7 @@
   <h1>Job 실행 — JobLauncher·JobOperator·JobExplorer</h1>
   <p class="summary">Job을 띄우고 멈추고 다시 돌리는 세 인터페이스의 역할 분담과 동기·비동기 실행, JobParameters 식별 규칙을 정리한다.</p>
   <div class="content">
-<p>실행 진입점이 정리되어 있지 않으면 애플리케이션 시작 시 등록된 Job이 전부 자동으로 돌고, REST 요청 스레드가 Job이 끝날 때까지 블로킹되고, 실패한 실행을 이어 돌리는 대신 DB 상태를 손으로 고치게 된다. <mark>Spring Batch는 실행 엔진(JobLauncher), 제어(JobOperator), 조회(JobExplorer)를 분리해 이 문제를 다룬다.</mark></p>
+<p>실행 진입점이 정리되어 있지 않으면 애플리케이션 시작 시 등록된 Job이 전부 자동으로 돌고, REST 요청 스레드가 Job이 끝날 때까지 블로킹되고, 실패한 실행을 이어 돌리는 대신 DB 상태를 손으로 고치게 된다. Spring Batch는 실행 엔진(JobLauncher), 제어(JobOperator), 조회(JobExplorer)를 분리해 이 문제를 다룬다.</p>
 <h2>핵심 개념</h2>
 <p>JobLauncher는 <code>run(Job, JobParameters)</code> 하나로 JobExecution을 만들어 반환하는 저수준 엔진이다. JobOperator는 <code>start</code>·<code>startNextInstance</code>·<code>stop</code>·<code>restart</code>·<code>abandon</code>으로 라이프사이클을 제어하며, <code>start</code>는 내부에서 JobLauncher를 호출한다. JobExplorer는 <code>findRunningJobExecutions</code>·<code>getJobExecution</code> 같은 read-only 조회만 담당한다. Spring Boot는 세 bean과 이름으로 Job을 찾는 JobRegistry를 자동 구성한다.</p>
 <h3>라이프사이클 제어</h3>
@@ -37,9 +37,9 @@
 </ul>
 <p>Batch 5.x의 <code>start(String jobName, Properties)</code>는 execution id(Long)를 반환한다. Batch 6.0부터는 JobOperator가 JobLauncher를 확장해 JobExecution을 반환하고, FAILED execution을 복구 완료로 표시하는 <code>recover</code>가 추가되며, JobExplorer는 JobRepository로 합쳐진다.</p>
 <h3>동기와 비동기</h3>
-<p><code>TaskExecutorJobLauncher</code>의 기본 <code>SyncTaskExecutor</code>는 호출 스레드에서 Job을 끝까지 돌리므로 <code>run</code> 반환 시점이 곧 완료 시점이다. 스레드 풀을 주면 JobExecution을 즉시 반환하고 Job은 별도 스레드에서 돈다. <mark>CLI 일회성 실행은 동기, <code>@Scheduled</code>와 HTTP 트리거는 비동기가 맞다.</mark></p>
+<p><code>TaskExecutorJobLauncher</code>의 기본 <code>SyncTaskExecutor</code>는 호출 스레드에서 Job을 끝까지 돌리므로 <code>run</code> 반환 시점이 곧 완료 시점이다. 스레드 풀을 주면 JobExecution을 즉시 반환하고 Job은 별도 스레드에서 돈다. CLI 일회성 실행은 동기, <code>@Scheduled</code>와 HTTP 트리거는 비동기가 맞다.</p>
 <h3>JobParameters와 JobInstance 식별</h3>
-<p>JobInstance는 Job 이름과 identifying 파라미터의 조합으로 식별된다. 타입은 String·Long·Double·Date·LocalDate·LocalDateTime을 명시하며, <code>addString(&quot;count&quot;, &quot;100&quot;)</code>과 <code>addLong(&quot;count&quot;, 100L)</code>은 다른 instance가 된다. 세 번째 인자를 <code>false</code>로 주면 non-identifying이 되어 식별에서 빠진다. 비즈니스 키는 identifying, <code>traceId</code> 같은 실행 환경 값은 non-identifying으로 둔다.</p>
+<p>JobInstance는 Job 이름과 identifying 파라미터의 조합으로 식별된다. 타입은 String·Long·Double·Date·LocalDate·LocalDateTime을 명시하며, <mark><code>addString(&quot;count&quot;, &quot;100&quot;)</code>과 <code>addLong(&quot;count&quot;, 100L)</code>은 다른 instance가 된다.</mark> 세 번째 인자를 <code>false</code>로 주면 non-identifying이 되어 식별에서 빠진다. 비즈니스 키는 identifying, <code>traceId</code> 같은 실행 환경 값은 non-identifying으로 둔다.</p>
 <h2>코드</h2>
 <p>JobOperator로 실행하는 서비스. 예외별로 의미가 다르므로 나누어 처리한다.</p>
 <pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
@@ -152,9 +152,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Spring Boot 자동 실행.</strong> <code>spring.batch.job.enabled</code> 기본값이 true라 시작 시 등록된 Job이 전부 실행된다.</mark> 운영에서는 false로 두거나 <code>spring.batch.job.name</code>으로 대상을 한정한다.</li>
-<li><strong>동기 launcher의 스레드 점유.</strong> <code>@Scheduled</code>에서 동기 launcher를 쓰면 스케줄러 스레드가 묶여 다음 cron이 밀리고, HTTP에서는 응답이 Job 완료까지 지연된다.</li>
-<li><strong>stop 이후 polling.</strong> <code>stop</code>은 STOPPING 마킹만 하고 반환한다. 곧바로 <code>restart</code>하면 아직 STARTED라 실패하므로 STOPPED를 확인한 뒤 다음 명령을 보낸다.</li>
+<li><strong>Spring Boot 자동 실행.</strong> <code>spring.batch.job.enabled</code> 기본값이 true라 시작 시 등록된 Job이 전부 실행된다. 운영에서는 false로 두거나 <code>spring.batch.job.name</code>으로 대상을 한정한다.</li>
+<li><strong>동기 launcher의 스레드 점유.</strong> <mark><code>@Scheduled</code>에서 동기 launcher를 쓰면 스케줄러 스레드가 묶여 다음 cron이 밀리고, HTTP에서는 응답이 Job 완료까지 지연된다.</mark></li>
+<li><strong>stop 이후 polling.</strong> <code>stop</code>은 STOPPING 마킹만 하고 반환한다. <mark>곧바로 <code>restart</code>하면 아직 STARTED라 실패하므로 STOPPED를 확인한 뒤 다음 명령을 보낸다.</mark></li>
 <li><strong>파라미터 타입 drift.</strong> 코드는 <code>addLong</code>, CLI는 String으로 넘기면 다른 JobInstance가 되어 재시작이 이어지지 않는다. CLI에서는 <code>param(long)=123</code>처럼 타입 힌트를 붙인다.</li>
 <li><strong>메타데이터 누적.</strong> <code>BATCH_*</code> 테이블은 계속 쌓이므로 대시보드 polling이 잦으면 DB 부담이 커진다. 조회 결과를 캐시하고 오래된 이력은 FK 순서로 정리한다.</li>
 </ul>

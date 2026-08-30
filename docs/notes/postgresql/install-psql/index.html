@@ -24,7 +24,7 @@
   <h1>설치와 psql 접속</h1>
   <p class="summary">로컬 PostgreSQL을 Docker로 띄우고 psql 접속 옵션·메타 명령·인증 파일을 표준 형태로 정리한다</p>
   <div class="content">
-<p>PostgreSQL 작업은 서버 프로세스를 띄우고 클라이언트로 접속하는 데서 시작한다. 이 단계가 정리되어 있지 않으면 설치 방식마다 초기 사용자와 인증 규칙이 달라 접속에서 막히고, 개발 PC·CI·운영 서버 환경이 제각각이 되어 같은 SQL이 한 곳에서만 동작한다. 비밀번호를 환경 변수에 평문으로 남기는 습관도 여기서 굳어진다. <mark>설치는 Docker를 기본으로 하고, 접속은 psql의 옵션·URI·설정 파일을 구분해 둔다.</mark></p>
+<p>PostgreSQL 작업은 서버 프로세스를 띄우고 클라이언트로 접속하는 데서 시작한다. 이 단계가 정리되어 있지 않으면 설치 방식마다 초기 사용자와 인증 규칙이 달라 접속에서 막히고, 개발 PC·CI·운영 서버 환경이 제각각이 되어 같은 SQL이 한 곳에서만 동작한다. 비밀번호를 환경 변수에 평문으로 남기는 습관도 여기서 굳어진다. 설치는 Docker를 기본으로 하고, 접속은 psql의 옵션·URI·설정 파일을 구분해 둔다.</p>
 <h2>핵심 개념</h2>
 <p>설치 경로는 세 가지다. Docker는 호스트를 오염시키지 않고 버전을 격리하며 CI·운영과 같은 이미지를 쓰므로 기본 선택이다. Homebrew는 macOS 네이티브 설치로 <code>postgres</code> 슈퍼유저와 OS 사용자명 롤을 자동 생성해 비밀번호 없이 로컬 접속이 된다. apt는 Ubuntu·Debian용으로 운영 서버에 가장 가깝고, <code>sudo -u postgres psql</code>로 접속한다. Windows는 WSL2 위의 apt 또는 Docker Desktop을 쓴다.</p>
 <p>Docker 컨테이너는 <code>POSTGRES_PASSWORD</code>가 없으면 기동을 거부한다. <code>/var/lib/postgresql/data</code>는 컨테이너 삭제와 함께 사라지므로 named volume을 마운트한다.</p>
@@ -67,8 +67,8 @@
 </tr>
 </tbody></table>
 <p><code>\c - appuser</code>의 <code>-</code>는 현재 값 유지로, DB를 둔 채 사용자만 바꾼다. 전환 시 새 backend 프로세스가 생성되어 진행 중이던 트랜잭션은 종료된다.</p>
-<p><mark>원격 접속은 서버의 <code>pg_hba.conf</code>에서 허용 IP와 인증 방식을 모두 만족해야 통과한다.</mark> 인증 방식은 <code>trust</code>(무인증, 개발 전용), <code>peer</code>(OS 사용자명 매칭, 로컬 소켓), <code>md5</code>(PostgreSQL 18부터 deprecated), <code>scram-sha-256</code>(현행 표준)이 있고 신규 설정은 <code>scram-sha-256</code>만 쓴다. <code>postgresql.conf</code>의 <code>listen_addresses</code>가 <code>localhost</code>면 외부 TCP 접속이 열리지 않는다.</p>
-<p>비밀번호는 <code>~/.pgpass</code>에 <code>host:port:db:user:password</code> 형식으로 두고 <code>chmod 600</code>을 적용한다. 권한이 느슨하면 psql이 파일을 무시한다. <code>~/.psqlrc</code>에는 <code>\timing on</code> 같은 설정을 넣는다.</p>
+<p>원격 접속은 서버의 <code>pg_hba.conf</code>에서 허용 IP와 인증 방식을 모두 만족해야 통과한다. 인증 방식은 <code>trust</code>(무인증, 개발 전용), <code>peer</code>(OS 사용자명 매칭, 로컬 소켓), <code>md5</code>(PostgreSQL 18부터 deprecated), <code>scram-sha-256</code>(현행 표준)이 있고 신규 설정은 <code>scram-sha-256</code>만 쓴다. <code>postgresql.conf</code>의 <code>listen_addresses</code>가 <code>localhost</code>면 외부 TCP 접속이 열리지 않는다.</p>
+<p>비밀번호는 <code>~/.pgpass</code>에 <code>host:port:db:user:password</code> 형식으로 두고 <code>chmod 600</code>을 적용한다. <mark>권한이 느슨하면 psql이 파일을 무시한다.</mark> <code>~/.psqlrc</code>에는 <code>\timing on</code> 같은 설정을 넣는다.</p>
 <h2>코드</h2>
 <p>개발용 컨테이너를 named volume과 함께 띄우고 접속한 뒤 설치를 검증한다.</p>
 <pre><code class="hljs language-bash">docker run -d \
@@ -114,10 +114,10 @@ psql <span class="hljs-string">&quot;postgresql://appuser@db.example.com:5432/my
       <span class="hljs-attr">ddl-auto:</span> <span class="hljs-string">validate</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>포트 5432 충돌.</strong> Homebrew PostgreSQL이 떠 있는 상태에서 Docker 컨테이너를 같은 포트로 띄우면 기동이 실패하거나 호스트 쪽 인스턴스에 접속되어 데이터가 엉뚱한 곳에 쌓인다. 하나만 쓰거나 <code>-p 5433:5432</code>로 포트를 분리한다.</li>
+<li><strong>포트 5432 충돌.</strong> <mark>Homebrew PostgreSQL이 떠 있는 상태에서 Docker 컨테이너를 같은 포트로 띄우면 기동이 실패하거나 호스트 쪽 인스턴스에 접속되어 데이터가 엉뚱한 곳에 쌓인다.</mark> 하나만 쓰거나 <code>-p 5433:5432</code>로 포트를 분리한다.</li>
 <li><strong><code>localhost</code>와 Unix 소켓의 인증 규칙 차이.</strong> <code>psql</code>만 치면 소켓으로, <code>-h localhost</code>를 주면 TCP로 붙고 <code>pg_hba.conf</code>의 <code>local</code> 행과 <code>host</code> 행이 각각 적용된다. 한쪽은 <code>peer</code>로 통과하고 다른 쪽은 비밀번호를 요구할 수 있다.</li>
-<li><mark><strong><code>PGPASSWORD</code> 평문 노출.</strong></mark> 환경 변수로 넘긴 비밀번호는 다른 사용자가 프로세스 환경에서 읽을 수 있다. <code>.pgpass</code>를 쓰고, 운영에서는 Secrets Manager나 Vault에서 주입한다. URI 비밀번호의 <code>@</code> 같은 특수문자는 <code>%40</code>으로 URL 인코딩해야 파싱된다.</li>
-<li><strong><code>COPY</code>와 <code>\copy</code>.</strong> <code>COPY</code>는 서버 파일 시스템을 읽는 SQL 명령이라 클라이언트의 로컬 파일을 볼 수 없고 별도 권한이 필요하다. 클라이언트 쪽 CSV는 <code>\copy</code>로 옮긴다.</li>
+<li><strong><code>PGPASSWORD</code> 평문 노출.</strong> 환경 변수로 넘긴 비밀번호는 다른 사용자가 프로세스 환경에서 읽을 수 있다. <code>.pgpass</code>를 쓰고, 운영에서는 Secrets Manager나 Vault에서 주입한다. URI 비밀번호의 <code>@</code> 같은 특수문자는 <code>%40</code>으로 URL 인코딩해야 파싱된다.</li>
+<li><strong><code>COPY</code>와 <code>\copy</code>.</strong> <mark><code>COPY</code>는 서버 파일 시스템을 읽는 SQL 명령이라 클라이언트의 로컬 파일을 볼 수 없고 별도 권한이 필요하다.</mark> 클라이언트 쪽 CSV는 <code>\copy</code>로 옮긴다.</li>
 <li><strong>인코딩 불일치로 한글이 <code>?</code>로 출력.</strong> <code>SHOW server_encoding</code>·<code>SHOW client_encoding</code>이 모두 UTF8인지 확인하고, 클라이언트는 <code>\encoding UTF8</code>로 바꾼다. 서버는 DB 생성 시 UTF8로 만든다.</li>
 </ul>
 <h2>관련 글</h2>

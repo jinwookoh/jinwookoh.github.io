@@ -180,11 +180,11 @@ export class HeroClient implements OnModuleInit {
 
 ## 실무에서 걸리는 지점
 
-- **Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.** `subscribeToResponseOf()`를 빠뜨리면 `send()`가 응답을 영원히 기다린다. 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.
+- **Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.** ==`subscribeToResponseOf()`를 빠뜨리면 `send()`가 응답을 영원히 기다린다.== 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.
 - **오프셋 커밋과 재시도 의미를 정해야 한다.** 자동 커밋에서 핸들러가 실패하면 메시지가 유실될 수 있고, 수동 커밋에서 커밋을 빠뜨리면 반복 소비한다. 이벤트 핸들러의 미처리 예외는 기본 재시도 대상이므로 핸들러를 멱등하게 쓰고, 영구 실패는 일반 예외로 구분해 DLQ로 보낸다.
-- **긴 작업은 세션 타임아웃을 넘긴다.** `sessionTimeout` 안에 하트비트가 없으면 리밸런싱으로 파티션이 다른 인스턴스로 넘어간다. `ctx.getHeartbeat()`를 중간에 호출하거나 작업을 큐로 넘긴다.
-- **proto 계약 관리가 서비스 경계를 결정한다.** proto 파일을 저장소마다 복사하면 버전이 어긋난다. 별도 패키지로 배포하고 `protoPath`에 배열을 넘겨 함께 로드한다. 기본 4MB 메시지 제한은 `maxReceiveMessageLength`로 조정한다.
-- **하이브리드 앱은 가드·파이프 적용 범위가 다르다.** HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다. `connectMicroservice()`에 `inheritAppConfig: true`를 명시하거나 따로 등록한다. 예외는 `RpcException` 계열을 던져야 필터가 응답 형식을 맞춘다.
+- **긴 작업은 세션 타임아웃을 넘긴다.** ==`sessionTimeout` 안에 하트비트가 없으면 리밸런싱으로 파티션이 다른 인스턴스로 넘어간다.== `ctx.getHeartbeat()`를 중간에 호출하거나 작업을 큐로 넘긴다.
+- **proto 계약 관리가 서비스 경계를 결정한다.** proto 파일을 저장소마다 복사하면 버전이 어긋난다. 별도 패키지로 배포하고 `protoPath`에 배열을 넘겨 함께 로드한다. ==기본 4MB 메시지 제한은 `maxReceiveMessageLength`로 조정한다.==
+- **하이브리드 앱은 가드·파이프 적용 범위가 다르다.** ==HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다.== `connectMicroservice()`에 `inheritAppConfig: true`를 명시하거나 따로 등록한다. 예외는 `RpcException` 계열을 던져야 필터가 응답 형식을 맞춘다.
 
 ## 관련 글
 

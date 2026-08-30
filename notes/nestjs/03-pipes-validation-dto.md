@@ -19,7 +19,7 @@ Pipe는 `PipeTransform`을 구현한 `@Injectable()` 클래스로, 라우트 핸
 
 Spring과 대응시키면 DTO 검증은 `@Valid` + Bean Validation, `ParseIntPipe` 같은 변환 Pipe는 `Converter`·`@RequestParam` 타입 바인딩에 해당한다.
 
-내장 Pipe는 `ValidationPipe`, `ParseIntPipe`, `ParseBoolPipe`, `ParseArrayPipe`, `ParseUUIDPipe`, `ParseEnumPipe`, `ParseDatePipe`, `ParseFilePipe`, `DefaultValuePipe` 등이 있고, Zod·Valibot 같은 Standard Schema 호환 스키마를 받는 `StandardSchemaValidationPipe`도 추가됐다. 바인딩 범위는 파라미터·메서드(`@UsePipes`)·컨트롤러·전역 네 단계다. 전역 등록은 `app.useGlobalPipes()`와 `APP_PIPE` 프로바이더 두 방식이 있으며, 후자만 DI 컨테이너 안에서 생성되므로 다른 프로바이더를 주입받는 Pipe는 `APP_PIPE`로 등록한다.
+내장 Pipe는 `ValidationPipe`, `ParseIntPipe`, `ParseBoolPipe`, `ParseArrayPipe`, `ParseUUIDPipe`, `ParseEnumPipe`, `ParseDatePipe`, `ParseFilePipe`, `DefaultValuePipe` 등이 있고, Zod·Valibot 같은 Standard Schema 호환 스키마를 받는 `StandardSchemaValidationPipe`도 추가됐다. 바인딩 범위는 파라미터·메서드(`@UsePipes`)·컨트롤러·전역 네 단계다. 전역 등록은 `app.useGlobalPipes()`와 `APP_PIPE` 프로바이더 두 방식이 있으며, ==후자만 DI 컨테이너 안에서 생성되므로 다른 프로바이더를 주입받는 Pipe는 `APP_PIPE`로 등록한다.==
 
 `ValidationPipe`는 `class-validator`와 `class-transformer`를 사용하며 두 패키지는 직접 설치한다. plain object를 DTO 인스턴스로 변환한 뒤 데코레이터 규칙을 검사한다.
 
@@ -137,10 +137,10 @@ export type CreateCat = z.infer<typeof createCatSchema>;
 
 ## 실무에서 걸리는 지점
 
-- **`whitelist` 없이 운영하면 mass assignment가 열린다.** 본문에 `isAdmin: true`가 섞여 들어와도 그대로 서비스로 넘어간다. `whitelist: true`를 기본으로 두고, 계약을 엄격히 지키려면 `forbidNonWhitelisted`까지 켠다.
-- **`enableImplicitConversion`은 boolean에서 함정이 있다.** `class-transformer`는 `"false"` 문자열을 `Boolean("false")`, 즉 `true`로 바꾼다. 쿼리의 boolean 값은 `ParseBoolPipe`나 `@Transform`으로 명시 변환해야 한다.
+- **`whitelist` 없이 운영하면 mass assignment가 열린다.** ==본문에 `isAdmin: true`가 섞여 들어와도 그대로 서비스로 넘어간다.== `whitelist: true`를 기본으로 두고, 계약을 엄격히 지키려면 `forbidNonWhitelisted`까지 켠다.
+- **`enableImplicitConversion`은 boolean에서 함정이 있다.** ==`class-transformer`는 `"false"` 문자열을 `Boolean("false")`, 즉 `true`로 바꾼다.== 쿼리의 boolean 값은 `ParseBoolPipe`나 `@Transform`으로 명시 변환해야 한다.
 - **배열 본문은 타입 정보가 없다.** `@Body() dtos: CreateCatDto[]`는 런타임 `metatype`이 `Array`로만 남아 검증이 통과되지 않는다. 배열을 감싸는 래퍼 DTO를 만들거나 `ParseArrayPipe({ items: CreateCatDto })`를 쓴다.
-- **중첩 객체는 `@ValidateNested()`와 `@Type()`을 함께 붙여야 한다.** 둘 중 하나라도 빠지면 중첩 객체가 plain object로 남아 내부 규칙이 검사되지 않는다.
+- **중첩 객체는 `@ValidateNested()`와 `@Type()`을 함께 붙여야 한다.** ==둘 중 하나라도 빠지면 중첩 객체가 plain object로 남아 내부 규칙이 검사되지 않는다.==
 - **에러 응답 형식은 `exceptionFactory`로 통일한다.** 기본 400 응답은 `message` 배열에 문자열만 나열되어 필드별 매핑이 어렵다. `ValidationError[]`를 `{ field, constraints }` 구조로 바꾸는 팩토리를 전역 Pipe에 넣는다.
 
 ## 관련 글

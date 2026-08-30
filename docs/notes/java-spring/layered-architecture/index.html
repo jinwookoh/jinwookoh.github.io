@@ -24,7 +24,7 @@
   <h1>계층 설계 — 서비스 레이어 분리</h1>
   <p class="summary">Controller·Service·Repository 3계층의 책임과 의존 방향, 비즈니스 로직과 트랜잭션 경계를 서비스에 두는 이유</p>
   <div class="content">
-<p>요청을 받고, 값을 검증하고, DB에서 조회하고, 계산하고, 저장하고, 응답을 만드는 일을 컨트롤러 메서드 하나에 전부 넣어도 코드는 동작한다. 문제는 동작 이후에 드러난다. 같은 로직을 배치 작업이나 메시지 컨슈머에서 재사용하려면 HTTP 없이 호출할 방법이 없고, 비즈니스 규칙만 단위 테스트하려 해도 매번 HTTP 요청을 흉내 내야 하며, 어디까지가 하나의 트랜잭션인지 경계가 흐려진다. <mark>레이어드 아키텍처는 이런 비대한 컨트롤러(fat controller)를 막기 위해 책임을 세 겹으로 나누는 구조다.</mark></p>
+<p>요청을 받고, 값을 검증하고, DB에서 조회하고, 계산하고, 저장하고, 응답을 만드는 일을 컨트롤러 메서드 하나에 전부 넣어도 코드는 동작한다. 문제는 동작 이후에 드러난다. 같은 로직을 배치 작업이나 메시지 컨슈머에서 재사용하려면 HTTP 없이 호출할 방법이 없고, 비즈니스 규칙만 단위 테스트하려 해도 매번 HTTP 요청을 흉내 내야 하며, 어디까지가 하나의 트랜잭션인지 경계가 흐려진다. 레이어드 아키텍처는 이런 비대한 컨트롤러(fat controller)를 막기 위해 책임을 세 겹으로 나누는 구조다.</p>
 <h2>핵심 개념</h2>
 <h3>세 계층의 책임</h3>
 <table>
@@ -57,7 +57,7 @@
 <h3>스테레오타입 어노테이션</h3>
 <p><code>@Service</code>는 내부적으로 <code>@Component</code>를 메타 어노테이션으로 가진다. 컴포넌트 스캔 대상이 된다는 점에서 기능은 같고, 차이는 역할을 이름으로 드러낸다는 점이다. <code>@Controller</code>·<code>@Service</code>·<code>@Repository</code>를 묶어 스테레오타입 어노테이션이라 부른다. <code>@Repository</code>만은 부가 기능이 하나 있다. <code>PersistenceExceptionTranslationPostProcessor</code>가 이 어노테이션이 붙은 Bean을 대상으로 JPA·JDBC 등 기술별 예외를 Spring의 <code>DataAccessException</code> 계층으로 변환한다.</p>
 <h3>인터페이스 도입 기준</h3>
-<p>과거에는 <code>OrderService</code> 인터페이스와 <code>OrderServiceImpl</code> 구현체를 항상 쌍으로 만들었다. 현재는 구현이 여러 개로 갈릴 가능성이 있을 때만 인터페이스를 두는 것이 일반적이다. 결제를 카드·계좌이체로 교체해야 한다면 인터페이스가 의미를 갖지만, 구현체가 하나뿐인 서비스에 인터페이스를 강제하면 파일만 늘어난다. Spring은 인터페이스가 없어도 CGLIB 프록시로 <code>@Transactional</code>을 적용하므로, 인터페이스가 AOP의 전제 조건도 아니다.</p>
+<p>과거에는 <code>OrderService</code> 인터페이스와 <code>OrderServiceImpl</code> 구현체를 항상 쌍으로 만들었다. 현재는 구현이 여러 개로 갈릴 가능성이 있을 때만 인터페이스를 두는 것이 일반적이다. 결제를 카드·계좌이체로 교체해야 한다면 인터페이스가 의미를 갖지만, 구현체가 하나뿐인 서비스에 인터페이스를 강제하면 파일만 늘어난다. <mark>Spring은 인터페이스가 없어도 CGLIB 프록시로 <code>@Transactional</code>을 적용하므로, 인터페이스가 AOP의 전제 조건도 아니다.</mark></p>
 <h3>의존 방향</h3>
 <p>의존은 <code>Controller → Service → Repository</code> 한 방향으로만 흐른다. 컨트롤러는 서비스를 알지만 서비스는 컨트롤러를 모르고, 서비스는 리포지토리를 알지만 리포지토리는 서비스를 모른다. 이 방향이 역전되거나 계층 안에서 서로를 호출하면 순환 의존이 생기고, Spring Boot는 기본 설정에서 순환 참조를 기동 실패로 처리한다. 화살표가 한 방향인지 확인하는 것이 구조 건전성을 보는 가장 빠른 점검이다.</p>
 <h2>코드</h2>
@@ -118,11 +118,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>서비스 시그니처에 HTTP 타입이 들어온다.</strong> <code>HttpServletRequest</code>나 <code>ResponseEntity</code>가 서비스 메서드에 등장하면 계층 경계가 무너진 신호다.</mark> 헤더·쿠키·세션 처리는 컨트롤러에서 끝내고 서비스에는 순수한 값과 도메인 타입만 넘긴다.</li>
+<li><strong>서비스 시그니처에 HTTP 타입이 들어온다.</strong> <code>HttpServletRequest</code>나 <code>ResponseEntity</code>가 서비스 메서드에 등장하면 계층 경계가 무너진 신호다. 헤더·쿠키·세션 처리는 컨트롤러에서 끝내고 서비스에는 순수한 값과 도메인 타입만 넘긴다.</li>
 <li><strong>컨트롤러가 다른 컨트롤러를 호출한다.</strong> 공통 로직이 필요하면 컨트롤러 간 호출이 아니라 서비스로 내려서 두 컨트롤러가 같은 서비스를 쓰도록 한다. 컨트롤러 간 호출은 HTTP 컨텍스트 의존과 순환 참조를 동시에 만든다.</li>
 <li><strong>리포지토리에 판단이 들어간다.</strong> 잔액 부족 여부 같은 규칙은 리포지토리가 아니라 서비스나 도메인 객체의 몫이다. 리포지토리는 저장·조회 메서드만 노출한다.</li>
 <li><strong>서비스가 서비스를 호출하다 순환한다.</strong> 서비스 간 호출 자체는 허용되지만 <code>A → B → A</code> 형태가 생기면 기동이 실패한다. 공통 부분을 제3의 서비스로 추출하거나, 이벤트로 결합을 끊는다.</li>
-<li><mark><strong><code>@Transactional</code> 내부 호출은 프록시를 타지 않는다.</strong></mark> 같은 클래스 안에서 <code>this.method()</code>로 부르면 트랜잭션 어드바이스가 적용되지 않는다. 트랜잭션 경계가 필요한 메서드는 외부 Bean에서 호출되도록 분리한다.</li>
+<li><strong><code>@Transactional</code> 내부 호출은 프록시를 타지 않는다.</strong> 같은 클래스 안에서 <code>this.method()</code>로 부르면 트랜잭션 어드바이스가 적용되지 않는다. 트랜잭션 경계가 필요한 메서드는 외부 Bean에서 호출되도록 분리한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

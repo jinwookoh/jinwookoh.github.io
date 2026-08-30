@@ -150,11 +150,11 @@ spec:
 
 ## 실무에서 걸리는 지점
 
-- **`latest` 태그.** 어느 커밋이 떠 있는지 알 수 없고 롤백 기준도 사라진다. semver 또는 git SHA로 고정한다. 태그를 재사용해 덮어쓰면 노드 캐시 때문에 구버전이 뜬다.
+- **`latest` 태그.** 어느 커밋이 떠 있는지 알 수 없고 롤백 기준도 사라진다. semver 또는 git SHA로 고정한다. ==태그를 재사용해 덮어쓰면 노드 캐시 때문에 구버전이 뜬다.==
 - **`upgrade --install`.** 첫 배포에 `upgrade`만 쓰면 Release가 없어 실패한다. `--install`을 붙여야 파이프라인이 멱등해진다. 적용 전 `helm template`·`helm lint`로 렌더링 결과를 확인한다.
 - **Hook 리소스 누적.** Hook Job은 Release 관리 대상이 아니어서 삭제 정책이 없으면 실행 후 남고, 이름이 같은 Job은 다음 업그레이드에서 충돌한다. `hook-delete-policy: hook-succeeded`와 `hook-weight`를 함께 지정한다.
-- **selfHeal과 HPA 충돌.** `replicas`를 차트에 박아 두면 HPA가 늘린 값을 ArgoCD가 되돌린다. 템플릿에서 `replicas`를 빼거나 `ignoreDifferences`를 설정한다. `kubectl edit`한 임시 조치도 즉시 원복된다.
-- **Prometheus 카디널리티.** URI에 ID가 섞인 메트릭이나 사용자별 태그는 시계열 수를 폭발시킨다. 태그 값 범위를 제한하고, 지연은 percentile이 아니라 histogram으로 내보내야 여러 Pod를 집계할 수 있다.
+- **selfHeal과 HPA 충돌.** ==`replicas`를 차트에 박아 두면 HPA가 늘린 값을 ArgoCD가 되돌린다.== 템플릿에서 `replicas`를 빼거나 `ignoreDifferences`를 설정한다. `kubectl edit`한 임시 조치도 즉시 원복된다.
+- **Prometheus 카디널리티.** URI에 ID가 섞인 메트릭이나 사용자별 태그는 시계열 수를 폭발시킨다. 태그 값 범위를 제한하고, ==지연은 percentile이 아니라 histogram으로 내보내야 여러 Pod를 집계할 수 있다.==
 
 ## 관련 글
 

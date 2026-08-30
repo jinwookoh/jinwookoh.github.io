@@ -24,7 +24,7 @@
   <h1>인가 — ACL과 Multi-tenancy</h1>
   <p class="summary">인증된 principal에게 PREFIXED ACL과 Quota를 팀 단위로 묶어 부여해야 공유 클러스터가 유지된다</p>
   <div class="content">
-<p>TLS와 SASL로 클라이언트가 누구인지 확인해도, 무엇을 할 수 있는지는 별개의 문제다. 인가 규칙이 없으면 인증만 통과한 애플리케이션이 다른 팀의 topic을 읽고 임의 이름의 topic을 만든다. 여러 팀이 한 클러스터를 공유하면 한 팀의 producer가 대역폭을 독점해 나머지 팀의 지연이 함께 오른다. <mark>ACL은 접근 범위를, Quota와 naming convention은 자원 사용 범위를 팀 단위로 가른다.</mark></p>
+<p>TLS와 SASL로 클라이언트가 누구인지 확인해도, 무엇을 할 수 있는지는 별개의 문제다. 인가 규칙이 없으면 인증만 통과한 애플리케이션이 다른 팀의 topic을 읽고 임의 이름의 topic을 만든다. 여러 팀이 한 클러스터를 공유하면 한 팀의 producer가 대역폭을 독점해 나머지 팀의 지연이 함께 오른다. ACL은 접근 범위를, Quota와 naming convention은 자원 사용 범위를 팀 단위로 가른다.</p>
 <h2>핵심 개념</h2>
 <p>ACL 한 건은 Principal · Operation · Resource 세 요소로 구성되며 &quot;Principal이 Resource에 대해 Operation을 할 수 있다&quot;로 읽는다. 여기에 Permission Type(ALLOW · DENY), Host(기본 <code>*</code>), Resource Pattern Type이 붙는다. Principal은 SASL/SCRAM이면 <code>User:&lt;username&gt;</code>, mTLS면 인증서 DN이다. Resource Type은 Topic · Group · Cluster · TransactionalId · DelegationToken이고, Operation은 많지만 애플리케이션이 실제로 쓰는 것은 Topic의 Read · Write · Describe와 Group의 Read · Describe다.</p>
 <table>
@@ -52,8 +52,8 @@
 </tr>
 </tbody></table>
 <p>PREFIXED가 표준인 이유는 새 topic이 늘어나도 ACL을 다시 추가할 필요가 없기 때문이다. 이 이점은 topic 이름에 팀 접두사가 일관되게 붙어 있을 때만 성립하므로 ACL 설계와 naming convention은 분리되지 않는다. 권장 형식은 <code>{env}.{team}.{domain}.{event-type}[.v{N}]</code>이다. Kafka에는 topic rename이 없어 컨벤션은 처음에 고정하고, <code>auto.create.topics.enable=false</code>와 Create 권한 제한으로 컨벤션 밖 topic 생성을 막는다.</p>
-<p>Authorizer는 요청마다 매칭되는 DENY가 있으면 거부, ALLOW가 있으면 허용, 둘 다 없으면 <code>allow.everyone.if.no.acl.found</code>(기본 <code>false</code>)를 따른다. DENY가 우선하므로 전체 허용 후 특정 principal만 차단할 수 있다. <code>super.users</code>의 principal은 평가를 건너뛴다. KRaft에서는 <code>org.apache.kafka.metadata.authorizer.StandardAuthorizer</code>가 ACL을 metadata log에 저장하며, ZooKeeper용 <code>AclAuthorizer</code>는 쓰지 않는다. 외부 정책 시스템과 통합하려면 <code>org.apache.kafka.server.authorizer.Authorizer</code>를 직접 구현한다.</p>
-<p>Quota는 user · client.id · (user, client.id) 또는 default 단위로 걸린다. <code>producer_byte_rate</code>와 <code>consumer_byte_rate</code>는 대역폭을, <code>request_percentage</code>는 network · I/O 스레드 점유율을 제한한다. 초과 시 broker는 거부하지 않고 응답에 <code>throttle_time_ms</code>를 실어 보내며 클라이언트가 그만큼 대기한다. 메시지 손실 없이 속도만 내려간다.</p>
+<p>Authorizer는 요청마다 매칭되는 DENY가 있으면 거부, ALLOW가 있으면 허용, 둘 다 없으면 <code>allow.everyone.if.no.acl.found</code>(기본 <code>false</code>)를 따른다. DENY가 우선하므로 전체 허용 후 특정 principal만 차단할 수 있다. <mark><code>super.users</code>의 principal은 평가를 건너뛴다.</mark> KRaft에서는 <code>org.apache.kafka.metadata.authorizer.StandardAuthorizer</code>가 ACL을 metadata log에 저장하며, ZooKeeper용 <code>AclAuthorizer</code>는 쓰지 않는다. 외부 정책 시스템과 통합하려면 <code>org.apache.kafka.server.authorizer.Authorizer</code>를 직접 구현한다.</p>
+<p>Quota는 user · client.id · (user, client.id) 또는 default 단위로 걸린다. <code>producer_byte_rate</code>와 <code>consumer_byte_rate</code>는 대역폭을, <code>request_percentage</code>는 network · I/O 스레드 점유율을 제한한다. <mark>초과 시 broker는 거부하지 않고 응답에 <code>throttle_time_ms</code>를 실어 보내며 클라이언트가 그만큼 대기한다.</mark> 메시지 손실 없이 속도만 내려간다.</p>
 <p>격리 수준은 공유 클러스터의 논리 분리, broker pool 분리, 별도 클러스터 순으로 강해진다. 장애 영향이 큰 영역만 별도 클러스터로 빼는 혼합 구성이 대규모 환경의 일반 형태다.</p>
 <h2>코드</h2>
 <p>팀 하나를 onboarding하는 표준 절차다. SCRAM 사용자, PREFIXED ACL, Quota를 한 스크립트에 묶는다.</p>
@@ -137,7 +137,7 @@ kafka-configs.sh <span class="hljs-variable">$OPTS</span> --alter \
       <span class="hljs-attr">group-id:</span> <span class="hljs-string">prod.order-team.order-service</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Group ACL 누락.</strong> Topic Read만 주면 poll은 되다가 offset commit에서 <code>GroupAuthorizationException</code>이 난다.</mark> <code>kafka-acls.sh --consumer</code>는 Topic Read · Describe와 Group Read를, <code>--producer</code>는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.</li>
+<li><strong>Group ACL 누락.</strong> <mark>Topic Read만 주면 poll은 되다가 offset commit에서 <code>GroupAuthorizationException</code>이 난다.</mark> <code>kafka-acls.sh --consumer</code>는 Topic Read · Describe와 Group Read를, <code>--producer</code>는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.</li>
 <li><strong>mTLS principal 불일치.</strong> <code>ssl.principal.mapping.rules</code>가 어긋나면 ACL의 이름과 실제 principal이 달라 모든 요청이 거부된다. broker 로그의 principal 문자열을 ACL과 대조한다.</li>
 <li><strong><code>super.users</code> 남발과 <code>allow.everyone.if.no.acl.found=true</code>.</strong> 둘 다 ACL을 무력화한다. 운영 admin 1~2명만 super.users에 둔다.</li>
 <li><strong>Quota 부재 또는 과소.</strong> 없으면 producer 하나가 대역폭을 차지하고, 너무 낮으면 throttle이 정상 트래픽에 번진다. user · client-id 별 throttle-time 메트릭을 보며 점진적으로 조정한다.</li>

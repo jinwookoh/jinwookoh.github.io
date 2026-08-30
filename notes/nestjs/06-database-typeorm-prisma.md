@@ -139,11 +139,11 @@ export class OrdersService {
 
 ## 실무에서 걸리는 지점
 
-- **`synchronize: true`를 운영에 남기는 실수.** 엔티티 변경이 즉시 DDL로 반영되어 컬럼 삭제나 타입 변경이 데이터 손실로 이어진다. 운영은 마이그레이션 파일과 `migrate deploy` 류의 명시적 절차로 관리한다.
-- **트랜잭션에 참여하지 않는 리포지토리.** `@InjectRepository`로 받은 객체를 `transaction()` 콜백 안에서 호출하면 별도 커넥션으로 실행되어 롤백에서 빠진다. 서비스 간 전파가 필요하면 매니저를 인자로 넘기거나 AsyncLocalStorage 기반 전파 라이브러리를 쓴다.
-- **인터랙티브 트랜잭션의 타임아웃.** Prisma 콜백형 `$transaction`은 기본 5초 안에 끝나야 하고 커넥션 하나를 점유한다. 외부 API 호출을 안에 넣으면 풀이 고갈되므로 DB 작업만으로 짧게 유지한다.
+- **`synchronize: true`를 운영에 남기는 실수.** ==엔티티 변경이 즉시 DDL로 반영되어 컬럼 삭제나 타입 변경이 데이터 손실로 이어진다.== 운영은 마이그레이션 파일과 `migrate deploy` 류의 명시적 절차로 관리한다.
+- **트랜잭션에 참여하지 않는 리포지토리.** ==`@InjectRepository`로 받은 객체를 `transaction()` 콜백 안에서 호출하면 별도 커넥션으로 실행되어 롤백에서 빠진다.== 서비스 간 전파가 필요하면 매니저를 인자로 넘기거나 AsyncLocalStorage 기반 전파 라이브러리를 쓴다.
+- **인터랙티브 트랜잭션의 타임아웃.** ==Prisma 콜백형 `$transaction`은 기본 5초 안에 끝나야 하고 커넥션 하나를 점유한다.== 외부 API 호출을 안에 넣으면 풀이 고갈되므로 DB 작업만으로 짧게 유지한다.
 - **N+1.** TypeORM `relations`나 Prisma `include`를 빠뜨리면 목록 조회에서 항목마다 추가 쿼리가 나간다. 쿼리 로그를 켜고 엔드포인트 단위로 실제 쿼리 수를 확인한다.
-- **기동 순서.** `retryAttempts`·`retryDelay` 기본값이면 DB가 없을 때 30초 동안 기동이 막히므로 헬스체크 타임아웃과 맞춘다. Prisma는 첫 쿼리 시 연결하므로 기동 시점에 실패를 잡으려면 `onModuleInit`에서 `$connect()`를 호출한다.
+- **기동 순서.** ==`retryAttempts`·`retryDelay` 기본값이면 DB가 없을 때 30초 동안 기동이 막히므로 헬스체크 타임아웃과 맞춘다.== Prisma는 첫 쿼리 시 연결하므로 기동 시점에 실패를 잡으려면 `onModuleInit`에서 `$connect()`를 호출한다.
 
 ## 관련 글
 

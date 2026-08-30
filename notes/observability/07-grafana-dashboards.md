@@ -21,7 +21,7 @@ Panel은 쿼리 결과 하나를 시각화 하나로 표현하는 단위다. 시
 
 Variable은 드롭다운으로 고른 값을 모든 panel의 쿼리에 주입한다. type은 Query(datasource 질의, `label_values(up, instance)`), Custom(고정 목록), Constant(URL 비노출), Data source, Interval(`$__interval` 후보), Ad hoc filter(전 panel에 label 필터), Text box 일곱 가지다.
 
-앞 변수의 선택값이 뒤 변수의 query에 들어가는 구조가 cascading이다. environment → cluster → namespace → pod 순서로 좁혀야 의미 있는 범위만 조회된다. Multi-value나 Include All 변수는 `=~` 매처로 받고, `${var:regex}`, `${var:csv}`, `${var:json}` 같은 format modifier로 치환 형식을 지정한다.
+앞 변수의 선택값이 뒤 변수의 query에 들어가는 구조가 cascading이다. environment → cluster → namespace → pod 순서로 좁혀야 의미 있는 범위만 조회된다. ==Multi-value나 Include All 변수는 `=~` 매처로 받고==, `${var:regex}`, `${var:csv}`, `${var:json}` 같은 format modifier로 치환 형식을 지정한다.
 
 ### Transformation
 
@@ -108,7 +108,7 @@ sum(rate(http_server_requests_seconds_count{env="$environment", service=~"${serv
 
 - **panel 과다.** 30개 넘는 panel은 로딩이 느리고 읽히지 않는다. Overview·Service·Cluster·Business로 독자별 분리한다.
 - **기본 시간 범위.** last 30 days로 저장하면 열 때마다 모든 panel이 30일을 스캔한다. 기본은 last 1 hour로 두고, chain 없이 전체 service를 조회하는 쿼리도 피한다.
-- **공개 대시보드 무수정 사용.** Node Exporter Full(1860) 같은 대시보드는 metric 이름이 달라 panel이 비기 쉽다. Spring Boot용 대시보드도 Boot 2 이름을 쓰는 경우가 있어 Boot 3의 `http_server_requests_seconds_*`에 맞춰 고친다.
+- **공개 대시보드 무수정 사용.** Node Exporter Full(1860) 같은 대시보드는 metric 이름이 달라 panel이 비기 쉽다. ==Spring Boot용 대시보드도 Boot 2 이름을 쓰는 경우가 있어 Boot 3의 `http_server_requests_seconds_*`에 맞춰 고친다.==
 - **Public dashboard 정보 유출.** 링크를 아는 누구나 접근한다. 개인정보 label이나 내부 지표 panel은 분리한 뒤 공개한다.
 - **복사·붙여넣기와 JSON 손편집.** panel 복사는 drift를, JSON 직접 수정은 import 실패를 만든다. 표준 panel은 Library panel로, 정의는 Grafonnet·Terraform으로 관리한다. Annotation은 배포·incident·feature flag만 남긴다.
 

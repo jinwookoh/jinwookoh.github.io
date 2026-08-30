@@ -33,7 +33,7 @@ HTTP API는 `/v1/catalog/service/<name>`이 헬스와 무관한 전체 인스턴
 | TTL | 애플리케이션이 상태를 푸시 | TTL 내 갱신 없으면 critical |
 | Alias | 다른 서비스 상태를 따라감 | 대상 서비스 상태 |
 
-TTL만 방향이 반대다. 나머지는 Consul이 능동적으로 호출하지만 TTL은 애플리케이션이 `/v1/agent/check/pass|warn|fail/<id>`를 주기적으로 호출해야 한다. 상태는 passing·warning·critical이며 warning은 기본적으로 트래픽을 받고 critical은 받지 않는다.
+TTL만 방향이 반대다. 나머지는 Consul이 능동적으로 호출하지만 TTL은 애플리케이션이 `/v1/agent/check/pass|warn|fail/<id>`를 주기적으로 호출해야 한다. 상태는 passing·warning·critical이며 ==warning은 기본적으로 트래픽을 받고 critical은 받지 않는다.==
 
 ### KV Store
 
@@ -139,11 +139,11 @@ EOF
 
 ## 실무에서 걸리는 지점
 
-- **`/catalog`로 라우팅하면 죽은 인스턴스로 요청이 간다.** 직접 API를 쓰는 클라이언트는 `/health/service?passing`을 써야 하고, 클라이언트 리졸버가 DNS 결과를 오래 캐시하면 Consul이 걸러낸 인스턴스가 다시 살아난다.
-- **Script 체크는 임의 명령 실행 경로다.** `enable_script_checks`를 켜면 HTTP API로 등록한 체크도 스크립트를 실행할 수 있다. 필요하면 로컬 구성 파일만 허용하는 `enable_local_script_checks`를 쓴다.
+- ==**`/catalog`로 라우팅하면 죽은 인스턴스로 요청이 간다.**== 직접 API를 쓰는 클라이언트는 `/health/service?passing`을 써야 하고, 클라이언트 리졸버가 DNS 결과를 오래 캐시하면 Consul이 걸러낸 인스턴스가 다시 살아난다.
+- **Script 체크는 임의 명령 실행 경로다.** ==`enable_script_checks`를 켜면 HTTP API로 등록한 체크도 스크립트를 실행할 수 있다.== 필요하면 로컬 구성 파일만 허용하는 `enable_local_script_checks`를 쓴다.
 - **TTL 체크는 푸시 스레드가 멈추면 프로세스가 살아 있어도 critical이 된다.** 푸시 주기는 TTL의 절반 이하로 두고 푸시 실패를 메트릭으로 남긴다.
 - **블로킹 쿼리는 서버 부하를 만든다.** 수백 인스턴스가 watch를 걸면 매 변경마다 전부가 응답을 받고 재요청한다. `delay`를 넓히고 prefix 단위로 묶으며 자주 바뀌는 값은 KV에 두지 않는다.
-- **Session 락은 TTL과 lock-delay를 함께 본다.** 세션 만료 후 기본 15초 동안 재획득이 막힌다. 보유자는 renew를 주기적으로 호출하고 실패 시 작업을 중단해야 한다.
+- **Session 락은 TTL과 lock-delay를 함께 본다.** ==세션 만료 후 기본 15초 동안 재획득이 막힌다.== 보유자는 renew를 주기적으로 호출하고 실패 시 작업을 중단해야 한다.
 
 ## 관련 글
 

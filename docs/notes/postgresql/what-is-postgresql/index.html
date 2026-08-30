@@ -24,7 +24,7 @@
   <h1>PostgreSQL이란 — MySQL과의 비교·아키텍처·관계형 모델</h1>
   <p class="summary">PostgreSQL이 무엇이고 MySQL과 어디서 갈리는지, 프로세스 모델과 4단계 계층, 관계형 모델의 토대를 정리한다</p>
   <div class="content">
-<p>영속화 계층이 없으면 애플리케이션 상태는 프로세스 메모리에 머물고 재시작·장애·스케일 아웃 어느 상황에서도 살아남지 못한다. <mark>JPA가 SQL을 생성해 주더라도 그 SQL은 특정 RDBMS 위에서 실행되며, 저장소의 동작을 모르면 느린 쿼리 진단·인덱스 설계·대용량 운영 어느 것도 할 수 없다.</mark></p>
+<p>영속화 계층이 없으면 애플리케이션 상태는 프로세스 메모리에 머물고 재시작·장애·스케일 아웃 어느 상황에서도 살아남지 못한다. JPA가 SQL을 생성해 주더라도 그 SQL은 특정 RDBMS 위에서 실행되며, 저장소의 동작을 모르면 느린 쿼리 진단·인덱스 설계·대용량 운영 어느 것도 할 수 없다.</p>
 <h2>핵심 개념</h2>
 <h3>PostgreSQL의 정체</h3>
 <p>PostgreSQL은 객체 관계형 데이터베이스(ORDBMS)다. 1986년 UC Berkeley의 POSTGRES 프로젝트에서 출발해 1996년 SQL 지원을 추가하며 현재 이름을 얻었다. 라이선스는 MIT와 유사하게 허용적이며 특정 기업이 소유하지 않는다. 특성은 ACID 트랜잭션, 높은 SQL 표준 준수도, MVCC 기반 동시성, 그리고 풍부한 데이터 타입과 인덱스로 대표되는 확장성으로 압축된다.</p>
@@ -78,7 +78,7 @@
 <h3>클라이언트·서버와 프로세스 모델</h3>
 <p>클라이언트가 TCP 5432로 접속하면 부모 프로세스 postmaster가 <code>pg_hba.conf</code> 규칙으로 인증한 뒤 backend 프로세스를 fork한다. 클라이언트와 backend는 1:1이며, 옆에서 WAL writer·checkpointer·autovacuum launcher 같은 보조 프로세스가 상시 동작한다. <mark>MySQL의 스레드 모델과 달리 연결마다 프로세스를 두므로 연결 풀이 사실상 필수다.</mark> 데이터·인덱스 페이지는 <code>shared_buffers</code>에 캐시되고, 모든 변경은 데이터 파일보다 먼저 <code>pg_wal</code>의 WAL에 기록된다.</p>
 <h3>4단계 계층</h3>
-<p>데이터는 Cluster → Database → Schema → Table 순서로 묶인다. Cluster는 서버 인스턴스 하나이자 <code>PGDATA</code> 디렉토리 하나로, 분산 시스템의 클러스터와 무관하다. Database는 클러스터 안에서 서로 격리되어 다른 데이터베이스의 테이블을 직접 조회할 수 없다. Schema는 데이터베이스 안의 네임스페이스로 기본값은 <code>public</code>이다. JDBC URL은 클러스터와 데이터베이스를 지정하고, 스키마는 <code>search_path</code>가 결정하며, <code>@Entity</code>는 테이블에 대응한다.</p>
+<p>데이터는 Cluster → Database → Schema → Table 순서로 묶인다. Cluster는 서버 인스턴스 하나이자 <code>PGDATA</code> 디렉토리 하나로, 분산 시스템의 클러스터와 무관하다. <mark>Database는 클러스터 안에서 서로 격리되어 다른 데이터베이스의 테이블을 직접 조회할 수 없다.</mark> Schema는 데이터베이스 안의 네임스페이스로 기본값은 <code>public</code>이다. JDBC URL은 클러스터와 데이터베이스를 지정하고, 스키마는 <code>search_path</code>가 결정하며, <code>@Entity</code>는 테이블에 대응한다.</p>
 <h3>관계형 모델</h3>
 <p>토대는 1970년 E. F. Codd의 관계형 모델이다. 한 행은 한 개체에 대한 사실이며 한 셀에는 단일 값만 둔다. 기본 키는 행을 고유하게 식별하는 열로 테이블당 하나이며, 바뀔 수 있는 자연 키보다 IDENTITY 정수나 UUID가 안전하다. 외래 키는 다른 테이블의 기본 키를 참조해 존재하지 않는 참조를 DB 수준에서 거부한다. 관계는 1:1(기본 키가 곧 외래 키), 1:N(N쪽에 외래 키), N:M(중간 테이블)으로 분해된다. <code>NULL = NULL</code>은 참이 아니라 NULL이므로 <code>IS NULL</code>로만 비교하고, <code>COUNT(col)</code>은 NULL을 제외한다. 정규화는 같은 사실을 한 곳에만 두는 원칙으로 실무에서는 3NF까지 적용한다.</p>
 <h2>코드</h2>
@@ -160,7 +160,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>연결 수가 곧 프로세스 수다.</strong></mark> 풀 없이 요청마다 접속하면 backend 프로세스가 수백 개로 늘어난다. HikariCP와 PgBouncer를 함께 두고 총 연결 수를 <code>max_connections</code> 이하로 설계한다.</li>
+<li><strong>연결 수가 곧 프로세스 수다.</strong> 풀 없이 요청마다 접속하면 backend 프로세스가 수백 개로 늘어난다. HikariCP와 PgBouncer를 함께 두고 총 연결 수를 <code>max_connections</code> 이하로 설계한다.</li>
 <li><strong>&quot;데이터베이스&quot;라는 단어의 층위.</strong> 클러스터와 그 안의 한 데이터베이스를 같은 단어로 부르므로 마이그레이션·복구 논의에서 어느 단계인지 먼저 고정한다. 다른 데이터베이스는 <code>postgres_fdw</code>나 별도 연결로만 접근한다.</li>
 <li><strong>public 스키마에 모든 객체를 두는 습관.</strong> 이름 충돌과 권한 분리가 어려워지므로 스키마를 일찍 나누고 <code>search_path</code>를 명시한다.</li>
 <li><strong>콤마 구분 문자열과 자연 키.</strong> <code>&#39;red,blue&#39;</code> 같은 셀은 별도 테이블이나 배열 타입으로 분리한다. 이메일을 기본 키로 잡으면 변경 시 참조하는 외래 키가 함께 깨진다.</li>

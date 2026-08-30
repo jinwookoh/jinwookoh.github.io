@@ -24,7 +24,7 @@
   <h1>EC2·EBS·EFS</h1>
   <p class="summary">EC2 인스턴스 선택·구매 옵션·생명주기와 EBS·EFS·Instance Store를 워크로드 기준으로 고르는 규칙을 정리한다.</p>
   <div class="content">
-<p>물리 서버 위에 서비스를 올리면 용량 산정과 장비·디스크 장애 대응을 직접 감당해야 하고, 트래픽이 줄어도 장비 비용은 그대로 남는다. EC2는 가상 서버를 초 단위로 빌려 이 문제를 없애지만, 인스턴스에 직결된 디스크는 인스턴스와 함께 사라지고 여러 인스턴스가 같은 파일을 봐야 하는 경우도 있다. <mark>EC2 본체와 EBS·EFS·Instance Store의 역할을 구분해야 비용과 내구성 요구를 동시에 맞출 수 있다.</mark></p>
+<p>물리 서버 위에 서비스를 올리면 용량 산정과 장비·디스크 장애 대응을 직접 감당해야 하고, 트래픽이 줄어도 장비 비용은 그대로 남는다. EC2는 가상 서버를 초 단위로 빌려 이 문제를 없애지만, 인스턴스에 직결된 디스크는 인스턴스와 함께 사라지고 여러 인스턴스가 같은 파일을 봐야 하는 경우도 있다. EC2 본체와 EBS·EFS·Instance Store의 역할을 구분해야 비용과 내구성 요구를 동시에 맞출 수 있다.</p>
 <h2>핵심 개념</h2>
 <h3>인스턴스 타입</h3>
 <p><code>m5.2xlarge</code>는 패밀리(m), 세대(5), 크기(2xlarge)로 읽는다. 세대가 높을수록 신형 하드웨어를 쓰고, 크기는 한 단계마다 vCPU·메모리가 두 배씩 커진다. 패밀리는 워크로드로 고른다. T·M은 범용, C는 CPU 집약, R·X는 메모리 집약, I·D는 로컬 디스크 I/O, P·G·Inf는 GPU·가속기 워크로드다.</p>
@@ -71,7 +71,7 @@
 </tr>
 </tbody></table>
 <h3>생명주기</h3>
-<p><mark>User Data는 최초 부팅 시 루트 권한으로 한 번만 실행된다.</mark> 재부팅에는 실행되지 않으므로 매 부팅마다 필요한 작업은 systemd 유닛으로 등록한다. Stop/Start 시 퍼블릭 IPv4는 바뀌고 프라이빗 IP는 유지되며, Reboot는 둘 다 유지한다.</p>
+<p>User Data는 최초 부팅 시 루트 권한으로 한 번만 실행된다. 재부팅에는 실행되지 않으므로 매 부팅마다 필요한 작업은 systemd 유닛으로 등록한다. Stop/Start 시 퍼블릭 IPv4는 바뀌고 프라이빗 IP는 유지되며, Reboot는 둘 다 유지한다.</p>
 <p>AMI는 OS·소프트웨어·설정과 EBS 스냅샷을 묶은 인스턴스 템플릿이다. 미리 설치를 마친 Golden AMI는 Auto Scaling 시 부팅이 훨씬 빠르다. 리전에 종속되므로 다른 리전에서는 복사해서 쓴다.</p>
 <h3>보안 그룹과 배치</h3>
 <p>보안 그룹은 인스턴스 밖에서 동작하는 상태 저장 방화벽이다. 허용 규칙만 정의할 수 있고 인바운드는 기본 차단, 아웃바운드는 기본 허용이며, 소스로 다른 보안 그룹을 참조할 수 있다. <mark>접속이 타임아웃이면 보안 그룹, Connection Refused면 애플리케이션 문제다.</mark> Placement Group은 Cluster(저지연 집중)·Spread(랙 분산, AZ당 7대)·Partition(대규모 분산 시스템) 중 고른다.</p>
@@ -227,10 +227,10 @@ systemctl <span class="hljs-built_in">enable</span> --now app</code></pre>
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Instance Store에 영속 데이터를 두는 사고.</strong> 로컬 NVMe는 Stop·Terminate·하드웨어 장애 시 사라진다.</mark> 캐시·임시 파일에만 쓰고 DB 파일은 EBS에 둔다.</li>
+<li><strong>Instance Store에 영속 데이터를 두는 사고.</strong> 로컬 NVMe는 Stop·Terminate·하드웨어 장애 시 사라진다. 캐시·임시 파일에만 쓰고 DB 파일은 EBS에 둔다.</li>
 <li><strong>gp2 IOPS 부족을 용량 증설로 푸는 낭비.</strong> gp3로 바꾸면 크기와 무관하게 IOPS·처리량을 설정할 수 있고 단가도 낮다.</li>
-<li><strong>스냅샷에서 만든 볼륨의 초기 성능 저하.</strong> 블록을 처음 읽을 때 S3에서 지연 로딩하므로 직후 벤치마크가 낮게 나온다. 전체 블록을 한 번 읽어 워밍하거나 Fast Snapshot Restore를 켠다.</li>
-<li><strong>Persistent Spot 요청 정리 순서.</strong> 인스턴스만 종료하면 요청이 살아 있어 새 인스턴스가 다시 뜬다. 요청 취소 후 종료한다.</li>
+<li><strong>스냅샷에서 만든 볼륨의 초기 성능 저하.</strong> <mark>블록을 처음 읽을 때 S3에서 지연 로딩하므로 직후 벤치마크가 낮게 나온다.</mark> 전체 블록을 한 번 읽어 워밍하거나 Fast Snapshot Restore를 켠다.</li>
+<li><strong>Persistent Spot 요청 정리 순서.</strong> <mark>인스턴스만 종료하면 요청이 살아 있어 새 인스턴스가 다시 뜬다.</mark> 요청 취소 후 종료한다.</li>
 <li><strong>EFS 소파일 대량 I/O와 포트.</strong> NFS 메타데이터 지연이 커서 수만 개 소파일을 자주 여닫는 워크로드는 느리다. 보안 그룹의 2049 포트가 막히면 마운트가 타임아웃으로 실패한다.</li>
 </ul>
 <h2>관련 글</h2>

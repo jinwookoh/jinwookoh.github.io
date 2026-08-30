@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 Elasticsearch는 문서를 단어 단위로 쪼개 "단어 → 문서 목록" 형태의 역색인(inverted index)을 만든다. "자동차 수리 전문점", "자동차 보험 추천", "오토바이 수리" 세 문서가 있으면 `자동차 → [1, 2]`, `수리 → [1, 3]` 같은 목록이 미리 생성되고, "자동차 수리" 검색은 두 목록의 교집합 `[1]`을 구하는 집합 연산으로 끝난다. 문서 수가 수백만이어도 상위 결과를 꺼내는 비용이 검색어 수에 비례할 뿐 문서 수에 비례하지 않는다.
 
-한국어는 공백만으로 단어가 분리되지 않으므로 형태소 분석기가 필요하다. nori 토크나이저는 "서울역 근처 맛집"을 `["서울역", "근처", "맛집"]`으로 쪼개고 조사 같은 의미 없는 토큰을 걸러낸다. nori는 기본 내장 분석기가 아니라 `analysis-nori` 플러그인으로 별도 설치해야 하며, 설치 후 재시작하지 않으면 인덱스 생성 시 analyzer not found 오류가 난다.
+한국어는 공백만으로 단어가 분리되지 않으므로 형태소 분석기가 필요하다. nori 토크나이저는 "서울역 근처 맛집"을 `["서울역", "근처", "맛집"]`으로 쪼개고 조사 같은 의미 없는 토큰을 걸러낸다. ==nori는 기본 내장 분석기가 아니라 `analysis-nori` 플러그인으로 별도 설치해야 하며, 설치 후 재시작하지 않으면 인덱스 생성 시 analyzer not found 오류가 난다.==
 
 ### 인덱싱과 트랜잭션의 분리
 
@@ -137,10 +137,10 @@ public MediaResponse complete(Long userId, MediaCompleteRequest req) {
 ## 실무에서 걸리는 지점
 
 - **`forcePathStyle` 누락.** SDK 기본값은 `https://{bucket}.s3.amazonaws.com` 형태의 가상 호스트 방식인데 LocalStack은 `http://localhost:4566/{bucket}` 경로 방식만 받는다. 이 설정이 빠지면 연결 자체가 실패한다. 운영 전환 시에는 `endpointOverride`를 제거하고 자격증명을 IAM Role 기반 기본 프로바이더로 바꾸면 된다.
-- **S3 버킷 CORS.** 브라우저가 `localhost:3000`에서 `localhost:4566`으로 PUT을 보내려면 버킷에 PUT·HEAD를 허용하는 CORS 규칙이 있어야 한다. 없으면 브라우저가 preflight 단계에서 요청을 차단하고, 서버 로그에는 아무것도 남지 않아 원인 찾기가 어렵다.
-- **Presigned URL의 Content-Type 불일치.** 발급 시 서명에 포함한 Content-Type과 실제 PUT 헤더가 다르면 S3가 SignatureDoesNotMatch로 거부한다. 클라이언트가 보내는 헤더를 발급 요청 값과 동일하게 맞춰야 한다.
+- **S3 버킷 CORS.** 브라우저가 `localhost:3000`에서 `localhost:4566`으로 PUT을 보내려면 버킷에 PUT·HEAD를 허용하는 CORS 규칙이 있어야 한다. ==없으면 브라우저가 preflight 단계에서 요청을 차단하고, 서버 로그에는 아무것도 남지 않아 원인 찾기가 어렵다.==
+- **Presigned URL의 Content-Type 불일치.** ==발급 시 서명에 포함한 Content-Type과 실제 PUT 헤더가 다르면 S3가 SignatureDoesNotMatch로 거부한다.== 클라이언트가 보내는 헤더를 발급 요청 값과 동일하게 맞춰야 한다.
 - **고아 파일.** 1~2단계까지만 진행하고 complete를 호출하지 않으면 DB에 기록되지 않은 파일이 S3에 남는다. 업로드 prefix에 수명 주기 규칙을 걸거나, 주기적으로 DB와 대조해 정리하는 작업이 필요하다.
-- **ES 힙과 인덱싱 누락.** 학습 환경에서 기본 힙으로 컨테이너를 띄우면 OOM으로 exit 137이 나므로 `-Xms128m -Xmx128m`으로 제한한다. afterCommit 인덱싱은 실패를 흡수하므로 재인덱싱 배치를 함께 두지 않으면 DB와 ES의 불일치가 누적된다.
+- **ES 힙과 인덱싱 누락.** 학습 환경에서 기본 힙으로 컨테이너를 띄우면 OOM으로 exit 137이 나므로 `-Xms128m -Xmx128m`으로 제한한다. ==afterCommit 인덱싱은 실패를 흡수하므로 재인덱싱 배치를 함께 두지 않으면 DB와 ES의 불일치가 누적된다.==
 
 ## 관련 글
 

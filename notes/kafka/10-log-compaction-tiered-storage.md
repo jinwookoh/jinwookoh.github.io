@@ -19,11 +19,11 @@ updated: 2026-08-29
 
 삭제는 tombstone, 즉 `value=null` 레코드로 표현한다. compaction 시 그 key 의 이전 레코드가 제거되고 tombstone 은 `delete.retention.ms`(기본 1일) 동안 남았다가 사라진다. 이 유예가 있어야 뒤처진 consumer 가 삭제 신호를 놓치지 않는다.
 
-정리는 브로커의 log cleaner 스레드가 수행한다. 로그는 정리된 clean 구간과 미정리 dirty 구간으로 나뉘고, dirty 비율이 `min.cleanable.dirty.ratio`(기본 0.5) 를 넘거나 `max.compaction.lag.ms` 가 경과하면 시작된다. 활성 세그먼트는 정리하지 않으므로 `segment.bytes` 가 작을수록 최신 값이 빨리 반영된다. `compact,delete` 는 최신 값을 유지하면서 `retention.ms` 를 넘긴 세그먼트를 시간 기준으로도 삭제한다.
+정리는 브로커의 log cleaner 스레드가 수행한다. 로그는 정리된 clean 구간과 미정리 dirty 구간으로 나뉘고, dirty 비율이 `min.cleanable.dirty.ratio`(기본 0.5) 를 넘거나 `max.compaction.lag.ms` 가 경과하면 시작된다. ==활성 세그먼트는 정리하지 않으므로 `segment.bytes` 가 작을수록 최신 값이 빨리 반영된다.== `compact,delete` 는 최신 값을 유지하면서 `retention.ms` 를 넘긴 세그먼트를 시간 기준으로도 삭제한다.
 
 ### Tiered Storage — local tier 와 remote tier
 
-KIP-405 의 Tiered Storage(3.6 early access, 3.9 production-ready) 는 파티션 로그를 두 계층으로 나눈다. Local tier 는 브로커 디스크, remote tier 는 S3·HDFS·Blob 같은 외부 저장소다. 리더의 백그라운드 스레드가 롤링이 끝난 세그먼트를 remote 로 복사하고 `local.retention.ms` 를 넘긴 로컬 복사본을 삭제한다. 전체 보존은 로컬과 원격을 합친 `retention.ms` 가 결정한다. `local.retention.*` 을 생략하면 `retention.*` 과 같은 값이 되어 사실상 로컬만 쓴다. Replication factor 는 local tier 에만 적용되고 remote 의 내구성은 저장소에 맡긴다.
+KIP-405 의 Tiered Storage(3.6 early access, 3.9 production-ready) 는 파티션 로그를 두 계층으로 나눈다. Local tier 는 브로커 디스크, remote tier 는 S3·HDFS·Blob 같은 외부 저장소다. 리더의 백그라운드 스레드가 롤링이 끝난 세그먼트를 remote 로 복사하고 `local.retention.ms` 를 넘긴 로컬 복사본을 삭제한다. 전체 보존은 로컬과 원격을 합친 `retention.ms` 가 결정한다. ==`local.retention.*` 을 생략하면 `retention.*` 과 같은 값이 되어 사실상 로컬만 쓴다.== Replication factor 는 local tier 에만 적용되고 remote 의 내구성은 저장소에 맡긴다.
 
 Consumer 는 offset 만 지정하며, 로컬에 없는 offset 이면 브로커가 remote 에서 가져와 응답한다. page cache 는 마이크로초, remote fetch 는 수십~수백 밀리초로 응답 시간만 달라진다.
 
@@ -99,10 +99,10 @@ public NewTopic eventsTopic() {
 
 ## 실무에서 걸리는 지점
 
-- **key 가 없으면 compaction 이 성립하지 않는다.** compacted 토픽에 key 가 `null` 인 레코드는 브로커가 거부한다.
+- **key 가 없으면 compaction 이 성립하지 않는다.** ==compacted 토픽에 key 가 `null` 인 레코드는 브로커가 거부한다.==
 - **tombstone 을 보내지 않으면 영원히 남는다.** 반대로 `delete.retention.ms` 가 너무 짧으면 느린 consumer 가 삭제를 보지 못해 로컬 캐시에 유령 데이터가 남는다.
 - **log cleaner 는 CPU 와 디스크 I/O 를 소비한다.** `log.cleaner.threads`, `log.cleaner.io.max.bytes.per.second` 로 조절하고, `uncleanable-partitions-count` 가 0 을 넘으면 cleaner 가 따라가지 못하는 상태다.
-- **compacted 토픽은 tiered storage 를 켤 수 없다.** `cleanup.policy` 에 `compact` 가 포함되면 `remote.storage.enable=true` 는 거부된다.
+- ==**compacted 토픽은 tiered storage 를 켤 수 없다.**== `cleanup.policy` 에 `compact` 가 포함되면 `remote.storage.enable=true` 는 거부된다.
 - **remote 읽기 폭증과 retention 불일치.** 재처리가 오래된 offset 을 한꺼번에 읽으면 remote fetch 지연과 비용이 함께 튄다. S3 lifecycle 이 `retention.ms` 보다 먼저 객체를 지우면 메타데이터만 남으므로 보존 기간은 Kafka 한쪽에서만 관리하고 `RemoteCopyLagBytes` 를 감시한다.
 
 ## 관련 글

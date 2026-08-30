@@ -13,7 +13,7 @@ updated: 2026-08-29
 
 ## 핵심 개념
 
-**Origin**은 프로토콜·호스트·포트의 조합이다. 하나라도 다르면 다른 Origin이며, `localhost:3000`과 `localhost:8080`도 교차 출처다. CORS는 브라우저 정책이므로 서버 간 호출이나 모바일 앱에는 적용되지 않는다.
+**Origin**은 프로토콜·호스트·포트의 조합이다. 하나라도 다르면 다른 Origin이며, `localhost:3000`과 `localhost:8080`도 교차 출처다. ==CORS는 브라우저 정책이므로 서버 간 호출이나 모바일 앱에는 적용되지 않는다.==
 
 POST + JSON, PUT, DELETE, 커스텀 헤더처럼 단순 요청이 아니면 브라우저는 본 요청 전에 `OPTIONS` **preflight**를 보낸다. 서버는 `Access-Control-Allow-Origin`, `-Methods`, `-Headers`, `-Credentials` 헤더로 응답하고, 브라우저는 `Access-Control-Max-Age` 동안 결과를 캐시한다.
 
@@ -124,11 +124,11 @@ void tamperedTokenIsRejected() throws Exception {
 
 ## 실무에서 걸리는 지점
 
-- **`allowedOrigins("*")`와 `allowCredentials(true)`는 함께 쓸 수 없다.** 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 `allowedOriginPatterns`를 쓰되 운영에서는 정확한 도메인만 남긴다.
-- **preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.** OPTIONS 요청에는 Authorization 헤더가 없으므로 `permitAll()`로 명시하고 `http.cors()`로 CorsFilter를 인증 필터 앞에 둔다.
+- ==**`allowedOrigins("*")`와 `allowCredentials(true)`는 함께 쓸 수 없다.**== 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 `allowedOriginPatterns`를 쓰되 운영에서는 정확한 도메인만 남긴다.
+- **preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.** ==OPTIONS 요청에는 Authorization 헤더가 없으므로 `permitAll()`로 명시하고 `http.cors()`로 CorsFilter를 인증 필터 앞에 둔다.==
 - **프록시·CDN 뒤에서 CORS 헤더가 이중으로 붙는다.** nginx나 CloudFront가 이미 헤더를 추가하면 브라우저는 중복 값을 거부한다. 헤더를 붙이는 계층은 하나만 둔다.
 - **폼 기반 세션 앱에서 CSRF를 끄면 안 된다.** CSRF 비활성화는 토큰을 헤더로 보내는 stateless API에만 유효하며, 쿠키에 JWT를 담아 자동 전송하면 다시 CSRF 대상이 된다.
-- **Resource Server는 기동 시 인증 서버에 접속한다.** 인증 서버가 내려가 있으면 `Unable to resolve the Configuration with the provided Issuer`로 부팅이 실패하고, `issuer-uri` 오타는 모든 요청을 401로 만든다. 기동 순서를 맞추고, 서명 키 교체 시에는 `kid`가 다른 새 키를 먼저 JWKS에 추가한 뒤 구 키를 제거한다.
+- **Resource Server는 기동 시 인증 서버에 접속한다.** ==인증 서버가 내려가 있으면 `Unable to resolve the Configuration with the provided Issuer`로 부팅이 실패하고, `issuer-uri` 오타는 모든 요청을 401로 만든다.== 기동 순서를 맞추고, 서명 키 교체 시에는 `kid`가 다른 새 키를 먼저 JWKS에 추가한 뒤 구 키를 제거한다.
 
 ## 관련 글
 

@@ -19,7 +19,7 @@ Docker 엔진에 메모리 4GB 이상을 할당한다. 기본값 2GB에서는 �
 
 ### Compose 옵션의 의미
 
-`discovery.type=single-node`는 마스터 선출 없이 노드 한 대로 클러스터를 구성하며, development mode가 켜져 bootstrap check가 완화된다. `xpack.security.enabled=false`는 8.x 기본 활성인 인증·HTTPS·자동 비밀번호 생성을 끈다. `ES_JAVA_OPTS=-Xms1g -Xmx1g`는 JVM heap 고정이며 운영 기준은 컨테이너 메모리의 50%, 31GB 이하다. `bootstrap.memory_lock`과 `ulimits.memlock`은 heap이 swap으로 밀려 응답이 초 단위로 악화되는 것을 막는다.
+`discovery.type=single-node`는 마스터 선출 없이 노드 한 대로 클러스터를 구성하며, development mode가 켜져 bootstrap check가 완화된다. `xpack.security.enabled=false`는 8.x 기본 활성인 인증·HTTPS·자동 비밀번호 생성을 끈다. `ES_JAVA_OPTS=-Xms1g -Xmx1g`는 JVM heap 고정이며 ==운영 기준은 컨테이너 메모리의 50%, 31GB 이하다==. `bootstrap.memory_lock`과 `ulimits.memlock`은 heap이 swap으로 밀려 응답이 초 단위로 악화되는 것을 막는다.
 
 ### `_cat` API와 health 상태
 
@@ -138,7 +138,7 @@ public class QuickstartService {
 
 ## 실무에서 걸리는 지점
 
-- **JVM heap과 컨테이너 한도의 불일치.** `-Xmx2g`인데 Docker 한도가 2GB면 off-heap과 mmap이 합산되어 OOMKilled가 반복된다. 한도는 heap의 2배 이상으로 잡는다.
+- **JVM heap과 컨테이너 한도의 불일치.** ==`-Xmx2g`인데 Docker 한도가 2GB면 off-heap과 mmap이 합산되어 OOMKilled가 반복된다.== 한도는 heap의 2배 이상으로 잡는다.
 - **Kibana가 `localhost:9200`을 바라보는 설정.** 컨테이너 안에서 localhost는 Kibana 자신이다. `ELASTICSEARCH_HOSTS`는 compose 서비스 이름으로 지정한다.
 - **보안 비활성 옵션 누락.** 8.x는 옵션 없이 띄우면 자체 서명 인증서로 HTTPS를 강제하고 `http://` 요청은 empty reply나 401로 실패한다. 운영은 활성 상태에서 정식 CA 인증서와 계정 비밀번호를 설정한다.
 - **포트 충돌.** 9200·5601이 점유되어 있으면 `address already in use`로 실패한다. `lsof -i :9200`으로 확인하고 호스트 포트만 `9201:9200`처럼 바꾼다.

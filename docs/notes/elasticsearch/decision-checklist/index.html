@@ -24,7 +24,7 @@
   <h1>마무리 — 결정 트리와 체크리스트</h1>
   <p class="summary">Elasticsearch 도입 여부와 배포 형태를 결정하는 질문 순서, 운영 30일 점검 항목, 반복되는 사고 유형을 한 페이지로 정리한다.</p>
   <div class="content">
-<p>Elasticsearch는 검색·로그·관측·벡터를 하나의 엔진으로 처리할 수 있지만, 그만큼 도입 판단과 초기 설정에서 갈림길이 많다. <mark>기준 없이 도입하면 RDBMS FULLTEXT로 충분한 규모에 클러스터 운영비를 지불하거나, 규모가 커진 뒤 Dynamic Mapping·샤드 수·Snapshot 같은 초기 결정을 되돌리지 못해 재색인을 반복하게 된다.</mark> 도입 결정 트리, 운영 30일 체크리스트, 반복 사고 유형 세 가지로 정리한다.</p>
+<p>Elasticsearch는 검색·로그·관측·벡터를 하나의 엔진으로 처리할 수 있지만, 그만큼 도입 판단과 초기 설정에서 갈림길이 많다. 기준 없이 도입하면 RDBMS FULLTEXT로 충분한 규모에 클러스터 운영비를 지불하거나, 규모가 커진 뒤 Dynamic Mapping·샤드 수·Snapshot 같은 초기 결정을 되돌리지 못해 재색인을 반복하게 된다. 도입 결정 트리, 운영 30일 체크리스트, 반복 사고 유형 세 가지로 정리한다.</p>
 <h2>핵심 개념</h2>
 <p>도입 결정은 여섯 개 질문을 순서대로 답하면 배포 형태까지 정해진다.</p>
 <ol>
@@ -32,7 +32,7 @@
 <li>데이터 규모는 어느 정도인가. <mark>10만 행 미만, QPS 10 미만이면 PostgreSQL tsvector나 MySQL FULLTEXT가 운영비 대비 유리하다.</mark></li>
 <li>주 용도는 무엇인가. 풀텍스트 검색이면 ES와 Nori, 로그·관측이면 ES와 Beats·Logstash·Kibana, 벡터·RAG면 dense_vector·kNN·hybrid search가 표준이다. 둘 이상이 섞이면 검색 클러스터와 로그 클러스터를 분리한다.</li>
 <li>라이선스와 클라우드 환경은 어떠한가. AWS 단일 환경에 Apache 2.0이 필요하면 AWS OpenSearch Service, 멀티 클라우드거나 Elastic 최신 기능이 필요하면 Elastic Cloud, 온프레미스면 자체 운영이며 Kubernetes 환경이면 ECK를 쓴다.</li>
-<li>벡터 검색만 사용하는가. 100만 벡터 미만이고 검색·로그와 함께 쓰면 ES가 유리하다. 벡터만 1억 개 이상이면 Qdrant·Milvus·Weaviate 같은 전용 Vector DB가 앞선다.</li>
+<li>벡터 검색만 사용하는가. 100만 벡터 미만이고 검색·로그와 함께 쓰면 ES가 유리하다. <mark>벡터만 1억 개 이상이면 Qdrant·Milvus·Weaviate 같은 전용 Vector DB가 앞선다.</mark></li>
 <li>매니지드와 자체 운영 중 무엇인가. DevOps 인력이 2명 미만이면 Elastic Cloud Serverless 또는 OpenSearch Serverless, 인력이 있고 비용에 민감하면 ECK, 온프레미스가 강제되면 Terraform·Helm·ECK Operator로 자체 운영한다.</li>
 </ol>
 <p>운영 30일 체크리스트는 시점별로 나눈다.</p>
@@ -157,7 +157,7 @@
 <li><strong>Deep Pagination.</strong> <code>from + size</code>로 깊은 페이지를 요청하면 모든 shard가 <code>from + size</code> 만큼 정렬한 뒤 coordinating 노드가 다시 합친다. <code>search_after</code>와 PIT 조합으로 대체한다.</li>
 <li><strong>fielddata 폭증.</strong> <code>text</code> 필드에 정렬·집계를 걸면 fielddata가 heap에 올라와 circuit breaker가 발동한다. 정렬·집계는 <code>keyword</code> sub-field에서만 수행한다.</li>
 <li><strong>Red 상태와 Split-brain.</strong> Primary Shard 미할당은 <code>_cluster/allocation/explain</code>으로 확인하며 대부분 디스크 watermark가 원인이다. master-eligible 3대와 quorum voting이 있어야 파티션 시 master가 둘로 갈리지 않는다.</li>
-<li><mark><strong>Snapshot 부재.</strong> 인덱스를 잘못 삭제했을 때 복구 수단이 없는 사고가 반복된다.</mark> SLM으로 자동화하고 복구 리허설로 RTO를 실측한다.</li>
+<li><strong>Snapshot 부재.</strong> 인덱스를 잘못 삭제했을 때 복구 수단이 없는 사고가 반복된다. SLM으로 자동화하고 복구 리허설로 RTO를 실측한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

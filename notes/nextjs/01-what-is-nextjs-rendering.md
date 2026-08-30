@@ -122,8 +122,8 @@ export function LiveCounter() {
 
 ## 실무에서 걸리는 지점
 
-- **의도치 않은 동적 전환.** 공통 레이아웃에서 `cookies()`나 `headers()`를 한 번 읽으면 그 아래 모든 페이지가 동적 렌더링으로 바뀐다. 빌드 로그에서 라우트 옆의 기호(정적 `○`, 동적 `ƒ`)를 확인해 의도와 맞는지 점검해야 한다.
-- **Next.js 15 캐시 기본값.** 14에서 15로 올리면 `fetch` 결과가 캐시되지 않아 백엔드 호출량이 급증할 수 있다. 캐시가 필요한 호출마다 `cache` 또는 `next.revalidate`를 명시하고, 세그먼트 단위로 묶고 싶다면 `export const fetchCache = 'default-cache'`를 검토한다.
+- **의도치 않은 동적 전환.** ==공통 레이아웃에서 `cookies()`나 `headers()`를 한 번 읽으면 그 아래 모든 페이지가 동적 렌더링으로 바뀐다.== 빌드 로그에서 라우트 옆의 기호(정적 `○`, 동적 `ƒ`)를 확인해 의도와 맞는지 점검해야 한다.
+- **Next.js 15 캐시 기본값.** ==14에서 15로 올리면 `fetch` 결과가 캐시되지 않아 백엔드 호출량이 급증할 수 있다.== 캐시가 필요한 호출마다 `cache` 또는 `next.revalidate`를 명시하고, 세그먼트 단위로 묶고 싶다면 `export const fetchCache = 'default-cache'`를 검토한다.
 - **Promise 기반 params.** `params`와 `searchParams`를 동기 객체로 다루던 코드는 15에서 경고를 거쳐 오류가 된다. 타입을 `Promise<...>`로 바꾸고 `await`를 붙이는 마이그레이션이 필요하다.
 - **직렬화 경계.** Server Component에서 Client Component로 넘기는 props는 직렬화 가능해야 한다. Map, 클래스 인스턴스, 일반 함수는 넘길 수 없고, 함수는 Server Action으로만 전달된다.
 - **ISR 재생성 타이밍.** `revalidate`는 지정한 시간이 지난 후 들어온 첫 요청에 이전 버전을 응답하고 백그라운드에서 재생성한다. 재생성 직후 요청이 없으면 갱신되지 않으므로 즉시 반영이 필요하면 `revalidatePath`나 `revalidateTag`로 명시적으로 무효화한다.

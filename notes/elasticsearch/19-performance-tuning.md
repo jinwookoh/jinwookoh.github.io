@@ -142,8 +142,8 @@ public class ProductSearchService {
 
 ## 실무에서 걸리는 지점
 
-- **Heap 48GB의 역설.** Heap을 32GB 넘게 잡으면 Compressed Oops가 꺼지고 Page Cache도 줄어 오히려 느려진다. 30~31GB로 낮추고 부족분은 노드 추가로 푼다.
-- **queue 확대로 rejection 감추기.** `thread_pool.write.queue_size`를 키우면 429는 사라지지만 대기 요청이 Heap에 쌓여 OOM으로 이어진다.
+- **Heap 48GB의 역설.** ==Heap을 32GB 넘게 잡으면 Compressed Oops가 꺼지고 Page Cache도 줄어 오히려 느려진다.== 30~31GB로 낮추고 부족분은 노드 추가로 푼다.
+- **queue 확대로 rejection 감추기.** ==`thread_pool.write.queue_size`를 키우면 429는 사라지지만 대기 요청이 Heap에 쌓여 OOM으로 이어진다.==
 - **운영 중 force_merge.** I/O와 CPU를 동시에 점유해 검색 응답이 수십 초로 늘어난다. 쓰기가 끝난 인덱스에만 실행한다.
 - **text 필드 terms 집계.** Fielddata breaker가 걸린다. `fielddata: true` 대신 `.keyword` 서브필드로 집계 대상을 바꾼다.
 - **deep pagination.** `from: 100000`이면 각 샤드가 10만 건 이상을 정렬한다. `search_after`나 PIT로 전환한다.

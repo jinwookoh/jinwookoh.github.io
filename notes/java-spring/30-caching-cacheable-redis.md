@@ -153,10 +153,10 @@ public class RankingService {
 ## 실무에서 걸리는 지점
 
 - **자기 호출.** 같은 클래스 안에서 `this.findById(id)`로 부르면 프록시를 거치지 않아 캐시가 적용되지 않는다. `@Transactional`과 같은 원리이며, 캐시 대상 메서드를 별도 Bean으로 분리한다. public 메서드에만 적용된다.
-- **TTL 부재.** `RedisCacheManager` 기본 설정은 만료 없이 영구 보관이라 키가 쌓여 메모리가 고갈된다. `entryTtl`이나 `spring.cache.redis.time-to-live`로 기본 TTL을 지정하고, `RedisTemplate`으로 직접 쓸 때도 `set(key, value, Duration)`으로 TTL을 함께 넘긴다.
-- **null 캐싱.** null 결과도 저장되므로 데이터가 나중에 생겨도 TTL이 끝날 때까지 null만 반환된다. `disableCachingNullValues()`나 `unless = "#result == null"`로 막는다.
-- **무효화 누락과 키 설계.** 쓰기 경로에 `@CachePut`이나 `@CacheEvict`가 빠지면 오래된 데이터가 계속 반환된다. 수정 메서드에 `@Cacheable`을 붙이면 두 번째 수정부터 DB 갱신이 생략된다. 키가 거칠면 다른 조회가 같은 항목을 덮어쓰고, 세밀하면 미스가 잦아진다.
-- **직렬화와 타입.** `GenericJackson2JsonRedisSerializer`는 클래스 정보를 JSON에 포함하므로 클래스 이름이 바뀌면 기존 캐시 역직렬화가 실패한다. 배포 시 캐시를 비우거나 캐시 이름에 버전을 붙인다. `Object` 캐스팅은 `ClassCastException` 위험이 있으므로 타입별 `RedisTemplate`이나 `StringRedisTemplate`을 쓴다.
+- **TTL 부재.** ==`RedisCacheManager` 기본 설정은 만료 없이 영구 보관이라 키가 쌓여 메모리가 고갈된다.== `entryTtl`이나 `spring.cache.redis.time-to-live`로 기본 TTL을 지정하고, `RedisTemplate`으로 직접 쓸 때도 `set(key, value, Duration)`으로 TTL을 함께 넘긴다.
+- **null 캐싱.** ==null 결과도 저장되므로 데이터가 나중에 생겨도 TTL이 끝날 때까지 null만 반환된다.== `disableCachingNullValues()`나 `unless = "#result == null"`로 막는다.
+- **무효화 누락과 키 설계.** 쓰기 경로에 `@CachePut`이나 `@CacheEvict`가 빠지면 오래된 데이터가 계속 반환된다. ==수정 메서드에 `@Cacheable`을 붙이면 두 번째 수정부터 DB 갱신이 생략된다.== 키가 거칠면 다른 조회가 같은 항목을 덮어쓰고, 세밀하면 미스가 잦아진다.
+- **직렬화와 타입.** ==`GenericJackson2JsonRedisSerializer`는 클래스 정보를 JSON에 포함하므로 클래스 이름이 바뀌면 기존 캐시 역직렬화가 실패한다.== 배포 시 캐시를 비우거나 캐시 이름에 버전을 붙인다. `Object` 캐스팅은 `ClassCastException` 위험이 있으므로 타입별 `RedisTemplate`이나 `StringRedisTemplate`을 쓴다.
 - **Lettuce 공유 연결과 Cluster.** `BLPOP` 같은 blocking 명령은 공유 연결을 멈추므로 전용 연결로 분리한다. Cluster에서 `multiGet`은 키가 다른 슬롯에 있으면 CROSSSLOT 오류가 나므로 hash tag로 모으거나 파이프라인으로 나눈다. 루프 안 Redis 호출은 `multiGet`이나 `executePipelined`로 묶는다.
 
 ## 관련 글

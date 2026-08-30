@@ -24,7 +24,7 @@
   <h1>복제·CAP·분산 트랜잭션</h1>
   <p class="summary">복제 모드와 CAP·PACELC 트레이드오프를 기준으로 읽기 라우팅·Failover·Saga 보상 설계를 정리한다</p>
   <div class="content">
-<p>단일 노드 PostgreSQL은 그 노드가 곧 SPOF다. 디스크가 죽으면 서비스가 멈추고, 읽기 트래픽이 늘어도 수직 확장 외에 선택지가 없다. 복제는 이 두 문제를 동시에 푼다. <mark>그러나 노드가 둘 이상이 되는 순간 네트워크 단절, 복제 지연, 두 노드가 동시에 primary라고 믿는 상황이 생기고, 여러 서비스에 걸친 업무를 원자적으로 묶던 트랜잭션 경계도 사라진다.</mark></p>
+<p>단일 노드 PostgreSQL은 그 노드가 곧 SPOF다. 디스크가 죽으면 서비스가 멈추고, 읽기 트래픽이 늘어도 수직 확장 외에 선택지가 없다. 복제는 이 두 문제를 동시에 푼다. 그러나 노드가 둘 이상이 되는 순간 네트워크 단절, 복제 지연, 두 노드가 동시에 primary라고 믿는 상황이 생기고, 여러 서비스에 걸친 업무를 원자적으로 묶던 트랜잭션 경계도 사라진다.</p>
 <h2>핵심 개념</h2>
 <h3>복제 토폴로지</h3>
 <p>Primary-Replica 구성은 한 노드가 모든 쓰기를 받고, WAL을 스트리밍해 여러 replica가 읽기를 나눠 맡는다. 충돌이 없어 단순하지만 primary가 SPOF다. Multi-Primary는 여러 노드가 동시에 쓰기를 받으므로 충돌 해결 전략(Last-Write-Wins, 사용자 정의 규칙, CRDT)이 필수이며, PostgreSQL은 BDR 같은 확장 없이는 지원하지 않는다.</p>
@@ -131,9 +131,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>복제는 백업이 아니다.</strong></mark> primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다. 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.</li>
-<li><strong><code>synchronous_standby_names</code>를 켠 상태에서 standby가 전부 내려가면 커밋이 멈춘다.</strong> <code>ANY 1 (s1, s2)</code> 정족수로 낮추거나 장애 시 설정을 풀 운영 절차를 준비해야 한다.</li>
-<li><strong>long transaction과 replica 충돌.</strong> standby의 긴 조회는 primary VACUUM이 만든 WAL과 충돌해 취소되거나(<code>hot_standby_feedback</code> off), primary의 dead tuple 정리를 막는다(on). 분석 쿼리는 전용 replica로 분리한다.</li>
+<li><strong>복제는 백업이 아니다.</strong> <mark>primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다.</mark> 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.</li>
+<li><mark><strong><code>synchronous_standby_names</code>를 켠 상태에서 standby가 전부 내려가면 커밋이 멈춘다.</strong></mark> <code>ANY 1 (s1, s2)</code> 정족수로 낮추거나 장애 시 설정을 풀 운영 절차를 준비해야 한다.</li>
+<li><strong>long transaction과 replica 충돌.</strong> <mark>standby의 긴 조회는 primary VACUUM이 만든 WAL과 충돌해 취소되거나(<code>hot_standby_feedback</code> off), primary의 dead tuple 정리를 막는다(on).</mark> 분석 쿼리는 전용 replica로 분리한다.</li>
 <li><strong>Cascade 복제는 lag이 누적된다.</strong> replica의 replica는 primary lag과 중간 노드 lag을 합산한 지연을 가지므로 Eventual 조회 전용으로 격리한다.</li>
 <li><strong>Saga의 보상은 항상 성공한다는 가정이 틀리다.</strong> 환불 API가 실패하거나 두 번 호출될 수 있으므로 보상은 멱등하게 만들고, 실패한 보상은 outbox 테이블에 기록해 재처리한다. 보상 불가능한 단계는 Saga의 마지막에 둔다.</li>
 </ul>

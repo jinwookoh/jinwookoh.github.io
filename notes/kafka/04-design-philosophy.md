@@ -19,7 +19,7 @@ updated: 2026-08-29
 
 디스크 성능은 접근 패턴이 결정한다. 7200rpm SATA 기준 순차 쓰기는 약 600MB/s, 랜덤 쓰기는 약 100KB/s로 6,000배 차이가 난다. 운영체제는 남는 메모리 전부를 페이지 캐시로 쓰고 read-ahead·write-behind로 순차 패턴을 최적화하므로, 순차 접근만 유지하면 디스크는 메모리에 근접한 처리량을 낸다.
 
-Kafka는 도착한 메시지를 즉시 파일시스템 로그에 쓴다. 실제로는 커널 페이지 캐시에 기록되며 fsync를 강제하지 않고, 내구성은 replication으로 확보한다. consumer 읽기도 페이지 캐시를 경유하므로 최근 데이터를 따라가는 consumer는 디스크를 거의 건드리지 않는다.
+Kafka는 도착한 메시지를 즉시 파일시스템 로그에 쓴다. ==실제로는 커널 페이지 캐시에 기록되며 fsync를 강제하지 않고, 내구성은 replication으로 확보한다.== consumer 읽기도 페이지 캐시를 경유하므로 최근 데이터를 따라가는 consumer는 디스크를 거의 건드리지 않는다.
 
 JVM 힙에 자체 캐시를 두지 않는 이유는 Java 객체가 원본의 두 배 이상을 차지하고 힙이 커질수록 GC 정지가 길어지기 때문이다. 페이지 캐시는 GC가 없고 재시작 후에도 warm 상태가 유지된다.
 
@@ -106,11 +106,11 @@ public static void sendFile(Path path, SocketAddress address) throws IOException
 
 ## 실무에서 걸리는 지점
 
-- **TLS와 zero-copy는 양립하지 않는다.** 암호화가 user space에서 이뤄지므로 TLS 리스너는 sendfile 경로를 타지 못한다. consumer가 많으면 kTLS나 TLS 종단 분리를 검토한다.
+- ==**TLS와 zero-copy는 양립하지 않는다.**== 암호화가 user space에서 이뤄지므로 TLS 리스너는 sendfile 경로를 타지 못한다. consumer가 많으면 kTLS나 TLS 종단 분리를 검토한다.
 - **`linger.ms`는 그대로 지연에 더해진다.** 배치가 차지 않으면 설정값만큼 대기하므로 실시간 경로는 5~10ms로 제한한다.
 - **broker 힙을 크게 잡으면 페이지 캐시가 줄어든다.** 힙은 4~8GB로 두고 나머지를 OS에 남긴다. lag가 커져 캐시 밖 segment를 읽으면 디스크 I/O가 급증한다.
 - **이미 압축된 payload에 압축을 겹치면 CPU만 낭비한다.** 이미지·압축 파일은 압축률이 1.0~1.5배에 그치므로 `compression.type=none`으로 둔다.
-- **zstd는 2.1 이상 클라이언트만 해제할 수 있다.** 구버전 consumer가 남아 있으면 `UNSUPPORTED_COMPRESSION_TYPE` 오류가 난다.
+- ==**zstd는 2.1 이상 클라이언트만 해제할 수 있다.**== 구버전 consumer가 남아 있으면 `UNSUPPORTED_COMPRESSION_TYPE` 오류가 난다.
 
 ## 관련 글
 

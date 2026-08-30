@@ -17,9 +17,9 @@ updated: 2026-08-29
 
 검색 요청은 `GET|POST /<index>/_search`로 보낸다. 인덱스 자리에는 `logs-*` 같은 와일드카드도 들어간다. URI 검색(`?q=field:value`)은 디버깅 용도이고, 실제 코드는 JSON body 검색을 쓴다. GET에 body를 싣지 못하는 클라이언트가 있으므로 POST로 통일한다.
 
-body의 공통 키는 `query`(검색 조건, 기본 `match_all`), `size`/`from`(기본 10/0), `sort`(기본 `_score` 내림차순, `_doc`이 가장 싼 정렬 키), `_source`(반환 필드, `includes/excludes`·`false` 가능), `track_total_hits`(기본 10,000까지만 정확히 세며 `true`면 전체를 센다), `timeout`(초과 시 부분 결과와 `timed_out: true`)이다. 응답은 `took`, `hits.total`(`value`와 `eq`/`gte` 관계), `hits.max_score`, `hits.hits`로 구성된다.
+body의 공통 키는 `query`(검색 조건, 기본 `match_all`), `size`/`from`(기본 10/0), `sort`(기본 `_score` 내림차순, `_doc`이 가장 싼 정렬 키), `_source`(반환 필드, `includes/excludes`·`false` 가능), ==`track_total_hits`(기본 10,000까지만 정확히 세며 `true`면 전체를 센다)==, `timeout`(초과 시 부분 결과와 `timed_out: true`)이다. 응답은 `took`, `hits.total`(`value`와 `eq`/`gte` 관계), `hits.max_score`, `hits.hits`로 구성된다.
 
-`from + size`는 `index.max_result_window`(10,000)를 넘을 수 없다. 모든 샤드가 `from + size` 건을 coordinating 노드로 보내 다시 합쳐야 하므로 깊은 페이지일수록 비용이 비선형으로 는다. 깊은 페이징은 `search_after`와 PIT를 쓴다.
+==`from + size`는 `index.max_result_window`(10,000)를 넘을 수 없다.== 모든 샤드가 `from + size` 건을 coordinating 노드로 보내 다시 합쳐야 하므로 깊은 페이지일수록 비용이 비선형으로 는다. 깊은 페이징은 `search_after`와 PIT를 쓴다.
 
 ### Full-text 쿼리와 점수
 
@@ -107,7 +107,7 @@ public SearchResponse<ProductSummary> searchPhrase(String phrase) throws IOExcep
 - **`text` 필드 정렬은 fielddata 오류로 실패한다.** fielddata는 힙을 크게 먹어 기본으로 막혀 있다. `title.keyword` multi-field를 두고 keyword로 정렬한다.
 - **`_source` 전체 반환은 대역폭을 잠식한다.** 목록용과 상세용 검색을 분리해 목록은 필요한 필드만 받는다.
 - **`operator` 기본값 `or`는 정밀도를 떨어뜨린다.** 카테고리 내 검색은 `and`, 전체 검색은 `minimum_should_match` 75~80%처럼 화면별로 정한다.
-- **`fuzziness`와 prefix 매칭은 비싸다.** 후보 토큰을 확장하므로 대형 인덱스에서 응답이 수십 배 느려진다. fuzziness는 자유 입력에만 쓰고, 짧은 prefix 자동완성은 completion suggester로 옮긴다.
+- **`fuzziness`와 prefix 매칭은 비싸다.** ==후보 토큰을 확장하므로 대형 인덱스에서 응답이 수십 배 느려진다.== fuzziness는 자유 입력에만 쓰고, 짧은 prefix 자동완성은 completion suggester로 옮긴다.
 - **`query_string`에 사용자 입력을 직접 넣지 않는다.** `:`나 `(`가 섞이면 파싱 에러가 난다. 사용자 입력은 `match`·`multi_match`, 연산자가 필요하면 `simple_query_string`을 쓴다.
 
 ## 관련 글

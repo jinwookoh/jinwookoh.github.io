@@ -24,7 +24,7 @@
   <h1>메시지 채널과 Liquid 개인화</h1>
   <p class="summary">Push·In-app·Content Card·Feature Flag의 역할 분담과 Liquid·Connected Content로 발송 시점에 메시지를 개인화하는 구조</p>
   <div class="content">
-<p>채널을 구분하지 않고 메시지를 보내면 두 가지 문제가 생긴다. 하나는 전달 실패다. 앱을 열지 않은 사용자에게 In-app 메시지를 걸어 두거나 Web Push 인증을 빼먹는 식이다. 다른 하나는 피로다. 같은 사용자에게 Push·In-app·Email이 동시에 도착하면 옵트아웃으로 이어진다. 개인화가 없으면 클릭률이 낮고, 속성을 그대로 끼워 넣으면 이름이 빈 사용자에게 &quot;안녕하세요, 님&quot;이 나간다. <mark>채널 특성과 템플릿 안전선을 함께 잡아야 한다.</mark></p>
+<p>채널을 구분하지 않고 메시지를 보내면 두 가지 문제가 생긴다. 하나는 전달 실패다. 앱을 열지 않은 사용자에게 In-app 메시지를 걸어 두거나 Web Push 인증을 빼먹는 식이다. 다른 하나는 피로다. 같은 사용자에게 Push·In-app·Email이 동시에 도착하면 옵트아웃으로 이어진다. 개인화가 없으면 클릭률이 낮고, 속성을 그대로 끼워 넣으면 이름이 빈 사용자에게 &quot;안녕하세요, 님&quot;이 나간다. 채널 특성과 템플릿 안전선을 함께 잡아야 한다.</p>
 <h2>핵심 개념</h2>
 <h3>네 가지 전달 기능의 역할</h3>
 <p>개발자가 직접 통합하는 기능은 Push, In-app Message, Content Card, Feature Flag 네 가지이며, 사용자가 어디에 있을 때 닿는지가 다르다.</p>
@@ -149,10 +149,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Connected Content timeout이 곧 발송 지연이다.</strong></mark> 수십만 명 캠페인이면 호출도 수십만 번 나간다. 자체 API는 500ms 이내 응답을 목표로 하고 <code>cache_max_age</code>·CDN·발송 직전 pre-warming으로 rate limit을 피한다.</li>
+<li><strong>Connected Content timeout이 곧 발송 지연이다.</strong> <mark>수십만 명 캠페인이면 호출도 수십만 번 나간다.</mark> 자체 API는 500ms 이내 응답을 목표로 하고 <code>cache_max_age</code>·CDN·발송 직전 pre-warming으로 rate limit을 피한다.</li>
 <li><strong>외부 API 응답의 PII가 메시지에 그대로 박힌다.</strong> 발송 전용 응답 스키마를 분리하고 전화번호·이메일은 제외한다. URL에 들어가는 <code>${attr}</code>도 자체 API에서 검증한다.</li>
 <li><strong>LLM 호출은 prompt injection과 비결정성을 함께 안고 있다.</strong> 사용자 속성을 정제해서 넣고, system prompt에 금지 사항을 고정하며, 응답에 길이·키워드 필터를 건다. temperature를 낮추고 캐시를 병행한다.</li>
-<li><strong>Liquid 문법 오류와 Push 인증 만료는 조용히 실패한다.</strong> <code>endif</code>·<code>default</code> 누락은 콘솔 preview와 테스트 세그먼트 발송으로 걸러내고, .p12 만료와 앱 재설치 후 토큰 미갱신은 Auth Key 사용과 세션마다 토큰 등록으로 막는다.</li>
+<li><mark><strong>Liquid 문법 오류와 Push 인증 만료는 조용히 실패한다.</strong></mark> <code>endif</code>·<code>default</code> 누락은 콘솔 preview와 테스트 세그먼트 발송으로 걸러내고, .p12 만료와 앱 재설치 후 토큰 미갱신은 Auth Key 사용과 세션마다 토큰 등록으로 막는다.</li>
 <li><strong>Frequency cap 없이는 메시지 폭격이 된다.</strong> 사용자·캠페인 단위 cap을 두고, 앱 사용 중 Push는 표시하지 않거나 In-app 하나로 대체한다. Content Card는 expiration을 걸어 오래된 카드가 남지 않게 한다.</li>
 </ul>
 <h2>관련 글</h2>

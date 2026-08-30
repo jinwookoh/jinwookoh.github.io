@@ -15,7 +15,7 @@ updated: 2026-08-30
 
 Flutter의 내비게이션 API는 두 층으로 나뉜다.
 
-**Navigator 1.0(명령형)** 은 `Navigator.of(context).push(...)`, `pop()` 으로 스택을 직접 조작한다. `MaterialApp`이 루트 `Navigator`를 만들고 각 화면은 `Route` 객체로 쌓인다. `pushNamed` 방식은 딥링크 진입 시 중간 스택을 복원하지 못해 공식 문서도 새 프로젝트에는 권장하지 않는다.
+**Navigator 1.0(명령형)** 은 `Navigator.of(context).push(...)`, `pop()` 으로 스택을 직접 조작한다. `MaterialApp`이 루트 `Navigator`를 만들고 각 화면은 `Route` 객체로 쌓인다. ==`pushNamed` 방식은 딥링크 진입 시 중간 스택을 복원하지 못해 공식 문서도 새 프로젝트에는 권장하지 않는다.==
 
 **Router API(선언적)** 는 `RouterDelegate`·`RouteInformationParser` 조합으로 앱 상태에서 페이지 목록을 계산한다. URL·뒤로가기·딥링크가 한 경로로 수렴하지만 직접 구현하면 보일러플레이트가 많다.
 
@@ -160,10 +160,10 @@ final tabRouter = GoRouter(
 ## 실무에서 걸리는 지점
 
 - **`go`와 `push`를 섞어 쓰면 스택이 예측 불가능해진다.** `push`로 쌓은 화면 위에서 `go`를 호출하면 스택이 재구성되어 사용자 이력이 사라진다. URL이 바뀌는 이동은 `go`, 결과를 돌려받는 일시적 화면은 `push`로 기준을 정해 둔다.
-- **`redirect`는 매 이동마다 실행되므로 무거운 작업을 넣지 않는다.** 인증 상태는 메모리에서 동기적으로 판정하고 변화는 `refreshListenable`로 알린다. 리다이렉트가 서로를 가리키면 `redirectLimit`(기본 5) 초과로 에러 화면에 떨어진다.
+- **`redirect`는 매 이동마다 실행되므로 무거운 작업을 넣지 않는다.** 인증 상태는 메모리에서 동기적으로 판정하고 변화는 `refreshListenable`로 알린다. ==리다이렉트가 서로를 가리키면 `redirectLimit`(기본 5) 초과로 에러 화면에 떨어진다.==
 - **딥링크 장애는 플랫폼 설정 누락이 대부분이다.** Android는 `adb shell am start -a android.intent.action.VIEW -d <url>`, iOS는 `xcrun simctl openurl booted <url>`로 검증한다. Universal Links는 도메인에 AASA 파일이 배포되어야 하므로 로컬만으로는 확인이 끝나지 않는다.
-- **`GoRouter`를 `build` 안에서 만들면 안 된다.** 리빌드마다 새 라우터가 생겨 스택이 초기화된다. 전역 또는 Riverpod 싱글턴으로 한 번만 생성한다.
-- **웹은 `usePathUrlStrategy()`와 서버 설정이 한 세트다.** 이를 호출해야 `#/` 없는 경로가 되며, 서버가 모든 경로를 `index.html`로 돌려줘야 새로고침 시 404가 나지 않는다. 전환 애니메이션은 `pageBuilder`에서 `CustomTransitionPage`를 반환해 바꾼다.
+- **`GoRouter`를 `build` 안에서 만들면 안 된다.** ==리빌드마다 새 라우터가 생겨 스택이 초기화된다.== 전역 또는 Riverpod 싱글턴으로 한 번만 생성한다.
+- **웹은 `usePathUrlStrategy()`와 서버 설정이 한 세트다.** 이를 호출해야 `#/` 없는 경로가 되며, ==서버가 모든 경로를 `index.html`로 돌려줘야 새로고침 시 404가 나지 않는다==. 전환 애니메이션은 `pageBuilder`에서 `CustomTransitionPage`를 반환해 바꾼다.
 
 ## 관련 글
 

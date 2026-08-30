@@ -24,14 +24,14 @@
   <h1>Cluster와 일관된 해싱</h1>
   <p class="summary">단일 인스턴스의 메모리·쓰기 한계를 넘기 위한 샤딩 — 해시 링과 16384 슬롯이 키 이동을 최소화하는 원리</p>
   <div class="content">
-<p>Replication과 Sentinel은 읽기 분산과 자동 failover를 제공하지만, 쓰기와 데이터는 여전히 마스터 한 대에 머문다. 데이터가 단일 노드 메모리를 넘거나 쓰기 TPS가 한 프로세스의 처리량을 넘으면 키 공간을 여러 노드에 나누는 샤딩이 필요하다. 가장 단순한 <code>hash(key) % N</code> 방식은 N이 바뀌는 순간 거의 모든 키의 목적지가 달라져 대량 캐시 미스가 DB로 쏟아진다. <mark>이 문제를 푸는 것이 일관된 해싱이고, Redis Cluster는 같은 목표를 고정 슬롯 방식으로 구현한다.</mark></p>
+<p>Replication과 Sentinel은 읽기 분산과 자동 failover를 제공하지만, 쓰기와 데이터는 여전히 마스터 한 대에 머문다. 데이터가 단일 노드 메모리를 넘거나 쓰기 TPS가 한 프로세스의 처리량을 넘으면 키 공간을 여러 노드에 나누는 샤딩이 필요하다. 가장 단순한 <code>hash(key) % N</code> 방식은 N이 바뀌는 순간 거의 모든 키의 목적지가 달라져 대량 캐시 미스가 DB로 쏟아진다. 이 문제를 푸는 것이 일관된 해싱이고, Redis Cluster는 같은 목표를 고정 슬롯 방식으로 구현한다.</p>
 <h2>핵심 개념</h2>
 <h3>일관된 해싱 — 해시 링과 가상 노드</h3>
 <p>일관된 해싱은 해시 공간(0~2³²)을 원으로 보고, 서버와 키를 같은 해시 함수로 링 위에 배치한다. 키는 자기 위치에서 시계 방향으로 처음 만나는 서버에 저장된다. 서버를 추가하면 새 서버와 바로 앞 서버 사이 구간의 키만 이동하고, 제거하면 그 서버가 맡던 구간만 다음 서버로 넘어간다. 이동량은 modulo 방식이 거의 전부인 데 비해 평균 1/N에 그친다.</p>
 <p>서버 수가 적으면 링 위의 점이 듬성듬성해져 구간 크기가 불균등해지고, 한 서버가 죽으면 부하가 다음 서버 한 대로 몰린다. 가상 노드는 서버 하나를 수십~수백 개의 가상 점으로 링에 흩뿌려 각 서버가 작은 구간 여러 개를 맡게 한다. 부하가 고르게 펴지고 장애 시 부하도 여러 서버로 분산된다.</p>
 <h3>Redis Cluster — 16384 고정 슬롯</h3>
 <p>Redis Cluster는 해시 링 대신 키 공간을 16384개 슬롯(0~16383)으로 나누고, 각 마스터 노드가 슬롯 범위를 명시적으로 배정받는다. 슬롯 번호는 <code>CRC16(key) % 16384</code>로 계산하며 <code>CLUSTER KEYSLOT key</code>로 조회한다. 각 마스터는 자신의 replica를 가질 수 있어 3 마스터 + 3 replica 6노드가 최소 권장 구성이다.</p>
-<p>두 방식의 차이는 제어권이다. 해시 링은 키 이동이 자동이라 편하지만 어느 키가 어디로 가는지 세밀하게 통제하기 어렵다. 슬롯 방식은 &quot;슬롯 100~200을 노드 B로&quot;처럼 슬롯 단위로 정확히 옮길 수 있다. <mark>둘 다 &quot;노드 수가 바뀌어도 전체를 재배치하지 않는다&quot;는 원칙을 공유한다.</mark></p>
+<p>두 방식의 차이는 제어권이다. 해시 링은 키 이동이 자동이라 편하지만 어느 키가 어디로 가는지 세밀하게 통제하기 어렵다. 슬롯 방식은 &quot;슬롯 100~200을 노드 B로&quot;처럼 슬롯 단위로 정확히 옮길 수 있다. 둘 다 &quot;노드 수가 바뀌어도 전체를 재배치하지 않는다&quot;는 원칙을 공유한다.</p>
 <h3>Hash Tag와 CROSSSLOT</h3>
 <p>여러 키를 다루는 명령(<code>MGET</code>·<code>MSET</code>·<code>SINTER</code>·<code>MULTI/EXEC</code>·<code>EVAL</code>의 KEYS)은 모든 키가 같은 슬롯에 있어야 한다. 다른 슬롯이면 <code>CROSSSLOT Keys in request don&#39;t hash to the same slot</code> 오류가 난다. 키 이름에 <code>{}</code>를 넣으면 중괄호 안의 부분만 CRC16 대상이 되므로 <code>{user:42}:name</code>과 <code>{user:42}:email</code>은 같은 슬롯에 놓인다.</p>
 <h3>MOVED · ASK Redirection</h3>
@@ -158,9 +158,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>마이그레이션 시 CROSSSLOT이 가장 큰 작업량이다.</strong></mark> 단일 인스턴스에서 잘 돌던 <code>MGET</code>·<code>SINTER</code>·Lua 스크립트·트랜잭션이 클러스터로 옮기는 순간 깨진다. Hash Tag를 도입하거나, 원자성이 필요 없으면 파이프라인으로 단일 키 명령을 나눠 보낸다. 파이프라인은 명령별로 라우팅되므로 슬롯이 달라도 동작한다.</li>
-<li><strong>Hash Tag 남용은 hot slot을 만든다.</strong> 사용자 한 명의 모든 키를 한 태그로 묶었는데 그 사용자에게 트래픽이 몰리면 노드 한 대에 부하가 집중된다. 원자적으로 함께 다뤄야 하는 키만 묶고 노드별 메모리·QPS를 모니터링한다.</li>
-<li><mark><strong>Cluster를 무조건 고르는 것이 함정이다.</strong></mark> 운영 복잡도가 Sentinel 구성보다 훨씬 크다. 데이터가 단일 노드 메모리에 들어가고 쓰기 TPS가 감당되는 규모라면 Replication + Sentinel이 낫다.</li>
+<li><strong>마이그레이션 시 CROSSSLOT이 가장 큰 작업량이다.</strong> 단일 인스턴스에서 잘 돌던 <code>MGET</code>·<code>SINTER</code>·Lua 스크립트·트랜잭션이 클러스터로 옮기는 순간 깨진다. Hash Tag를 도입하거나, 원자성이 필요 없으면 파이프라인으로 단일 키 명령을 나눠 보낸다. <mark>파이프라인은 명령별로 라우팅되므로 슬롯이 달라도 동작한다.</mark></li>
+<li><strong>Hash Tag 남용은 hot slot을 만든다.</strong> <mark>사용자 한 명의 모든 키를 한 태그로 묶었는데 그 사용자에게 트래픽이 몰리면 노드 한 대에 부하가 집중된다.</mark> 원자적으로 함께 다뤄야 하는 키만 묶고 노드별 메모리·QPS를 모니터링한다.</li>
+<li><strong>Cluster를 무조건 고르는 것이 함정이다.</strong> 운영 복잡도가 Sentinel 구성보다 훨씬 크다. 데이터가 단일 노드 메모리에 들어가고 쓰기 TPS가 감당되는 규모라면 Replication + Sentinel이 낫다.</li>
 <li><strong>Resharding은 I/O 부담이 있다.</strong> <code>redis-cli --cluster reshard</code>로 슬롯을 온라인 이동하지만 대상 슬롯의 키를 모두 복사하므로 트래픽이 적은 시간에 수행한다. 이동 중 ASK를 처리하지 못하는 구버전 클라이언트는 오류가 난다.</li>
 <li><strong>전통 Pub/Sub은 모든 노드에 broadcast된다.</strong> 클러스터가 커질수록 cluster bus 부담이 커진다. Redis 7 이상의 Sharded Pub/Sub(<code>SPUBLISH</code>·<code>SSUBSCRIBE</code>)은 채널을 슬롯에 매핑해 해당 샤드에서만 전파한다.</li>
 </ul>

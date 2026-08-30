@@ -23,7 +23,7 @@ updated: 2026-08-29
 
 **배열·범위·ENUM.** `TEXT[]` 배열은 태그 같은 작은 컬렉션에 쓰고 `ANY`·`@>`·`&&` 연산자와 GIN 인덱스로 검색한다. TSTZRANGE 등 범위 타입은 EXCLUDE 제약과 결합해 예약 겹침을 DB 레벨에서 막는다. ENUM은 값 삭제와 순서 변경이 어려우므로 상태 집합이 바뀔 여지가 있으면 TEXT + CHECK가 낫다.
 
-**JSON과 JSONB.** JSON은 입력 텍스트를 그대로 저장하고 조회마다 파싱한다. JSONB는 입력 시점에 파싱해 이진 구조로 저장하므로 키 순서가 보존되지 않고 중복 키는 마지막 값만 남지만, 조회가 빠르고 GIN 인덱스를 걸 수 있다. 원본 포맷을 보존해야 하는 감사 로그가 아니라면 JSONB를 쓴다.
+**JSON과 JSONB.** JSON은 입력 텍스트를 그대로 저장하고 조회마다 파싱한다. ==JSONB는 입력 시점에 파싱해 이진 구조로 저장하므로 키 순서가 보존되지 않고 중복 키는 마지막 값만 남지만==, 조회가 빠르고 GIN 인덱스를 걸 수 있다. 원본 포맷을 보존해야 하는 감사 로그가 아니라면 JSONB를 쓴다.
 
 | 연산자 | 의미 | 결과 타입 |
 |---|---|---|
@@ -115,10 +115,10 @@ public class User {
 
 ## 실무에서 걸리는 지점
 
-- **JPA 타입 매핑.** TIMESTAMPTZ는 `OffsetDateTime`이나 `Instant`로 받아야 하며 `LocalDateTime`은 JVM 시간대에 따라 값이 밀린다. NUMERIC은 `BigDecimal`, 상태 컬럼은 `@Enumerated(EnumType.STRING)`으로 DB CHECK와 맞춘다.
+- **JPA 타입 매핑.** ==TIMESTAMPTZ는 `OffsetDateTime`이나 `Instant`로 받아야 하며 `LocalDateTime`은 JVM 시간대에 따라 값이 밀린다.== NUMERIC은 `BigDecimal`, 상태 컬럼은 `@Enumerated(EnumType.STRING)`으로 DB CHECK와 맞춘다.
 - **인덱스와 조건 형태 불일치.** `@>`·`?`는 GIN이, `->>` 비교는 표현식 인덱스가 담당한다. 인덱스가 있어도 조건 형태가 다르면 순차 스캔이다.
-- **jsonb_set의 NULL 전파.** 대상이 NULL이면 결과도 NULL이 되어 컬럼이 통째로 비워진다. `COALESCE`로 감싸고 새 키 추가 시 네 번째 인자를 TRUE로 명시한다.
-- **큰 JSONB와 TOAST.** 값이 2KB를 넘으면 TOAST로 분리 저장되고, JSONB는 부분 갱신이 없어 키 하나를 바꿔도 값 전체를 다시 쓴다. 자주 읽거나 바뀌는 필드는 일반 컬럼으로 승격한다.
+- **jsonb_set의 NULL 전파.** ==대상이 NULL이면 결과도 NULL이 되어 컬럼이 통째로 비워진다.== `COALESCE`로 감싸고 새 키 추가 시 네 번째 인자를 TRUE로 명시한다.
+- **큰 JSONB와 TOAST.** ==값이 2KB를 넘으면 TOAST로 분리 저장되고, JSONB는 부분 갱신이 없어 키 하나를 바꿔도 값 전체를 다시 쓴다.== 자주 읽거나 바뀌는 필드는 일반 컬럼으로 승격한다.
 - **UUID v4 기본 키.** 무작위 키는 B-Tree 전역에 삽입이 흩어져 캐시 적중률이 떨어지고 bloat가 빨라진다. 분산 키가 필요하면 UUIDv7, 단일 DB라면 BIGINT IDENTITY가 단순하다.
 
 ## 관련 글

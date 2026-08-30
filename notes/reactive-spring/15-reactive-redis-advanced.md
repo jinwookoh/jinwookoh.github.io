@@ -15,7 +15,7 @@ updated: 2026-08-29
 
 ### 캐싱 — Cache-Aside가 기본
 
-Spring Cache 추상화는 메서드 반환값을 그대로 저장한다. 반환 타입이 `Mono<User>`면 값이 아니라 Publisher가 저장되고, cold publisher는 구독 시점에 실행되므로 캐시에서 꺼낸 Mono는 기대한 값을 주지 않는다. Spring Framework 6.1부터 `@Cacheable`이 Mono·Flux 반환을 인식해 `Cache.retrieve()`로 비동기 조회하며 Spring Data Redis 3.2 이상의 RedisCache가 이를 지원하지만, TTL·미스 처리를 코드로 제어하려면 ReactiveRedisTemplate으로 직접 짜는 Cache-Aside가 가장 명확하다. reactor-extra의 `CacheMono`는 deprecated 상태다.
+Spring Cache 추상화는 메서드 반환값을 그대로 저장한다. ==반환 타입이 `Mono<User>`면 값이 아니라 Publisher가 저장되고, cold publisher는 구독 시점에 실행되므로 캐시에서 꺼낸 Mono는 기대한 값을 주지 않는다.== Spring Framework 6.1부터 `@Cacheable`이 Mono·Flux 반환을 인식해 `Cache.retrieve()`로 비동기 조회하며 Spring Data Redis 3.2 이상의 RedisCache가 이를 지원하지만, TTL·미스 처리를 코드로 제어하려면 ReactiveRedisTemplate으로 직접 짜는 Cache-Aside가 가장 명확하다. reactor-extra의 `CacheMono`는 deprecated 상태다.
 
 갱신 시점에는 set이 아니라 delete를 쓴다. 두 요청의 DB 저장 순서와 캐시 set 순서가 엇갈리면 옛 값이 남지만, delete는 다음 조회가 DB를 다시 읽으므로 경합이 없다. TTL은 변경 빈도에 따라 가격은 수 분, 프로필은 30분 안팎, 카탈로그는 하루 정도로 차등한다.
 
@@ -25,7 +25,7 @@ Pub/Sub은 PUBLISH 시점에 구독 중인 클라이언트에게만 전달하고
 
 ### 트랜잭션 — MULTI/EXEC의 범위
 
-MULTI와 EXEC 사이 명령은 큐에 쌓였다가 한 번에 실행되어 다른 클라이언트가 끼어들지 못한다. 보장은 격리뿐이다. 중간 명령이 런타임 오류를 내도 나머지는 반영되고 롤백은 없다. WATCH는 감시 키가 바뀌면 EXEC가 nil을 돌려주는 낙관적 락이다. 리액티브 환경의 MULTI/EXEC는 연결 단위 상태를 요구해 Lettuce의 연결 공유 모델과 맞지 않으므로, 읽은 값을 조건으로 쓰기를 결정하는 로직은 Lua 스크립트로 서버에서 한 번에 실행한다.
+MULTI와 EXEC 사이 명령은 큐에 쌓였다가 한 번에 실행되어 다른 클라이언트가 끼어들지 못한다. 보장은 격리뿐이다. ==중간 명령이 런타임 오류를 내도 나머지는 반영되고 롤백은 없다.== WATCH는 감시 키가 바뀌면 EXEC가 nil을 돌려주는 낙관적 락이다. 리액티브 환경의 MULTI/EXEC는 연결 단위 상태를 요구해 Lettuce의 연결 공유 모델과 맞지 않으므로, 읽은 값을 조건으로 쓰기를 결정하는 로직은 Lua 스크립트로 서버에서 한 번에 실행한다.
 
 영속화는 RDB 스냅샷과 AOF(`appendfsync everysec`)를 함께 켜는 것이 표준이다. 접근 제어는 Redis 6 이상의 ACL로 키 패턴(`~app:*`)·명령 카테고리(`+@read`)를 사용자별로 분리하고 `spring.data.redis.username`/`password`로 연결한다.
 
@@ -141,9 +141,9 @@ public class BalanceService {
 
 - **캐시 스탬피드.** 인기 키가 만료되는 순간 미스가 동시에 터지면 요청 수만큼 DB 조회가 나간다. `setIfAbsent`로 짧은 락을 잡아 한 요청만 DB를 읽게 하거나, soft TTL과 hard TTL을 나눠 만료 직전에 갱신한다.
 - **패턴 구독과 Cluster.** `listenToPattern`은 모든 PUBLISH마다 패턴 매칭이 돌고, Cluster 모드에서는 메시지가 전 노드로 브로드캐스트된다. 규모가 커지면 Streams로 옮긴다.
-- **블로킹 명령.** Lettuce는 연결 하나를 공유하므로 BLPOP이 점유하면 뒤에 쌓인 명령이 모두 기다린다. 전용 연결로 분리한다.
+- **블로킹 명령.** ==Lettuce는 연결 하나를 공유하므로 BLPOP이 점유하면 뒤에 쌓인 명령이 모두 기다린다.== 전용 연결로 분리한다.
 - **O(N) 명령.** `KEYS *`, 큰 Set의 SMEMBERS, 큰 Hash의 HGETALL은 단일 스레드인 Redis 전체를 멈춘다. SCAN 계열로 바꾸고, FLUSHALL·CONFIG·DEBUG는 `rename-command`로 막는다.
-- **메모리 정책.** `noeviction`은 메모리가 차면 모든 쓰기가 실패한다. 캐시라면 `allkeys-lru`와 모든 키의 TTL이 기본이다.
+- **메모리 정책.** ==`noeviction`은 메모리가 차면 모든 쓰기가 실패한다.== 캐시라면 `allkeys-lru`와 모든 키의 TTL이 기본이다.
 
 ## 관련 글
 

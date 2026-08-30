@@ -15,11 +15,11 @@ SQL 한 줄로 100만 row를 조회하면 드라이버에 따라 ResultSet 전�
 
 ### Cursor — JdbcCursorItemReader
 
-DB cursor를 한 번 열고 `read()`마다 `rs.next()`와 `RowMapper.mapRow()`를 실행해 row를 하나씩 흘려보낸다. connection 1개를 Step 끝까지 점유하고 메모리는 `fetchSize`만큼 쓴다. `fetchSize`는 100~1000이 무난하며 MySQL은 `Integer.MIN_VALUE`를 주어야 streaming이 된다. thread-safe가 아니다.
+DB cursor를 한 번 열고 `read()`마다 `rs.next()`와 `RowMapper.mapRow()`를 실행해 row를 하나씩 흘려보낸다. connection 1개를 Step 끝까지 점유하고 메모리는 `fetchSize`만큼 쓴다. `fetchSize`는 100~1000이 무난하며 ==MySQL은 `Integer.MIN_VALUE`를 주어야 streaming이 된다==. thread-safe가 아니다.
 
 ### Paging — JdbcPagingItemReader
 
-`pageSize` 단위로 독립된 query를 반복한다. 페이지마다 connection을 반납하므로 idle timeout에 안전하고 thread-safe이며, 재시작 위치는 읽은 item 수로 복원한다. DB별 LIMIT/OFFSET 문법은 `PagingQueryProvider`가 흡수하고 `SqlPagingQueryProviderFactoryBean`이 DataSource의 dialect를 감지해 구현체를 고른다. `sortKey`는 unique해야 하며, 아니면 페이지 경계에서 row가 중복되거나 빠진다.
+`pageSize` 단위로 독립된 query를 반복한다. 페이지마다 connection을 반납하므로 idle timeout에 안전하고 thread-safe이며, 재시작 위치는 읽은 item 수로 복원한다. DB별 LIMIT/OFFSET 문법은 `PagingQueryProvider`가 흡수하고 `SqlPagingQueryProviderFactoryBean`이 DataSource의 dialect를 감지해 구현체를 고른다. ==`sortKey`는 unique해야 하며, 아니면 페이지 경계에서 row가 중복되거나 빠진다.==
 
 | 항목 | Cursor | Paging |
 |:---|:---|:---|
@@ -134,8 +134,8 @@ public class KeysetCustomerReader extends AbstractItemCountingItemStreamItemRead
 
 - **connection idle timeout.** Cursor reader는 Step 내내 connection을 잡아 pool이나 DB의 idle timeout을 넘기면 끊긴다. Paging 전환이 정석이고 timeout 연장은 임시 조치다.
 - **non-unique sortKey와 deep pagination.** `createdAt`으로 정렬하면 row가 중복·누락되므로 PK나 `Map<String, Order>` 다중 정렬을 쓴다. OFFSET이 수백만을 넘으면 후반 페이지가 급격히 느려지니 keyset 방식이나 partitioning으로 쪼갠다.
-- **JPA N+1.** lazy 연관을 `JpaPagingItemReader`로 읽으면 row마다 query가 나간다. collection fetch join에 paging을 결합하면 Hibernate가 메모리 페이징으로 처리하므로, 대량이면 JDBC reader로 명시 join SQL을 쓴다.
-- **flush 시점과 skip.** custom writer가 flush를 미루면 어떤 item이 원인인지 알 수 없어 chunk 전체가 롤백되고 skip이 동작하지 않는다. `write(Chunk)` 안에서 flush해야 하며 `JdbcBatchItemWriter`·`JpaItemWriter`는 내부에서 처리한다. `IDENTITY` 전략이면 INSERT batching이 불가능하므로 `SEQUENCE`로 바꾼다.
+- **JPA N+1.** lazy 연관을 `JpaPagingItemReader`로 읽으면 row마다 query가 나간다. ==collection fetch join에 paging을 결합하면 Hibernate가 메모리 페이징으로 처리하므로, 대량이면 JDBC reader로 명시 join SQL을 쓴다.==
+- **flush 시점과 skip.** ==custom writer가 flush를 미루면 어떤 item이 원인인지 알 수 없어 chunk 전체가 롤백되고 skip이 동작하지 않는다.== `write(Chunk)` 안에서 flush해야 하며 `JdbcBatchItemWriter`·`JpaItemWriter`는 내부에서 처리한다. `IDENTITY` 전략이면 INSERT batching이 불가능하므로 `SEQUENCE`로 바꾼다.
 - **다중 thread와 다중 DataSource.** multi-threaded Step에서 Cursor reader는 `SynchronizedItemStreamReader`로 감싸거나 Paging으로 바꾼다. source와 target DB가 다르면 트랜잭션도 분리되므로 UPSERT 멱등성으로 재실행을 허용한다.
 
 ## 관련 글

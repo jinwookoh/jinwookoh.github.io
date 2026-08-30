@@ -23,13 +23,13 @@ Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 
 | null | Writer로 보내지 않음 | filterCount | 대상 아님 |
 | 예외 | skip 정책으로 위임 | skipCount | 잘못된 레코드 |
 
-지원하지 않는 DELETE 레코드를 제외하는 것은 filter이고, 수량이 음수인 레코드는 skip이다. invalid 레코드를 `return null`로 처리하면 skipCount가 올라가지 않는다. `CompositeItemProcessor`는 순차 체인이며 중간 단계의 null은 filter로 집계된다. `ValidatingItemProcessor`는 `Validator<T>`를, `BeanValidatingItemProcessor`는 Jakarta Bean Validation 어노테이션을 쓰고, `setFilter(true)`면 검증 실패를 예외 대신 null로 바꾼다.
+지원하지 않는 DELETE 레코드를 제외하는 것은 filter이고, 수량이 음수인 레코드는 skip이다. ==invalid 레코드를 `return null`로 처리하면 skipCount가 올라가지 않는다.== `CompositeItemProcessor`는 순차 체인이며 중간 단계의 null은 filter로 집계된다. `ValidatingItemProcessor`는 `Validator<T>`를, `BeanValidatingItemProcessor`는 Jakarta Bean Validation 어노테이션을 쓰고, `setFilter(true)`면 검증 실패를 예외 대신 null로 바꾼다.
 
-chunk가 롤백되면 캐시된 item이 다시 `process()`를 거친다. 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.
+==chunk가 롤백되면 캐시된 item이 다시 `process()`를 거친다.== 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.
 
 ### 기존 서비스 재사용
 
-`ItemReaderAdapter`는 `targetObject`·`targetMethod`로 지정한 메서드를 `read()`마다 호출한다. 대상 메서드는 소진 시 null을 반환해야 하며 빈 `Optional`은 종료로 인식되지 않는다. `ItemWriterAdapter`는 item마다 개별 호출하고, `PropertyExtractingDelegatingItemWriter`는 item 프로퍼티를 추출해 다중 인자 메서드에 넘긴다. 기존 메서드가 배치 계약과 거의 같을 때만 Adapter를 쓴다.
+`ItemReaderAdapter`는 `targetObject`·`targetMethod`로 지정한 메서드를 `read()`마다 호출한다. ==대상 메서드는 소진 시 null을 반환해야 하며 빈 `Optional`은 종료로 인식되지 않는다.== `ItemWriterAdapter`는 item마다 개별 호출하고, `PropertyExtractingDelegatingItemWriter`는 item 프로퍼티를 추출해 다중 인자 메서드에 넘긴다. 기존 메서드가 배치 계약과 거의 같을 때만 Adapter를 쓴다.
 
 ### Process Indicator
 

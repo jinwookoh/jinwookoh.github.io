@@ -24,9 +24,9 @@
   <h1>Repeat·Retry와 StepVerifier</h1>
   <p class="summary">완료·에러 후 재구독하는 repeat/retry 전략과, 비동기 파이프라인을 가상 시간으로 검증하는 StepVerifier 사용법</p>
   <div class="content">
-<p>외부 API 호출은 일시적으로 실패한다. 배포 중인 업스트림의 503은 몇 초 뒤 다시 시도하면 대부분 성공하지만, 재시도 로직이 없으면 순간적 장애가 그대로 사용자 에러가 되고, 루프와 <code>Thread.sleep</code>으로 직접 구현하면 논블로킹 파이프라인 안에서 스레드를 점유한다. <mark>Reactor는 이를 <code>repeat</code>와 <code>retry</code>로 파이프라인 안에 선언한다.</mark> 검증도 문제다. <code>subscribe()</code>는 즉시 반환되므로 단언을 둘 곳이 없고, <code>block()</code>은 <code>delayElements</code>가 붙은 스트림을 실제 시간만큼 기다린다. reactor-test의 <code>StepVerifier</code>가 이 공백을 채운다.</p>
+<p>외부 API 호출은 일시적으로 실패한다. 배포 중인 업스트림의 503은 몇 초 뒤 다시 시도하면 대부분 성공하지만, 재시도 로직이 없으면 순간적 장애가 그대로 사용자 에러가 되고, 루프와 <code>Thread.sleep</code>으로 직접 구현하면 논블로킹 파이프라인 안에서 스레드를 점유한다. Reactor는 이를 <code>repeat</code>와 <code>retry</code>로 파이프라인 안에 선언한다. 검증도 문제다. <code>subscribe()</code>는 즉시 반환되므로 단언을 둘 곳이 없고, <code>block()</code>은 <code>delayElements</code>가 붙은 스트림을 실제 시간만큼 기다린다. reactor-test의 <code>StepVerifier</code>가 이 공백을 채운다.</p>
 <h2>핵심 개념</h2>
-<p><code>repeat</code>와 <code>retry</code>는 구조가 같고 트리거만 다르다. <code>repeat</code>는 <code>onComplete</code>, <code>retry</code>는 <code>onError</code>를 받으면 업스트림을 다시 구독한다. 파이프라인 바깥의 상태는 초기화되지 않는다. 횟수 인자는 추가 실행 횟수라 <code>repeat(3)</code>은 총 4회 실행, <code>retry(2)</code>는 총 3회 시도다. 인자 없는 <code>repeat()</code>는 <code>take</code>·<code>takeUntil</code>로 종료 조건을 붙여야 하고, <code>retry()</code>는 영구 오류에 붙이면 CPU를 점유하는 무한 루프가 된다. <code>repeatWhen</code>은 완료 신호를 담은 companion Flux에 <code>delayElements</code>를 걸어 주기 폴링을 만든다.</p>
+<p><code>repeat</code>와 <code>retry</code>는 구조가 같고 트리거만 다르다. <code>repeat</code>는 <code>onComplete</code>, <code>retry</code>는 <code>onError</code>를 받으면 업스트림을 다시 구독한다. 파이프라인 바깥의 상태는 초기화되지 않는다. <mark>횟수 인자는 추가 실행 횟수라 <code>repeat(3)</code>은 총 4회 실행, <code>retry(2)</code>는 총 3회 시도다.</mark> 인자 없는 <code>repeat()</code>는 <code>take</code>·<code>takeUntil</code>로 종료 조건을 붙여야 하고, <code>retry()</code>는 영구 오류에 붙이면 CPU를 점유하는 무한 루프가 된다. <code>repeatWhen</code>은 완료 신호를 담은 companion Flux에 <code>delayElements</code>를 걸어 주기 폴링을 만든다.</p>
 <p>정교한 재시도는 <code>retryWhen(Retry)</code>이 담당한다.</p>
 <table>
 <thead>
@@ -185,9 +185,9 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><code>filter</code> 없는 <code>retryWhen</code>은 4xx처럼 반복해도 결과가 같은 예외에 대기 시간만 소모한다. 5xx·타임아웃·커넥션 예외로 대상을 한정한다.</li>
-<li>타임아웃으로 실패한 POST는 서버에서 이미 처리됐을 수 있다. <mark>멱등 키 없는 재시도는 중복 실행이 된다.</mark></li>
-<li>WebClient·서비스·게이트웨이에 각각 재시도가 있으면 시도 횟수가 곱해진다. 재시도는 한 곳에서만 선언한다.</li>
-<li>소진 예외 타입이 바뀌므로 <code>retryWhen</code> 아래의 <code>onErrorResume(TimeoutException.class, ...)</code>는 매칭되지 않는다. <code>onRetryExhaustedThrow</code>로 원본을 전파하거나 <code>getCause()</code>로 분기한다.</li>
+<li>타임아웃으로 실패한 POST는 서버에서 이미 처리됐을 수 있다. 멱등 키 없는 재시도는 중복 실행이 된다.</li>
+<li><mark>WebClient·서비스·게이트웨이에 각각 재시도가 있으면 시도 횟수가 곱해진다.</mark> 재시도는 한 곳에서만 선언한다.</li>
+<li><mark>소진 예외 타입이 바뀌므로 <code>retryWhen</code> 아래의 <code>onErrorResume(TimeoutException.class, ...)</code>는 매칭되지 않는다.</mark> <code>onRetryExhaustedThrow</code>로 원본을 전파하거나 <code>getCause()</code>로 분기한다.</li>
 <li>시간 기반 연산자를 실제 시간으로 테스트하면 CI가 느려지고 타이밍에 따라 실패한다. 부분 소비 테스트는 <code>cancel()</code> 후 <code>verify()</code>로 끝내 무한 대기를 피한다.</li>
 </ul>
 <h2>관련 글</h2>

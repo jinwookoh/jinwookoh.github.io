@@ -21,7 +21,7 @@ Reader·Writer·Skip·Retry를 개별로 이해해도 운영에서는 조합 문
 | Reader가 null 반환 | COMPLETED | 불가 | 자연스러운 종료 |
 | `StepExecution.setTerminateOnly()` | STOPPED | 가능 | 운영자 검토 후 재개 |
 
-예외 방식은 Skip·Retry 대상에서 제외된 예외 타입을 써야 한다. `setTerminateOnly()`는 플래그만 세우고 프레임워크가 다음 item 처리 직전에 확인해 `JobInterruptedException`을 던지므로, 현재 chunk는 끝까지 진행된다.
+예외 방식은 Skip·Retry 대상에서 제외된 예외 타입을 써야 한다. ==`setTerminateOnly()`는 플래그만 세우고 프레임워크가 다음 item 처리 직전에 확인해 `JobInterruptedException`을 던지므로, 현재 chunk는 끝까지 진행된다.==
 
 ### Footer 집계
 
@@ -33,13 +33,13 @@ Writer가 `FlatFileFooterCallback`을 함께 구현해 누적 합계를 파일 �
 
 ### Step 간 데이터 전달
 
-Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다. Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 `ExecutionContextPromotionListener`가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다. 다음 Step은 `@StepScope` + `#{jobExecutionContext['key']}`로 받는다.
+==Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다.== Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 `ExecutionContextPromotionListener`가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다. 다음 Step은 `@StepScope` + `#{jobExecutionContext['key']}`로 받는다.
 
 ### 운영 FAQ
 
 - **같은 파라미터로 재실행 불가** — identifying parameter가 같은 COMPLETED JobInstance는 다시 실행할 수 없다. `RunIdIncrementer`를 Job에 등록하거나 실행 시각을 파라미터에 넣는다.
 - **STARTED로 멈춘 실행** — JVM crash·OOM 이후 남은 상태다. `BATCH_JOB_EXECUTION`의 STATUS·EXIT_CODE를 ABANDONED로 갱신하고 VERSION을 올린 뒤 재시작한다.
-- **Chunk 크기** — DB→DB 500~1,000, 외부 API 10~50, 큰 객체 50~200, 단순 변환 1,000 이상에서 시작해 throughput과 heap을 측정하며 조정한다.
+- **Chunk 크기** — ==DB→DB 500~1,000, 외부 API 10~50, 큰 객체 50~200, 단순 변환 1,000 이상에서 시작해 throughput과 heap을 측정하며 조정한다.==
 - **Skip vs Retry** — 같은 입력을 다시 처리해도 실패하면 Skip, 다시 하면 성공할 수 있으면 Retry다. 예외 타입을 나누어 둘 다 적용할 수 있다.
 - **스케줄링** — Spring Batch는 scheduler가 아니다. `@Scheduled`·Quartz·cron이 trigger를 맡는다.
 

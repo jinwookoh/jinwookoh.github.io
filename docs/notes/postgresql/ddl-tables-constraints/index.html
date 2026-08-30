@@ -24,9 +24,9 @@
   <h1>DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</h1>
   <p class="summary">대용량 테이블은 파티션·IDENTITY·제약·외래 키를 DDL 단계에서 함께 설계해야 운영 중 다운타임 없이 무결성을 지킬 수 있다.</p>
   <div class="content">
-<p>컬럼 이름과 타입만 나열해 테이블을 만들면 데이터가 수천만 행을 넘기는 순간 문제가 드러난다. 오래된 로그를 지우는 DELETE가 몇 시간을 돌고, 외래 키 없는 주문 테이블에는 고아 행이 쌓이며, 애플리케이션 검증만 믿던 가격 컬럼에 음수가 들어간다. 뒤늦게 제약을 추가하면 전체 검증 락이 걸려 서비스가 멈춘다. <mark>파티션·제약·외래 키를 DDL 단계에서 함께 설계하면 이 비용을 대부분 피할 수 있다.</mark></p>
+<p>컬럼 이름과 타입만 나열해 테이블을 만들면 데이터가 수천만 행을 넘기는 순간 문제가 드러난다. 오래된 로그를 지우는 DELETE가 몇 시간을 돌고, 외래 키 없는 주문 테이블에는 고아 행이 쌓이며, 애플리케이션 검증만 믿던 가격 컬럼에 음수가 들어간다. 뒤늦게 제약을 추가하면 전체 검증 락이 걸려 서비스가 멈춘다. 파티션·제약·외래 키를 DDL 단계에서 함께 설계하면 이 비용을 대부분 피할 수 있다.</p>
 <h2>핵심 개념</h2>
-<p>PostgreSQL은 DDL이 트랜잭션 안에서 동작한다. ALTER TABLE과 CREATE INDEX를 하나의 BEGIN·COMMIT으로 묶고 실패 시 ROLLBACK할 수 있다는 점이 일부 DDL이 암묵 커밋되는 MySQL과의 차이다.</p>
+<p><mark>PostgreSQL은 DDL이 트랜잭션 안에서 동작한다.</mark> ALTER TABLE과 CREATE INDEX를 하나의 BEGIN·COMMIT으로 묶고 실패 시 ROLLBACK할 수 있다는 점이 일부 DDL이 암묵 커밋되는 MySQL과의 차이다.</p>
 <h3>기본 키 생성 — IDENTITY</h3>
 <p>자동 증가 정수는 <code>BIGSERIAL</code>과 <code>GENERATED ... AS IDENTITY</code>로 만든다. BIGSERIAL은 시퀀스를 별도 객체로 노출하는 PostgreSQL 고유 방식이고, IDENTITY는 SQL 표준으로 시퀀스가 컬럼에 종속된다. <code>ALWAYS</code>는 직접 값을 넣을 때 <code>OVERRIDING SYSTEM VALUE</code>를 요구하고, <code>BY DEFAULT</code>는 명시한 값을 받는다. 신규 스키마는 IDENTITY로 통일한다.</p>
 <h3>파티션 테이블</h3>
@@ -131,10 +131,10 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>파티션 키 없는 유니크 제약.</strong> 파티션 테이블의 PRIMARY KEY·UNIQUE는 파티션 키를 포함해야 하므로 <code>id</code> 단독 유일성을 DB가 보장하지 못한다. 전역 유일성은 IDENTITY 시퀀스나 애플리케이션 발급 UUID에 의존한다.</li>
-<li><mark><strong>외래 키 컬럼 인덱스 누락.</strong></mark> 부모 행을 삭제할 때마다 자식 테이블을 풀스캔하며 큰 테이블에서는 락과 실행 시간이 폭주한다. 외래 키를 선언하면 인덱스를 같이 만든다.</li>
+<li><strong>외래 키 컬럼 인덱스 누락.</strong> 부모 행을 삭제할 때마다 자식 테이블을 풀스캔하며 큰 테이블에서는 락과 실행 시간이 폭주한다. 외래 키를 선언하면 인덱스를 같이 만든다.</li>
 <li><strong>CASCADE 남용.</strong> 사용자 한 명을 지웠는데 주문 수만 건이 사라지는 사고는 대부분 ON DELETE CASCADE에서 나온다. order_items처럼 부모 없이 의미가 없는 의존 객체에만 쓴다.</li>
 <li><strong>UNLOGGED를 운영 데이터에 사용.</strong> 크래시 한 번으로 테이블 전체가 비워지고, 복제본에도 전달되지 않는다.</li>
-<li><strong>운영 테이블에 제약 직접 추가.</strong> <code>ADD CONSTRAINT</code>는 기존 행 전체를 검증하는 동안 ACCESS EXCLUSIVE 락을 잡는다. NOT VALID 후 VALIDATE CONSTRAINT는 SHARE UPDATE EXCLUSIVE 락만 잡아 읽기·쓰기가 계속된다.</li>
+<li><strong>운영 테이블에 제약 직접 추가.</strong> <mark><code>ADD CONSTRAINT</code>는 기존 행 전체를 검증하는 동안 ACCESS EXCLUSIVE 락을 잡는다.</mark> NOT VALID 후 VALIDATE CONSTRAINT는 SHARE UPDATE EXCLUSIVE 락만 잡아 읽기·쓰기가 계속된다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

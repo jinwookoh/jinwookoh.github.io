@@ -25,7 +25,7 @@ Term-level 쿼리는 검색어를 가공하지 않고 색인된 토큰과 1:1로
 
 Compound 쿼리는 이 조각들을 조합한다. 실무 쿼리의 대부분은 `bool` 하나이고, 랭킹 조정이 필요할 때 `function_score`·`dis_max`·`boosting`이 한 겹 더 붙는다. `bool`의 네 절은 컨텍스트가 다르다. `must`·`should`는 query context에서 `_score`를 계산하고, `filter`·`must_not`은 filter context에서 매칭 여부만 판정해 결과가 node-level query cache에 저장된다. `must`와 `filter`는 둘 다 AND이지만 점수 계산과 캐시 여부가 갈리므로, 점수가 필요 없는 정확 일치 조건은 `filter`에 둔다.
 
-`should`는 위치에 따라 의미가 바뀐다. `must`나 `filter`가 함께 있으면 점수만 올리는 옵션이고, `should`만 있으면 최소 하나는 매칭해야 하는 OR 조건이 된다. `minimum_should_match`로 명시하며 정수, 퍼센트, 조합식(`"3<75%"`)을 받는다.
+`should`는 위치에 따라 의미가 바뀐다. ==`must`나 `filter`가 함께 있으면 점수만 올리는 옵션이고, `should`만 있으면 최소 하나는 매칭해야 하는 OR 조건이 된다.== `minimum_should_match`로 명시하며 정수, 퍼센트, 조합식(`"3<75%"`)을 받는다.
 
 랭킹 조정 계열은 역할이 나뉜다. `constant_score`는 매칭된 모든 문서에 같은 점수를 준다. `dis_max`는 같은 키워드를 여러 필드에 던져 최고 점수를 채택하고 `tie_breaker`로 나머지를 일부 반영한다. `function_score`는 쿼리로 후보를 잡은 뒤 `field_value_factor`·decay(`gauss`·`linear`·`exp`)·`script_score`·`weight`로 점수를 재계산하며, 함수끼리 합치는 방식이 `score_mode`, 쿼리 점수와 합치는 방식이 `boost_mode`(기본 `multiply`)다. `boosting`은 `negative` 절에 매칭된 문서를 제외하지 않고 `negative_boost`를 곱해 뒤로 민다.
 
@@ -93,7 +93,7 @@ public class ProductSearchService {
 }
 ```
 
-판매량과 신선도를 반영한 랭킹이다. `log1p`는 0 입력에도 0점을 만들지 않아 `multiply`와 함께 써도 안전하다.
+판매량과 신선도를 반영한 랭킹이다. ==`log1p`는 0 입력에도 0점을 만들지 않아 `multiply`와 함께 써도 안전하다.==
 
 ```java
 import co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier;
@@ -122,7 +122,7 @@ public SearchResponse<Product> rankedSearch(String keyword) throws IOException {
 
 - **`text` 필드에 `term`을 던져 0건.** 색인된 토큰은 쪼개져 있어 원문 전체와 일치하지 않는다. 정확 일치·집계·정렬은 `.keyword` multi-field로 간다. 대소문자 문제는 `case_insensitive: true`보다 색인 시점의 `normalizer: lowercase`가 빠르다.
 - **정확 일치를 `must`에 넣어 캐시를 못 받음.** QPS가 오르면 점수 계산이 CPU를 먼저 소진한다. `term`·`range`·`exists`를 `filter`로 옮기면 캐시 히트율이 크게 오른다.
-- **`should`만 있고 `minimum_should_match` 누락.** 키워드 5개 중 1개만 맞아도 통과해 결과가 수십만 건으로 튄다. 퍼센트는 내림 계산이라 절이 1~2개일 때 의도보다 강한 제약이 걸리므로 조합식으로 명시한다.
+- **`should`만 있고 `minimum_should_match` 누락.** 키워드 5개 중 1개만 맞아도 통과해 결과가 수십만 건으로 튄다. ==퍼센트는 내림 계산이라 절이 1~2개일 때 의도보다 강한 제약이 걸리므로 조합식으로 명시한다.==
 - **leading wildcard·복잡한 regexp·`fuzziness: 2` + `prefix_length: 0`.** 전체 토큰 스캔에 가까워 클러스터 load를 단번에 올린다. 사용자 입력은 게이트웨이에서 검증하고, 자동완성은 `search_as_you_type`으로 푼다.
 - **`script_score`에 복잡한 로직.** 매 문서마다 스크립트가 돌아 응답이 수 초로 늘어난다. 간단한 수식만 허용하고 그 이상은 색인 시점에 계산해 필드로 저장한다. 점수 이상은 `_name`과 `explain`으로 추적한다.
 

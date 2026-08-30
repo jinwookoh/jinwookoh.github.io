@@ -157,8 +157,8 @@ public Step orderStep(JobRepository jobRepository, PlatformTransactionManager tx
 
 - **Reader의 thread-safety.** `FlatFileItemReader`·`JdbcCursorItemReader`는 multi-threaded Step에서 `SynchronizedItemStreamReader`로 감싸거나 partitioning으로 바꾼다.
 - **Cursor connection timeout.** `JdbcCursorItemReader`는 Step 종료까지 connection을 붙들어 idle timeout에 걸린다.
-- **CompositeItemWriter의 부분 실패.** 파일 delegate가 실패하면 chunk는 rollback되지만 파일 기록은 남는다. 파일 출력은 Step을 분리한다.
-- **JpaItemWriter의 batch insert.** `hibernate.jdbc.batch_size` 설정과 `SEQUENCE` ID 전략일 때만 JDBC batch가 동작한다.
+- **CompositeItemWriter의 부분 실패.** ==파일 delegate가 실패하면 chunk는 rollback되지만 파일 기록은 남는다.== 파일 출력은 Step을 분리한다.
+- **JpaItemWriter의 batch insert.** ==`hibernate.jdbc.batch_size` 설정과 `SEQUENCE` ID 전략일 때만 JDBC batch가 동작한다.==
 - **Classifier의 default branch.** classifier가 `null`을 돌려주면 NPE가 나므로 default delegate를 둔다.
 
 ## 관련 글

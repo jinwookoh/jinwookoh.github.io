@@ -17,9 +17,9 @@ updated: 2026-08-29
 
 발행자는 `ApplicationEventPublisher.publishEvent()`로 사건을 알리고, 수신자는 `@EventListener` 메서드의 매개변수 타입으로 받을 이벤트를 결정한다. 이벤트 객체는 `ApplicationEvent`를 상속할 필요 없이 record면 충분하다. 이름은 `OrderCompletedEvent`처럼 비즈니스 사건을 표현하고, `DatabaseUpdatedEvent` 같은 구현 관점의 이름은 피한다.
 
-기본 `@EventListener`는 발행자와 같은 스레드에서 동기 실행되며 발행자의 트랜잭션에 참여한다. 따라서 리스너의 예외가 발행자를 롤백시키고, 리스너 소요 시간이 응답 시간에 더해진다.
+==기본 `@EventListener`는 발행자와 같은 스레드에서 동기 실행되며 발행자의 트랜잭션에 참여한다.== 따라서 리스너의 예외가 발행자를 롤백시키고, 리스너 소요 시간이 응답 시간에 더해진다.
 
-`@TransactionalEventListener`는 리스너를 트랜잭션 단계에 묶는다. `phase`는 `BEFORE_COMMIT`, `AFTER_COMMIT`(기본값), `AFTER_ROLLBACK`, `AFTER_COMPLETION` 네 가지다. 활성 트랜잭션이 없으면 호출되지 않으며, 트랜잭션 밖에서도 실행하려면 `fallbackExecution = true`를 지정한다. `AFTER_COMMIT`에서 DB 쓰기를 하려면 `REQUIRES_NEW`로 새 트랜잭션을 열어야 한다.
+`@TransactionalEventListener`는 리스너를 트랜잭션 단계에 묶는다. `phase`는 `BEFORE_COMMIT`, `AFTER_COMMIT`(기본값), `AFTER_ROLLBACK`, `AFTER_COMPLETION` 네 가지다. ==활성 트랜잭션이 없으면 호출되지 않으며, 트랜잭션 밖에서도 실행하려면 `fallbackExecution = true`를 지정한다.== `AFTER_COMMIT`에서 DB 쓰기를 하려면 `REQUIRES_NEW`로 새 트랜잭션을 열어야 한다.
 
 ### @Async와 CompletableFuture
 
@@ -148,9 +148,9 @@ public class ReportScheduler {
 
 - **자가 호출은 프록시를 우회한다.** `@Async`와 `@Transactional`은 프록시 기반이므로 같은 클래스 안에서 `this.method()`로 호출하면 적용되지 않는다. 비동기 메서드는 별도 빈으로 분리한다.
 - **비동기 리스너에서 지연 로딩은 실패한다.** `@Async` 스레드는 발행자의 영속성 컨텍스트를 공유하지 않아 lazy 연관을 건드리면 `LazyInitializationException`이 난다. 이벤트에는 엔티티 대신 필요한 값을 담는다.
-- **무제한 큐는 장애를 늦게 드러낸다.** Boot 기본 실행기는 queue가 무제한이라 유입이 처리량을 넘으면 메모리가 서서히 차오른다. queue 용량·max 크기·거부 정책을 명시하고, 실패 특성이 다른 작업은 풀을 분리한다.
+- **무제한 큐는 장애를 늦게 드러낸다.** ==Boot 기본 실행기는 queue가 무제한이라 유입이 처리량을 넘으면 메모리가 서서히 차오른다.== queue 용량·max 크기·거부 정책을 명시하고, 실패 특성이 다른 작업은 풀을 분리한다.
 - **`@Async void`의 예외는 사라진다.** 호출자가 받을 수 없으므로 `AsyncUncaughtExceptionHandler`로 로그와 알림을 남긴다. `CompletableFuture` 반환이면 `exceptionally`나 `handle`로 처리한다.
-- **스케줄러는 인스턴스 수만큼 실행된다.** 서버 3대면 새벽 집계가 3번 돈다. ShedLock으로 락을 잡거나 배치 인스턴스를 분리하고, `lockAtMostFor`는 작업 최대 시간보다 길게 잡는다. cron에는 `zone`을 명시해 컨테이너의 UTC 기본값과 어긋나지 않게 하고, 실패해도 다음 스케줄은 진행되므로 예외 로깅과 알림을 붙인다.
+- **스케줄러는 인스턴스 수만큼 실행된다.** ==서버 3대면 새벽 집계가 3번 돈다.== ShedLock으로 락을 잡거나 배치 인스턴스를 분리하고, `lockAtMostFor`는 작업 최대 시간보다 길게 잡는다. cron에는 `zone`을 명시해 컨테이너의 UTC 기본값과 어긋나지 않게 하고, 실패해도 다음 스케줄은 진행되므로 예외 로깅과 알림을 붙인다.
 
 ## 관련 글
 

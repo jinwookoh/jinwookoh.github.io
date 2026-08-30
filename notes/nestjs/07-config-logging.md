@@ -172,10 +172,10 @@ export class OrdersService {
 
 ## 실무에서 걸리는 지점
 
-- **`.env` 파일은 `process.env`를 덮어쓰지 않는다.** 셸이나 컨테이너 런타임이 설정한 변수가 우선한다. 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 `ignoreEnvFile: true`로 파일 의존을 끊는다.
-- **`ConfigService`를 `forRoot()` 이전에 쓸 수 없다.** 설정에 의존하는 동적 모듈은 `TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })` 형태로 비동기 등록해야 한다. 동기 `forRoot()`에 `process.env`를 직접 넣으면 파일이 아직 읽히지 않아 `undefined`가 들어간다.
+- **`.env` 파일은 `process.env`를 덮어쓰지 않는다.** ==셸이나 컨테이너 런타임이 설정한 변수가 우선한다.== 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 `ignoreEnvFile: true`로 파일 의존을 끊는다.
+- **`ConfigService`를 `forRoot()` 이전에 쓸 수 없다.** 설정에 의존하는 동적 모듈은 `TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })` 형태로 비동기 등록해야 한다. ==동기 `forRoot()`에 `process.env`를 직접 넣으면 파일이 아직 읽히지 않아 `undefined`가 들어간다.==
 - **`cache: true`는 런타임 변경을 반영하지 않는다.** 기동 이후 `process.env`를 바꿔도 `ConfigService`에는 보이지 않으므로, 테스트에서 변수를 바꿔 가며 검증할 때 원인이 되기 쉽다.
-- **`bufferLogs` 없이 `useLogger()`를 호출하면 부트스트랩 로그는 기본 로거로 나간다.** 모듈 초기화 로그가 텍스트로 먼저 찍히고 이후부터 JSON이 되어 수집기 파싱이 깨진다. 기동 실패 시 버퍼가 비워지지 않을 수 있으므로 `catch`에서 `app.flushLogs()`를 호출한다.
+- **`bufferLogs` 없이 `useLogger()`를 호출하면 부트스트랩 로그는 기본 로거로 나간다.** 모듈 초기화 로그가 텍스트로 먼저 찍히고 이후부터 JSON이 되어 수집기 파싱이 깨진다. ==기동 실패 시 버퍼가 비워지지 않을 수 있으므로 `catch`에서 `app.flushLogs()`를 호출한다.==
 
 ## 관련 글
 

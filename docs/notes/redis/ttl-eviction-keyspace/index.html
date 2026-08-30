@@ -24,13 +24,13 @@
   <h1>TTL·Eviction·Keyspace Notification</h1>
   <p class="summary">키 수명은 TTL, 메모리 한계는 maxmemory-policy, 만료 후속 처리는 Keyspace Notification이 맡되 각각의 정확성 한계를 안다</p>
   <div class="content">
-<p>Redis는 메모리 위에서 동작하므로 세션·OTP·응답 캐시처럼 수명이 있는 데이터에 만료를 걸지 않으면 메모리 고갈로 서비스가 멈춘다. 만료를 걸어도 메모리가 가득 찼을 때 어떤 키를 버릴지 정해두지 않으면 기본값인 <code>noeviction</code>이 모든 쓰기를 거부한다. 반대로 세션 만료 시 통계를 남기는 식으로 키가 사라진 사실을 애플리케이션이 알아야 하는 경우도 있다. <mark>이 세 문제를 각각 TTL 명령, <code>maxmemory-policy</code>, Keyspace Notification이 담당한다.</mark></p>
+<p>Redis는 메모리 위에서 동작하므로 세션·OTP·응답 캐시처럼 수명이 있는 데이터에 만료를 걸지 않으면 메모리 고갈로 서비스가 멈춘다. 만료를 걸어도 메모리가 가득 찼을 때 어떤 키를 버릴지 정해두지 않으면 기본값인 <code>noeviction</code>이 모든 쓰기를 거부한다. 반대로 세션 만료 시 통계를 남기는 식으로 키가 사라진 사실을 애플리케이션이 알아야 하는 경우도 있다. 이 세 문제를 각각 TTL 명령, <code>maxmemory-policy</code>, Keyspace Notification이 담당한다.</p>
 <h2>핵심 개념</h2>
 <h3>TTL 명령</h3>
 <p>만료 설정은 단위와 기준의 조합으로 네 개다. <code>EXPIRE</code>는 초 단위 상대 시간, <code>PEXPIRE</code>는 밀리초 상대, <code>EXPIREAT</code>·<code>PEXPIREAT</code>은 Unix 타임스탬프 기준 절대 시각을 받는다. 조회는 <code>TTL</code>·<code>PTTL</code>(남은 시간)과 <code>EXPIRETIME</code>·<code>PEXPIRETIME</code>(절대 만료 시각), <code>PERSIST</code>는 만료를 제거한다. <code>TTL</code> 반환값은 양수(남은 초), <code>-1</code>(키는 있으나 만료 없음), <code>-2</code>(키 없음)로 갈리며, <code>-1</code>과 <code>-2</code>를 구분하지 않으면 영구 키에 잘못 만료를 거는 버그가 생긴다. Redis 7부터는 <code>NX</code>·<code>XX</code>·<code>GT</code>·<code>LT</code> 옵션으로 기존 만료와의 관계를 조건으로 걸 수 있다.</p>
-<p><mark>실무에서는 <code>SET key value EX 3600</code>처럼 저장과 만료를 한 명령으로 묶는다.</mark> <code>SET</code>과 <code>EXPIRE</code>를 따로 부르면 그 사이 장애로 만료 없는 키가 남을 수 있고 왕복도 두 번이다. 옵션은 <code>EX</code>·<code>PX</code>·<code>EXAT</code>·<code>PXAT</code>·<code>KEEPTTL</code>이며, <code>GET</code>은 TTL을 갱신하지 않으므로 접근 시 만료를 연장하려면 <code>GETEX</code>를 쓴다.</p>
+<p>실무에서는 <code>SET key value EX 3600</code>처럼 저장과 만료를 한 명령으로 묶는다. <code>SET</code>과 <code>EXPIRE</code>를 따로 부르면 그 사이 장애로 만료 없는 키가 남을 수 있고 왕복도 두 번이다. 옵션은 <code>EX</code>·<code>PX</code>·<code>EXAT</code>·<code>PXAT</code>·<code>KEEPTTL</code>이며, <code>GET</code>은 TTL을 갱신하지 않으므로 접근 시 만료를 연장하려면 <code>GETEX</code>를 쓴다.</p>
 <h3>만료 처리 방식</h3>
-<p>만료 시각이 지나도 키가 그 순간 삭제되지는 않는다. Lazy expiration은 접근 시점에 만료를 확인해 삭제하고 nil을 돌려준다. Active expiration은 서버가 주기적으로 만료가 설정된 키 일부를 표본 추출해 지우고, 표본의 만료 비율이 높으면 반복한다. 따라서 접근되지 않는 만료 키가 잠시 남을 수 있고, 만료 이벤트도 실제 시각보다 늦게 발생한다.</p>
+<p><mark>만료 시각이 지나도 키가 그 순간 삭제되지는 않는다.</mark> Lazy expiration은 접근 시점에 만료를 확인해 삭제하고 nil을 돌려준다. Active expiration은 서버가 주기적으로 만료가 설정된 키 일부를 표본 추출해 지우고, 표본의 만료 비율이 높으면 반복한다. 따라서 접근되지 않는 만료 키가 잠시 남을 수 있고, 만료 이벤트도 실제 시각보다 늦게 발생한다.</p>
 <h3>maxmemory와 eviction policy</h3>
 <p><code>maxmemory</code>에 도달하면 <code>maxmemory-policy</code>가 정한 규칙으로 키를 제거한다. 이름은 대상 범위와 선택 기준의 조합이다.</p>
 <table>
@@ -146,9 +146,9 @@ CONFIG SET notify-keyspace-events Exe
 INFO memory   <span class="hljs-comment"># used_memory · used_memory_rss · mem_fragmentation_ratio</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>volatile 정책과 만료 없는 키.</strong> <code>volatile-*</code>는 만료가 설정된 키만 제거하므로 만료 없는 키로 메모리가 차면 <code>noeviction</code>과 똑같이 쓰기가 실패한다. <mark>TTL을 빠뜨린 코드 한 곳이 인스턴스 전체의 쓰기 장애가 된다.</mark></li>
+<li><strong>volatile 정책과 만료 없는 키.</strong> <mark><code>volatile-*</code>는 만료가 설정된 키만 제거하므로 만료 없는 키로 메모리가 차면 <code>noeviction</code>과 똑같이 쓰기가 실패한다.</mark> TTL을 빠뜨린 코드 한 곳이 인스턴스 전체의 쓰기 장애가 된다.</li>
 <li><strong>만료 이벤트의 지연.</strong> 이벤트는 Redis가 키를 실제로 삭제하는 시점에 발생한다. 정확한 시각에 실행되어야 하는 작업은 Sorted Set 기반 지연 큐나 별도 스케줄러에 맡긴다.</li>
-<li><strong>Pub/Sub의 at-most-once.</strong> 구독자가 끊겨 있는 동안의 이벤트는 보관되지 않는다. 리스너 재배포 중 만료된 세션은 후속 처리를 받지 못하므로, 누락이 허용되지 않으면 애플리케이션이 Stream에 상태 변화를 직접 기록하는 쪽이 안전하다.</li>
+<li><strong>Pub/Sub의 at-most-once.</strong> <mark>구독자가 끊겨 있는 동안의 이벤트는 보관되지 않는다.</mark> 리스너 재배포 중 만료된 세션은 후속 처리를 받지 못하므로, 누락이 허용되지 않으면 애플리케이션이 Stream에 상태 변화를 직접 기록하는 쪽이 안전하다.</li>
 <li><strong>플래그 범위와 CPU.</strong> 모든 명령에 이벤트를 발행하면 쓰기 처리량이 떨어진다. 필요한 플래그만 켜고, <code>K</code>나 <code>E</code> 누락으로 이벤트가 오지 않는 설정 실수도 점검한다.</li>
 </ul>
 <h2>관련 글</h2>

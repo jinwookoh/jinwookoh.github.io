@@ -24,12 +24,12 @@
   <h1>설계 철학 — 왜 디스크·배치·Zero-Copy인가</h1>
   <p class="summary">Kafka가 디스크를 1급 저장소로 쓰면서도 빠른 이유를 순차 I/O·페이지 캐시·배치·sendfile로 설명한다</p>
   <div class="content">
-<p>2010년 무렵 LinkedIn은 하루 수십억 건의 활동 데이터를 수십 개 시스템에 전달해야 했다. 소스 N개와 목적지 M개를 직접 연결하면 N×M개의 파이프라인이 생긴다. 기존 브로커(ActiveMQ·RabbitMQ)는 consume 즉시 메시지를 지우고 consumer별 큐를 BTree로 관리하므로, 며칠치 backlog 보관이나 여러 소비자의 독립적인 재처리를 감당하지 못했다. <mark>Kafka는 이 문제를 중앙 스트림 허브 하나로 풀되, 설계를 메시지 큐가 아니라 데이터베이스의 write-ahead log에 가깝게 잡았다.</mark> 디스크 1급 저장, 배치, zero-copy는 그 결과다.</p>
+<p>2010년 무렵 LinkedIn은 하루 수십억 건의 활동 데이터를 수십 개 시스템에 전달해야 했다. 소스 N개와 목적지 M개를 직접 연결하면 N×M개의 파이프라인이 생긴다. 기존 브로커(ActiveMQ·RabbitMQ)는 consume 즉시 메시지를 지우고 consumer별 큐를 BTree로 관리하므로, 며칠치 backlog 보관이나 여러 소비자의 독립적인 재처리를 감당하지 못했다. Kafka는 이 문제를 중앙 스트림 허브 하나로 풀되, 설계를 메시지 큐가 아니라 데이터베이스의 write-ahead log에 가깝게 잡았다. 디스크 1급 저장, 배치, zero-copy는 그 결과다.</p>
 <h2>핵심 개념</h2>
 <p>설계 동인은 높은 처리량, 대량 backlog 보관, ms 단위 지연, partition 기반 실시간 처리, 장애 내성이다. 앞의 셋을 아래 세 기법이 담당한다.</p>
 <h3>순차 I/O와 페이지 캐시</h3>
 <p>디스크 성능은 접근 패턴이 결정한다. 7200rpm SATA 기준 순차 쓰기는 약 600MB/s, 랜덤 쓰기는 약 100KB/s로 6,000배 차이가 난다. 운영체제는 남는 메모리 전부를 페이지 캐시로 쓰고 read-ahead·write-behind로 순차 패턴을 최적화하므로, 순차 접근만 유지하면 디스크는 메모리에 근접한 처리량을 낸다.</p>
-<p>Kafka는 도착한 메시지를 즉시 파일시스템 로그에 쓴다. 실제로는 커널 페이지 캐시에 기록되며 fsync를 강제하지 않고, 내구성은 replication으로 확보한다. consumer 읽기도 페이지 캐시를 경유하므로 최근 데이터를 따라가는 consumer는 디스크를 거의 건드리지 않는다.</p>
+<p>Kafka는 도착한 메시지를 즉시 파일시스템 로그에 쓴다. <mark>실제로는 커널 페이지 캐시에 기록되며 fsync를 강제하지 않고, 내구성은 replication으로 확보한다.</mark> consumer 읽기도 페이지 캐시를 경유하므로 최근 데이터를 따라가는 consumer는 디스크를 거의 건드리지 않는다.</p>
 <p>JVM 힙에 자체 캐시를 두지 않는 이유는 Java 객체가 원본의 두 배 이상을 차지하고 힙이 커질수록 GC 정지가 길어지기 때문이다. 페이지 캐시는 GC가 없고 재시작 후에도 warm 상태가 유지된다.</p>
 <h3>O(1) append-only 로그</h3>
 <p>BTree는 O(log N)이지만 디스크 seek가 10ms 단위라 데이터가 커질수록 성능이 급격히 나빠진다. Kafka는 partition을 append-only 파일로 두고, producer는 끝에 append하고 consumer는 자기 offset부터 순차 read만 한다. 모든 연산이 O(1)이라 1GB partition과 1TB partition의 속도가 같다. 그래서 retention 기간 동안 보존, consumer별 독립 offset, offset 되감기 재처리가 추가 비용 없이 성립한다. partition은 <code>log.segment.bytes</code>(기본 1GB) 단위 segment로 나뉘고, 만료된 segment는 통째로 삭제된다.</p>
@@ -98,7 +98,7 @@
 <li><strong><code>linger.ms</code>는 그대로 지연에 더해진다.</strong> 배치가 차지 않으면 설정값만큼 대기하므로 실시간 경로는 5~10ms로 제한한다.</li>
 <li><strong>broker 힙을 크게 잡으면 페이지 캐시가 줄어든다.</strong> 힙은 4~8GB로 두고 나머지를 OS에 남긴다. lag가 커져 캐시 밖 segment를 읽으면 디스크 I/O가 급증한다.</li>
 <li><strong>이미 압축된 payload에 압축을 겹치면 CPU만 낭비한다.</strong> 이미지·압축 파일은 압축률이 1.0~1.5배에 그치므로 <code>compression.type=none</code>으로 둔다.</li>
-<li><strong>zstd는 2.1 이상 클라이언트만 해제할 수 있다.</strong> 구버전 consumer가 남아 있으면 <code>UNSUPPORTED_COMPRESSION_TYPE</code> 오류가 난다.</li>
+<li><mark><strong>zstd는 2.1 이상 클라이언트만 해제할 수 있다.</strong></mark> 구버전 consumer가 남아 있으면 <code>UNSUPPORTED_COMPRESSION_TYPE</code> 오류가 난다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

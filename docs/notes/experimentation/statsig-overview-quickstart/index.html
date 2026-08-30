@@ -24,7 +24,7 @@
   <h1>Statsig 개관과 SDK Quickstart</h1>
   <p class="summary">Statsig의 네 축과 Cloud/Warehouse Native 구분을 정리하고 Java Server SDK로 첫 Feature Gate를 연결한다</p>
   <div class="content">
-<p>기능 토글이 코드 안의 boolean 상수로 박혀 있으면 기능을 켜고 끄는 일이 곧 재배포가 되고, 롤백 수단도 코드 revert뿐이다. A/B 테스트는 수작업 SQL로 분석하고, 사용자 행동과 서버 지연은 각각 다른 도구에서 본다. &quot;새 결제 흐름을 켰더니 전환율이 올랐지만 p99 지연도 늘었다&quot; 같은 결론을 내기 어렵고, 도구마다 식별자와 이벤트를 다시 이어 붙이는 비용이 실험 자체보다 커진다. <mark>Statsig는 이 요소들을 한 데이터 흐름 위에 올리는 플랫폼이다.</mark></p>
+<p>기능 토글이 코드 안의 boolean 상수로 박혀 있으면 기능을 켜고 끄는 일이 곧 재배포가 되고, 롤백 수단도 코드 revert뿐이다. A/B 테스트는 수작업 SQL로 분석하고, 사용자 행동과 서버 지연은 각각 다른 도구에서 본다. &quot;새 결제 흐름을 켰더니 전환율이 올랐지만 p99 지연도 늘었다&quot; 같은 결론을 내기 어렵고, 도구마다 식별자와 이벤트를 다시 이어 붙이는 비용이 실험 자체보다 커진다. Statsig는 이 요소들을 한 데이터 흐름 위에 올리는 플랫폼이다.</p>
 <h2>핵심 개념</h2>
 <p>Statsig는 Feature Flag, Experimentation, Product Analytics, Infra Analytics의 네 축으로 구성된다. Feature Flag는 코드의 분기를 대시보드에서 제어하는 스위치로 점진 rollout과 재배포 없는 즉시 OFF에 쓴다. Experimentation은 무작위 통제 시험으로 variant를 비교하고 p-value와 신뢰구간을 자동 계산한다. Product Analytics는 SDK가 보낸 이벤트로 Funnel, Retention, Distribution, User Journeys, Lifecycle 차트를 만든다. Infra Analytics는 OpenTelemetry 호환 sink로 서비스 헬스 메트릭과 트레이스를 받는다. 네 축이 같은 사용자 식별자와 이벤트 스트림을 공유하므로 flag를 켰을 때의 funnel 변화 같은 cross-axis 질의가 추가 작업 없이 가능하다.</p>
 <p>Feature Flag라고 부르는 것은 실제로 세 유형으로 갈린다.</p>
@@ -52,10 +52,10 @@
 <td align="left">가설 검증과 통계 비교, exposure 자동 기록</td>
 </tr>
 </tbody></table>
-<p>세 유형은 같은 평가 엔진 위에 있다. Experiment만 exposure를 통계 분석에 연결한다.</p>
+<p>세 유형은 같은 평가 엔진 위에 있다. <mark>Experiment만 exposure를 통계 분석에 연결한다.</mark></p>
 <p>무작위화 단위는 실험 설계에서 가장 먼저 정한다. B2C는 user 단위, 로그인 전 구간은 device 단위, B2B는 같은 회사의 사용자가 다른 variant를 받지 않도록 organization 단위를 쓴다. Session 단위는 매 세션 variant가 바뀌므로 피한다. Statsig는 식별자를 결정론적 해시로 variant에 매핑하므로 같은 ID를 넘기면 모든 SDK가 같은 결과를 반환한다.</p>
 <p>데이터 저장 위치는 두 옵션이다. Statsig Cloud는 이벤트를 Statsig 인프라로 보내는 managed 방식이고 무료 plan이 월 200만 이벤트까지 받는다. Warehouse Native는 Snowflake·BigQuery·Databricks·Redshift에 원본 데이터를 두고 Statsig가 쿼리만 실행한다. Enterprise 계약이 필요하지만 PII가 회사 밖으로 나가지 않아 규제 환경에 맞는다.</p>
-<p>SDK는 Client 13종과 Server 9종으로 나뉜다. Client SDK는 initialize 시점에 해당 사용자의 평가 결과를 받아와 로컬에서 조회하고 공개 가능한 <code>client-</code> 키를 쓴다. <mark>Server SDK는 rule set 전체를 메모리에 적재해 매 요청을 로컬에서 평가하며 <code>secret-</code> 키를 쓴다.</mark> 이 키는 백엔드에만 두고 노출되면 즉시 rotation한다. Quickstart는 어느 언어든 설치, <code>initialize()</code>, 키 주입, <code>checkGate</code>·<code>getDynamicConfig</code>·<code>getExperiment</code>·<code>logEvent</code> 호출의 네 단계다.</p>
+<p>SDK는 Client 13종과 Server 9종으로 나뉜다. Client SDK는 initialize 시점에 해당 사용자의 평가 결과를 받아와 로컬에서 조회하고 공개 가능한 <code>client-</code> 키를 쓴다. Server SDK는 rule set 전체를 메모리에 적재해 매 요청을 로컬에서 평가하며 <code>secret-</code> 키를 쓴다. 이 키는 백엔드에만 두고 노출되면 즉시 rotation한다. Quickstart는 어느 언어든 설치, <code>initialize()</code>, 키 주입, <code>checkGate</code>·<code>getDynamicConfig</code>·<code>getExperiment</code>·<code>logEvent</code> 호출의 네 단계다.</p>
 <h2>코드</h2>
 <p>Spring Boot에서 Java Server SDK(<code>com.statsig:javacore</code>)를 빈으로 등록한다. 키는 환경 변수에서 읽고 초기화 완료를 기다린다.</p>
 <pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
@@ -128,10 +128,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark>초기화 전 호출은 모두 기본값을 반환한다.</mark> <code>initialize()</code> 완료를 기다리지 않으면 기동 직후 요청이 전부 OFF로 평가되고, <code>initTimeoutMs</code>를 넘겨도 같은 fallback 모드에 들어간다. 기본값이 운영에 노출되어도 안전하도록 둔다.</li>
+<li>초기화 전 호출은 모두 기본값을 반환한다. <mark><code>initialize()</code> 완료를 기다리지 않으면 기동 직후 요청이 전부 OFF로 평가되고, <code>initTimeoutMs</code>를 넘겨도 같은 fallback 모드에 들어간다.</mark> 기본값이 운영에 노출되어도 안전하도록 둔다.</li>
 <li>userID가 요청마다 바뀌면 같은 사용자가 다른 variant를 받는다. DB의 안정적인 ID를 쓰고, 익명 구간은 deviceID로 무작위화한 뒤 로그인 시점에 userID를 붙인다.</li>
-<li>Client SDK를 SSR과 함께 쓰면 서버 렌더와 클라이언트 마운트 후 결과가 달라 화면이 깜빡인다. Server SDK의 <code>getClientInitializeResponse</code>로 평가값을 미리 만들어 bootstrap으로 주입한다.</li>
-<li>이벤트 이름이 <code>checkoutCompleted</code>와 <code>checkout_completed</code>로 섞이면 두 이벤트로 갈린다. 상수로 고정한다. 모든 행동을 이벤트로 보내면 무료 plan 한도를 빠르게 넘기므로 핵심 지표 위주로 보낸다.</li>
+<li><mark>Client SDK를 SSR과 함께 쓰면 서버 렌더와 클라이언트 마운트 후 결과가 달라 화면이 깜빡인다.</mark> Server SDK의 <code>getClientInitializeResponse</code>로 평가값을 미리 만들어 bootstrap으로 주입한다.</li>
+<li><mark>이벤트 이름이 <code>checkoutCompleted</code>와 <code>checkout_completed</code>로 섞이면 두 이벤트로 갈린다.</mark> 상수로 고정한다. 모든 행동을 이벤트로 보내면 무료 plan 한도를 빠르게 넘기므로 핵심 지표 위주로 보낸다.</li>
 <li>gate는 기능마다 생기고 좀처럼 지워지지 않는다. temporary와 permanent를 구분하고 정식 출시 후 gate와 분기 코드를 함께 제거한다.</li>
 </ul>
 <h2>관련 글</h2>

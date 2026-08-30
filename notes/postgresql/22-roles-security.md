@@ -30,7 +30,7 @@ ROLE 속성은 시스템 수준 능력을 정한다. `SUPERUSER`, `CREATEDB`, `C
 
 접속 경로는 계층적이다. 데이터베이스 CONNECT, 스키마 USAGE, 테이블 SELECT가 모두 있어야 한 행을 읽을 수 있다. PostgreSQL 15부터 public 스키마의 CREATE가 PUBLIC에서 제거됐으므로, 일반 역할이 public에 객체를 만들려면 CREATE를 명시적으로 부여한다.
 
-`GRANT ... ON ALL TABLES IN SCHEMA`는 실행 시점에 존재하는 객체에만 적용된다. 이후 생성되는 객체는 `ALTER DEFAULT PRIVILEGES`로 처리하며, `FOR ROLE`로 "어떤 역할이 만드는 객체에" 적용할지를 지정한다.
+==`GRANT ... ON ALL TABLES IN SCHEMA`는 실행 시점에 존재하는 객체에만 적용된다.== 이후 생성되는 객체는 `ALTER DEFAULT PRIVILEGES`로 처리하며, `FOR ROLE`로 "어떤 역할이 만드는 객체에" 적용할지를 지정한다.
 
 Row-Level Security는 테이블 권한 아래에 행 단위 필터를 추가한다. `CREATE POLICY`의 `USING`은 읽기·갱신 대상 행을, `WITH CHECK`는 쓰기 허용 행을 정한다. 테이블 소유자와 `BYPASSRLS` 역할은 정책을 우회한다.
 
@@ -137,11 +137,11 @@ public class TenantSessionAspect {
 
 ## 실무에서 걸리는 지점
 
-- 앱 계정이 테이블 소유자면 RLS가 무력화된다. 마이그레이션 계정이 소유자가 되고 앱 계정은 별도 역할로 두거나, `FORCE ROW LEVEL SECURITY`를 걸어야 정책이 실제로 작동한다.
-- `ALTER DEFAULT PRIVILEGES`에서 `FOR ROLE`을 생략하면 명령을 실행한 역할이 만드는 객체에만 적용된다. DBA가 실행하고 migrator가 테이블을 만들면 기본 권한은 한 번도 발동하지 않는다. 스키마 단위이므로 새 스키마마다 다시 건다.
+- ==앱 계정이 테이블 소유자면 RLS가 무력화된다.== 마이그레이션 계정이 소유자가 되고 앱 계정은 별도 역할로 두거나, `FORCE ROW LEVEL SECURITY`를 걸어야 정책이 실제로 작동한다.
+- `ALTER DEFAULT PRIVILEGES`에서 `FOR ROLE`을 생략하면 명령을 실행한 역할이 만드는 객체에만 적용된다. ==DBA가 실행하고 migrator가 테이블을 만들면 기본 권한은 한 번도 발동하지 않는다.== 스키마 단위이므로 새 스키마마다 다시 건다.
 - 테이블 DML만 주고 SEQUENCE의 USAGE를 빠뜨리면 `bigserial`·identity 컬럼 INSERT가 실패한다. `ON ALL SEQUENCES`를 함께 부여한다.
 - `DROP ROLE`은 그 역할이 소유하거나 권한을 받은 객체가 있으면 실패한다. `REASSIGN OWNED BY old TO new` 후 `DROP OWNED BY old`로 정리하며, 두 명령 모두 데이터베이스 단위라 클러스터의 모든 DB에서 반복한다.
-- PostgreSQL 15 이하에서 `CREATEROLE`은 사실상 슈퍼유저에 준하므로 앱 계정에 주지 않는다. 16으로 올릴 때 동작이 바뀌어 기존 관리 스크립트가 실패할 수 있다.
+- ==PostgreSQL 15 이하에서 `CREATEROLE`은 사실상 슈퍼유저에 준하므로 앱 계정에 주지 않는다.== 16으로 올릴 때 동작이 바뀌어 기존 관리 스크립트가 실패할 수 있다.
 - 비밀번호를 `.env`나 설정 파일에 평문으로 두지 않는다. Secrets Manager·Vault에서 주입하고, 임시 계정은 `VALID UNTIL`로 만료를 걸며, `pg_hba.conf`에 접속 원 IP 제한을 함께 적용한다.
 
 ## 관련 글

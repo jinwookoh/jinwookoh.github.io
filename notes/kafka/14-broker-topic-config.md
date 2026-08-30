@@ -30,7 +30,7 @@ Topic 설정은 broker 설정과 접두사만 다른 짝을 이룬다. `log.rete
 
 ### 동적 설정과 정적 설정
 
-Broker 설정은 read-only(재시작 필요), per-broker, cluster-wide(`kafka-configs.sh`로 런타임 변경)로 나뉜다. Topic 설정은 전부 동적이며 대부분 즉시 반영된다. 다만 `compression.type`과 `segment.bytes`는 새 segment부터 적용되고, `cleanup.policy`를 `compact`로 바꿔도 기존 데이터가 즉시 압축되지는 않는다.
+Broker 설정은 read-only(재시작 필요), per-broker, cluster-wide(`kafka-configs.sh`로 런타임 변경)로 나뉜다. Topic 설정은 전부 동적이며 대부분 즉시 반영된다. ==다만 `compression.type`과 `segment.bytes`는 새 segment부터 적용되고, `cleanup.policy`를 `compact`로 바꿔도 기존 데이터가 즉시 압축되지는 않는다.==
 
 ## 코드
 
@@ -142,11 +142,11 @@ public class TopicConfiguration {
 
 ## 실무에서 걸리는 지점
 
-- `retention.bytes`는 partition 단위다. partition 10개에 1GB를 주면 topic 전체는 10GB까지 커진다.
+- `retention.bytes`는 partition 단위다. ==partition 10개에 1GB를 주면 topic 전체는 10GB까지 커진다.==
 - `max.message.bytes`를 topic에서만 올리면 broker의 `message.max.bytes`에 걸려 거부된다. 두 값을 함께 조정하고 consumer의 `max.partition.fetch.bytes`도 맞춘다.
 - `advertised.listeners`가 resolve되지 않는 호스트명이면 bootstrap 연결은 되어도 metadata의 주소로 재연결하면서 실패한다.
 - `log.flush.interval.*`를 명시하면 매번 fsync가 발생해 처리량이 크게 떨어진다. 내구성은 replication과 `min.insync.replicas`로 보장한다.
-- `compression.type=producer`는 producer가 압축하지 않으면 비압축으로 저장된다. `segment.bytes`를 너무 낮추면 파일 수가 폭증해 file descriptor를 소진한다.
+- ==`compression.type=producer`는 producer가 압축하지 않으면 비압축으로 저장된다.== `segment.bytes`를 너무 낮추면 파일 수가 폭증해 file descriptor를 소진한다.
 
 ## 관련 글
 

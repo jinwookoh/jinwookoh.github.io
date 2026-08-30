@@ -24,12 +24,12 @@
   <h1>데이터베이스와 테이블 만들기</h1>
   <p class="summary">CREATE DATABASE와 CREATE TABLE의 표준 옵션, 제약 설계, 운영에서 안전하게 만들고 지우는 절차를 정리한다.</p>
   <div class="content">
-<p>설치 직후 클러스터에는 <code>postgres</code>, <code>template0</code>, <code>template1</code> 세 데이터베이스만 있다. 여기에 애플리케이션 테이블을 직접 만들고 슈퍼유저로 접속하면 프로젝트 간 격리가 없고, 앱의 버그가 클러스터 전체 권한으로 실행된다. 인코딩과 로케일은 DB를 다시 만들지 않는 한 바꿀 수 없다. 기본 키·NOT NULL·CHECK 없는 테이블은 잘못된 데이터를 거부하지 못하고 정합성 검사가 애플리케이션 코드에 흩어진다. <mark>처음 만들 때 옵션과 제약을 명시적으로 결정해야 한다.</mark></p>
+<p>설치 직후 클러스터에는 <code>postgres</code>, <code>template0</code>, <code>template1</code> 세 데이터베이스만 있다. 여기에 애플리케이션 테이블을 직접 만들고 슈퍼유저로 접속하면 프로젝트 간 격리가 없고, 앱의 버그가 클러스터 전체 권한으로 실행된다. 인코딩과 로케일은 DB를 다시 만들지 않는 한 바꿀 수 없다. 기본 키·NOT NULL·CHECK 없는 테이블은 잘못된 데이터를 거부하지 못하고 정합성 검사가 애플리케이션 코드에 흩어진다. 처음 만들 때 옵션과 제약을 명시적으로 결정해야 한다.</p>
 <h2>핵심 개념</h2>
 <h3>계층 구조와 격리</h3>
 <p>PostgreSQL은 Cluster → Database → Schema → Table 네 단계로 객체를 조직한다. 프로젝트마다 데이터베이스를 하나 만들며, 같은 클러스터 안의 데이터베이스는 서로 격리되어 다른 DB의 테이블을 직접 조회할 수 없고 권한과 설정도 DB 단위로 분리된다.</p>
 <h3>CREATE DATABASE와 템플릿</h3>
-<p><mark><code>CREATE DATABASE</code>는 기존 데이터베이스를 복사하는 방식으로 동작한다.</mark> 기본 원본은 <code>template1</code>이며, 여기에 추가된 객체는 이후 만드는 모든 DB에 복제된다. <code>template0</code>은 수정되지 않는 빈 템플릿이어서 다른 인코딩·로케일을 지정할 때 필수이고 깨끗한 시작을 위해서도 명시한다. <code>TEMPLATE original_db</code>로 임의의 DB를 복제할 수도 있으며, 원본에 다른 세션이 없어야 한다. 대용량·원격 복제는 <code>pg_dump -Fc</code>와 <code>pg_restore</code>를 쓴다.</p>
+<p><code>CREATE DATABASE</code>는 기존 데이터베이스를 복사하는 방식으로 동작한다. <mark>기본 원본은 <code>template1</code>이며, 여기에 추가된 객체는 이후 만드는 모든 DB에 복제된다.</mark> <code>template0</code>은 수정되지 않는 빈 템플릿이어서 다른 인코딩·로케일을 지정할 때 필수이고 깨끗한 시작을 위해서도 명시한다. <code>TEMPLATE original_db</code>로 임의의 DB를 복제할 수도 있으며, 원본에 다른 세션이 없어야 한다. 대용량·원격 복제는 <code>pg_dump -Fc</code>와 <code>pg_restore</code>를 쓴다.</p>
 <p>주요 옵션은 다음과 같다.</p>
 <table>
 <thead>
@@ -156,11 +156,11 @@
 <p><code>ddl-auto</code>는 <code>validate</code>로 두어 엔티티와 테이블이 어긋나면 기동에 실패하게 하고, 스키마 변경은 Flyway로 관리한다.</p>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>인코딩·로케일은 되돌릴 수 없다.</strong></mark> <code>SQL_ASCII</code>로 만든 DB는 덤프 후 새 DB에 복원해야 한다. <code>ko_KR.UTF-8</code> 콜레이션은 <code>C</code>보다 비교 비용이 크고 LIKE 접두 검색에 B-Tree 인덱스가 쓰이지 않으므로, <code>C</code> 로케일에 컬럼별 COLLATE를 얹는 선택도 검토한다.</li>
+<li><strong>인코딩·로케일은 되돌릴 수 없다.</strong> <code>SQL_ASCII</code>로 만든 DB는 덤프 후 새 DB에 복원해야 한다. <mark><code>ko_KR.UTF-8</code> 콜레이션은 <code>C</code>보다 비교 비용이 크고 LIKE 접두 검색에 B-Tree 인덱스가 쓰이지 않으므로</mark>, <code>C</code> 로케일에 컬럼별 COLLATE를 얹는 선택도 검토한다.</li>
 <li><strong>DROP DATABASE는 접속이 있으면 실패하고 취소할 수 없다.</strong> 자기 자신에게 접속한 채로는 지울 수 없어 <code>\c postgres</code>로 옮긴 뒤 실행하고, 다른 세션은 <code>pg_terminate_backend(pid)</code>로 끊거나 <code>ALLOW_CONNECTIONS = FALSE</code>로 차단한다. 백업 확인 후 운영 시간 외에 실행한다.</li>
 <li><strong>CONNECTION LIMIT 기본값은 무제한이다.</strong> 한 DB가 커넥션을 모두 점유하면 다른 DB까지 접속 불가가 된다. 커넥션 풀 합계보다 약간 큰 값으로 상한을 둔다.</li>
-<li><strong>큰 테이블의 ALTER TABLE은 락을 잡는다.</strong> <code>ALTER COLUMN ... TYPE</code>이나 <code>NOT NULL</code> 추가는 테이블 전체를 다시 쓰거나 검사하며 쓰기가 막힌다. 상수 DEFAULT 컬럼 추가는 즉시 끝나므로, 변경별 락 수준을 확인하고 필요하면 <code>pg_repack</code>이나 단계적 마이그레이션으로 나눈다.</li>
-<li><strong><code>idle in transaction</code> 세션이 DDL을 대기시킨다.</strong> 열어 둔 트랜잭션이 있으면 ALTER와 DROP이 락을 기다리고 뒤따르는 쿼리까지 막힌다. <code>pg_stat_activity</code>에서 오래된 세션을 정리하고 DDL 전에 <code>lock_timeout</code>을 설정한다.</li>
+<li><strong>큰 테이블의 ALTER TABLE은 락을 잡는다.</strong> <mark><code>ALTER COLUMN ... TYPE</code>이나 <code>NOT NULL</code> 추가는 테이블 전체를 다시 쓰거나 검사하며 쓰기가 막힌다.</mark> 상수 DEFAULT 컬럼 추가는 즉시 끝나므로, 변경별 락 수준을 확인하고 필요하면 <code>pg_repack</code>이나 단계적 마이그레이션으로 나눈다.</li>
+<li><strong><code>idle in transaction</code> 세션이 DDL을 대기시킨다.</strong> <mark>열어 둔 트랜잭션이 있으면 ALTER와 DROP이 락을 기다리고 뒤따르는 쿼리까지 막힌다.</mark> <code>pg_stat_activity</code>에서 오래된 세션을 정리하고 DDL 전에 <code>lock_timeout</code>을 설정한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

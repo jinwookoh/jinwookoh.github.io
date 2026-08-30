@@ -15,7 +15,7 @@ updated: 2026-08-29
 
 ### 전송 경로
 
-`ProducerRecord`는 Serializer에서 바이트 배열로 바뀌고, Partitioner가 파티션을 정한 뒤 Record Accumulator에 파티션별 배치로 누적된다. Sender 스레드가 배치를 리더 브로커에 보내고, 응답에 따라 콜백 또는 재시도가 이어진다. 배치는 `batch.size`(기본 16KB)가 차거나 `linger.ms`(기본 0)가 지나면 전송되고, `buffer.memory`(기본 32MB)가 가득 차면 `send()`가 블로킹된다. 종료 전 `flush()`와 `close()`를 호출하지 않으면 버퍼에 남은 레코드는 버려진다.
+`ProducerRecord`는 Serializer에서 바이트 배열로 바뀌고, Partitioner가 파티션을 정한 뒤 Record Accumulator에 파티션별 배치로 누적된다. Sender 스레드가 배치를 리더 브로커에 보내고, 응답에 따라 콜백 또는 재시도가 이어진다. 배치는 `batch.size`(기본 16KB)가 차거나 `linger.ms`(기본 0)가 지나면 전송되고, `buffer.memory`(기본 32MB)가 가득 차면 `send()`가 블로킹된다. ==종료 전 `flush()`와 `close()`를 호출하지 않으면 버퍼에 남은 레코드는 버려진다.==
 
 ### 파티션 선택
 
@@ -35,7 +35,7 @@ updated: 2026-08-29
 
 ### 재시도와 순서
 
-`retries`는 2.1부터 기본 `Integer.MAX_VALUE`이고 실제 상한은 `delivery.timeout.ms`(기본 120초)가 정한다. 재시도는 순서 역전을 만든다. `max.in.flight.requests.per.connection`(기본 5)만큼 응답 없이 요청이 떠 있는데, 앞 배치가 실패해 재시도되는 사이 뒤 배치가 먼저 커밋되면 같은 파티션 안에서 순서가 바뀐다. 1로 낮추면 순서는 지켜지지만 처리량이 크게 떨어진다.
+`retries`는 2.1부터 기본 `Integer.MAX_VALUE`이고 실제 상한은 `delivery.timeout.ms`(기본 120초)가 정한다. 재시도는 순서 역전을 만든다. ==`max.in.flight.requests.per.connection`(기본 5)만큼 응답 없이 요청이 떠 있는데, 앞 배치가 실패해 재시도되는 사이 뒤 배치가 먼저 커밋되면 같은 파티션 안에서 순서가 바뀐다.== 1로 낮추면 순서는 지켜지지만 처리량이 크게 떨어진다.
 
 ### 멱등성 Producer
 
@@ -131,7 +131,7 @@ public class VipAwarePartitioner implements Partitioner {
 - **`acks=all`만 켜고 `min.insync.replicas`를 두지 않는다.** 브로커 기본값 1이면 리더가 쓰는 즉시 응답이 나가 `acks=1`과 손실 위험이 같다. 토픽 생성 시점에 두 값을 함께 확인한다.
 - **커스텀 Partitioner가 키 없는 레코드까지 처리하면 Sticky 이점이 사라진다.** 키 없는 경로는 내장 동작에 맡기고 키 있는 경로만 커스텀하는 편이 안전하다.
 - **`linger.ms`가 크면 지연이 그만큼 늘어난다.** 알림처럼 도착 시간이 중요한 경로는 0~5ms로 둔다. `batch-size-avg`가 `batch.size`에 한참 못 미치면 `linger.ms`가 매번 만료되어 전송되는 상태다.
-- **`max.request.size`(기본 1MB)를 넘는 레코드는 `RecordTooLargeException`으로 즉시 실패한다.** 재시도 대상이 아니며, 브로커 `message.max.bytes`도 함께 올려야 통과한다.
+- ==**`max.request.size`(기본 1MB)를 넘는 레코드는 `RecordTooLargeException`으로 즉시 실패한다.**== 재시도 대상이 아니며, 브로커 `message.max.bytes`도 함께 올려야 통과한다.
 - **`send().get()`으로 동기화하면 배치가 한 건짜리로 줄어든다.** 한 건의 성공 확인이 꼭 필요한 곳에만 쓴다.
 
 ## 관련 글

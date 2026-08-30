@@ -152,10 +152,10 @@ public class TradingClient {
 ## 실무에서 걸리는 지점
 
 - **Fire-and-Forget은 전달을 보장하지 않는다.** 유실이 허용되지 않으면 Request-Response로 ack를 받거나 영속 메시지 큐를 쓴다.
-- **SETUP은 연결당 한 번이다.** MIME 타입·인증 정보는 연결 시점에 고정되므로, 토큰 갱신처럼 연결 중 바뀌는 값은 요청별 메타데이터로 보낸다.
+- **SETUP은 연결당 한 번이다.** ==MIME 타입·인증 정보는 연결 시점에 고정되므로, 토큰 갱신처럼 연결 중 바뀌는 값은 요청별 메타데이터로 보낸다.==
 - **에러는 ERROR 프레임으로 전달되며 예외 타입이 보존되지 않는다.** 서버의 `RuntimeException`은 클라이언트에서 `ApplicationErrorException`으로 도착하므로 비즈니스 에러는 페이로드에 코드를 담는다.
-- **백프레셔는 구독자가 요청량을 제한해야 동작한다.** `subscribe()`만 호출하면 무제한 요청이 되어 REQUEST_N이 의미를 잃는다. `flatMap(fn, concurrency)`·`limitRate`·`BaseSubscriber`로 명시한다.
-- **TCP 전송은 HTTP 인프라를 통과하지 못한다.** L7 로드 밸런서를 재사용하려면 WebSocket 전송을 택한다.
+- **백프레셔는 구독자가 요청량을 제한해야 동작한다.** ==`subscribe()`만 호출하면 무제한 요청이 되어 REQUEST_N이 의미를 잃는다.== `flatMap(fn, concurrency)`·`limitRate`·`BaseSubscriber`로 명시한다.
+- ==**TCP 전송은 HTTP 인프라를 통과하지 못한다.**== L7 로드 밸런서를 재사용하려면 WebSocket 전송을 택한다.
 
 ## 관련 글
 

@@ -24,7 +24,7 @@
   <h1>Quickstart — 설치·CLI·첫 메시지</h1>
   <p class="summary">KRaft 단일 노드를 띄우고 kafka-topics·console-producer·consumer·consumer-groups로 메시지 흐름과 lag를 직접 확인한다</p>
   <div class="content">
-<p>Kafka의 설계 개념은 Topic·Partition·Consumer Group·Offset처럼 추상 용어가 많아, 문서만 읽고 넘어가면 각 용어가 실제로 어떤 모양인지 감이 잡히지 않는다. 이 상태로 Producer 설정이나 Rebalance를 공부하면 원인과 결과를 연결하지 못한다. <mark>로컬에 브로커 한 대를 띄우고 CLI로 메시지를 넣고 빼면서 partition 배분과 lag를 눈으로 확인해 두면 이후 개념 학습의 기준점이 생긴다.</mark> 또한 운영 환경에서 장애를 진단할 때도 애플리케이션 코드보다 콘솔 도구가 먼저 손에 잡히므로, 기본 CLI 네 개는 반드시 익혀 둔다.</p>
+<p>Kafka의 설계 개념은 Topic·Partition·Consumer Group·Offset처럼 추상 용어가 많아, 문서만 읽고 넘어가면 각 용어가 실제로 어떤 모양인지 감이 잡히지 않는다. 이 상태로 Producer 설정이나 Rebalance를 공부하면 원인과 결과를 연결하지 못한다. 로컬에 브로커 한 대를 띄우고 CLI로 메시지를 넣고 빼면서 partition 배분과 lag를 눈으로 확인해 두면 이후 개념 학습의 기준점이 생긴다. 또한 운영 환경에서 장애를 진단할 때도 애플리케이션 코드보다 콘솔 도구가 먼저 손에 잡히므로, 기본 CLI 네 개는 반드시 익혀 둔다.</p>
 <h2>핵심 개념</h2>
 <p><strong>KRaft 모드.</strong> Kafka 4.0부터 Zookeeper가 완전히 제거되었고 브로커가 자체 Raft 합의로 메타데이터를 관리한다. 브로커 실행 환경은 Java 17 이상이 필요하며(클라이언트는 Java 11 이상), 첫 실행 전에 <code>kafka-storage.sh format</code>으로 로그 디렉토리를 초기화해야 한다. 이 단계는 Zookeeper 시절에는 없던 절차라 가장 자주 빠뜨린다. <code>process.roles=broker,controller</code>로 한 노드가 두 역할을 겸하는 것이 단일 노드 구성이고, 운영 규모에서는 controller와 broker를 분리한다.</p>
 <p><strong>Topic과 Partition.</strong> Topic은 메시지가 쌓이는 논리적 단위이고, Partition은 그것을 병렬로 나눈 물리적 로그다. Partition 수는 늘릴 수만 있고 줄일 수 없다. 키 해시와 partition의 매핑이 깨지기 때문이며, 줄이려면 새 topic을 만들어 옮겨야 한다. Replication factor는 단일 노드에서 1이지만 운영 표준은 3이다.</p>
@@ -102,9 +102,9 @@ bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic quickstar
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><mark><strong><code>--from-beginning</code>은 커밋된 offset이 없을 때만 동작한다.</strong></mark> 이미 offset을 커밋한 group에 붙이면 커밋 지점부터 이어 읽는다. 처음부터 다시 읽으려면 <code>--reset-offsets</code>를 써야 하고, 이 명령은 해당 group의 consumer가 모두 종료된 상태에서만 적용된다. 애플리케이션의 <code>auto.offset.reset=earliest</code>도 같은 조건으로만 효과가 있다.</li>
-<li><strong>첫 연결은 되는데 그 다음부터 Connection refused가 난다면 <code>advertised.listeners</code>를 본다.</strong> 클라이언트는 <code>bootstrap.servers</code>로 접속한 뒤 메타데이터에 실린 광고 주소로 재연결한다. Docker·Kubernetes·클라우드에서 브로커가 컨테이너 내부 주소를 광고하면 이 두 번째 연결이 실패한다.</li>
+<li><strong>첫 연결은 되는데 그 다음부터 Connection refused가 난다면 <code>advertised.listeners</code>를 본다.</strong> <mark>클라이언트는 <code>bootstrap.servers</code>로 접속한 뒤 메타데이터에 실린 광고 주소로 재연결한다.</mark> Docker·Kubernetes·클라우드에서 브로커가 컨테이너 내부 주소를 광고하면 이 두 번째 연결이 실패한다.</li>
 <li><strong>Partition 수 이상의 consumer는 놀고 있다.</strong> Lag가 쌓여 consumer를 늘렸는데 처리량이 그대로라면 partition 수부터 확인한다. 반대로 partition을 과도하게 잡으면 메타데이터·컨트롤러 부담과 장애 복구 시간이 늘어난다.</li>
-<li><strong><code>auto.create.topics.enable</code>에 의존하지 않는다.</strong> 개발용 기본값이 켜져 있으면 오타 난 topic 이름으로 partition 1개짜리 topic이 조용히 생성된다. 운영에서는 끄고 <code>kafka-topics.sh --create</code> 또는 Admin Client로 명시적으로 만든다.</li>
+<li><strong><code>auto.create.topics.enable</code>에 의존하지 않는다.</strong> <mark>개발용 기본값이 켜져 있으면 오타 난 topic 이름으로 partition 1개짜리 topic이 조용히 생성된다.</mark> 운영에서는 끄고 <code>kafka-topics.sh --create</code> 또는 Admin Client로 명시적으로 만든다.</li>
 <li><strong>콘솔 producer는 스모크 테스트 도구이지 부하 도구가 아니다.</strong> 기본 설정이 운영 producer와 다르므로(<code>acks</code>, 배치, 압축) 성능 수치를 여기서 판단하면 안 된다. <code>--producer-property acks=all</code>처럼 설정을 맞춰도 처리량 비교는 별도 도구로 한다.</li>
 </ul>
 <h2>관련 글</h2>

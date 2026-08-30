@@ -24,10 +24,10 @@
   <h1>Spring Batch란 — 아키텍처와 도메인 언어</h1>
   <p class="summary">대량 일괄 처리의 재시작·트랜잭션·통계를 프레임워크가 맡는 구조를 3계층과 Job·Step·Chunk 어휘로 읽는다.</p>
   <div class="content">
-<p>야간 정산, 월말 청구서 발행, CSV 일괄 적재는 사용자 요청 없이 정해진 시점에 수백만 건을 읽고 변환해 저장한다. 반복문으로 직접 짜면 실패 지점부터의 재시작, 커밋 주기, 손상 레코드의 skip·retry, 처리 건수 기록이 전부 개별 코드로 쌓이고 배치마다 구현이 달라진다. <mark>Spring Batch는 이 공통 뼈대를 프레임워크가 맡고 개발자는 읽기·가공·쓰기 로직만 구현하도록 만든 경량 배치 프레임워크다.</mark> 별도 서버 없이 일반 Java 애플리케이션 안에서 동작한다.</p>
+<p>야간 정산, 월말 청구서 발행, CSV 일괄 적재는 사용자 요청 없이 정해진 시점에 수백만 건을 읽고 변환해 저장한다. 반복문으로 직접 짜면 실패 지점부터의 재시작, 커밋 주기, 손상 레코드의 skip·retry, 처리 건수 기록이 전부 개별 코드로 쌓이고 배치마다 구현이 달라진다. Spring Batch는 이 공통 뼈대를 프레임워크가 맡고 개발자는 읽기·가공·쓰기 로직만 구현하도록 만든 경량 배치 프레임워크다. 별도 서버 없이 일반 Java 애플리케이션 안에서 동작한다.</p>
 <h2>핵심 개념</h2>
 <h3>스케줄러가 아니다</h3>
-<p>&quot;언제 실행할지&quot;는 Quartz, Spring <code>@Scheduled</code>, cron, Kubernetes CronJob의 몫이고, <mark>Spring Batch는 &quot;실행되었을 때 대량 데이터를 어떻게 안정적으로 처리할지&quot;를 맡는다.</mark> 건별 즉시 처리, 사용자 요청 응답, 소량 데이터에는 맞지 않으며, 대량·주기적 실행·재시작 보장이 동시에 요구될 때 선택한다.</p>
+<p>&quot;언제 실행할지&quot;는 Quartz, Spring <code>@Scheduled</code>, cron, Kubernetes CronJob의 몫이고, Spring Batch는 &quot;실행되었을 때 대량 데이터를 어떻게 안정적으로 처리할지&quot;를 맡는다. 건별 즉시 처리, 사용자 요청 응답, 소량 데이터에는 맞지 않으며, 대량·주기적 실행·재시작 보장이 동시에 요구될 때 선택한다.</p>
 <h3>3계층 아키텍처</h3>
 <ul>
 <li><strong>Application</strong> — 개발자가 작성하는 Job·Step 정의, 커스텀 Processor, 비즈니스 규칙.</li>
@@ -123,8 +123,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>같은 파라미터 재실행</strong> — <mark>COMPLETED된 JobInstance를 같은 identifying 파라미터로 다시 실행하면 <code>JobInstanceAlreadyCompleteException</code>이 발생한다.</mark> 개발 중 반복 실행에만 <code>RunIdIncrementer</code>를 붙인다.</li>
-<li><strong>기동 시 자동 실행</strong> — Spring Boot는 시작 시 등록된 Job을 자동 실행한다. 실행 시점을 직접 제어하려면 <code>spring.batch.job.enabled=false</code>로 끄고, Job이 여럿이면 <code>spring.batch.job.name</code>으로 대상을 지정한다.</li>
+<li><strong>같은 파라미터 재실행</strong> — COMPLETED된 JobInstance를 같은 identifying 파라미터로 다시 실행하면 <code>JobInstanceAlreadyCompleteException</code>이 발생한다. 개발 중 반복 실행에만 <code>RunIdIncrementer</code>를 붙인다.</li>
+<li><strong>기동 시 자동 실행</strong> — <mark>Spring Boot는 시작 시 등록된 Job을 자동 실행한다.</mark> 실행 시점을 직접 제어하려면 <code>spring.batch.job.enabled=false</code>로 끄고, Job이 여럿이면 <code>spring.batch.job.name</code>으로 대상을 지정한다.</li>
 <li><strong>메타데이터 스키마</strong> — H2 인메모리는 재기동 시 이력이 사라진다. 운영에서는 <code>spring.batch.jdbc.initialize-schema=never</code>로 두고 마이그레이션 도구로 <code>BATCH_*</code> 테이블을 관리한다.</li>
 <li><strong>Chunk 크기</strong> — 키우면 커밋 횟수는 줄지만 메모리 점유, 실패 시 롤백 범위, DB lock 유지 시간이 함께 커진다.</li>
 <li><strong>Tasklet의 <code>CONTINUABLE</code></strong> — 종료 조건 없이 <code>RepeatStatus.CONTINUABLE</code>을 반환하면 무한 반복된다. 기본은 <code>FINISHED</code>다.</li>

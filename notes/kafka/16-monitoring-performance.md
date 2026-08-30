@@ -31,9 +31,9 @@ lag은 `LogEndOffset - CurrentOffset`이다. `records-consumed-rate`와 브로�
 
 ### 하드웨어와 OS
 
-성능의 중심은 OS 페이지 캐시다. 브로커는 sequential I/O 위주라 HDD JBOD로도 충분하고, SSD는 p99 지연이 결정적일 때 이득이 있다. JVM heap은 6~16GB로 제한하고 나머지 메모리를 캐시에 남긴다. RAID는 rebuild 부하가 브로커를 마비시키고 replication과 중복되므로 `log.dirs`에 디스크를 나열하는 JBOD를 쓴다. 파일시스템은 XFS 우선, NFS·EFS 금지. 플러시는 기본값(OS 위임)을 유지한다. fsync 강제는 처리량을 크게 떨어뜨리고 내구성은 replication이 보장한다.
+성능의 중심은 OS 페이지 캐시다. 브로커는 sequential I/O 위주라 HDD JBOD로도 충분하고, SSD는 p99 지연이 결정적일 때 이득이 있다. JVM heap은 6~16GB로 제한하고 나머지 메모리를 캐시에 남긴다. ==RAID는 rebuild 부하가 브로커를 마비시키고 replication과 중복되므로 `log.dirs`에 디스크를 나열하는 JBOD를 쓴다.== 파일시스템은 XFS 우선, NFS·EFS 금지. 플러시는 기본값(OS 위임)을 유지한다. fsync 강제는 처리량을 크게 떨어뜨리고 내구성은 replication이 보장한다.
 
-OS 튜닝은 세 가지다. file descriptor는 세그먼트·커넥션마다 소비되므로 최소 100,000. `vm.max_map_count`는 세그먼트당 index mmap 2개를 차지해 기본 65,535로는 `OutOfMemoryError: Map failed`로 크래시하므로 최소 262,144. WAN 환경은 소켓 버퍼를 16MB로 키운다. GC는 G1GC에 GC 로그를 필수로 남긴다.
+OS 튜닝은 세 가지다. file descriptor는 세그먼트·커넥션마다 소비되므로 최소 100,000. ==`vm.max_map_count`는 세그먼트당 index mmap 2개를 차지해 기본 65,535로는 `OutOfMemoryError: Map failed`로 크래시하므로 최소 262,144.== WAN 환경은 소켓 버퍼를 16MB로 키운다. GC는 G1GC에 GC 로그를 필수로 남긴다.
 
 ### 성능 튜닝은 목표 선택이다
 
@@ -118,7 +118,7 @@ net.core.wmem_max = 16777216
 - **지표 카디널리티 폭증.** Exporter 규칙을 `.*`로 열면 토픽·파티션·클라이언트 조합마다 시계열이 생겨 Prometheus가 먼저 죽는다. 파티션 단위 지표는 lag처럼 꼭 필요한 것만 남긴다.
 - **알람 노이즈.** `UnderReplicatedPartitions`는 롤링 재시작 중에도 일시적으로 뜬다. 즉시 알람은 `UnderMinIsr`·`OfflinePartitionsCount`에만 걸고 나머지는 지속 조건을 둔다.
 - **JVM heap 과다.** heap을 32GB로 잡으면 GC pause가 길어져 리밸런스가 잦아지고 페이지 캐시가 줄어 디스크 읽기가 는다. GC pause 1초 이상이면 heap을 줄이거나 브로커를 추가한다.
-- **OS 한계값 미반영.** `ulimit`으로만 올리고 systemd 유닛에 반영하지 않으면 재시작 시 원복된다.
+- **OS 한계값 미반영.** ==`ulimit`으로만 올리고 systemd 유닛에 반영하지 않으면 재시작 시 원복된다.==
 - **내구성 설정 일괄 적용.** `acks=all`·`min.insync.replicas=2`를 모든 토픽에 걸면 로그성 토픽까지 브로커 하나 장애에 쓰기가 멈춘다. 잃으면 안 되는 토픽에만 강하게 건다. burstable 인스턴스는 지속 부하에 부적합하다.
 
 ## 관련 글

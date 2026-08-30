@@ -15,7 +15,7 @@ updated: 2026-08-30
 
 ### 처리량과 멀티파트 업로드
 
-S3 처리량 한도는 버킷이 아니라 prefix 단위로, prefix당 초당 PUT/COPY/POST/DELETE 3,500건, GET/HEAD 5,500건이다. 한도에 닿으면 키 앞에 해시 몇 자리를 붙여 prefix를 분산한다. 날짜 기반 prefix는 같은 날 객체가 한 prefix에 몰리므로 고트래픽에 불리하다.
+==S3 처리량 한도는 버킷이 아니라 prefix 단위로, prefix당 초당 PUT/COPY/POST/DELETE 3,500건, GET/HEAD 5,500건이다.== 한도에 닿으면 키 앞에 해시 몇 자리를 붙여 prefix를 분산한다. 날짜 기반 prefix는 같은 날 객체가 한 prefix에 몰리므로 고트래픽에 불리하다.
 
 멀티파트 업로드는 CreateMultipartUpload로 UploadId를 받고, UploadPart를 병렬 호출한 뒤, CompleteMultipartUpload로 병합한다(실패 시 Abort). 파트는 5MB~5GB이고 마지막 파트만 5MB 미만이 허용되며, 최대 10,000 파트, 객체 최대 5TB다. 100MB 이상이면 권장, 5GB 초과는 필수다. 클라이언트가 리전에서 멀면 Transfer Acceleration이 가까운 엣지까지만 공용망을 타고 이후 AWS 백본으로 전달하며 별도 요금이 붙는다. 다운로드는 Range 헤더로 범위를 나눠 병렬로 받고, S3 Select는 단일 객체 안에서 SQL로 행을 필터한다.
 
@@ -36,7 +36,7 @@ Intelligent-Tiering은 정해진 시점이 아니라 접근 패턴을 관찰해 
 | 전송 비용 | 리전 간 요금 발생 | 상대적으로 낮음 |
 | 전제 조건 | 양쪽 버전 관리 + IAM 역할 | 동일 |
 
-소스와 대상 모두 버전 관리가 켜져 있어야 하고, IAM 역할에는 소스의 `s3:GetObjectVersionForReplication` 계열 읽기 권한과 대상의 `s3:Replicate*` 권한이 필요하다. 교차 계정이면 대상 버킷 정책에서 소스 역할을 추가로 허용한다. 규칙이 겹치면 Priority 값이 큰 쪽이 적용되고 대상 클래스는 소스와 다르게 둘 수 있다. 삭제 마커 복제는 옵션이지만 버전 ID를 지정한 영구 삭제는 복제되지 않는다. RTC(Replication Time Control)는 객체의 99.99%를 15분 안에 복제하는 SLA와 메트릭을 함께 켜며 추가 요금이 붙는다. 양방향 복제는 각 버킷에 서로를 향한 규칙을 두면 되고, 이미 복제된 객체는 재복제되지 않아 루프가 없다.
+소스와 대상 모두 버전 관리가 켜져 있어야 하고, IAM 역할에는 소스의 `s3:GetObjectVersionForReplication` 계열 읽기 권한과 대상의 `s3:Replicate*` 권한이 필요하다. 교차 계정이면 대상 버킷 정책에서 소스 역할을 추가로 허용한다. 규칙이 겹치면 Priority 값이 큰 쪽이 적용되고 대상 클래스는 소스와 다르게 둘 수 있다. ==삭제 마커 복제는 옵션이지만 버전 ID를 지정한 영구 삭제는 복제되지 않는다.== RTC(Replication Time Control)는 객체의 99.99%를 15분 안에 복제하는 SLA와 메트릭을 함께 켜며 추가 요금이 붙는다. 양방향 복제는 각 버킷에 서로를 향한 규칙을 두면 되고, 이미 복제된 객체는 재복제되지 않아 루프가 없다.
 
 ## 코드
 
@@ -144,9 +144,9 @@ public class ReplicationConfigurer {
 ## 실무에서 걸리는 지점
 
 - **미완료 멀티파트 조각은 목록에 보이지 않으면서 과금된다.** Abort 호출 전에 프로세스가 죽는 경우가 생기므로 모든 버킷에 `AbortIncompleteMultipartUpload` 7일 규칙을 건다.
-- **최소 저장 기간을 무시한 전환은 비용을 늘린다.** Standard-IA·One Zone-IA 30일, Glacier Instant·Flexible 90일, Deep Archive 180일이 최소 과금 기간이며 그 안에 삭제하거나 다음 계층으로 옮겨도 남은 기간이 청구된다.
+- **최소 저장 기간을 무시한 전환은 비용을 늘린다.** ==Standard-IA·One Zone-IA 30일, Glacier Instant·Flexible 90일, Deep Archive 180일이 최소 과금 기간이며 그 안에 삭제하거나 다음 계층으로 옮겨도 남은 기간이 청구된다.==
 - **SSE-KMS 객체는 기본 설정으로 복제되지 않는다.** `SourceSelectionCriteria`, 대상 키 지정, 복제 역할의 소스 키 Decrypt와 대상 키 Encrypt 권한이 모두 있어야 하며, 빠지면 FAILED 상태만 남는다. SSE-C 객체와 Glacier 계층 객체는 복제 대상이 아니다.
-- **복제 규칙은 이후 객체에만 적용되고 라이프사이클은 복제되지 않는다.** 기존 객체는 Batch Operations의 `S3ReplicateObject` 작업으로 따로 처리하고, 대상 버킷에도 라이프사이클을 별도로 건다.
+- ==**복제 규칙은 이후 객체에만 적용되고 라이프사이클은 복제되지 않는다.**== 기존 객체는 Batch Operations의 `S3ReplicateObject` 작업으로 따로 처리하고, 대상 버킷에도 라이프사이클을 별도로 건다.
 - **복제 실패는 감시하지 않으면 드러나지 않는다.** `OperationsFailedReplication` 메트릭과 EventBridge 실패 이벤트를 켜고, S3 Inventory에 `ReplicationStatus` 필드를 넣어 일별로 점검한다.
 
 ## 관련 글

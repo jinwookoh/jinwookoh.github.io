@@ -37,9 +37,9 @@ classic 전략 중 `RangeAssignor`는 다중 토픽 구독 시 부하가 쏠리�
 
 ### 생존 판정과 Static Membership
 
-heartbeat(`heartbeat.interval.ms` 3초)가 `session.timeout.ms`(45초) 동안 끊기면 프로세스 사망으로, `poll()` 간격이 `max.poll.interval.ms`(5분)를 넘으면 처리 정체로 판정한다. heartbeat는 별도 스레드가 보내므로 두 시계는 독립적이다.
+heartbeat(`heartbeat.interval.ms` 3초)가 `session.timeout.ms`(45초) 동안 끊기면 프로세스 사망으로, `poll()` 간격이 `max.poll.interval.ms`(5분)를 넘으면 처리 정체로 판정한다. ==heartbeat는 별도 스레드가 보내므로 두 시계는 독립적이다.==
 
-`group.instance.id`를 고정하면 session timeout 안에 재참가할 때 기존 파티션을 돌려받아 rebalance가 생략된다. ID가 중복되면 `FencedInstanceIdException`이 난다.
+==`group.instance.id`를 고정하면 session timeout 안에 재참가할 때 기존 파티션을 돌려받아 rebalance가 생략된다.== ID가 중복되면 `FencedInstanceIdException`이 난다.
 
 ## 코드
 
@@ -165,7 +165,7 @@ spring:
 
 - **파티션 수가 병렬도 상한이다.** 컨슈머를 파티션 수 이상으로 늘려도 처리량은 늘지 않는다.
 - **Rebalance storm.** 한 컨슈머의 이탈이 rebalance를 부르고 그 사이 다른 컨슈머가 timeout을 넘겨 연쇄된다. `rebalance-rate-per-hour`가 10을 넘으면 session timeout 상향·Static Membership·cooperative 전략으로 대응한다.
-- **처리 시간 대비 poll 간격.** 한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다. `max.poll.records`를 줄이거나 interval을 늘린다.
+- **처리 시간 대비 poll 간격.** ==한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다.== `max.poll.records`를 줄이거나 interval을 늘린다.
 - **assign()과 subscribe()는 함께 쓸 수 없다.** `assign()`은 그룹과 무관하게 파티션을 직접 잡는 재처리·디버깅용이다.
 - **Graceful shutdown 누락.** `close()` 없이 죽으면 session timeout까지 파티션 재배정이 미뤄진다.
 

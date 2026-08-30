@@ -27,7 +27,7 @@ Producer·Consumer·Admin은 `kafka-clients` 하나로 모두 쓸 수 있다. St
 
 ### Admin Client의 작업 범위
 
-`Admin.create(props)`로 생성한 인스턴스 하나로 Topic(`createTopics`·`describeTopics`·`deleteTopics`·`incrementalAlterConfigs`·`createPartitions`), Consumer Group(`describeConsumerGroups`·`listConsumerGroupOffsets`·`alterConsumerGroupOffsets`), ACL(`createAcls`·`describeAcls`·`deleteAcls`), Cluster(`describeCluster`)를 다룬다. `TopicDescription`은 파티션별 leader·replicas·ISR을 담는다. `listConsumerGroupOffsets`는 커밋된 offset만 주므로 log end offset은 `KafkaConsumer.endOffsets()`로 따로 조회한다.
+`Admin.create(props)`로 생성한 인스턴스 하나로 Topic(`createTopics`·`describeTopics`·`deleteTopics`·`incrementalAlterConfigs`·`createPartitions`), Consumer Group(`describeConsumerGroups`·`listConsumerGroupOffsets`·`alterConsumerGroupOffsets`), ACL(`createAcls`·`describeAcls`·`deleteAcls`), Cluster(`describeCluster`)를 다룬다. `TopicDescription`은 파티션별 leader·replicas·ISR을 담는다. ==`listConsumerGroupOffsets`는 커밋된 offset만 주므로 log end offset은 `KafkaConsumer.endOffsets()`로 따로 조회한다.==
 
 모든 메서드는 `KafkaFuture`를 즉시 반환한다. `.get()`으로 블로킹하는 동기 방식이 운영 스크립트의 표준이고, `whenComplete` 콜백과 `thenApply` 체이닝은 애플리케이션 안에서 블로킹을 피할 때 쓴다. 실패는 `ExecutionException`으로 감싸지므로 원인은 `getCause()`로 판별한다.
 
@@ -165,7 +165,7 @@ spring:
 ## 실무에서 걸리는 지점
 
 - **파티션은 늘릴 수만 있다.** 늘리는 순간 key 기반 매핑이 바뀌어 같은 key의 순서 보장이 그 시점에 끊긴다. 기존 메시지는 원래 파티션에 남고 새 메시지만 재해시된다.
-- **`deleteTopics`는 요청만 접수한다.** 실제 삭제는 broker가 백그라운드에서 처리하며 큰 Topic은 수 분이 걸린다. 같은 이름으로 재생성하려면 `listTopics`로 확인한 뒤 진행한다.
+- **`deleteTopics`는 요청만 접수한다.** ==실제 삭제는 broker가 백그라운드에서 처리하며 큰 Topic은 수 분이 걸린다.== 같은 이름으로 재생성하려면 `listTopics`로 확인한 뒤 진행한다.
 - **`.get()`은 hot path에 두지 않는다.** `default.api.timeout.ms`만큼 스레드가 묶이므로 동기 호출은 시작 시점과 운영 스크립트로 한정한다.
 - **`alterConsumerGroupOffsets`는 그룹이 비어 있어야 한다.** 활성 멤버가 있으면 실패하므로 Consumer를 모두 내린 뒤 offset을 옮기고 다시 올린다.
 - **ACL 환경에서는 별도 권한이 필요하다.** `Cluster:Describe`·`Topic:Create` 권한이 없으면 `AuthorizationException`이 발생한다. 애플리케이션 계정과 provisioning 계정을 분리한다. 수백 개 Topic을 만들 때는 리스트로 묶어 controller 부하를 줄인다.

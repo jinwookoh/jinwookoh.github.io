@@ -24,7 +24,7 @@
   <h1>라우팅·레이아웃·로딩과 에러 UI</h1>
   <p class="summary">App Router는 폴더 규약만으로 중첩 레이아웃·스트리밍 로딩·구간별 에러 경계를 선언한다.</p>
   <div class="content">
-<p>라우팅 라이브러리를 직접 조합하면 공통 헤더를 페이지마다 다시 그리고, 데이터가 준비될 때까지 화면 전체가 비어 있으며, 한 컴포넌트의 예외가 페이지 전체를 백지로 만든다. 로딩·에러 상태를 페이지마다 <code>useState</code>로 관리하면 같은 코드가 수십 곳에 복제된다. <mark>Next.js App Router는 이 문제를 파일 시스템 규약으로 해결한다.</mark> 폴더가 URL 세그먼트가 되고, <code>layout.tsx</code>·<code>loading.tsx</code>·<code>error.tsx</code>라는 예약 파일이 각 세그먼트의 공통 UI·로딩 UI·에러 UI를 담당한다.</p>
+<p>라우팅 라이브러리를 직접 조합하면 공통 헤더를 페이지마다 다시 그리고, 데이터가 준비될 때까지 화면 전체가 비어 있으며, 한 컴포넌트의 예외가 페이지 전체를 백지로 만든다. 로딩·에러 상태를 페이지마다 <code>useState</code>로 관리하면 같은 코드가 수십 곳에 복제된다. Next.js App Router는 이 문제를 파일 시스템 규약으로 해결한다. 폴더가 URL 세그먼트가 되고, <code>layout.tsx</code>·<code>loading.tsx</code>·<code>error.tsx</code>라는 예약 파일이 각 세그먼트의 공통 UI·로딩 UI·에러 UI를 담당한다.</p>
 <h2>핵심 개념</h2>
 <p>App Router에서 <code>app/</code> 아래의 각 폴더는 하나의 라우트 세그먼트다. 폴더 안에 <code>page.tsx</code>가 있어야 그 경로가 공개 URL이 되고, <code>page.tsx</code>가 없는 폴더는 하위 경로의 구조만 담는다. 세그먼트마다 다음 예약 파일을 둘 수 있다.</p>
 <table>
@@ -152,7 +152,7 @@
 <li><mark><code>reset()</code>은 렌더링만 다시 시도하며 서버 데이터 캐시를 무효화하지 않는다.</mark> 서버 컴포넌트 예외를 복구하려면 <code>useRouter().refresh()</code>를 함께 호출해 최신 서버 응답을 받아야 한다.</li>
 <li><code>loading.tsx</code>는 세그먼트 전체를 하나의 경계로 묶으므로 페이지 안에서 가장 느린 호출이 전체 fallback을 좌우한다. 핵심 콘텐츠를 먼저 보이려면 컴포넌트 단위 <code>Suspense</code>로 쪼갠다.</li>
 <li>스트리밍 응답은 HTTP 상태 코드가 이미 200으로 전송된 뒤에 에러가 발생할 수 있다. <code>error.tsx</code>가 화면을 대체해도 상태 코드는 바뀌지 않으므로 상태 코드 기반 헬스 체크에는 별도 메트릭이 필요하다.</li>
-<li><code>notFound()</code>와 <code>redirect()</code>는 예외를 던지는 방식이므로 <code>try/catch</code> 안에서 호출하면 catch에 잡혀 무산된다. 조회 블록 바깥에서 호출한다.</li>
+<li><mark><code>notFound()</code>와 <code>redirect()</code>는 예외를 던지는 방식이므로 <code>try/catch</code> 안에서 호출하면 catch에 잡혀 무산된다.</mark> 조회 블록 바깥에서 호출한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

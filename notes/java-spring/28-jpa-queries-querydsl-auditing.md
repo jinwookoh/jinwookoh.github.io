@@ -27,7 +27,7 @@ JPQL은 테이블이 아니라 엔티티 클래스와 필드를 대상으로 하
 
 ### QueryDSL
 
-어노테이션 프로세서가 엔티티마다 `QOrder` 같은 Q 클래스를 생성하고, 필드를 자바 표현식으로 참조하므로 오타가 컴파일 오류가 된다. 핵심은 `where(...)`에 넘긴 `BooleanExpression`이 null이면 조건에서 제외된다는 점이다. 조건마다 null을 돌려주는 메서드를 나열하면 동적 검색이 분기문 없이 표현되고, `OrderSpecifier`로 정렬도 런타임에 바꾼다. Spring Data와는 커스텀 인터페이스 + `Impl` 접미사 구현체 규칙으로 결합한다.
+어노테이션 프로세서가 엔티티마다 `QOrder` 같은 Q 클래스를 생성하고, 필드를 자바 표현식으로 참조하므로 오타가 컴파일 오류가 된다. ==핵심은 `where(...)`에 넘긴 `BooleanExpression`이 null이면 조건에서 제외된다는 점이다.== 조건마다 null을 돌려주는 메서드를 나열하면 동적 검색이 분기문 없이 표현되고, `OrderSpecifier`로 정렬도 런타임에 바꾼다. Spring Data와는 커스텀 인터페이스 + `Impl` 접미사 구현체 규칙으로 결합한다.
 
 ### Auditing
 
@@ -197,11 +197,11 @@ public class Order extends BaseEntity {
 
 ## 실무에서 걸리는 지점
 
-- **`@Modifying` 벌크 쿼리와 1차 캐시 불일치.** 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다. `clearAutomatically = true`를 준다. Auditing도 타지 않는다.
+- **`@Modifying` 벌크 쿼리와 1차 캐시 불일치.** ==벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다.== `clearAutomatically = true`를 준다. Auditing도 타지 않는다.
 - **count 쿼리 비용.** `Page<T>`는 매 요청마다 count 쿼리를 실행한다. count 쿼리에서는 fetch join을 빼고, 전체 개수가 필요 없으면 `Slice<T>`로 대체한다.
 - **컬렉션 fetch join과 페이징.** `@OneToMany`를 fetch join한 채 `limit`을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(`HHH90003004` 경고). 컬렉션은 `default_batch_fetch_size`로 푼다.
-- **Q 클래스 생성 실패.** `QOrder cannot be resolved`는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. Spring Boot 3에서는 `querydsl-jpa`·`querydsl-apt`에 `jakarta` classifier가 필요하다.
-- **Auditing이 비는 경우.** `@EnableJpaAuditing`이나 부모 클래스의 `@EntityListeners`가 빠지면 null이 들어간다. `AuditorAware`가 익명 인증을 거르지 않으면 `createdBy`에 `anonymousUser`가 기록된다.
+- **Q 클래스 생성 실패.** `QOrder cannot be resolved`는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. ==Spring Boot 3에서는 `querydsl-jpa`·`querydsl-apt`에 `jakarta` classifier가 필요하다.==
+- **Auditing이 비는 경우.** `@EnableJpaAuditing`이나 부모 클래스의 `@EntityListeners`가 빠지면 null이 들어간다. ==`AuditorAware`가 익명 인증을 거르지 않으면 `createdBy`에 `anonymousUser`가 기록된다.==
 
 ## 관련 글
 

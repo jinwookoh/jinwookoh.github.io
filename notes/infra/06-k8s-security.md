@@ -173,10 +173,10 @@ spec:
 
 ## 실무에서 걸리는 지점
 
-- **NetworkPolicy는 CNI가 구현한다.** Calico·Cilium은 지원하지만 Flannel 단독 구성은 정책 객체를 받기만 하고 아무것도 차단하지 않는다.
-- **default deny가 DNS를 끊는다.** egress deny를 걸면 CoreDNS 질의가 막혀 모든 외부 호출이 이름 해석에서 실패한다. 메트릭 수집기나 사이드카도 별도 allow가 필요하다.
+- **NetworkPolicy는 CNI가 구현한다.** ==Calico·Cilium은 지원하지만 Flannel 단독 구성은 정책 객체를 받기만 하고 아무것도 차단하지 않는다.==
+- **default deny가 DNS를 끊는다.** ==egress deny를 걸면 CoreDNS 질의가 막혀 모든 외부 호출이 이름 해석에서 실패한다.== 메트릭 수집기나 사이드카도 별도 allow가 필요하다.
 - **readOnlyRootFilesystem은 JVM에서 자주 깨진다.** 내장 Tomcat이 `java.io.tmpdir` 아래에 작업 디렉터리를 만들므로 `/tmp`에 emptyDir가 없으면 기동 직후 실패한다. root 전제 이미지는 `runAsNonRoot`와 충돌해 `CreateContainerConfigError`로 멈춘다.
-- **와일드카드 권한이 번진다.** `resources: ["*"]`는 CRD 추가 시 그 리소스까지 자동 포함한다. `secrets` 읽기와 `pods/exec`는 자격 증명 탈취와 같으므로 `kubectl auth can-i --list --as`로 SA별 권한을 주기적으로 검증한다.
+- **와일드카드 권한이 번진다.** ==`resources: ["*"]`는 CRD 추가 시 그 리소스까지 자동 포함한다.== `secrets` 읽기와 `pods/exec`는 자격 증명 탈취와 같으므로 `kubectl auth can-i --list --as`로 SA별 권한을 주기적으로 검증한다.
 - **PSS를 enforce로 바로 켜면 기존 워크로드가 거부된다.** `warn`·`audit`으로 위반 Pod을 먼저 수집하고 고친 뒤 `enforce`로 올린다. 허용 레지스트리 제한이나 이미지 서명 검증은 Kyverno·OPA Gatekeeper로 보완한다.
 
 ## 관련 글

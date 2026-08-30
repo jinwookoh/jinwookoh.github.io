@@ -165,9 +165,9 @@ public class RagRetriever {
 
 ## 실무에서 걸리는 지점
 
-- 문서 임베딩과 질의 임베딩의 모델이 다르면 차원이 같아도 벡터 공간이 달라 검색이 무너진다. 모델 교체는 전체 재색인이며, `dense_vector.dims`를 고정하면 차원 불일치는 색인 시 오류로 잡힌다.
-- 한국어를 standard analyzer로 색인하면 BM25가 어절 단위로만 매칭되어 hybrid의 BM25 기여가 거의 0이 되고 결과가 순수 kNN과 같아진다. `nori_tokenizer`와 사용자 사전을 먼저 적용한다.
-- `rank_constant` 60을 그대로 쓰면 BM25와 kNN의 영향력이 동등해서 법률·의료처럼 용어가 결정적인 도메인에서 키워드 매칭이 묻힌다. BM25 retriever에 boost를 주거나 8.13+의 `linear` retriever로 가중 합산을 명시한다.
+- ==문서 임베딩과 질의 임베딩의 모델이 다르면 차원이 같아도 벡터 공간이 달라 검색이 무너진다.== 모델 교체는 전체 재색인이며, `dense_vector.dims`를 고정하면 차원 불일치는 색인 시 오류로 잡힌다.
+- ==한국어를 standard analyzer로 색인하면 BM25가 어절 단위로만 매칭되어 hybrid의 BM25 기여가 거의 0이 되고 결과가 순수 kNN과 같아진다.== `nori_tokenizer`와 사용자 사전을 먼저 적용한다.
+- ==`rank_constant` 60을 그대로 쓰면 BM25와 kNN의 영향력이 동등해서 법률·의료처럼 용어가 결정적인 도메인에서 키워드 매칭이 묻힌다.== BM25 retriever에 boost를 주거나 8.13+의 `linear` retriever로 가중 합산을 명시한다.
 - Retrieval 상위 10개를 그대로 LLM에 넣으면 수만 토큰이 되어 context window를 넘긴다. Reranker로 5개 내외로 압축하고, 응답에 청크 번호를 인용하게 해 원본으로 역추적할 수 있게 한다.
 - 평가 셋 없이 체감으로 튜닝하면 회귀를 잡을 수 없다. analyzer·임베딩 모델·reranker·boost 값이 바뀔 때마다 `_rank_eval`을 CI에서 돌려 NDCG 변동을 확인한다.
 

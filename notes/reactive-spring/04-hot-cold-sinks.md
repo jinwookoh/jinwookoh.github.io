@@ -33,7 +33,7 @@ Hot Publisher는 하나의 실행을 여러 구독자가 공유하며, 늦게 �
 - `multicast()` — 다중 구독자 브로드캐스트. 늦게 합류한 구독자는 이후 신호만 받는다. `directBestEffort()`는 버퍼 없이 느린 구독자에게 드롭한다.
 - `replay()` — 새 구독자에게 이전 신호를 재전송. `all()`, `limit(n)`, `limit(Duration)`으로 범위를 정한다.
 
-`tryEmitNext`는 `EmitResult`를 반환하고 처리를 호출자에게 맡기며, `emitNext`는 `EmitFailureHandler`가 재시도 여부를 결정한다. `Sinks`는 직렬화된 호출을 전제하므로 여러 스레드가 동시에 `tryEmitNext`를 호출하면 `FAIL_NON_SERIALIZED`가 반환되고, 이를 무시하면 신호가 예외 없이 사라진다.
+`tryEmitNext`는 `EmitResult`를 반환하고 처리를 호출자에게 맡기며, `emitNext`는 `EmitFailureHandler`가 재시도 여부를 결정한다. `Sinks`는 직렬화된 호출을 전제하므로 ==여러 스레드가 동시에 `tryEmitNext`를 호출하면 `FAIL_NON_SERIALIZED`가 반환되고, 이를 무시하면 신호가 예외 없이 사라진다.==
 
 ## 코드
 
@@ -133,8 +133,8 @@ public class WelcomeMailListener {
 
 ## 실무에서 걸리는 지점
 
-- `cache()`와 `replay().all()`을 무한 스트림에 붙이면 저장된 신호가 해제되지 않아 OOM으로 이어진다. 끝이 없는 소스에는 `cache(n)`, `cache(Duration)`, `replay().limit(n)`처럼 상한을 둔다.
-- `share()`는 구독자가 잠시 0이 되는 구간마다 소스를 끊고 재연결하며 시퀀스가 리셋된다. 연결 유지가 목적이면 `autoConnect`를, 마지막 구독자 이탈 후 유예를 두려면 `refCount(n, Duration)`을 쓴다.
+- ==`cache()`와 `replay().all()`을 무한 스트림에 붙이면 저장된 신호가 해제되지 않아 OOM으로 이어진다.== 끝이 없는 소스에는 `cache(n)`, `cache(Duration)`, `replay().limit(n)`처럼 상한을 둔다.
+- ==`share()`는 구독자가 잠시 0이 되는 구간마다 소스를 끊고 재연결하며 시퀀스가 리셋된다.== 연결 유지가 목적이면 `autoConnect`를, 마지막 구독자 이탈 후 유예를 두려면 `refCount(n, Duration)`을 쓴다.
 - `Sinks.One`은 값을 한 번만 받는다. 두 번째 `tryEmitValue`는 `FAIL_TERMINATED`를 반환하고 조용히 무시되므로 반환값을 로그로 남긴다.
 - `multicast().onBackpressureBuffer()`는 느린 구독자 때문에 버퍼가 차면 `FAIL_OVERFLOW`를 반환한다. 손실이 허용되는 알림성 이벤트에는 `directBestEffort()`가 맞고, 아니면 버퍼 크기와 소비 속도를 함께 조정한다.
 - 생성자에서 `subscribe()`한 구독은 컨텍스트 재시작 시 누적될 수 있다. `Disposable`을 보관하고 `@PreDestroy`에서 해제한다.

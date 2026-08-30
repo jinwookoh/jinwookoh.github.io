@@ -152,11 +152,11 @@ public class UserClient {
 
 ## 실무에서 걸리는 지점
 
-- **시그니처 불일치는 컴파일 타임에 잡히지 않는다.** 서버가 `Flux`인데 클라이언트가 `retrieveMono`를 쓰면 첫 요소 이후 취소된다. 라우트별 모델을 문서화해야 한다.
+- **시그니처 불일치는 컴파일 타임에 잡히지 않는다.** ==서버가 `Flux`인데 클라이언트가 `retrieveMono`를 쓰면 첫 요소 이후 취소된다.== 라우트별 모델을 문서화해야 한다.
 - **requester를 요청마다 생성하면 연결 비용이 폭발한다.** 매번 TCP 연결과 SETUP 핸드셰이크가 발생한다. Bean 하나로 두고 `dispose()`는 종료 시에만 부른다.
-- **RSocket에는 요청 타임아웃이 없다.** keepalive는 연결 생존만 확인하므로 요청마다 Reactor `timeout()`을 붙인다.
+- ==**RSocket에는 요청 타임아웃이 없다.**== keepalive는 연결 생존만 확인하므로 요청마다 Reactor `timeout()`을 붙인다.
 - **메타데이터는 평문이다.** 인증 토큰이 프레임에 그대로 실리므로 `spring.rsocket.server.ssl` 또는 mTLS 없이는 노출된다.
-- **커스텀 메타데이터는 extractor 등록이 없으면 조용히 사라진다.** 서버 `@Header`가 null이 되며 에러는 나지 않는다. `RSocketStrategies` 설정은 공유 모듈로 관리한다.
+- **커스텀 메타데이터는 extractor 등록이 없으면 조용히 사라진다.** ==서버 `@Header`가 null이 되며 에러는 나지 않는다.== `RSocketStrategies` 설정은 공유 모듈로 관리한다.
 
 ## 관련 글
 

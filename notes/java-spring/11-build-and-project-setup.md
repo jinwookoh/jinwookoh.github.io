@@ -15,7 +15,7 @@ Spring 애플리케이션은 Spring MVC, Jackson, JDBC 드라이버 같은 외�
 
 ### 의존성 좌표와 BOM
 
-라이브러리는 `groupId:artifactId:version` 좌표로 식별한다. 빌드 도구는 이 좌표를 Maven Central에서 해석하고, 그 아티팩트가 선언한 의존성까지 재귀적으로 가져온다. 버전이 충돌하면 Maven은 트리에서 가장 가까운 선언을, Gradle은 가장 높은 버전을 택한다. Spring Boot는 `spring-boot-dependencies` BOM으로 검증된 버전 조합을 관리하므로 스타터 선언에서 버전을 생략한다.
+라이브러리는 `groupId:artifactId:version` 좌표로 식별한다. 빌드 도구는 이 좌표를 Maven Central에서 해석하고, 그 아티팩트가 선언한 의존성까지 재귀적으로 가져온다. ==버전이 충돌하면 Maven은 트리에서 가장 가까운 선언을, Gradle은 가장 높은 버전을 택한다.== Spring Boot는 `spring-boot-dependencies` BOM으로 검증된 버전 조합을 관리하므로 스타터 선언에서 버전을 생략한다.
 
 스코프는 라이브러리가 올라가는 클래스패스를 정한다.
 
@@ -177,7 +177,7 @@ SPRING_PROFILES_ACTIVE=prod DB_PASSWORD=... java -jar build/libs/myshop-0.0.1-SN
 ## 실무에서 걸리는 지점
 
 - **BOM을 우회한 버전 지정.** Jackson·Hibernate 같은 관리 대상에 임의 버전을 적으면 검증된 조합이 깨진다. BOM 프로퍼티 오버라이드로 처리하고 `./gradlew dependencies`로 확인한다.
-- **`application.yml`에 기본 프로파일 고정.** `spring.profiles.active: dev`가 남은 채 운영 jar를 실행하면 H2와 `create-drop`이 운영에서 동작한다. 기본값을 두지 않고 배포 스크립트가 프로파일을 주입하도록 강제한다.
+- **`application.yml`에 기본 프로파일 고정.** ==`spring.profiles.active: dev`가 남은 채 운영 jar를 실행하면 H2와 `create-drop`이 운영에서 동작한다.== 기본값을 두지 않고 배포 스크립트가 프로파일을 주입하도록 강제한다.
 - **비밀의 저장소 유출.** `application-prod.yml`에 실제 값을 쓰면 git 이력에 남는다. `${ENV}` 참조만 두고 값은 Secret·Vault로 주입하며, 비밀번호에는 기본값을 두지 않아 미주입 시 기동에 실패하게 한다.
 - **컴포넌트 스캔 루트 이탈.** 메인 클래스 패키지 밖에 Bean을 두면 `NoSuchBeanDefinitionException`이 난다. 메인 클래스는 최상위 패키지에 둔다.
 - **DevTools 스코프.** `implementation`으로 넣으면 운영 jar에 포함되므로 `developmentOnly`를 쓴다.

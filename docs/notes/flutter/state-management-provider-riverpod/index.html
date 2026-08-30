@@ -24,7 +24,7 @@
   <h1>상태 관리 — setState·InheritedWidget·Provider·Riverpod</h1>
   <p class="summary">상태를 어디에 두고 누가 다시 그릴지를 setState·InheritedWidget·Provider·Riverpod 단계별로 정리한다</p>
   <div class="content">
-<p>Flutter의 위젯은 불변이고, 상태가 바뀌면 그 상태를 읽는 서브트리를 다시 만든다. 화면 한 곳에서만 쓰는 값은 <code>setState</code>로 충분하지만, 로그인 정보나 장바구니처럼 여러 화면이 공유하는 값을 <code>setState</code>로 다루면 생성자 인자로 상태와 콜백을 몇 단계씩 내려보내게 되고, 값이 바뀔 때 어느 위젯이 다시 그려지는지도 흐려진다. <mark>상태 관리 도구는 상태의 위치와 리빌드 범위를 명시적으로 다루기 위한 장치다.</mark></p>
+<p>Flutter의 위젯은 불변이고, 상태가 바뀌면 그 상태를 읽는 서브트리를 다시 만든다. 화면 한 곳에서만 쓰는 값은 <code>setState</code>로 충분하지만, 로그인 정보나 장바구니처럼 여러 화면이 공유하는 값을 <code>setState</code>로 다루면 생성자 인자로 상태와 콜백을 몇 단계씩 내려보내게 되고, 값이 바뀔 때 어느 위젯이 다시 그려지는지도 흐려진다. 상태 관리 도구는 상태의 위치와 리빌드 범위를 명시적으로 다루기 위한 장치다.</p>
 <h2>핵심 개념</h2>
 <h3>임시 상태와 앱 상태</h3>
 <p>공식 문서는 상태를 둘로 나눈다. 임시 상태는 탭 인덱스, 입력값, 애니메이션 진행도처럼 위젯 하나 안에서 끝나는 값으로 <code>State</code> 객체에 두고 <code>setState</code>로 갱신한다. 앱 상태는 세션, 장바구니처럼 여러 화면이 함께 읽고 쓰는 값으로, 그것을 쓰는 위젯들보다 위쪽에 올려 두고 아래에서 읽어 내려간다.</p>
@@ -35,7 +35,7 @@
 <p><code>provider</code> 패키지는 <code>InheritedWidget</code>을 감싼 얇은 계층이다. <code>ChangeNotifier</code>는 상태를 담는 일반 클래스로, 변경 후 <code>notifyListeners()</code>를 호출하면 리스너가 실행된다. <code>ChangeNotifierProvider</code>는 인스턴스를 생성해 트리에 공급하고 위젯이 사라질 때 <code>dispose</code>까지 호출한다. <code>Consumer&lt;T&gt;</code>나 <code>context.watch&lt;T&gt;()</code>는 값을 읽으면서 의존을 등록해 값이 바뀌면 그 위젯만 리빌드하고, 메서드만 호출할 때는 <code>context.read&lt;T&gt;()</code>를 쓴다.</p>
 <p>Spring으로 대응시키면 <code>ChangeNotifierProvider</code>는 빈을 등록하는 <code>@Configuration</code>, <code>context.read&lt;T&gt;()</code>는 <code>ApplicationContext.getBean(T.class)</code>에 가깝다.</p>
 <h3>Riverpod</h3>
-<p>Provider는 타입으로 값을 찾기 때문에 같은 타입의 provider를 둘 수 없고, 공급자가 없으면 런타임에 <code>ProviderNotFoundException</code>이 난다. <mark>Riverpod는 provider를 위젯 트리가 아닌 전역 상수로 선언해 이를 해결한다.</mark> 저장소는 앱 루트의 <code>ProviderScope</code>이고, 위젯은 <code>ConsumerWidget</code>의 <code>WidgetRef</code>로, provider끼리는 <code>Ref</code>로 서로를 읽는다.</p>
+<p><mark>Provider는 타입으로 값을 찾기 때문에 같은 타입의 provider를 둘 수 없고, 공급자가 없으면 런타임에 <code>ProviderNotFoundException</code>이 난다.</mark> Riverpod는 provider를 위젯 트리가 아닌 전역 상수로 선언해 이를 해결한다. 저장소는 앱 루트의 <code>ProviderScope</code>이고, 위젯은 <code>ConsumerWidget</code>의 <code>WidgetRef</code>로, provider끼리는 <code>Ref</code>로 서로를 읽는다.</p>
 <p>Riverpod 3.x에서는 상태와 변경 로직을 <code>Notifier</code> 서브클래스의 <code>build()</code>와 메서드로 묶고 <code>NotifierProvider</code>로 노출한다. 비동기 초기화는 <code>AsyncNotifier</code>가 맡고 상태가 <code>AsyncValue</code>로 감싸진다. <code>@riverpod</code> 코드 생성을 쓰면 화면을 벗어날 때 자동 폐기되는 <code>autoDispose</code>가 기본이다. Spring 관점에서 <code>ProviderScope</code>는 <code>ApplicationContext</code>, provider는 지연 초기화 싱글턴 빈, <code>ProviderScope(overrides:)</code>는 테스트에서 빈을 교체하는 <code>@MockBean</code>에 해당한다.</p>
 <h2>코드</h2>
 <p><code>provider</code>로 장바구니를 앱 상태로 올리고, 총액 텍스트만 리빌드되게 한 예제다.</p>
@@ -151,7 +151,7 @@
 <ul>
 <li><mark><code>build</code> 안에서 <code>read</code>로 읽은 값은 바뀌어도 위젯이 갱신되지 않는다.</mark> 표시할 값은 <code>watch</code>, 핸들러 안에서 한 번 쓰는 값은 <code>read</code>로 구분한다.</li>
 <li><code>notifyListeners()</code>는 어떤 필드가 바뀌었는지 구분하지 않아 모델이 커지면 무관한 위젯까지 리빌드된다. <code>context.select</code>나 <code>ref.watch(provider.select(...))</code>로 필요한 필드만 구독한다.</li>
-<li><code>autoDispose</code> provider를 <code>ref.read</code>로만 읽으면 구독자가 없다고 판단해 즉시 폐기되고 다음 접근 때 재초기화된다. 유지가 필요하면 <code>ref.keepAlive()</code>를 쓴다.</li>
+<li><mark><code>autoDispose</code> provider를 <code>ref.read</code>로만 읽으면 구독자가 없다고 판단해 즉시 폐기되고 다음 접근 때 재초기화된다.</mark> 유지가 필요하면 <code>ref.keepAlive()</code>를 쓴다.</li>
 <li><mark><code>Notifier.build()</code>는 의존 provider가 바뀔 때마다 다시 실행되어 상태가 초기값으로 돌아간다.</mark> 입력 중인 값이 사라지는 버그의 흔한 원인이므로 <code>watch</code>할 대상과 <code>listen</code>으로 처리할 이벤트를 구분한다.</li>
 </ul>
 <h2>관련 글</h2>

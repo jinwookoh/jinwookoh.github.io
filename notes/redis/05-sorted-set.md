@@ -171,8 +171,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
 ## 실무에서 걸리는 지점
 
-- **Rate limiter의 member 충돌.** `ZADD key now now`처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다. 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 `TIME` 명령으로 Redis 시각을 쓴다.
-- **Rate limiter 메모리.** 윈도우 안 요청 수만큼 member가 쌓인다. 분당 1만 회 같은 큰 한도라면 키 하나가 수 MB가 되므로, 정확도가 덜 중요하면 String 카운터 기반 sliding window counter나 token bucket을 고려한다.
+- **Rate limiter의 member 충돌.** ==`ZADD key now now`처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다.== 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 `TIME` 명령으로 Redis 시각을 쓴다.
+- **Rate limiter 메모리.** 윈도우 안 요청 수만큼 member가 쌓인다. ==분당 1만 회 같은 큰 한도라면 키 하나가 수 MB가 되므로==, 정확도가 덜 중요하면 String 카운터 기반 sliding window counter나 token bucket을 고려한다.
 - **동점 처리.** score가 같으면 사전순이므로 "먼저 도달한 사람이 상위"는 자동으로 충족되지 않는다. `score = 점수 × 2^20 + (MAX_TS - timestamp)` 식으로 합성하되, double의 정수 정밀도 한계인 2^53을 넘지 않아야 한다.
 - **범위 연산의 M.** `LIMIT` 없이 넓은 범위를 조회하면 반환 개수가 그대로 지연이 되고, 큰 범위 삭제는 단일 스레드를 점유한다. 페이징과 `LIMIT`을 기본으로 둔다.
 - **무한히 커지는 trending 키.** 시간 prefix 키에 `EXPIRE`를 걸고, 주기적으로 `ZREMRANGEBYRANK key 0 -1001`로 하위를 잘라 상위 N만 유지한다.

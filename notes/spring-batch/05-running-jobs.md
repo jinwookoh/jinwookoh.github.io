@@ -31,7 +31,7 @@ Batch 5.x의 `start(String jobName, Properties)`는 execution id(Long)를 반환
 
 ### JobParameters와 JobInstance 식별
 
-JobInstance는 Job 이름과 identifying 파라미터의 조합으로 식별된다. 타입은 String·Long·Double·Date·LocalDate·LocalDateTime을 명시하며, `addString("count", "100")`과 `addLong("count", 100L)`은 다른 instance가 된다. 세 번째 인자를 `false`로 주면 non-identifying이 되어 식별에서 빠진다. 비즈니스 키는 identifying, `traceId` 같은 실행 환경 값은 non-identifying으로 둔다.
+JobInstance는 Job 이름과 identifying 파라미터의 조합으로 식별된다. 타입은 String·Long·Double·Date·LocalDate·LocalDateTime을 명시하며, ==`addString("count", "100")`과 `addLong("count", 100L)`은 다른 instance가 된다.== 세 번째 인자를 `false`로 주면 non-identifying이 되어 식별에서 빠진다. 비즈니스 키는 identifying, `traceId` 같은 실행 환경 값은 non-identifying으로 둔다.
 
 ## 코드
 
@@ -159,8 +159,8 @@ public class StuckJobMonitor {
 ## 실무에서 걸리는 지점
 
 - **Spring Boot 자동 실행.** `spring.batch.job.enabled` 기본값이 true라 시작 시 등록된 Job이 전부 실행된다. 운영에서는 false로 두거나 `spring.batch.job.name`으로 대상을 한정한다.
-- **동기 launcher의 스레드 점유.** `@Scheduled`에서 동기 launcher를 쓰면 스케줄러 스레드가 묶여 다음 cron이 밀리고, HTTP에서는 응답이 Job 완료까지 지연된다.
-- **stop 이후 polling.** `stop`은 STOPPING 마킹만 하고 반환한다. 곧바로 `restart`하면 아직 STARTED라 실패하므로 STOPPED를 확인한 뒤 다음 명령을 보낸다.
+- **동기 launcher의 스레드 점유.** ==`@Scheduled`에서 동기 launcher를 쓰면 스케줄러 스레드가 묶여 다음 cron이 밀리고, HTTP에서는 응답이 Job 완료까지 지연된다.==
+- **stop 이후 polling.** `stop`은 STOPPING 마킹만 하고 반환한다. ==곧바로 `restart`하면 아직 STARTED라 실패하므로 STOPPED를 확인한 뒤 다음 명령을 보낸다.==
 - **파라미터 타입 drift.** 코드는 `addLong`, CLI는 String으로 넘기면 다른 JobInstance가 되어 재시작이 이어지지 않는다. CLI에서는 `param(long)=123`처럼 타입 힌트를 붙인다.
 - **메타데이터 누적.** `BATCH_*` 테이블은 계속 쌓이므로 대시보드 polling이 잦으면 DB 부담이 커진다. 조회 결과를 캐시하고 오래된 이력은 FK 순서로 정리한다.
 

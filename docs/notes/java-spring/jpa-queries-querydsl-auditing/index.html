@@ -24,7 +24,7 @@
   <h1>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</h1>
   <p class="summary">단순 조건은 메서드 이름, 조인은 @Query, 동적 조건은 QueryDSL로 나누고 생성·수정 이력은 Auditing에 맡긴다</p>
   <div class="content">
-<p><code>JpaRepository</code>의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 <code>(:status IS NULL OR o.status = :status)</code> 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. <code>created_at</code>·<code>updated_at</code>을 서비스 코드에서 손으로 채우면 누락이 생긴다. <mark>쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.</mark></p>
+<p><code>JpaRepository</code>의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 <code>(:status IS NULL OR o.status = :status)</code> 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. <code>created_at</code>·<code>updated_at</code>을 서비스 코드에서 손으로 채우면 누락이 생긴다. 쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.</p>
 <h2>핵심 개념</h2>
 <h3>메서드 이름 쿼리</h3>
 <p><code>findByStatusAndAmountGreaterThan(String, int)</code> 같은 메서드를 선언하면 Spring Data JPA가 시작 시 이름을 파싱해 JPQL을 생성한다. 접두어는 <code>find</code>·<code>count</code>·<code>exists</code>·<code>delete</code>, 조건은 <code>LessThan</code>·<code>GreaterThan</code>·<code>Between</code>·<code>Like</code>·<code>Containing</code>·<code>In</code>·<code>IsNull</code>, 결합은 <code>And</code>·<code>Or</code>, 정렬·제한은 <code>OrderBy…Desc</code>·<code>Top&lt;N&gt;</code>이다. 조건이 서너 개를 넘으면 <code>@Query</code>로 넘긴다.</p>
@@ -33,7 +33,7 @@
 <h3>페이징과 프로젝션</h3>
 <p><code>Pageable</code>을 받으면 <code>offset</code>·<code>limit</code>과 count 쿼리가 함께 실행되어 <code>Page&lt;T&gt;</code>로 돌아온다. 컨트롤러의 <code>Pageable</code> 매개변수는 <code>?page=0&amp;size=20&amp;sort=createdAt,desc</code>에서 자동 변환되고 <code>@PageableDefault</code>로 기본값을 정한다. 전체 개수가 필요 없으면 <code>Slice&lt;T&gt;</code>를 쓴다. 프로젝션은 getter만 가진 인터페이스를 반환 타입으로 쓰거나 JPQL의 <code>SELECT new 패키지.DTO(...)</code> 생성자 표현식으로 필요한 컬럼만 조회한다.</p>
 <h3>QueryDSL</h3>
-<p>어노테이션 프로세서가 엔티티마다 <code>QOrder</code> 같은 Q 클래스를 생성하고, 필드를 자바 표현식으로 참조하므로 오타가 컴파일 오류가 된다. 핵심은 <code>where(...)</code>에 넘긴 <code>BooleanExpression</code>이 null이면 조건에서 제외된다는 점이다. 조건마다 null을 돌려주는 메서드를 나열하면 동적 검색이 분기문 없이 표현되고, <code>OrderSpecifier</code>로 정렬도 런타임에 바꾼다. Spring Data와는 커스텀 인터페이스 + <code>Impl</code> 접미사 구현체 규칙으로 결합한다.</p>
+<p>어노테이션 프로세서가 엔티티마다 <code>QOrder</code> 같은 Q 클래스를 생성하고, 필드를 자바 표현식으로 참조하므로 오타가 컴파일 오류가 된다. <mark>핵심은 <code>where(...)</code>에 넘긴 <code>BooleanExpression</code>이 null이면 조건에서 제외된다는 점이다.</mark> 조건마다 null을 돌려주는 메서드를 나열하면 동적 검색이 분기문 없이 표현되고, <code>OrderSpecifier</code>로 정렬도 런타임에 바꾼다. Spring Data와는 커스텀 인터페이스 + <code>Impl</code> 접미사 구현체 규칙으로 결합한다.</p>
 <h3>Auditing</h3>
 <p><code>@EnableJpaAuditing</code>을 켜고 <code>@MappedSuperclass</code> + <code>@EntityListeners(AuditingEntityListener.class)</code>를 붙인 부모 클래스에 <code>@CreatedDate</code>·<code>@LastModifiedDate</code>·<code>@CreatedBy</code>·<code>@LastModifiedBy</code> 필드를 두면 INSERT·UPDATE가 나가는 시점에 값이 채워진다. 작성자는 <code>AuditorAware&lt;T&gt;</code> 빈이 돌려준다. 시각 타입은 단일 시간대라면 <code>LocalDateTime</code>, 여러 시간대라면 <code>Instant</code>를 쓴다.</p>
 <h2>코드</h2>
@@ -187,11 +187,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong><code>@Modifying</code> 벌크 쿼리와 1차 캐시 불일치.</strong> 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다.</mark> <code>clearAutomatically = true</code>를 준다. Auditing도 타지 않는다.</li>
+<li><strong><code>@Modifying</code> 벌크 쿼리와 1차 캐시 불일치.</strong> <mark>벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다.</mark> <code>clearAutomatically = true</code>를 준다. Auditing도 타지 않는다.</li>
 <li><strong>count 쿼리 비용.</strong> <code>Page&lt;T&gt;</code>는 매 요청마다 count 쿼리를 실행한다. count 쿼리에서는 fetch join을 빼고, 전체 개수가 필요 없으면 <code>Slice&lt;T&gt;</code>로 대체한다.</li>
-<li><mark><strong>컬렉션 fetch join과 페이징.</strong> <code>@OneToMany</code>를 fetch join한 채 <code>limit</code>을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(<code>HHH90003004</code> 경고).</mark> 컬렉션은 <code>default_batch_fetch_size</code>로 푼다.</li>
-<li><strong>Q 클래스 생성 실패.</strong> <code>QOrder cannot be resolved</code>는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. Spring Boot 3에서는 <code>querydsl-jpa</code>·<code>querydsl-apt</code>에 <code>jakarta</code> classifier가 필요하다.</li>
-<li><strong>Auditing이 비는 경우.</strong> <code>@EnableJpaAuditing</code>이나 부모 클래스의 <code>@EntityListeners</code>가 빠지면 null이 들어간다. <code>AuditorAware</code>가 익명 인증을 거르지 않으면 <code>createdBy</code>에 <code>anonymousUser</code>가 기록된다.</li>
+<li><strong>컬렉션 fetch join과 페이징.</strong> <code>@OneToMany</code>를 fetch join한 채 <code>limit</code>을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(<code>HHH90003004</code> 경고). 컬렉션은 <code>default_batch_fetch_size</code>로 푼다.</li>
+<li><strong>Q 클래스 생성 실패.</strong> <code>QOrder cannot be resolved</code>는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. <mark>Spring Boot 3에서는 <code>querydsl-jpa</code>·<code>querydsl-apt</code>에 <code>jakarta</code> classifier가 필요하다.</mark></li>
+<li><strong>Auditing이 비는 경우.</strong> <code>@EnableJpaAuditing</code>이나 부모 클래스의 <code>@EntityListeners</code>가 빠지면 null이 들어간다. <mark><code>AuditorAware</code>가 익명 인증을 거르지 않으면 <code>createdBy</code>에 <code>anonymousUser</code>가 기록된다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

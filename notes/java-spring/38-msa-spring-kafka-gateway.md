@@ -15,7 +15,7 @@ updated: 2026-08-29
 
 마이크로서비스는 각 서비스가 자기 데이터베이스와 배포 주기를 독점하는 구조다. DB를 공유하면 한 스키마에 묶여 모놀리식의 단점이 돌아오므로 데이터 공유는 API나 이벤트로만 한다. 운영 원칙은 12-Factor App으로 정리되며, 그중 설정 외부화와 무상태 프로세스가 지켜져야 같은 이미지를 환경마다 설정만 바꿔 띄우고 스케일아웃할 수 있다.
 
-Kafka는 메시지를 디스크에 보존하는 분산 이벤트 스트리밍 플랫폼이다. Topic은 메시지 분류 단위, Partition은 토픽의 물리적 분할이자 병렬 처리 단위, Offset은 파티션 안의 읽기 위치다. Consumer Group 안에서 한 파티션은 정확히 한 소비자만 담당하므로, 소비자 수가 파티션 수를 넘으면 초과분은 놀게 되고 처리량을 올리려면 파티션 수부터 늘려야 한다. 같은 키는 항상 같은 파티션으로 가므로 주문 ID를 키로 쓰면 그 주문의 메시지 순서가 보장된다. 클러스터 메타데이터는 KRaft가 관리한다.
+Kafka는 메시지를 디스크에 보존하는 분산 이벤트 스트리밍 플랫폼이다. Topic은 메시지 분류 단위, Partition은 토픽의 물리적 분할이자 병렬 처리 단위, Offset은 파티션 안의 읽기 위치다. Consumer Group 안에서 한 파티션은 정확히 한 소비자만 담당하므로, ==소비자 수가 파티션 수를 넘으면 초과분은 놀게 되고 처리량을 올리려면 파티션 수부터 늘려야 한다==. 같은 키는 항상 같은 파티션으로 가므로 주문 ID를 키로 쓰면 그 주문의 메시지 순서가 보장된다. 클러스터 메타데이터는 KRaft가 관리한다.
 
 Spring Kafka에서는 `KafkaTemplate`이 Producer, `@KafkaListener`가 Consumer, `NewTopic` 빈이 토픽 프로비저닝, `@RetryableTopic`이 재시도·DLT를 담당하며 `spring.kafka.*` 설정만으로 자동 구성된다.
 
@@ -28,7 +28,7 @@ Spring Kafka에서는 `KafkaTemplate`이 Producer, `@KafkaListener`가 Consumer,
 
 여러 서비스에 걸친 트랜잭션은 2PC 대신 Saga 패턴으로 처리한다. 각 서비스가 로컬 트랜잭션을 커밋하고 이벤트를 발행하며, 뒤 단계가 실패하면 앞 단계를 되돌리는 보상 트랜잭션을 발행한다. 이벤트로 협업하는 Choreography와 중앙 코디네이터가 지휘하는 Orchestration으로 나뉜다.
 
-Spring Cloud Gateway는 Route·Predicate·Filter로 구성된다. Route는 요청 패턴과 대상 URI의 매핑 단위, Predicate는 경로·메서드·헤더로 매칭 여부를 판단하는 조건, Filter는 매칭된 요청과 응답을 가공하는 단계다. 한 Route의 Predicate 여러 개는 AND로 결합되고, `default-filters`는 모든 Route에 적용된다. 기본 스타터 `spring-cloud-starter-gateway`는 WebFlux 기반이라 `spring-boot-starter-web`과 한 컨텍스트에 두면 기동하지 않는다. MVC 스택이 필요하면 `spring-cloud-starter-gateway-server-webmvc`를 대신 쓴다.
+Spring Cloud Gateway는 Route·Predicate·Filter로 구성된다. Route는 요청 패턴과 대상 URI의 매핑 단위, Predicate는 경로·메서드·헤더로 매칭 여부를 판단하는 조건, Filter는 매칭된 요청과 응답을 가공하는 단계다. 한 Route의 Predicate 여러 개는 AND로 결합되고, `default-filters`는 모든 Route에 적용된다. ==기본 스타터 `spring-cloud-starter-gateway`는 WebFlux 기반이라 `spring-boot-starter-web`과 한 컨텍스트에 두면 기동하지 않는다.== MVC 스택이 필요하면 `spring-cloud-starter-gateway-server-webmvc`를 대신 쓴다.
 
 ## 코드
 
@@ -175,8 +175,8 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- **`group-id`와 `auto-offset-reset`.** 그룹 ID가 없으면 오프셋이 추적되지 않아 재시작 시 읽기 시작점이 보장되지 않는다. `auto-offset-reset`은 커밋된 오프셋이 없을 때만 적용되며, 기본값 `latest`는 그 사이 발행된 메시지를 건너뛴다.
-- **JSON 역직렬화 실패.** `JsonDeserializer`는 `spring.json.trusted.packages`에 없는 타입을 거부하므로 `*` 대신 이벤트 패키지를 명시한다. 이벤트 클래스는 record를 쓰거나 기본 생성자를 둔다. 역직렬화 오류는 `ErrorHandlingDeserializer`로 감싸지 않으면 같은 레코드에서 무한 반복된다.
+- **`group-id`와 `auto-offset-reset`.** 그룹 ID가 없으면 오프셋이 추적되지 않아 재시작 시 읽기 시작점이 보장되지 않는다. ==`auto-offset-reset`은 커밋된 오프셋이 없을 때만 적용되며, 기본값 `latest`는 그 사이 발행된 메시지를 건너뛴다.==
+- **JSON 역직렬화 실패.** `JsonDeserializer`는 `spring.json.trusted.packages`에 없는 타입을 거부하므로 `*` 대신 이벤트 패키지를 명시한다. 이벤트 클래스는 record를 쓰거나 기본 생성자를 둔다. ==역직렬화 오류는 `ErrorHandlingDeserializer`로 감싸지 않으면 같은 레코드에서 무한 반복된다.==
 - **보상 트랜잭션과 재시도의 구분.** 재고 부족처럼 확정된 실패를 예외로 던지면 재시도 끝에 DLT로 가고 취소 이벤트는 발행되지 않는다. 일시적 장애만 예외로 전파하고 확정 실패는 보상 이벤트 발행 후 정상 커밋한다.
 - **Aggregator 상태를 로컬 메모리에 두는 문제.** 분할 결과를 주문 단위로 모을 때 인스턴스별 `ConcurrentHashMap`에 버퍼를 두면 각자 부분 결과만 보게 되어 집계가 끝나지 않는다. 집계 상태는 DB·Redis나 Kafka Streams 상태 저장소에 둔다.
 - **`StripPrefix` 세그먼트 수.** `/api/v3/order/123`을 백엔드에 `/order/123`으로 보내려면 `StripPrefix=2`다. 값이 틀리면 백엔드가 404를 돌려주며 라우팅 장애의 가장 흔한 원인이다. OR 조건이 필요하면 Route를 나눈다.

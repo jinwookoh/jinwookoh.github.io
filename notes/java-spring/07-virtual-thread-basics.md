@@ -17,7 +17,7 @@ Virtual Thread는 OS 스레드가 아니라 JVM이 관리하는 힙 객체다. �
 
 재개 시 같은 Carrier에서 실행된다는 보장은 없다. ForkJoinPool의 work stealing 때문이다. 다만 `ThreadLocal`은 Virtual Thread 단위로 유지되므로 Carrier가 바뀌어도 값은 보존된다.
 
-Platform Thread가 고정 스택을 미리 잡는 것과 달리 Virtual Thread의 스택은 unmount 상태에서 실제 사용량만큼(대개 수 KB) 힙에 남고 GC 대상이 되므로 수십만~수백만 개를 동시에 유지할 수 있다. 다만 늘어나는 것은 I/O 대기 중의 동시성이지 병렬성이 아니다. CPU 집약 작업은 여전히 코어 수에 묶인다.
+Platform Thread가 고정 스택을 미리 잡는 것과 달리 Virtual Thread의 스택은 unmount 상태에서 실제 사용량만큼(대개 수 KB) 힙에 남고 GC 대상이 되므로 수십만~수백만 개를 동시에 유지할 수 있다. ==다만 늘어나는 것은 I/O 대기 중의 동시성이지 병렬성이 아니다.== CPU 집약 작업은 여전히 코어 수에 묶인다.
 
 Virtual Thread는 별도 클래스가 아니라 `java.lang.Thread`의 구현이므로 `join`·`interrupt`·`getState`가 그대로 동작한다. 다른 점은 항상 daemon이고, 우선순위가 무시되며, 기본 이름이 빈 문자열이라는 것이다. 가벼우므로 풀링하지 않고 작업마다 새로 만드는 것이 표준이다.
 
@@ -68,15 +68,15 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
 ## 실무에서 걸리는 지점
 
-**Pinning — `synchronized` 안에서의 블로킹.** Java 21~23에서 `synchronized` 블록·메서드 안에서 I/O나 `Object.wait()`를 만나면 unmount되지 못하고 Carrier에 고정된다. 이 상태가 동시에 여러 건 발생하면 Carrier 수만큼만 처리되어 Platform Thread 풀과 같아진다. 블로킹 호출을 감싸는 락은 `ReentrantLock` + try-finally로, `wait/notify`는 `Condition`으로 바꾼다. Java 24(JEP 491)부터 `synchronized` 안에서도 unmount되므로 업그레이드가 근본 해결책이다.
+**Pinning — `synchronized` 안에서의 블로킹.** ==Java 21~23에서 `synchronized` 블록·메서드 안에서 I/O나 `Object.wait()`를 만나면 unmount되지 못하고 Carrier에 고정된다.== 이 상태가 동시에 여러 건 발생하면 Carrier 수만큼만 처리되어 Platform Thread 풀과 같아진다. 블로킹 호출을 감싸는 락은 `ReentrantLock` + try-finally로, `wait/notify`는 `Condition`으로 바꾼다. Java 24(JEP 491)부터 `synchronized` 안에서도 unmount되므로 업그레이드가 근본 해결책이다.
 
 **JNI와 CPU 집약 코드.** 네이티브 프레임이 스택에 있으면 unmount할 수 없다. 네이티브 대기가 길거나 CPU 연산이 긴 작업은 Platform Thread 풀로 분리한다.
 
-**파일 I/O는 unmount되지 않는다.** 파일 I/O는 Carrier를 점유한 채 블로킹하며, JVM이 Carrier 풀을 일시적으로 늘려 보상한다(`jdk.virtualThreadScheduler.maxPoolSize`, 기본 256). 파일 I/O 비중이 큰 작업은 이 한도를 함께 검토한다.
+**파일 I/O는 unmount되지 않는다.** ==파일 I/O는 Carrier를 점유한 채 블로킹하며, JVM이 Carrier 풀을 일시적으로 늘려 보상한다(`jdk.virtualThreadScheduler.maxPoolSize`, 기본 256).== 파일 I/O 비중이 큰 작업은 이 한도를 함께 검토한다.
 
 **Pinning 탐지.** Java 21~23은 `-Djdk.tracePinnedThreads=full|short`로 Pinning 지점의 스택을 출력하는데 로그량이 커 개발·스테이징에서만 켠다. Java 24부터 이 옵션은 제거되고 JFR의 `jdk.VirtualThreadPinned` 이벤트로 대체된다.
 
-**의존성과 커넥션 풀.** 오래된 JDBC 드라이버·HTTP 클라이언트·로거는 내부 `synchronized`로 Pinning을 유발하므로 PostgreSQL JDBC 42.7+, HikariCP 5.x+ 같은 버전으로 올린다. DB 커넥션은 유한하므로 풀 크기는 DB가 감당할 수준으로 두고 나머지는 풀에서 대기하게 한다.
+**의존성과 커넥션 풀.** ==오래된 JDBC 드라이버·HTTP 클라이언트·로거는 내부 `synchronized`로 Pinning을 유발하므로 PostgreSQL JDBC 42.7+, HikariCP 5.x+ 같은 버전으로 올린다.== DB 커넥션은 유한하므로 풀 크기는 DB가 감당할 수준으로 두고 나머지는 풀에서 대기하게 한다.
 
 **ThreadLocal과 ScopedValue.** 수백만 스레드가 각각 ThreadLocal 값을 들면 메모리가 급증한다. 요청 범위 컨텍스트 전달은 `ScopedValue`(Java 21 Preview, Java 25 정식)로 옮긴다.
 

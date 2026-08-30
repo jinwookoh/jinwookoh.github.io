@@ -24,13 +24,13 @@
   <h1>MVCC·격리 수준·락</h1>
   <p class="summary">PostgreSQL이 MVCC 스냅샷으로 격리 수준을 구현하는 방식과, 락·Lost Update·Deadlock을 실무에서 다루는 기준을 정리한다.</p>
   <div class="content">
-<p>여러 트랜잭션이 같은 행에 동시에 접근하면 Lost Update, Dirty Read, Non-Repeatable Read, Phantom Read가 발생한다. 초기 RDBMS는 이를 테이블 락으로 막았고, 쓰기 하나가 끝날 때까지 모든 읽기가 대기했다. PostgreSQL은 행의 여러 버전을 유지하는 MVCC로 읽기와 쓰기가 서로를 차단하지 않게 했다. <mark>다만 MVCC가 락을 없애는 것은 아니며, 격리 수준의 의미와 락이 걸리는 지점, 옛 버전 행의 운영 비용을 모르면 동시성 버그와 bloat가 함께 온다.</mark></p>
+<p>여러 트랜잭션이 같은 행에 동시에 접근하면 Lost Update, Dirty Read, Non-Repeatable Read, Phantom Read가 발생한다. 초기 RDBMS는 이를 테이블 락으로 막았고, 쓰기 하나가 끝날 때까지 모든 읽기가 대기했다. PostgreSQL은 행의 여러 버전을 유지하는 MVCC로 읽기와 쓰기가 서로를 차단하지 않게 했다. 다만 MVCC가 락을 없애는 것은 아니며, 격리 수준의 의미와 락이 걸리는 지점, 옛 버전 행의 운영 비용을 모르면 동시성 버그와 bloat가 함께 온다.</p>
 <h2>핵심 개념</h2>
 <h3>MVCC와 xmin·xmax</h3>
 <p>MVCC(Multi-Version Concurrency Control)는 UPDATE를 제자리 덮어쓰기가 아니라 새 버전 추가와 옛 버전 무효화 표시로 처리한다. 각 행에는 시스템 컬럼 <code>xmin</code>(행을 만든 트랜잭션 ID)과 <code>xmax</code>(행을 무효화한 트랜잭션 ID, 살아 있으면 0)가 붙는다. DELETE는 <code>xmax</code>만 기록한다.</p>
 <p>각 트랜잭션은 스냅샷 시점에 커밋된 행만 보고 이후 변경은 무시한다. 읽기는 락 없이 옛 버전을 읽고 쓰기는 새 버전을 만든다. Oracle, MySQL InnoDB도 같은 방식이며 SQL Server는 <code>READ_COMMITTED_SNAPSHOT</code> 옵션으로 켠다.</p>
 <h3>격리 수준과 스냅샷 시점</h3>
-<p><mark>격리 수준 차이는 스냅샷을 언제 찍는가의 차이다.</mark> READ UNCOMMITTED를 지정해도 READ COMMITTED로 동작하며, Dirty Read는 어떤 수준에서도 발생하지 않는다.</p>
+<p>격리 수준 차이는 스냅샷을 언제 찍는가의 차이다. READ UNCOMMITTED를 지정해도 READ COMMITTED로 동작하며, Dirty Read는 어떤 수준에서도 발생하지 않는다.</p>
 <table>
 <thead>
 <tr>
@@ -63,7 +63,7 @@
 <td>방지</td>
 </tr>
 </tbody></table>
-<p>REPEATABLE READ는 SQL 표준보다 강해서 Phantom Read까지 막는다. 대신 스냅샷 이후 다른 트랜잭션이 커밋한 행을 UPDATE하면 <code>could not serialize access due to concurrent update</code> 오류로 중단되므로 재시도가 필요하다. SERIALIZABLE은 SSI(Serializable Snapshot Isolation)로 구현되어, 읽기·쓰기 의존성을 추적하다 직렬 실행으로 나올 수 없는 결과가 감지되면 한쪽을 롤백한다. MySQL InnoDB 기본값은 REPEATABLE READ이므로 같은 SQL이 DB마다 다르게 동작한다.</p>
+<p>REPEATABLE READ는 SQL 표준보다 강해서 Phantom Read까지 막는다. 대신 <mark>스냅샷 이후 다른 트랜잭션이 커밋한 행을 UPDATE하면 <code>could not serialize access due to concurrent update</code> 오류로 중단되므로 재시도가 필요하다.</mark> SERIALIZABLE은 SSI(Serializable Snapshot Isolation)로 구현되어, 읽기·쓰기 의존성을 추적하다 직렬 실행으로 나올 수 없는 결과가 감지되면 한쪽을 롤백한다. MySQL InnoDB 기본값은 REPEATABLE READ이므로 같은 SQL이 DB마다 다르게 동작한다.</p>
 <h3>여전히 락이 걸리는 곳</h3>
 <p>일반 SELECT는 락을 잡지 않지만 같은 행에 대한 두 UPDATE는 행 락으로 직렬화된다. <code>SELECT ... FOR UPDATE</code>는 읽는 시점에 배타 행 락을 잡아 다른 쓰기를 대기시키고, DDL은 테이블 수준 ACCESS EXCLUSIVE 락으로 모든 접근을 차단한다.</p>
 <p>Lost Update 방지법은 세 가지다. 원자적 UPDATE(<code>SET val = val + 10</code>)로 읽기와 쓰기를 한 문장에 묶거나, <code>FOR UPDATE</code>로 비관적 락을 잡거나, version 컬럼을 WHERE에 넣는 낙관적 락으로 충돌 시 재시도한다. 충돌이 잦으면 비관적, 드물면 낙관적이 유리하다.</p>
@@ -167,10 +167,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>오래 열린 트랜잭션이 bloat를 만든다.</strong></mark> 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. 방치된 <code>idle in transaction</code> 커넥션 하나가 테이블을 부풀린다. <code>idle_in_transaction_session_timeout</code>을 설정하고 트랜잭션을 짧게 끊는다.</li>
-<li><strong>트랜잭션 ID Wraparound.</strong> 트랜잭션 ID는 32bit이며 약 20억 개를 지나면 행의 가시성이 뒤집힌다. autovacuum이 오래된 행을 frozen 처리해 막는데, 밀리면 DB가 쓰기를 거부한다. <code>age(datfrozenxid)</code>를 모니터링하고 autovacuum을 끄지 않는다.</li>
+<li><strong>오래 열린 트랜잭션이 bloat를 만든다.</strong> 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. <mark>방치된 <code>idle in transaction</code> 커넥션 하나가 테이블을 부풀린다.</mark> <code>idle_in_transaction_session_timeout</code>을 설정하고 트랜잭션을 짧게 끊는다.</li>
+<li><strong>트랜잭션 ID Wraparound.</strong> <mark>트랜잭션 ID는 32bit이며 약 20억 개를 지나면 행의 가시성이 뒤집힌다.</mark> autovacuum이 오래된 행을 frozen 처리해 막는데, 밀리면 DB가 쓰기를 거부한다. <code>age(datfrozenxid)</code>를 모니터링하고 autovacuum을 끄지 않는다.</li>
 <li><strong>SERIALIZABLE 남용.</strong> 모든 트랜잭션에 걸면 SSI 추적 비용과 재시도가 처리량을 무너뜨린다. 일반 API는 READ COMMITTED, 보고서는 REPEATABLE READ, 돈·재고만 SERIALIZABLE에 재시도를 붙인다.</li>
-<li><strong>낙관적 락 예외를 삼키면 갱신이 사라진다.</strong> <code>ObjectOptimisticLockingFailureException</code>을 catch만 하고 넘기면 변경이 유실된다. 재시도하거나 충돌을 알린다.</li>
+<li><strong>낙관적 락 예외를 삼키면 갱신이 사라진다.</strong> <mark><code>ObjectOptimisticLockingFailureException</code>을 catch만 하고 넘기면 변경이 유실된다.</mark> 재시도하거나 충돌을 알린다.</li>
 <li><strong>락 대기는 pg_stat_activity로 잡는다.</strong> <code>wait_event_type = &#39;Lock&#39;</code>인 세션과 <code>pg_blocking_pids(pid)</code>로 차단 관계를 확인한다. 작업 큐 처리에는 <code>FOR UPDATE SKIP LOCKED</code>를 쓴다.</li>
 </ul>
 <h2>관련 글</h2>

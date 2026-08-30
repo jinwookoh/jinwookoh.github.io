@@ -27,7 +27,7 @@ String은 단순 문자열, ByteArray는 이미 직렬화된 바이트를 보낼
 
 ### 신뢰성 설정의 연쇄
 
-`acks=all`은 ISR 전체의 확인을 기다리고, `enable.idempotence=true`는 broker가 sequence number로 중복을 걸러낸다. 3.0부터 idempotence가 기본 true인데 `acks=all`, `retries>0`, `max.in.flight.requests.per.connection<=5`가 모두 만족될 때만 유효하다. 명시적으로 켠 채 조건을 깨면 `ConfigException`이 나고, 기본값 상태에서 깨면 조용히 꺼진다. `retries`는 사실상 무한이며 실제 상한은 send부터 최종 ACK까지의 총 시간인 `delivery.timeout.ms`(120초)가 정한다. 개별 요청은 `request.timeout.ms`(30초)로 끊고, 재시도 간격은 `retry.backoff.ms`부터 지수적으로 늘어난다. `acks=all`은 broker의 `min.insync.replicas`가 2 이상일 때 의미가 있다.
+`acks=all`은 ISR 전체의 확인을 기다리고, `enable.idempotence=true`는 broker가 sequence number로 중복을 걸러낸다. 3.0부터 idempotence가 기본 true인데 `acks=all`, `retries>0`, `max.in.flight.requests.per.connection<=5`가 모두 만족될 때만 유효하다. ==명시적으로 켠 채 조건을 깨면 `ConfigException`이 나고, 기본값 상태에서 깨면 조용히 꺼진다.== `retries`는 사실상 무한이며 실제 상한은 send부터 최종 ACK까지의 총 시간인 `delivery.timeout.ms`(120초)가 정한다. 개별 요청은 `request.timeout.ms`(30초)로 끊고, 재시도 간격은 `retry.backoff.ms`부터 지수적으로 늘어난다. `acks=all`은 broker의 `min.insync.replicas`가 2 이상일 때 의미가 있다.
 
 ### Batching과 메모리
 
@@ -168,7 +168,7 @@ public class OrderEventPublisher {
 ## 실무에서 걸리는 지점
 
 - `close()`나 `flush()` 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다. try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.
-- `delivery.timeout.ms`가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다. timeout 값들을 함께 설계한다.
+- ==`delivery.timeout.ms`가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다.== timeout 값들을 함께 설계한다.
 - `max.request.size`(1MB)를 넘는 메시지는 `RecordTooLargeException`으로 즉시 실패하며 재시도되지 않는다. 대용량은 외부 저장소에 두고 키만 보낸다.
 - `buffer.memory`가 작으면 `send()`가 블로킹되어 애플리케이션 스레드가 묶인다. `buffer-available-bytes` 메트릭을 JMX로 확인한다.
 

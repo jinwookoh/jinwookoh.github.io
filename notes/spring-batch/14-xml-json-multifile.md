@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 DOM은 전체 트리를 메모리에 올리고 SAX는 push 방식이라 제어권이 파서에 있다. StAX는 pull 파서라 `ItemReader.read()` 계약과 맞물린다.
 
-XML에서는 fragment가 record 단위다. `StaxEventItemReader`는 `addFragmentRootElements("trade")`로 지정한 element를 만나면 그 fragment를 standalone XML로 감싸 Spring OXM `Unmarshaller`에 넘긴다. OXM 구현은 JAXB와 Jackson XML 모듈이 주 선택지이고, XStream은 역직렬화 취약점 이력 때문에 신뢰할 수 없는 입력에는 쓰지 않는다.
+XML에서는 fragment가 record 단위다. `StaxEventItemReader`는 `addFragmentRootElements("trade")`로 지정한 element를 만나면 그 fragment를 standalone XML로 감싸 Spring OXM `Unmarshaller`에 넘긴다. OXM 구현은 JAXB와 Jackson XML 모듈이 주 선택지이고, ==XStream은 역직렬화 취약점 이력 때문에 신뢰할 수 없는 입력에는 쓰지 않는다==.
 
 `StaxEventItemWriter`는 `rootTagName`으로 wrapper를 열고 item마다 Marshaller가 만든 fragment를 쌓은 뒤 닫는다. 기본이 transactional이라 chunk commit 시점에 flush되고 rollback 시 파일 변경도 취소된다.
 
@@ -198,10 +198,10 @@ public class MultiCsvConfig {
 
 ## 실무에서 걸리는 지점
 
-- **fragment 이름 불일치.** `addFragmentRootElements("trade")`인데 실제 element가 `trades`이면 한 건도 읽지 못한 채 정상 종료된다.
+- **fragment 이름 불일치.** ==`addFragmentRootElements("trade")`인데 실제 element가 `trades`이면 한 건도 읽지 못한 채 정상 종료된다.==
 - **InputStreamResource는 재시작이 안 된다.** 위치 복구는 seek 가능한 resource를 전제하므로 `FileSystemResource`를 쓴다.
 - **JSON Writer의 append.** `append(true)`로 두 번 실행하면 `][`가 중간에 생겨 유효한 JSON이 아니다. 누적이 필요하면 NDJSON으로 바꾼다.
-- **Comparator 없는 MultiResourceItemReader.** 파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다. 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.
+- **Comparator 없는 MultiResourceItemReader.** ==파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다.== 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.
 - **delegate 공유와 파일 수.** singleton delegate를 두 Reader가 공유하면 상태가 섞이므로 `@StepScope`로 분리한다. wildcard가 수만 파일에 매칭되면 `MultiResourcePartitioner`로 partition을 나눈다.
 
 ## 관련 글

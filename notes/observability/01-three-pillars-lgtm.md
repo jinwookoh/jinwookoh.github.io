@@ -49,7 +49,7 @@ Actuator와 Prometheus 레지스트리를 붙이는 최소 의존성이다. `mic
 </dependency>
 ```
 
-Meter는 생성자에서 한 번 등록하고 필드로 재사용한다. `register(registry)`를 빠뜨리면 컴파일은 되지만 데이터가 수집되지 않는다.
+Meter는 생성자에서 한 번 등록하고 필드로 재사용한다. ==`register(registry)`를 빠뜨리면 컴파일은 되지만 데이터가 수집되지 않는다.==
 
 ```java
 import io.micrometer.core.instrument.Counter;
@@ -113,7 +113,7 @@ public Order createObserved(ObservationRegistry registry, CreateOrderRequest req
 - 태그 값에 `userId`·`requestId` 같은 동적 식별자를 넣으면 시계열이 사용자 수만큼 늘어나 Prometheus·Mimir 메모리가 고갈된다. 태그 값은 유한 집합이어야 하며 식별자는 로그나 trace의 속성으로 보낸다.
 - "지금까지 몇 번"은 단조 증가 Counter, "지금 몇 개"는 Gauge다. 시간이 아닌 크기(페이로드 바이트·배치 건수)는 Timer가 아니라 DistributionSummary로 잰다.
 - 커스텀 Meter 이름이 Actuator 자동 계측 prefix(`http.`, `jvm.`, `tomcat.`)와 겹치면 충돌하므로 도메인 prefix(`orders.`)를 붙인다.
-- Push 백엔드는 기본 step이 1분이라 짧은 스파이크를 놓친다. `management.<backend>.metrics.export.step`으로 줄이면 API 호출 비용이 비례해 늘어난다. Micrometer Tracing은 bridge 의존성이 없으면 span이 나가지 않는다.
+- ==Push 백엔드는 기본 step이 1분이라 짧은 스파이크를 놓친다.== `management.<backend>.metrics.export.step`으로 줄이면 API 호출 비용이 비례해 늘어난다. Micrometer Tracing은 bridge 의존성이 없으면 span이 나가지 않는다.
 - 단일 Prometheus는 retention 15일 정도가 권장 한도라 Mimir·Thanos 또는 관리형 서비스를 붙여야 하고, Grafana Cloud는 무료 한도를 넘긴 뒤의 비용 분기점을 self-host와 미리 비교한다.
 
 ## 관련 글

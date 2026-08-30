@@ -24,11 +24,11 @@
   <h1>검색 기능 — highlight·페이징·Suggester</h1>
   <p class="summary">깊은 페이지는 PIT + search_after, 자동완성은 completion 필드, 오타 교정은 term·phrase suggester로 분담한다</p>
   <div class="content">
-<p>쿼리는 어떤 문서가 매칭됐는지까지만 답한다. 화면에는 매칭 위치를 보여주는 highlight, 순서를 정하는 sort, 몇 건씩 넘길지 정하는 pagination, 그리고 입력 순간의 자동완성과 오타 교정이 더 필요하다. <mark>이 계층을 잘못 짜면 <code>from + size</code>가 10,000을 넘는 순간 요청이 거부되거나, scroll 컨텍스트가 힙에 남아 누수되거나, 자동완성이 한국어 입력 중간 상태에 반응하지 않는다.</mark></p>
+<p>쿼리는 어떤 문서가 매칭됐는지까지만 답한다. 화면에는 매칭 위치를 보여주는 highlight, 순서를 정하는 sort, 몇 건씩 넘길지 정하는 pagination, 그리고 입력 순간의 자동완성과 오타 교정이 더 필요하다. 이 계층을 잘못 짜면 <code>from + size</code>가 10,000을 넘는 순간 요청이 거부되거나, scroll 컨텍스트가 힙에 남아 누수되거나, 자동완성이 한국어 입력 중간 상태에 반응하지 않는다.</p>
 <h2>핵심 개념</h2>
 <h3>Highlight와 Sort</h3>
 <p><code>highlight</code>를 붙이면 <code>hits[].highlight.&lt;field&gt;</code>에 매칭 구간을 <code>&lt;em&gt;</code>으로 감싼 조각이 담긴다. <code>pre_tags</code>·<code>post_tags</code>로 태그를 바꾸고 <code>fragment_size</code>(기본 100)와 <code>number_of_fragments</code>(기본 5)로 응답 크기를 제한한다. highlighter는 기본 <code>unified</code>, 큰 본문용 <code>fvh</code>가 있으며 <code>fvh</code>는 매핑에 <code>term_vector: with_positions_offsets</code>가 필요하다.</p>
-<p><code>sort</code>를 지정하면 <code>_score</code>를 계산하지 않는다. 동률은 배열 뒤쪽 기준으로 깨므로 마지막에 unique 필드를 두고, null 문서 위치는 <code>missing</code>으로 명시한다.</p>
+<p><mark><code>sort</code>를 지정하면 <code>_score</code>를 계산하지 않는다.</mark> 동률은 배열 뒤쪽 기준으로 깨므로 마지막에 unique 필드를 두고, null 문서 위치는 <code>missing</code>으로 명시한다.</p>
 <h3>Pagination</h3>
 <p><code>from + size</code>는 모든 샤드가 <code>from + size</code>건을 정렬해 coordinator가 병합하므로 깊이에 비례해 비용이 커진다. <code>index.max_result_window</code>(기본 10,000)가 이를 차단하며, 이 값을 올리면 OOM으로 이어진다.</p>
 <table>
@@ -59,7 +59,7 @@
 <td>대량 전수 추출</td>
 </tr>
 </tbody></table>
-<p><mark><code>search_after</code>는 직전 페이지 마지막 hit의 <code>sort</code> 값을 커서로 넘긴다.</mark> 깊이와 무관하게 비용이 일정하지만 페이징 도중 색인된 문서가 결과를 흔들 수 있어, PIT(Point In Time)로 스냅숏 핸들을 열고 <code>pit.id</code>를 함께 보낸다. PIT 검색은 <code>POST /_search</code>로 호출하고 tiebreaker로 <code>_shard_doc</code>을 쓴다. scroll은 전수 추출에만 남아 있다. 둘 다 끝나면 반드시 닫는다.</p>
+<p><code>search_after</code>는 직전 페이지 마지막 hit의 <code>sort</code> 값을 커서로 넘긴다. 깊이와 무관하게 비용이 일정하지만 페이징 도중 색인된 문서가 결과를 흔들 수 있어, PIT(Point In Time)로 스냅숏 핸들을 열고 <code>pit.id</code>를 함께 보낸다. PIT 검색은 <code>POST /_search</code>로 호출하고 tiebreaker로 <code>_shard_doc</code>을 쓴다. scroll은 전수 추출에만 남아 있다. 둘 다 끝나면 반드시 닫는다.</p>
 <h3>Suggester</h3>
 <p>입력 중인 prefix와 오타 교정은 일반 쿼리가 아닌 <code>suggest</code> 섹션이 담당한다.</p>
 <table>
@@ -175,10 +175,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>tiebreaker 누락.</strong> <code>created_at</code> 하나로 <code>search_after</code>를 돌리면 같은 시각 문서가 구분되지 않아 페이지 사이에 중복·누락이 생긴다.</mark> sort 마지막에 항상 <code>_shard_doc</code>이나 unique 필드를 둔다.</li>
+<li><strong>tiebreaker 누락.</strong> <mark><code>created_at</code> 하나로 <code>search_after</code>를 돌리면 같은 시각 문서가 구분되지 않아 페이지 사이에 중복·누락이 생긴다.</mark> sort 마지막에 항상 <code>_shard_doc</code>이나 unique 필드를 둔다.</li>
 <li><strong>PIT·scroll 미해제.</strong> 예외로 끊겨도 keep_alive 만료 전까지 힙을 점유한다. try/finally로 닫고 keep_alive는 1~5분으로 짧게 잡는다.</li>
 <li><strong>highlight 비용.</strong> 수 MB 본문에 기본 옵션으로 걸면 전체 텍스트를 다시 분석해 응답이 수 초로 늘어난다. fragment 수와 크기를 명시하고 두 번째 페이지부터는 끈다.</li>
-<li><strong>completion FST 힙 폭증.</strong> 후보 수백만 건이면 FST만 수 GB가 되어 노드가 OOM에 이른다. 자동완성 인덱스를 분리하고 <code>completion.size_in_bytes</code>를 추적한다.</li>
+<li><strong>completion FST 힙 폭증.</strong> <mark>후보 수백만 건이면 FST만 수 GB가 되어 노드가 OOM에 이른다.</mark> 자동완성 인덱스를 분리하고 <code>completion.size_in_bytes</code>를 추적한다.</li>
 <li><strong>Suggester 전제 누락.</strong> <code>text</code> 필드에 completion을 던지면 매핑 에러, <code>contexts</code>를 선언하고 쿼리에서 빠뜨리면 0건, phrase suggester가 standard 분석 필드를 가리키면 후보가 비어 있다.</li>
 </ul>
 <h2>관련 글</h2>

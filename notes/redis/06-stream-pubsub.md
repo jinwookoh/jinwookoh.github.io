@@ -206,9 +206,9 @@ public class LocalCacheInvalidator {
 ## 실무에서 걸리는 지점
 
 - ACK 누락은 PEL을 키운다. `XPENDING` 개수를 지표로 내보내고, 반복 실패 항목은 delivery count를 보고 dead letter 스트림으로 옮긴다.
-- Stream은 자동으로 줄지 않는다. `XADD`마다 `MAXLEN ~ N`을 붙이거나 `MINID`로 시간 기반 보존을 건다. `~` 없는 정확한 트림은 매 호출마다 비용이 붙는다.
-- 그룹을 만든 스트림에 `XREAD`를 섞으면 그 항목은 PEL에 기록되지 않아 중복 처리가 난다. `XREADGROUP`만 쓴다.
-- Pub/Sub 구독자가 느리면 출력 버퍼가 `client-output-buffer-limit pubsub`(기본 32mb hard, 8mb soft, 60초)를 넘는 순간 연결이 끊기고 그 사이 발행분은 복구되지 않는다.
+- ==Stream은 자동으로 줄지 않는다.== `XADD`마다 `MAXLEN ~ N`을 붙이거나 `MINID`로 시간 기반 보존을 건다. `~` 없는 정확한 트림은 매 호출마다 비용이 붙는다.
+- ==그룹을 만든 스트림에 `XREAD`를 섞으면 그 항목은 PEL에 기록되지 않아 중복 처리가 난다.== `XREADGROUP`만 쓴다.
+- ==Pub/Sub 구독자가 느리면 출력 버퍼가 `client-output-buffer-limit pubsub`(기본 32mb hard, 8mb soft, 60초)를 넘는 순간 연결이 끊기고 그 사이 발행분은 복구되지 않는다.==
 - Cluster에서 대량 발행이면 Sharded Pub/Sub로 옮기되, Keyspace Notification은 전통 Pub/Sub만 지원하고 클라이언트의 `SSUBSCRIBE` 지원 여부를 확인한다.
 
 ## 관련 글

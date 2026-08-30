@@ -15,7 +15,7 @@ SPA의 습관을 App Router에 그대로 옮기면 두 가지 문제가 생긴�
 
 Next.js는 Tailwind CSS, CSS Modules, 전역 CSS, 외부 스타일시트, Sass, CSS-in-JS를 지원한다. 공식 권장은 Tailwind를 기본으로 쓰고, 부족한 컴포넌트 전용 스타일만 CSS Modules로 보완하며, 전역 CSS는 리셋처럼 정말 전역인 것에만 쓰는 조합이다. Tailwind v4는 설정 파일 없이 `@tailwindcss/postcss` 플러그인을 등록하고 전역 CSS에 `@import 'tailwindcss'` 한 줄로 시작한다. CSS Modules는 클래스명을 빌드 시 고유 이름으로 바꾸어 충돌을 막고 Server Component에서도 import할 수 있다.
 
-CSS 적용 순서는 import 순서를 따른다. `BaseButton`을 먼저 import하고 `page.module.css`를 나중에 import하면 버튼 스타일이 앞에 놓인다. 프로덕션 빌드는 스타일시트를 라우트별로 병합·분할하므로 개발 환경의 순서가 빌드 후 달라질 수 있다. 전역 스타일은 한 번 로드되면 라우트 이동 시 제거되지 않으므로, 페이지마다 다른 전역 CSS를 import하면 한 화면에 쌓여 충돌한다.
+CSS 적용 순서는 import 순서를 따른다. `BaseButton`을 먼저 import하고 `page.module.css`를 나중에 import하면 버튼 스타일이 앞에 놓인다. ==프로덕션 빌드는 스타일시트를 라우트별로 병합·분할하므로 개발 환경의 순서가 빌드 후 달라질 수 있다.== 전역 스타일은 한 번 로드되면 라우트 이동 시 제거되지 않으므로, 페이지마다 다른 전역 CSS를 import하면 한 화면에 쌓여 충돌한다.
 
 CSS-in-JS는 런타임에 스타일을 만들기 때문에 Server Component에서 쓸 수 없다. styled-components나 emotion은 `'use client'` 컴포넌트에서만 동작하며, 서버 렌더링 결과에 스타일을 넣으려면 `useServerInsertedHTML`을 쓰는 레지스트리 컴포넌트가 별도로 필요하다. 이 비용 때문에 빌드 타임에 CSS를 추출하는 방식이 기본 선택이 된다.
 
@@ -111,10 +111,10 @@ export function SortSelect() {
 ## 실무에서 걸리는 지점
 
 - **CSS 순서가 빌드 후 바뀐다.** ESLint `sort-imports` 같은 자동 정렬이 스타일 우선순위를 뒤집는다. CSS import는 한 진입 파일에 모으고 최종 순서는 `next build` 결과로 확인한다. 필요하면 `cssChunking` 옵션으로 병합 방식을 조정한다.
-- **싱글턴 스토어의 서버 상태 누수.** `create()`로 모듈 최상위에 만든 Zustand 스토어를 서버 렌더링에서 쓰면 여러 요청이 같은 인스턴스를 공유한다. 사용자별 데이터는 반드시 Provider 안에서 요청마다 생성한다.
+- **싱글턴 스토어의 서버 상태 누수.** ==`create()`로 모듈 최상위에 만든 Zustand 스토어를 서버 렌더링에서 쓰면 여러 요청이 같은 인스턴스를 공유한다.== 사용자별 데이터는 반드시 Provider 안에서 요청마다 생성한다.
 - **hydration 불일치.** `localStorage`나 `window.matchMedia`로 초기 테마를 결정하면 서버 HTML과 클라이언트 첫 렌더가 달라 경고가 난다. 초기값은 쿠키로 서버에서 읽거나, `useEffect` 이후에 반영한다.
 - **서버 데이터의 이중 관리.** 서버에서 받은 목록을 클라이언트 스토어에 넣고 수정하면 `revalidatePath` 이후 두 값이 어긋난다. 스토어에는 낙관적 UI용 임시 값만 둔다.
-- **환경 오염.** `process.env.API_KEY`를 쓰는 모듈이 Client Component에 import되면 값이 빈 문자열로 바뀌어 조용히 실패한다. 서버 전용 모듈에 `import 'server-only'`를 선언해 빌드 단계에서 잡는다.
+- **환경 오염.** ==`process.env.API_KEY`를 쓰는 모듈이 Client Component에 import되면 값이 빈 문자열로 바뀌어 조용히 실패한다.== 서버 전용 모듈에 `import 'server-only'`를 선언해 빌드 단계에서 잡는다.
 
 ## 관련 글
 

@@ -27,7 +27,7 @@ updated: 2026-08-29
 
 ### Vector Search
 
-임베딩은 텍스트·이미지를 N차원 float 배열로 바꾼 값이며 의미가 가까울수록 거리가 짧다. VECTOR 필드는 `TYPE FLOAT32 DIM 768 DISTANCE_METRIC COSINE` 속성과 FLAT 또는 HNSW를 받는다. FLAT은 전수 조사라 정확하지만 O(N)이고, HNSW는 그래프 근사 탐색으로 수백만 벡터에서도 밀리초 응답을 내되 recall이 90~99%다. 메트릭은 텍스트 임베딩이면 COSINE, 비정규화 벡터면 L2다. `@price:[100 500] =>[KNN 5 @vec $q AS score]`는 사전 필터 뒤에 KNN을 적용하는 하이브리드 검색이며, RAG는 이렇게 찾은 문서 chunk를 LLM 프롬프트에 넣는 흐름이다.
+임베딩은 텍스트·이미지를 N차원 float 배열로 바꾼 값이며 의미가 가까울수록 거리가 짧다. VECTOR 필드는 `TYPE FLOAT32 DIM 768 DISTANCE_METRIC COSINE` 속성과 FLAT 또는 HNSW를 받는다. FLAT은 전수 조사라 정확하지만 O(N)이고, ==HNSW는 그래프 근사 탐색으로 수백만 벡터에서도 밀리초 응답을 내되 recall이 90~99%다.== 메트릭은 텍스트 임베딩이면 COSINE, 비정규화 벡터면 L2다. `@price:[100 500] =>[KNN 5 @vec $q AS score]`는 사전 필터 뒤에 KNN을 적용하는 하이브리드 검색이며, RAG는 이렇게 찾은 문서 chunk를 LLM 프롬프트에 넣는 흐름이다.
 
 ## 코드
 
@@ -148,8 +148,8 @@ public class DocSearchService {
 - **문서 크기와 인덱스 메모리.** 큰 JSON은 부분 갱신도 비싸지고 RediSearch는 원본과 역인덱스를 모두 메모리에 든다. 키를 잘게 쪼개고 TEXT 필드를 최소화한다.
 - **스키마 변경은 재빌드다.** `FT.DROPINDEX` 후 재생성해야 하고 데이터셋이 크면 수 분이 걸린다. 새 인덱스를 만든 뒤 `FT.ALIASUPDATE`로 교체한다.
 - **TAG separator와 한국어.** TAG 기본 구분자는 `,`라 값에 콤마가 있으면 쪼개지므로 `SEPARATOR "|"`를 명시한다. 한국어 형태소 검색은 Elasticsearch nori가 낫다.
-- **Time Series는 retention·compaction을 직접 건다.** `RETENTION 0`(기본)은 무제한 누적이고 `TS.CREATERULE` 없이는 downsampling이 돌지 않는다. `UNCOMPRESSED`는 메모리가 수십 배 늘어 쓰지 않는다.
-- **벡터 메모리와 모델 일관성.** 768차원 float32 100만 개는 벡터만 3GB다. 색인과 쿼리의 임베딩 모델이 다르면 결과가 무의미해지므로 모델명을 메타데이터에 기록한다.
+- **Time Series는 retention·compaction을 직접 건다.** ==`RETENTION 0`(기본)은 무제한 누적이고 `TS.CREATERULE` 없이는 downsampling이 돌지 않는다.== `UNCOMPRESSED`는 메모리가 수십 배 늘어 쓰지 않는다.
+- **벡터 메모리와 모델 일관성.** 768차원 float32 100만 개는 벡터만 3GB다. ==색인과 쿼리의 임베딩 모델이 다르면 결과가 무의미해지므로 모델명을 메타데이터에 기록한다.==
 
 ## 관련 글
 

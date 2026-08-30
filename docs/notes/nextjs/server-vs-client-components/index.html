@@ -24,12 +24,12 @@
   <h1>Server Components와 Client Components</h1>
   <p class="summary">서버 전용 렌더링을 기본으로 두고, 상호작용이 필요한 최소 범위에만 'use client' 경계를 긋는 기준을 정리한다</p>
   <div class="content">
-<p>전통적인 React SPA는 모든 컴포넌트 코드를 브라우저로 보내고, 데이터도 브라우저가 API를 호출해 받아온다. 한 번 그리고 끝나는 정적 본문과 그 파싱 라이브러리까지 번들에 포함된다. DB 접근 코드는 브라우저에 둘 수 없으니 API 계층이 필수이고, 렌더링 전에 네트워크 왕복이 한 번 더 생긴다. <mark>Next.js App Router는 컴포넌트를 실행 환경에 따라 두 종류로 나누어 이 비용을 줄인다.</mark></p>
+<p>전통적인 React SPA는 모든 컴포넌트 코드를 브라우저로 보내고, 데이터도 브라우저가 API를 호출해 받아온다. 한 번 그리고 끝나는 정적 본문과 그 파싱 라이브러리까지 번들에 포함된다. DB 접근 코드는 브라우저에 둘 수 없으니 API 계층이 필수이고, 렌더링 전에 네트워크 왕복이 한 번 더 생긴다. Next.js App Router는 컴포넌트를 실행 환경에 따라 두 종류로 나누어 이 비용을 줄인다.</p>
 <h2>핵심 개념</h2>
 <p>App Router의 모든 컴포넌트는 기본이 Server Component다. 서버에서 렌더링되어 결과가 RSC Payload라는 직렬화 형식으로 클라이언트에 전달되고, 그 자바스크립트 코드는 브라우저로 보내지 않는다. 따라서 파일 시스템, 데이터베이스 클라이언트, 비밀 키를 컴포넌트 안에서 바로 사용할 수 있다. <code>async</code> 함수로 선언하고 본문에서 <code>await</code>로 데이터를 받는 것도 허용된다. 반대로 <code>useState</code>, <code>useEffect</code> 같은 훅과 <code>onClick</code> 같은 이벤트 핸들러, <code>window</code> 접근은 쓸 수 없다.</p>
-<p>Client Component는 파일 최상단에 <code>&#39;use client&#39;</code> 지시어를 선언한 모듈이다. 이 지시어는 모듈 그래프의 경계를 표시한다. 해당 파일과 그 파일이 import하는 모든 모듈은 클라이언트 번들에 포함된다. 이름과 달리 클라이언트 컴포넌트도 첫 요청 시에는 서버에서 HTML로 프리렌더링되고, 브라우저에서 hydration 과정을 거쳐 이벤트 핸들러가 붙는다.</p>
+<p>Client Component는 파일 최상단에 <code>&#39;use client&#39;</code> 지시어를 선언한 모듈이다. 이 지시어는 모듈 그래프의 경계를 표시한다. 해당 파일과 그 파일이 import하는 모든 모듈은 클라이언트 번들에 포함된다. <mark>이름과 달리 클라이언트 컴포넌트도 첫 요청 시에는 서버에서 HTML로 프리렌더링되고, 브라우저에서 hydration 과정을 거쳐 이벤트 핸들러가 붙는다.</mark></p>
 <p>서버는 Server Component를 실행해 RSC Payload를 만들고 그 안에 Client Component의 참조와 props를 기록한다. 초기 요청은 HTML과 함께 전달되고, 이후 페이지 이동에서는 RSC Payload만 받아 트리를 갱신한다.</p>
-<p>두 종류의 경계를 넘나드는 데는 제약이 있다. <mark>Server Component에서 Client Component를 import하는 것은 자유롭지만, 그 반대는 불가능하다.</mark> 대신 Server Component를 <code>children</code>이나 다른 prop으로 넘기는 방식은 허용된다. 또한 경계를 넘어가는 props는 직렬화 가능해야 한다. 함수, 클래스 인스턴스, Date 같은 값은 그대로 넘길 수 없고, Server Action 함수만 예외로 전달된다.</p>
+<p>두 종류의 경계를 넘나드는 데는 제약이 있다. Server Component에서 Client Component를 import하는 것은 자유롭지만, 그 반대는 불가능하다. 대신 Server Component를 <code>children</code>이나 다른 prop으로 넘기는 방식은 허용된다. 또한 경계를 넘어가는 props는 직렬화 가능해야 한다. 함수, 클래스 인스턴스, Date 같은 값은 그대로 넘길 수 없고, Server Action 함수만 예외로 전달된다.</p>
 <table>
 <thead>
 <tr>
@@ -132,7 +132,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>경계가 위로 올라가는 문제.</strong> 페이지 최상단 컴포넌트에 <code>&#39;use client&#39;</code>를 붙이면 그 아래 import 트리 전체가 클라이언트 번들이 된다.</mark> 지시어는 상호작용이 필요한 말단 컴포넌트에만 붙이고, 데이터 페칭과 정적 마크업은 위쪽 Server Component에 남긴다.</li>
+<li><strong>경계가 위로 올라가는 문제.</strong> <mark>페이지 최상단 컴포넌트에 <code>&#39;use client&#39;</code>를 붙이면 그 아래 import 트리 전체가 클라이언트 번들이 된다.</mark> 지시어는 상호작용이 필요한 말단 컴포넌트에만 붙이고, 데이터 페칭과 정적 마크업은 위쪽 Server Component에 남긴다.</li>
 <li><strong>서버 전용 코드의 유출.</strong> 환경 변수를 읽는 유틸리티나 DB 클라이언트를 Client Component에서 실수로 import하면 코드가 번들에 섞인다. 그런 모듈 최상단에 <code>import &#39;server-only&#39;</code>를 넣어 빌드 단계에서 차단한다.</li>
 <li><strong>직렬화 불가 props.</strong> 서버에서 만든 <code>Date</code>, <code>Map</code>, 클래스 인스턴스, 콜백 함수를 Client Component에 넘기면 런타임 오류가 난다. ISO 문자열이나 일반 객체로 바꿔 넘기고, 서버 로직 호출이 필요하면 Server Action을 prop으로 전달한다.</li>
 <li><strong>서드파티 컴포넌트 래핑.</strong> 훅을 사용하면서 <code>&#39;use client&#39;</code>를 선언하지 않은 라이브러리 컴포넌트는 Server Component에서 바로 쓰면 실패한다. 지시어를 붙인 얇은 래퍼 파일로 감싸 사용한다.</li>

@@ -24,7 +24,7 @@
   <h1>Modern Java 9~21 핵심</h1>
   <p class="summary">Java 9~21에서 실무 코드를 바꾼 언어·API 변화를 LTS 기준으로 묶어 정리한다</p>
   <div class="content">
-<p>Java 8 문법에 머문 코드는 불변 데이터 클래스 하나에 생성자·getter·equals·hashCode·toString을 손으로 쓰고, <code>instanceof</code> 뒤에 같은 타입으로 다시 캐스팅하고, <code>switch</code>에서 <code>break</code>를 빠뜨려 fall-through 버그를 만든다. 상속 계층에 새 타입이 추가됐을 때 누락된 분기를 컴파일러가 잡지 못하는 것도 같은 문제다. <mark>Java 9~21의 언어 변화는 이 보일러플레이트와 런타임 실수를 컴파일 시점으로 끌어오는 방향이다.</mark></p>
+<p>Java 8 문법에 머문 코드는 불변 데이터 클래스 하나에 생성자·getter·equals·hashCode·toString을 손으로 쓰고, <code>instanceof</code> 뒤에 같은 타입으로 다시 캐스팅하고, <code>switch</code>에서 <code>break</code>를 빠뜨려 fall-through 버그를 만든다. 상속 계층에 새 타입이 추가됐을 때 누락된 분기를 컴파일러가 잡지 못하는 것도 같은 문제다. Java 9~21의 언어 변화는 이 보일러플레이트와 런타임 실수를 컴파일 시점으로 끌어오는 방향이다.</p>
 <h2>핵심 개념</h2>
 <p>버전은 LTS 단위로 묶는다. 9<del>10은 11(LTS)에, 12</del>16은 17(LTS)에, 18~20은 21(LTS)에 정착했다. 미리보기 기능은 정식 버전 기준으로 기억한다. Switch 표현식 14, 텍스트 블록 15, Record·instanceof 패턴 16, Sealed 17, Record Patterns·Switch 패턴 매칭·Virtual Thread 21이다.</p>
 <p><strong>Java 9~11 — API 정비.</strong> <code>List.of</code>·<code>Set.of</code>·<code>Map.of</code>는 불변 컬렉션을 만들며 요소·키·값 어디에도 <code>null</code>을 허용하지 않는다. <code>Stream.iterate</code>에 종료 조건 오버로드가 추가됐고 <code>takeWhile</code>·<code>dropWhile</code>은 정렬된 스트림을 조건으로 자른다. Java 10의 <code>var</code>는 지역 변수·for 변수·try-with-resources에서만 타입을 추론하며, 초기화 없이 선언하거나 <code>null</code>로만 초기화하면 컴파일 오류다. Java 11은 <code>String.isBlank</code>·<code>strip</code>·<code>repeat</code>·<code>lines</code>, <code>Files.readString</code>·<code>writeString</code>, <code>Optional.isEmpty</code>를 추가했다. <code>strip</code>은 Unicode 공백을, <code>trim</code>은 ASCII 공백만 제거한다.</p>
@@ -94,11 +94,11 @@
     &quot;&quot;&quot;</span>;</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>불변 컬렉션과 null.</strong> <code>List.of</code>·<code>Stream.toList()</code> 반환값에 <code>add</code>를 호출하면 런타임 예외다.</mark> 가변 리스트가 필요하면 <code>Collectors.toCollection(ArrayList::new)</code>를 쓴다. <code>Stream.toList()</code>는 <code>null</code> 요소를 허용하지만 <code>List.of</code>는 허용하지 않는다.</li>
-<li><mark><strong>Record와 JPA.</strong> JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다.</mark> DTO·값 객체·프로젝션에 한정한다. 컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.</li>
+<li><strong>불변 컬렉션과 null.</strong> <code>List.of</code>·<code>Stream.toList()</code> 반환값에 <code>add</code>를 호출하면 런타임 예외다. 가변 리스트가 필요하면 <code>Collectors.toCollection(ArrayList::new)</code>를 쓴다. <mark><code>Stream.toList()</code>는 <code>null</code> 요소를 허용하지만 <code>List.of</code>는 허용하지 않는다.</mark></li>
+<li><strong>Record와 JPA.</strong> JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다. DTO·값 객체·프로젝션에 한정한다. <mark>컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.</mark></li>
 <li><strong><code>var</code> 추론 함정.</strong> <code>var list = new ArrayList&lt;&gt;();</code>는 <code>ArrayList&lt;Object&gt;</code>로 추론된다. 우변에서 타입이 드러나지 않는 메서드 호출 결과에는 쓰지 않는다.</li>
-<li><strong>Sealed 계층의 모듈 경계.</strong> permits의 하위 타입은 같은 모듈(무명 모듈이면 같은 패키지)에 있어야 한다. 멀티모듈로 계층을 나누면 컴파일이 실패한다.</li>
-<li><strong>Switch 패턴의 지배(dominance)와 null.</strong> 상위 타입 case나 가드 없는 case가 하위 타입 case·가드 case보다 앞에 오면 컴파일 오류다. <code>default</code>가 있어도 <code>null</code>은 처리되지 않으므로 <code>case null</code>을 명시한다.</li>
+<li><strong>Sealed 계층의 모듈 경계.</strong> <mark>permits의 하위 타입은 같은 모듈(무명 모듈이면 같은 패키지)에 있어야 한다.</mark> 멀티모듈로 계층을 나누면 컴파일이 실패한다.</li>
+<li><strong>Switch 패턴의 지배(dominance)와 null.</strong> 상위 타입 case나 가드 없는 case가 하위 타입 case·가드 case보다 앞에 오면 컴파일 오류다. <mark><code>default</code>가 있어도 <code>null</code>은 처리되지 않으므로 <code>case null</code>을 명시한다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

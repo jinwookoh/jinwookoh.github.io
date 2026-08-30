@@ -122,9 +122,9 @@ public class StepNotificationConfig {
 
 - **JobParameters 유일성**. 파일 경로만 파라미터로 넣으면 같은 파일 재처리 시 `JobInstanceAlreadyCompleteException`이 난다. `run.id`에 타임스탬프를 넣거나, 재처리 차단이 의도라면 예외를 로그로 남긴다.
 - **동기 실행기의 폴링 블로킹**. `SyncTaskExecutor`는 Job이 끝날 때까지 poller 스레드를 점유해 다음 파일이 그만큼 대기한다. 비동기 실행기로 바꾸고 결과는 `JobExecutionListener`나 `JobExplorer`로 확인한다.
-- **비동기 결과 오인**. 비동기 모드의 `JobExecution`은 시작 직후 상태라 실패 여부를 담지 않는다. reply만 보고 성공으로 처리하면 실패가 묻힌다.
+- **비동기 결과 오인**. ==비동기 모드의 `JobExecution`은 시작 직후 상태라 실패 여부를 담지 않는다.== reply만 보고 성공으로 처리하면 실패가 묻힌다.
 - **인메모리 채널의 메시지 손실**. `DirectChannel`·`QueueChannel`은 프로세스가 죽으면 메시지도 사라진다. 트리거 유실이 허용되지 않으면 Kafka·JMS 같은 durable 채널을 통로로 둔다.
-- **중복 처리**. `AcceptOnceFileListFilter`는 메모리 기반이라 재기동 후 초기화된다. 처리 후 archive로 옮기는 Tasklet을 두거나 `FileSystemPersistentAcceptOnceFileListFilter`로 상태를 외부에 저장한다.
+- **중복 처리**. ==`AcceptOnceFileListFilter`는 메모리 기반이라 재기동 후 초기화된다.== 처리 후 archive로 옮기는 Tasklet을 두거나 `FileSystemPersistentAcceptOnceFileListFilter`로 상태를 외부에 저장한다.
 - **과도한 도입**. 트리거가 cron이면 `@Scheduled`, 완료 알림 한 줄이면 `JobExecutionListener`로 충분하다. Integration은 외부 이벤트·다중 소스·알림 경로 분리가 실제로 필요한 자리에만 붙인다.
 
 ## 관련 글

@@ -24,7 +24,7 @@ updated: 2026-08-30
 | 정적 내보내기 (`output: 'export'`) | 제한 | 서버가 필요한 기능(Route Handler 동적 처리·ISR·미들웨어) 불가 |
 | 어댑터 (Vercel 등) | 플랫폼별 | Vercel과 Bun은 검증된 어댑터, 그 외는 자체 통합 |
 
-Vercel에서는 ISR 캐시·이미지 최적화·Edge 미들웨어가 별도 설정 없이 연결되지만 자체 호스팅에서는 직접 채워야 한다. `output: 'standalone'`을 켜면 `.next/standalone` 아래에 `server.js`와 필요한 `node_modules`만 추려진 결과물이 생긴다. `public`과 `.next/static`은 포함되지 않으므로 Dockerfile에서 직접 옮긴다.
+Vercel에서는 ISR 캐시·이미지 최적화·Edge 미들웨어가 별도 설정 없이 연결되지만 자체 호스팅에서는 직접 채워야 한다. `output: 'standalone'`을 켜면 `.next/standalone` 아래에 `server.js`와 필요한 `node_modules`만 추려진 결과물이 생긴다. ==`public`과 `.next/static`은 포함되지 않으므로 Dockerfile에서 직접 옮긴다.==
 
 Spring으로 치면 `next start`는 내장 Tomcat으로 fat jar를 띄우는 것이고, standalone은 jlink로 런타임을 최소화한 이미지에 해당한다.
 
@@ -32,7 +32,7 @@ Spring으로 치면 `next start`는 내장 Tomcat으로 fat jar를 띄우는 것
 
 환경변수는 `.env*` 파일에서 `process.env`로 로드된다. 조회 순서는 `process.env` → `.env.$(NODE_ENV).local` → `.env.local` → `.env.$(NODE_ENV)` → `.env`이며, 먼저 발견된 값에서 멈춘다. `test` 환경에서는 `.env.local`을 읽지 않고, `$VAR`로 다른 변수를 참조할 수 있으며, `src` 폴더를 써도 `.env`는 루트에 둔다.
 
-접두사 없는 변수는 서버 런타임에서만 읽힌다. `NEXT_PUBLIC_` 접두사가 붙은 변수는 `next build` 시점에 값이 문자열 상수로 번들에 인라인된다. 빌드 이후 변경할 수 없고, `process.env[name]`처럼 동적으로 접근하면 인라인되지 않는다. 서버 변수도 정적 렌더링 페이지에서는 빌드 시점 값으로 고정될 수 있으므로, 런타임 값이 필요하면 `connection()`으로 동적 렌더링에 들어간 뒤 읽는다. Spring과 비교하면 `NEXT_PUBLIC_`은 Maven 리소스 필터링처럼 산출물에 박히는 값이고, 서버 변수만이 `application.yml` 프로파일 오버라이드에 가깝다.
+접두사 없는 변수는 서버 런타임에서만 읽힌다. `NEXT_PUBLIC_` 접두사가 붙은 변수는 `next build` 시점에 값이 문자열 상수로 번들에 인라인된다. 빌드 이후 변경할 수 없고, `process.env[name]`처럼 동적으로 접근하면 인라인되지 않는다. ==서버 변수도 정적 렌더링 페이지에서는 빌드 시점 값으로 고정될 수 있으므로, 런타임 값이 필요하면 `connection()`으로 동적 렌더링에 들어간 뒤 읽는다.== Spring과 비교하면 `NEXT_PUBLIC_`은 Maven 리소스 필터링처럼 산출물에 박히는 값이고, 서버 변수만이 `application.yml` 프로파일 오버라이드에 가깝다.
 
 ### instrumentation 훅
 
@@ -117,7 +117,7 @@ export const onRequestError: Instrumentation.onRequestError = async (
 
 ## 실무에서 걸리는 지점
 
-- **하나의 이미지를 여러 환경으로 승격할 때 `NEXT_PUBLIC_` 값이 고정된다.** 스테이징에서 빌드한 이미지를 운영에 올리면 브라우저 번들의 API 주소가 스테이징을 가리킨다. 환경마다 빌드하거나, 서버 컴포넌트에서 런타임에 읽어 props로 내려보낸다.
+- **하나의 이미지를 여러 환경으로 승격할 때 `NEXT_PUBLIC_` 값이 고정된다.** ==스테이징에서 빌드한 이미지를 운영에 올리면 브라우저 번들의 API 주소가 스테이징을 가리킨다.== 환경마다 빌드하거나, 서버 컴포넌트에서 런타임에 읽어 props로 내려보낸다.
 - **standalone 이미지에 `sharp`가 빠지면 이미지 최적화가 느려진다.** 멀티 스테이지 빌드에서 네이티브 바이너리가 runner 스테이지 플랫폼과 맞지 않으면 최적화가 실패하므로 builder와 runner의 베이스 이미지 아키텍처를 맞춘다.
 - **컨테이너를 여러 개 띄우면 ISR 캐시가 인스턴스마다 갈라진다.** 기본 파일 시스템 캐시는 로컬 디스크에 쓰이므로 재검증 결과가 전파되지 않는다. Redis 같은 공유 저장소를 `cacheHandler`로 연결한다.
 - **`register()`가 오래 걸리면 서버 준비가 지연된다.** 첫 요청 전에 끝나야 하므로 외부 서비스 연결을 여기서 기다리면 컨테이너 헬스체크가 실패한다. 무거운 초기화는 lazy 연결로 미룬다.

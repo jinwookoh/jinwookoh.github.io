@@ -35,11 +35,11 @@ MVCC(Multi-Version Concurrency Control)는 같은 행의 여러 버전을 유지
 
 ### 클라이언트·서버와 프로세스 모델
 
-클라이언트가 TCP 5432로 접속하면 부모 프로세스 postmaster가 `pg_hba.conf` 규칙으로 인증한 뒤 backend 프로세스를 fork한다. 클라이언트와 backend는 1:1이며, 옆에서 WAL writer·checkpointer·autovacuum launcher 같은 보조 프로세스가 상시 동작한다. MySQL의 스레드 모델과 달리 연결마다 프로세스를 두므로 연결 풀이 사실상 필수다. 데이터·인덱스 페이지는 `shared_buffers`에 캐시되고, 모든 변경은 데이터 파일보다 먼저 `pg_wal`의 WAL에 기록된다.
+클라이언트가 TCP 5432로 접속하면 부모 프로세스 postmaster가 `pg_hba.conf` 규칙으로 인증한 뒤 backend 프로세스를 fork한다. 클라이언트와 backend는 1:1이며, 옆에서 WAL writer·checkpointer·autovacuum launcher 같은 보조 프로세스가 상시 동작한다. ==MySQL의 스레드 모델과 달리 연결마다 프로세스를 두므로 연결 풀이 사실상 필수다.== 데이터·인덱스 페이지는 `shared_buffers`에 캐시되고, 모든 변경은 데이터 파일보다 먼저 `pg_wal`의 WAL에 기록된다.
 
 ### 4단계 계층
 
-데이터는 Cluster → Database → Schema → Table 순서로 묶인다. Cluster는 서버 인스턴스 하나이자 `PGDATA` 디렉토리 하나로, 분산 시스템의 클러스터와 무관하다. Database는 클러스터 안에서 서로 격리되어 다른 데이터베이스의 테이블을 직접 조회할 수 없다. Schema는 데이터베이스 안의 네임스페이스로 기본값은 `public`이다. JDBC URL은 클러스터와 데이터베이스를 지정하고, 스키마는 `search_path`가 결정하며, `@Entity`는 테이블에 대응한다.
+데이터는 Cluster → Database → Schema → Table 순서로 묶인다. Cluster는 서버 인스턴스 하나이자 `PGDATA` 디렉토리 하나로, 분산 시스템의 클러스터와 무관하다. ==Database는 클러스터 안에서 서로 격리되어 다른 데이터베이스의 테이블을 직접 조회할 수 없다.== Schema는 데이터베이스 안의 네임스페이스로 기본값은 `public`이다. JDBC URL은 클러스터와 데이터베이스를 지정하고, 스키마는 `search_path`가 결정하며, `@Entity`는 테이블에 대응한다.
 
 ### 관계형 모델
 

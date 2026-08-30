@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-transaction-attributes.md, batch/2026-05-17-bat
 updated: 2026-08-29
 ---
 
-chunk 지향 Step은 chunk마다 트랜잭션을 열고 닫는다. 속성을 지정하지 않으면 격리 수준은 DB 기본값, 전파는 REQUIRED, 타임아웃은 무제한(-1)이다. 느린 외부 호출이 섞인 chunk가 커넥션을 잡은 채 멈춰도 끊어주지 않고, SkipListener가 남긴 기록은 chunk 롤백과 함께 사라진다. 반복 제어도 마찬가지로, 폴링 Tasklet에 시간 한도와 건수 한도를 함께 두려면 카운터를 직접 관리해야 한다. 앞은 Transaction Attributes가, 뒤는 Repeat 추상화가 담당한다.
+chunk 지향 Step은 chunk마다 트랜잭션을 열고 닫는다. ==속성을 지정하지 않으면 격리 수준은 DB 기본값, 전파는 REQUIRED, 타임아웃은 무제한(-1)이다.== 느린 외부 호출이 섞인 chunk가 커넥션을 잡은 채 멈춰도 끊어주지 않고, SkipListener가 남긴 기록은 chunk 롤백과 함께 사라진다. 반복 제어도 마찬가지로, 폴링 Tasklet에 시간 한도와 건수 한도를 함께 두려면 카운터를 직접 관리해야 한다. 앞은 Transaction Attributes가, 뒤는 Repeat 추상화가 담당한다.
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ ItemProcessor나 ItemWriter에 붙인 `@Transactional`은 chunk 트랜잭션 안
 
 chunk 반복의 밑바닥에는 `RepeatOperations`가 있다. `RepeatTemplate.iterate(callback)`은 `RepeatCallback.doInIteration(context)`를 반복 호출하고, 각 호출은 `RepeatStatus`(CONTINUABLE·FINISHED)를 반환한다. Tasklet의 반환값과 같은 enum이다. callback이 FINISHED를 돌려주면 즉시 멈추고, 아니면 `CompletionPolicy`가 매 반복 뒤 `isComplete`로 판단한다. 표준 구현은 `SimpleCompletionPolicy(N)`, `TimeoutTerminationPolicy(ms)`, 여러 정책을 묶는 `CompositeCompletionPolicy`다. chunk Step은 이 RepeatTemplate 위에서 한 iteration을 read·process·write·commit으로 채운 구조다.
 
-callback의 예외는 `ExceptionHandler`가 받아 다시 던지거나(종료), 흡수하거나(계속), 변환한다. `SimpleLimitExceptionHandler`는 지정 타입을 한도까지 흡수하고 초과분부터 다시 던진다. `RepeatListener`는 open·close가 전체에 한 번, before·after·onError가 매 iteration에 호출되며, 여러 개면 open·before는 등록 순, 나머지는 역순이다. `TaskExecutorRepeatTemplate`은 비동기 TaskExecutor를 넣으면 iteration을 병렬로 돌린다. `RepeatOperationsInterceptor`는 AOP로 메서드 호출을 자동 반복시키며 void 반환은 항상 CONTINUABLE, null 반환만 FINISHED다.
+callback의 예외는 `ExceptionHandler`가 받아 다시 던지거나(종료), 흡수하거나(계속), 변환한다. `SimpleLimitExceptionHandler`는 지정 타입을 한도까지 흡수하고 초과분부터 다시 던진다. `RepeatListener`는 open·close가 전체에 한 번, before·after·onError가 매 iteration에 호출되며, 여러 개면 open·before는 등록 순, 나머지는 역순이다. `TaskExecutorRepeatTemplate`은 비동기 TaskExecutor를 넣으면 iteration을 병렬로 돌린다. `RepeatOperationsInterceptor`는 AOP로 메서드 호출을 자동 반복시키며 ==void 반환은 항상 CONTINUABLE, null 반환만 FINISHED다==.
 
 ## 코드
 
@@ -111,7 +111,7 @@ public Tasklet pollingTasklet(MessageQueue queue, MessageHandler handler) {
 
 - 타임아웃이 없으면 stuck 트랜잭션이 커넥션을 무기한 점유하고, 3,600초처럼 크면 멈춘 Job을 감지하지 못한다. 측정값 기반 한계와 모니터링을 같이 둔다.
 - SERIALIZABLE로 올리면 deadlock과 serialization failure가 잦아진다. 해당 예외를 retry 대상에 포함시켜야 chunk가 살아남는다.
-- REQUIRES_NEW는 별도 커넥션을 쓴다. 멀티스레드 Step에서는 커넥션 풀이 스레드 수의 두 배로 소모된다.
+- REQUIRES_NEW는 별도 커넥션을 쓴다. ==멀티스레드 Step에서는 커넥션 풀이 스레드 수의 두 배로 소모된다.==
 - NOT_SUPPORTED Step은 ExecutionContext 갱신도 트랜잭션 밖이라 재시작 안전성이 떨어진다. 단발성 Tasklet에만 쓴다.
 - CompletionPolicy 없이 callback이 항상 CONTINUABLE을 반환하면 무한 루프다. RepeatOperationsInterceptor의 void 메서드가 특히 그렇다. ExceptionHandler가 반응하지 않으면 대개 checked 예외를 등록하지 않은 탓이다.
 

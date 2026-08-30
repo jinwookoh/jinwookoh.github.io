@@ -24,7 +24,7 @@
   <h1>사용자·역할·권한</h1>
   <p class="summary">ROLE 하나로 사용자와 그룹을 통합하고, 그룹 멤버십과 DEFAULT PRIVILEGES로 권한을 최소·자동화하는 방법</p>
   <div class="content">
-<p>애플리케이션이 postgres 슈퍼유저 하나로 접속하는 구성은 초기에는 편하지만, 커넥션 문자열 하나가 유출되는 순간 DDL·데이터 삭제·설정 변경까지 모두 열린다. 분석가에게 쓰기 권한이 섞여 들어가거나, 새 테이블을 만들 때마다 GRANT를 잊어 서비스가 permission denied로 멈추는 사고도 권한 체계를 세우지 않은 데서 비롯된다. <mark>PostgreSQL의 ROLE·GRANT·DEFAULT PRIVILEGES·RLS는 이 문제를 접속 주체 단위로 분리하고, 새 객체에도 권한이 자동 적용되도록 만드는 도구다.</mark></p>
+<p>애플리케이션이 postgres 슈퍼유저 하나로 접속하는 구성은 초기에는 편하지만, 커넥션 문자열 하나가 유출되는 순간 DDL·데이터 삭제·설정 변경까지 모두 열린다. 분석가에게 쓰기 권한이 섞여 들어가거나, 새 테이블을 만들 때마다 GRANT를 잊어 서비스가 permission denied로 멈추는 사고도 권한 체계를 세우지 않은 데서 비롯된다. PostgreSQL의 ROLE·GRANT·DEFAULT PRIVILEGES·RLS는 이 문제를 접속 주체 단위로 분리하고, 새 객체에도 권한이 자동 적용되도록 만드는 도구다.</p>
 <h2>핵심 개념</h2>
 <p>PostgreSQL 8.1부터 USER와 GROUP은 ROLE 하나로 통합됐다. <code>LOGIN</code> 속성이 있으면 접속 가능한 사용자로, <code>NOLOGIN</code>이면 권한을 묶는 그룹으로 동작한다. <code>CREATE USER</code>는 <code>CREATE ROLE ... LOGIN</code>의 별칭일 뿐이다. 그룹 역할을 사용자 역할에 <code>GRANT group TO user</code>로 부여하면 멤버십이 생기고, 사용자가 <code>INHERIT</code>(기본값)이면 그룹 권한을 자동으로 사용한다. <code>NOINHERIT</code>이면 <code>SET ROLE</code>로 명시적으로 전환해야만 그룹 권한이 살아난다.</p>
 <p>ROLE 속성은 시스템 수준 능력을 정한다. <code>SUPERUSER</code>, <code>CREATEDB</code>, <code>CREATEROLE</code>, <code>REPLICATION</code>, <code>BYPASSRLS</code>, <code>CONNECTION LIMIT</code>, <code>VALID UNTIL</code>이 대표적이다. <code>CREATEROLE</code>은 PostgreSQL 16부터 자신이 만든 역할만 관리하도록 축소됐다.</p>
@@ -158,10 +158,10 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><mark>앱 계정이 테이블 소유자면 RLS가 무력화된다.</mark> 마이그레이션 계정이 소유자가 되고 앱 계정은 별도 역할로 두거나, <code>FORCE ROW LEVEL SECURITY</code>를 걸어야 정책이 실제로 작동한다.</li>
-<li><code>ALTER DEFAULT PRIVILEGES</code>에서 <code>FOR ROLE</code>을 생략하면 명령을 실행한 역할이 만드는 객체에만 적용된다. DBA가 실행하고 migrator가 테이블을 만들면 기본 권한은 한 번도 발동하지 않는다. 스키마 단위이므로 새 스키마마다 다시 건다.</li>
+<li><code>ALTER DEFAULT PRIVILEGES</code>에서 <code>FOR ROLE</code>을 생략하면 명령을 실행한 역할이 만드는 객체에만 적용된다. <mark>DBA가 실행하고 migrator가 테이블을 만들면 기본 권한은 한 번도 발동하지 않는다.</mark> 스키마 단위이므로 새 스키마마다 다시 건다.</li>
 <li>테이블 DML만 주고 SEQUENCE의 USAGE를 빠뜨리면 <code>bigserial</code>·identity 컬럼 INSERT가 실패한다. <code>ON ALL SEQUENCES</code>를 함께 부여한다.</li>
 <li><code>DROP ROLE</code>은 그 역할이 소유하거나 권한을 받은 객체가 있으면 실패한다. <code>REASSIGN OWNED BY old TO new</code> 후 <code>DROP OWNED BY old</code>로 정리하며, 두 명령 모두 데이터베이스 단위라 클러스터의 모든 DB에서 반복한다.</li>
-<li>PostgreSQL 15 이하에서 <code>CREATEROLE</code>은 사실상 슈퍼유저에 준하므로 앱 계정에 주지 않는다. 16으로 올릴 때 동작이 바뀌어 기존 관리 스크립트가 실패할 수 있다.</li>
+<li><mark>PostgreSQL 15 이하에서 <code>CREATEROLE</code>은 사실상 슈퍼유저에 준하므로 앱 계정에 주지 않는다.</mark> 16으로 올릴 때 동작이 바뀌어 기존 관리 스크립트가 실패할 수 있다.</li>
 <li>비밀번호를 <code>.env</code>나 설정 파일에 평문으로 두지 않는다. Secrets Manager·Vault에서 주입하고, 임시 계정은 <code>VALID UNTIL</code>로 만료를 걸며, <code>pg_hba.conf</code>에 접속 원 IP 제한을 함께 적용한다.</li>
 </ul>
 <h2>관련 글</h2>

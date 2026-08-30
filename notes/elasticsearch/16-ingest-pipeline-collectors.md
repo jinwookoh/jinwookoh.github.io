@@ -157,10 +157,10 @@ class AccessLogPipelineTest {
 
 ## 실무에서 걸리는 지점
 
-- **파이프라인 실패가 색인 거부로 번진다.** processor 실패 시 기본 동작은 색인 거부이며 Filebeat가 재시도를 반복해 큐가 부푼다. 최상위 `on_failure`에서 실패 표식을 남기고 dead-letter 인덱스로 보내는 구성을 기본으로 둔다.
-- **grok backtracking으로 CPU가 잠긴다.** `GREEDYDATA`와 중첩 alternation이 섞이면 한 줄 파싱에 수 초가 걸린다. 긴 라인은 dissect로 먼저 쪼갠 뒤 작은 조각만 grok으로 파싱하고 `timeout_millis`로 상한을 둔다.
+- **파이프라인 실패가 색인 거부로 번진다.** ==processor 실패 시 기본 동작은 색인 거부이며 Filebeat가 재시도를 반복해 큐가 부푼다.== 최상위 `on_failure`에서 실패 표식을 남기고 dead-letter 인덱스로 보내는 구성을 기본으로 둔다.
+- **grok backtracking으로 CPU가 잠긴다.** ==`GREEDYDATA`와 중첩 alternation이 섞이면 한 줄 파싱에 수 초가 걸린다.== 긴 라인은 dissect로 먼저 쪼갠 뒤 작은 조각만 grok으로 파싱하고 `timeout_millis`로 상한을 둔다.
 - **script processor는 마지막 카드다.** 대량 ingest에서 Painless 한두 개가 지연을 수십 배 키운다. 치환은 `gsub`, 타입은 `convert`, 분기는 `if`로 푼다.
-- **_simulate 통과가 색인 성공을 보장하지 않는다.** 매핑 검증은 실제 색인 시점에 일어나므로 테스트 인덱스에 실제 1건 색인까지 검증한다. reindex는 파이프라인을 자동으로 타지 않으므로 `dest.pipeline`을 명시한다.
+- **_simulate 통과가 색인 성공을 보장하지 않는다.** 매핑 검증은 실제 색인 시점에 일어나므로 테스트 인덱스에 실제 1건 색인까지 검증한다. ==reindex는 파이프라인을 자동으로 타지 않으므로 `dest.pipeline`을 명시한다.==
 - **수집기의 backpressure와 버퍼 한도.** downstream이 느려지면 Filebeat는 큐가 차고 Fluentd는 output buffer가 디스크를 채워 멈춘다. Logstash persistent queue, Fluentd `total_limit_size`·`overflow_action`으로 완충 정책을 명시하고, retention은 수집기가 아니라 ES의 ILM에서 관리한다.
 
 ## 관련 글

@@ -24,7 +24,7 @@
   <h1>gRPC — 개념·HTTP/2·Protobuf</h1>
   <p class="summary">gRPC는 Protobuf 스키마와 HTTP/2 전송을 결합한 RPC이며, 필드 번호가 와이어 호환성을 결정한다.</p>
   <div class="content">
-<p>마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. <mark>gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.</mark></p>
+<p>마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.</p>
 <h2>핵심 개념</h2>
 <p>gRPC는 Google 내부 RPC(Stubby)를 2015년 오픈소스화한 CNCF 프로젝트다. Protobuf가 스키마를 정의하고 바이너리로 직렬화하며, HTTP/2가 그 바이트를 나르고, gRPC가 둘을 결합해 언어별 스텁을 생성한다. Kubernetes·Envoy·Istio가 기본 지원하므로 외부 API는 REST, 내부 통신은 gRPC로 두는 구성이 일반적이다.</p>
 <p>HTTP/2는 한 TCP 연결 위에 여러 스트림을 다중화하고, HPACK으로 헤더를 압축하며, 바이너리 프레임을 쓰고, 스트림 단위 양방향 전송을 지원한다. gRPC는 RPC 호출 하나를 HTTP/2 스트림 하나에 대응시켜 연결 하나로 수많은 호출을 병렬 처리한다.</p>
@@ -164,10 +164,10 @@ protobuf {
       <span class="hljs-attr">negotiation-type:</span> <span class="hljs-string">plaintext</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>스텁 종류와 모드 불일치.</strong> <code>BlockingStub</code>은 Unary와 Server Streaming만, <code>FutureStub</code>은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 <code>Stub</code>으로만 호출한다. <mark>WebFlux 이벤트 루프에서 <code>BlockingStub</code>을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.</mark></li>
+<li><strong>스텁 종류와 모드 불일치.</strong> <code>BlockingStub</code>은 Unary와 Server Streaming만, <code>FutureStub</code>은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 <code>Stub</code>으로만 호출한다. WebFlux 이벤트 루프에서 <code>BlockingStub</code>을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.</li>
 <li><strong>필드 번호 재사용.</strong> <code>reserved</code> 없이 필드를 지우면 같은 번호가 다른 타입에 배정될 수 있다. 구버전 데이터가 새 필드로 잘못 해석되지만 컴파일 경고는 없다.</li>
-<li><strong>기본값과 미설정의 구분.</strong> <code>int32 age = 0</code>은 0인지 값 없음인지 구분되지 않아, 부분 업데이트 API에서 0으로 덮어쓰는 버그가 생긴다. <code>optional</code>이나 Wrapper 타입을 쓰고 <code>hasXxx()</code>로 검사한다.</li>
-<li><strong>단일 장수 연결의 쏠림.</strong> L4 로드 밸런서 뒤에서는 HTTP/2 연결 하나가 특정 인스턴스에 고정된다. 클라이언트 측 로드 밸런싱이나 L7 프록시를 두고 <code>max-connection-age</code>로 연결을 주기적으로 재수립한다.</li>
+<li><strong>기본값과 미설정의 구분.</strong> <mark><code>int32 age = 0</code>은 0인지 값 없음인지 구분되지 않아, 부분 업데이트 API에서 0으로 덮어쓰는 버그가 생긴다.</mark> <code>optional</code>이나 Wrapper 타입을 쓰고 <code>hasXxx()</code>로 검사한다.</li>
+<li><strong>단일 장수 연결의 쏠림.</strong> <mark>L4 로드 밸런서 뒤에서는 HTTP/2 연결 하나가 특정 인스턴스에 고정된다.</mark> 클라이언트 측 로드 밸런싱이나 L7 프록시를 두고 <code>max-connection-age</code>로 연결을 주기적으로 재수립한다.</li>
 <li><strong>디버깅 가시성.</strong> 바이너리 페이로드라 캡처만으로는 읽을 수 없다. 개발 환경에서 Reflection을 켜 grpcurl로 호출하고 로그에는 <code>JsonFormat</code> 변환 결과를 남기되, 운영 환경에서는 스키마 노출을 막기 위해 Reflection을 끈다.</li>
 </ul>
 <h2>관련 글</h2>

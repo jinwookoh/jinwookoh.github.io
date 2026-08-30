@@ -129,9 +129,9 @@ public OrderResponse xml(@PathVariable Long id) { ... }
 
 ## 실무에서 걸리는 지점
 
-- **JPA 엔티티 직접 반환.** 트랜잭션 종료 후 Jackson이 지연 로딩 필드의 getter를 호출하면 `LazyInitializationException`, 양방향 연관관계면 무한 재귀가 발생한다. 응답 전용 DTO로 변환해 API 계약과 DB 스키마를 분리한다.
+- **JPA 엔티티 직접 반환.** ==트랜잭션 종료 후 Jackson이 지연 로딩 필드의 getter를 호출하면 `LazyInitializationException`, 양방향 연관관계면 무한 재귀가 발생한다.== 응답 전용 DTO로 변환해 API 계약과 DB 스키마를 분리한다.
 
-- **원시 타입 선택 파라미터.** `int`에 `required = false`만 붙이면 값이 없을 때 null을 담을 수 없어 500이 난다. `defaultValue`를 주거나 래퍼 타입을 쓴다.
+- **원시 타입 선택 파라미터.** ==`int`에 `required = false`만 붙이면 값이 없을 때 null을 담을 수 없어 500이 난다.== `defaultValue`를 주거나 래퍼 타입을 쓴다.
 
 - **역직렬화 예외의 종류.** 잘못된 JSON은 `HttpMessageNotReadableException`, 타입 불일치와 검증 실패는 각각 다른 예외로 온다. `@ControllerAdvice`에서 잡아 오류 응답 형식을 통일하지 않으면 클라이언트가 원인을 구분하지 못한다.
 

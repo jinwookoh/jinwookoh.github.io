@@ -15,7 +15,7 @@ REST는 응답 형태를 서버가 결정한다. 이름 하나만 필요해도 `
 
 GraphQL은 단일 엔드포인트(`/graphql`)로 요청을 받고 요청 문서의 필드 구조 그대로 응답을 구성한다. 서버는 SDL로 타입을 정의하며 이 스키마가 양쪽이 지켜야 할 계약이다. 내장 스칼라는 `ID`·`String`·`Int`·`Float`·`Boolean` 다섯 가지이고 `DateTime` 같은 값은 `scalar` 선언과 Coercing 구현으로 추가한다. `!`는 non-null이며 리스트는 `[User]`·`[User!]`·`[User!]!`로 null 허용 범위를 구분한다. 출력 타입은 인자로 쓸 수 없으므로 Mutation 인자는 `input`으로 선언한다.
 
-루트 작업 타입은 `Query`(조회)·`Mutation`(변경)·`Subscription`(실시간 스트림) 셋이다. Query 최상위 필드는 병렬 실행될 수 있지만 Mutation 최상위 필드는 사양상 순차 실행된다. Mutation도 반환 타입을 가지므로 변경 결과를 같은 응답으로 받는다.
+루트 작업 타입은 `Query`(조회)·`Mutation`(변경)·`Subscription`(실시간 스트림) 셋이다. ==Query 최상위 필드는 병렬 실행될 수 있지만 Mutation 최상위 필드는 사양상 순차 실행된다.== Mutation도 반환 타입을 가지므로 변경 결과를 같은 응답으로 받는다.
 
 Argument는 필드에 붙는 인자이고 Variables는 `$id: ID!`처럼 문서 밖에서 타입을 선언해 주입하는 값으로, 사용자 입력은 쿼리 문자열에 끼워 넣지 않고 변수로 넘긴다. Alias는 같은 필드를 여러 번 호출할 때 응답 키 충돌을 피하고, Fragment는 필드 묶음을 재사용하며 Inline Fragment(`... on User`)는 union·interface 결과를 타입별로 분기한다.
 
@@ -163,8 +163,8 @@ class GraphQlExceptionAdvice {
 
 ## 실무에서 걸리는 지점
 
-- 응답이 항상 200이라 상태 코드 기반 알람은 동작하지 않으며 `errors` 배열을 별도로 집계해야 한다.
-- 목록 응답의 하위 필드에 `@SchemaMapping`을 쓰면 부모 수만큼 DB 호출이 발생한다. `@BatchMapping`을 기본으로 하고, 반환 `Map`의 키는 전달받은 부모 인스턴스 그대로여야 매칭된다.
+- ==응답이 항상 200이라 상태 코드 기반 알람은 동작하지 않으며 `errors` 배열을 별도로 집계해야 한다.==
+- 목록 응답의 하위 필드에 `@SchemaMapping`을 쓰면 부모 수만큼 DB 호출이 발생한다. `@BatchMapping`을 기본으로 하고, ==반환 `Map`의 키는 전달받은 부모 인스턴스 그대로여야 매칭된다.==
 - 조회 깊이를 클라이언트가 정하므로 재귀 타입은 서버 부하를 키운다. `MaxQueryDepthInstrumentation`을 등록하고 목록 필드에 `first` 상한을 둔다.
 - Introspection과 GraphiQL은 스키마를 노출한다. 운영 프로파일에서 `spring.graphql.graphiql.enabled=false`, `spring.graphql.schema.introspection.enabled=false`로 끈다.
 - 단일 엔드포인트 POST라 HTTP 캐시와 CDN이 응답을 캐시하지 못한다. 캐시가 중요한 조회는 persisted query와 GET을 쓴다.

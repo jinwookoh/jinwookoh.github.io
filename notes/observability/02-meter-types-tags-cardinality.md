@@ -26,7 +26,7 @@ updated: 2026-08-29
 
 "지금까지 총 몇 번"이면 Counter, "지금 이 순간 몇 개"이면 Gauge, "얼마나 걸렸나"이면 Timer, "크기나 건수가 얼마였나"이면 DistributionSummary다.
 
-Gauge는 관찰 대상을 약한 참조로 잡아 대상이 GC되면 `NaN`을 보고한다. 반대로 람다가 외부 객체를 캡처하면 레지스트리가 Supplier를 강하게 붙들어 GC되지 않는다. 대상 객체를 두 번째 인자로 명시하면 두 문제를 모두 피한다.
+==Gauge는 관찰 대상을 약한 참조로 잡아 대상이 GC되면 `NaN`을 보고한다.== 반대로 람다가 외부 객체를 캡처하면 레지스트리가 Supplier를 강하게 붙들어 GC되지 않는다. 대상 객체를 두 번째 인자로 명시하면 두 문제를 모두 피한다.
 
 ### 태그는 차원이다
 
@@ -40,11 +40,11 @@ Gauge는 관찰 대상을 약한 참조로 잡아 대상이 GC되면 `NaN`을 �
 
 ### MeterFilter
 
-`MeterFilter`는 레지스트리 레벨에서 Meter 등록을 가로채 차단·태그 값 치환·카디널리티 상한을 적용하므로 외부 라이브러리의 Meter도 통제한다. 필터는 등록 순서대로 체인 평가되므로 `accept`는 `deny`보다 앞에 와야 한다.
+`MeterFilter`는 레지스트리 레벨에서 Meter 등록을 가로채 차단·태그 값 치환·카디널리티 상한을 적용하므로 외부 라이브러리의 Meter도 통제한다. ==필터는 등록 순서대로 체인 평가되므로 `accept`는 `deny`보다 앞에 와야 한다.==
 
 ### 네이밍 규칙
 
-Meter 이름과 태그 키는 소문자 dot-separated로 쓰고 각 백엔드가 자기 관례로 변환한다. Prometheus는 underscore로 바꾸고 Timer에 `_seconds`, Counter에 `_total`을 붙이므로, 이름에 단위를 넣으면 `api_latency_ms_seconds`처럼 중복된다. 단위는 `baseUnit()`으로 전달한다.
+Meter 이름과 태그 키는 소문자 dot-separated로 쓰고 각 백엔드가 자기 관례로 변환한다. ==Prometheus는 underscore로 바꾸고 Timer에 `_seconds`, Counter에 `_total`을 붙이므로, 이름에 단위를 넣으면 `api_latency_ms_seconds`처럼 중복된다.== 단위는 `baseUnit()`으로 전달한다.
 
 ## 코드
 
@@ -148,7 +148,7 @@ public class MetricsConfig {
 
 ## 실무에서 걸리는 지점
 
-- **Counter로 감소를 표현하려는 시도.** `increment(-1)`은 반영되지 않는다. `orders.cancelled` Counter를 따로 두거나 Gauge를 쓴다.
+- **Counter로 감소를 표현하려는 시도.** ==`increment(-1)`은 반영되지 않는다.== `orders.cancelled` Counter를 따로 두거나 Gauge를 쓴다.
 - **같은 이름에 다른 타입 등록.** `orders.total`을 Counter와 Gauge로 함께 등록하면 `IllegalArgumentException`이 난다. 이름에 성격을 담아 구분한다.
 - **수동 시간 계산.** `System.currentTimeMillis()` 차이를 넘기면 예외 경로에서 기록이 빠진다. `timer.record(Runnable)`에 맡기고, `Timer.Sample`의 `stop()`은 `finally`에서 호출한다.
 - **404·봇 트래픽이 만드는 시계열.** 스캐너가 두드린 raw 경로가 uri 태그에 쌓인다. `replaceTagValues`로 fallback 값에 모으거나 `maximumAllowableTags`로 상한을 걸되, 상한은 초과분을 버리는 2차 방어선이다.

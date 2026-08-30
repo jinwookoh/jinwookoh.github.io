@@ -24,11 +24,11 @@
   <h1>RAG·Hybrid Search</h1>
   <p class="summary">BM25와 kNN을 RRF로 결합하고 reranker로 다시 정렬해 LLM에 넘기는 RAG 검색 단계를 Elasticsearch 한 쿼리로 구성한다</p>
   <div class="content">
-<p>kNN만으로 RAG의 retrieval을 구성하면 두 곳에서 구멍이 난다. 고유명사·약어·모델명처럼 문자 매칭이 결정적인 질의에서 벡터는 의미가 비슷한 이웃 문서까지 끌어온다. &quot;GPT-4 Turbo&quot;를 찾는데 &quot;GPT-4o&quot;가 섞이는 식이다. 또 kNN 상위 N개가 답을 담은 청크를 앞 순위에 두었다는 보장이 없어, 그대로 LLM에 넣으면 컨텍스트 낭비와 오답이 늘어난다. <mark>전자는 BM25를 결합한 Hybrid Search로, 후자는 cross-encoder Reranking으로 메우며, Elasticsearch 8.x는 둘을 <code>retriever</code> API와 inference endpoint로 서버 안에서 처리한다.</mark></p>
+<p>kNN만으로 RAG의 retrieval을 구성하면 두 곳에서 구멍이 난다. 고유명사·약어·모델명처럼 문자 매칭이 결정적인 질의에서 벡터는 의미가 비슷한 이웃 문서까지 끌어온다. &quot;GPT-4 Turbo&quot;를 찾는데 &quot;GPT-4o&quot;가 섞이는 식이다. 또 kNN 상위 N개가 답을 담은 청크를 앞 순위에 두었다는 보장이 없어, 그대로 LLM에 넣으면 컨텍스트 낭비와 오답이 늘어난다. 전자는 BM25를 결합한 Hybrid Search로, 후자는 cross-encoder Reranking으로 메우며, Elasticsearch 8.x는 둘을 <code>retriever</code> API와 inference endpoint로 서버 안에서 처리한다.</p>
 <h2>핵심 개념</h2>
 <p>RAG(Retrieval-Augmented Generation)는 세 단계로 나뉜다. 인덱싱은 오프라인 배치로 문서를 chunking하고 임베딩해 텍스트와 벡터를 함께 저장한다. Retrieval은 질의를 같은 임베딩 모델로 변환해 상위 N개 청크를 수십 ms 안에 가져온다. Generation은 그 청크를 컨텍스트로 LLM을 호출하며 지연의 대부분을 차지한다. Elasticsearch의 범위는 두 번째 단계다.</p>
 <p>Chunking은 임베딩 모델의 입력 길이 한도와 retrieval 정밀도 때문에 필요하다. 고정 길이로 자르면 문장이 끊기므로 문장 단위로 분리한 뒤 목표 길이까지 모으고 청크 사이에 50<del>100자 overlap을 둔다. 한국어는 종결어미 변형이 많고 문장이 길어 kss 같은 문장 분리기를 쓴다. 표와 코드 블록은 한 덩어리로 유지하고 한 청크는 한 주제만 다루도록 300</del>800자로 잡는다.</p>
-<p>Hybrid Search는 BM25와 kNN 결과를 Reciprocal Rank Fusion으로 합친다. RRF는 점수가 아니라 순위를 써서 각 목록의 문서에 <code>1/(k + rank)</code>를 부여하고 합산하며 k는 보통 60이다. <mark>BM25 점수는 0에서 수십, cosine은 0에서 1이라 그대로 더하면 한쪽이 묻히지만 순위만 보면 정규화가 필요 없다.</mark> <code>rrf</code> retriever의 <code>rank_constant</code>가 이 k다.</p>
+<p>Hybrid Search는 BM25와 kNN 결과를 Reciprocal Rank Fusion으로 합친다. RRF는 점수가 아니라 순위를 써서 각 목록의 문서에 <code>1/(k + rank)</code>를 부여하고 합산하며 k는 보통 60이다. BM25 점수는 0에서 수십, cosine은 0에서 1이라 그대로 더하면 한쪽이 묻히지만 순위만 보면 정규화가 필요 없다. <code>rrf</code> retriever의 <code>rank_constant</code>가 이 k다.</p>
 <p>Reranking은 bi-encoder와 cross-encoder의 역할 분담이다. 임베딩 모델은 질의와 문서를 따로 벡터화하는 bi-encoder라 빠르지만 정밀도에 한계가 있고, reranker는 둘을 함께 입력해 관련도를 직접 산출하는 cross-encoder라 정확하지만 느리다. 그래서 50개를 retrieve한 뒤 상위 5개를 rerank하며, <code>text_similarity_reranker</code> retriever가 이 단계를 검색 요청 안에 포함시킨다.</p>
 <p>Inference endpoint는 임베딩과 reranker 호출을 Elasticsearch 안으로 옮긴다. ingest pipeline의 <code>inference</code> processor가 색인 시 벡터를 채우고, 검색 시에는 <code>query_vector_builder</code>가 질의를 벡터로 바꾼다. 외부 API의 재시도·rate limit·오류 처리를 앱에서 짤 필요가 없어진다.</p>
 <p>ELSER는 Elastic의 sparse 임베딩 모델로, 문서를 의미 있는 수십~수백 토큰만 값을 가지는 토큰-점수 맵으로 표현하고 역색인으로 검색한다. 라벨 데이터 없이 바로 쓸 수 있지만 한국어 품질은 약하다. 한국어 RAG는 다국어 dense 모델(Cohere embed-v3, bge-m3)이 1순위이고, 영어 RAG는 ELSER와 dense의 hybrid가 표준이다.</p>
@@ -159,8 +159,8 @@ PUT _inference/rerank/cohere-rerank
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><mark>문서 임베딩과 질의 임베딩의 모델이 다르면 차원이 같아도 벡터 공간이 달라 검색이 무너진다.</mark> 모델 교체는 전체 재색인이며, <code>dense_vector.dims</code>를 고정하면 차원 불일치는 색인 시 오류로 잡힌다.</li>
-<li>한국어를 standard analyzer로 색인하면 BM25가 어절 단위로만 매칭되어 hybrid의 BM25 기여가 거의 0이 되고 결과가 순수 kNN과 같아진다. <code>nori_tokenizer</code>와 사용자 사전을 먼저 적용한다.</li>
-<li><code>rank_constant</code> 60을 그대로 쓰면 BM25와 kNN의 영향력이 동등해서 법률·의료처럼 용어가 결정적인 도메인에서 키워드 매칭이 묻힌다. BM25 retriever에 boost를 주거나 8.13+의 <code>linear</code> retriever로 가중 합산을 명시한다.</li>
+<li><mark>한국어를 standard analyzer로 색인하면 BM25가 어절 단위로만 매칭되어 hybrid의 BM25 기여가 거의 0이 되고 결과가 순수 kNN과 같아진다.</mark> <code>nori_tokenizer</code>와 사용자 사전을 먼저 적용한다.</li>
+<li><mark><code>rank_constant</code> 60을 그대로 쓰면 BM25와 kNN의 영향력이 동등해서 법률·의료처럼 용어가 결정적인 도메인에서 키워드 매칭이 묻힌다.</mark> BM25 retriever에 boost를 주거나 8.13+의 <code>linear</code> retriever로 가중 합산을 명시한다.</li>
 <li>Retrieval 상위 10개를 그대로 LLM에 넣으면 수만 토큰이 되어 context window를 넘긴다. Reranker로 5개 내외로 압축하고, 응답에 청크 번호를 인용하게 해 원본으로 역추적할 수 있게 한다.</li>
 <li>평가 셋 없이 체감으로 튜닝하면 회귀를 잡을 수 없다. analyzer·임베딩 모델·reranker·boost 값이 바뀔 때마다 <code>_rank_eval</code>을 CI에서 돌려 NDCG 변동을 확인한다.</li>
 </ul>

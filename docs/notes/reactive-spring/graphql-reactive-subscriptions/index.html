@@ -24,7 +24,7 @@
   <h1>GraphQL — 리액티브 통합과 Subscription</h1>
   <p class="summary">Spring for GraphQL은 Mono/Flux 반환을 그대로 처리하며, Subscription은 Flux 하나와 Sinks·Pub/Sub 조합으로 실시간 스트림이 된다</p>
   <div class="content">
-<p>GraphQL 리졸버가 동기 값만 반환하면 R2DBC·Reactive Redis·WebClient로 얻은 <code>Mono</code>를 매번 <code>block()</code>으로 풀어야 하고, 이벤트 루프가 막혀 WebFlux의 처리량 이점이 사라진다. 알림·채팅·시세처럼 서버가 먼저 데이터를 밀어야 하는 요구는 Query·Mutation만으로는 폴링밖에 답이 없다. <mark>Spring for GraphQL은 리졸버가 <code>Mono</code>·<code>Flux</code>를 반환하면 구독과 응답 조립을 대신 처리하고, <code>Subscription</code> 타입을 <code>Flux</code> 하나로 WebSocket·SSE 스트림에 연결한다.</mark></p>
+<p>GraphQL 리졸버가 동기 값만 반환하면 R2DBC·Reactive Redis·WebClient로 얻은 <code>Mono</code>를 매번 <code>block()</code>으로 풀어야 하고, 이벤트 루프가 막혀 WebFlux의 처리량 이점이 사라진다. 알림·채팅·시세처럼 서버가 먼저 데이터를 밀어야 하는 요구는 Query·Mutation만으로는 폴링밖에 답이 없다. Spring for GraphQL은 리졸버가 <code>Mono</code>·<code>Flux</code>를 반환하면 구독과 응답 조립을 대신 처리하고, <code>Subscription</code> 타입을 <code>Flux</code> 하나로 WebSocket·SSE 스트림에 연결한다.</p>
 <h2>핵심 개념</h2>
 <h3>Mono/Flux 반환</h3>
 <p><code>@QueryMapping</code>·<code>@SchemaMapping</code>·<code>@MutationMapping</code> 메서드는 <code>Mono&lt;T&gt;</code>, <code>Flux&lt;T&gt;</code>, <code>Mono&lt;List&lt;T&gt;&gt;</code> 중 무엇을 반환해도 된다. 리스트 필드에 <code>Flux&lt;T&gt;</code>를 반환하면 엔진이 완료까지 모아 배열로 직렬화한다. 의존 관계가 있는 호출은 <code>flatMap</code>으로 잇고, 독립인 호출은 <code>Mono.zip</code>으로 동시에 실행한다. <code>@BatchMapping</code>도 <code>Mono&lt;Map&lt;K, V&gt;&gt;</code>를 반환할 수 있어 N+1 해소가 논블로킹으로 이루어진다.</p>
@@ -191,11 +191,11 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>block()</code> 혼입.</strong> <mark>한 곳만 <code>block()</code>을 호출해도 Netty 이벤트 루프가 멈춘다.</mark> 블로킹 라이브러리를 피할 수 없다면 <code>Schedulers.boundedElastic()</code>으로 격리하거나 Spring MVC + Virtual Thread를 택한다.</li>
-<li><strong>트랜잭션 경계.</strong> R2DBC의 <code>@Transactional</code>은 <code>TransactionalOperator</code>로 동작하지만 MongoDB·Redis·Kafka와 묶이지 않는다. DB 저장과 이벤트 발행을 한 Mutation에서 하면 롤백 후에도 이벤트가 나갈 수 있으므로 Outbox 패턴으로 분리한다.</li>
+<li><strong><code>block()</code> 혼입.</strong> 한 곳만 <code>block()</code>을 호출해도 Netty 이벤트 루프가 멈춘다. 블로킹 라이브러리를 피할 수 없다면 <code>Schedulers.boundedElastic()</code>으로 격리하거나 Spring MVC + Virtual Thread를 택한다.</li>
+<li><strong>트랜잭션 경계.</strong> R2DBC의 <code>@Transactional</code>은 <code>TransactionalOperator</code>로 동작하지만 MongoDB·Redis·Kafka와 묶이지 않는다. <mark>DB 저장과 이벤트 발행을 한 Mutation에서 하면 롤백 후에도 이벤트가 나갈 수 있으므로 Outbox 패턴으로 분리한다.</mark></li>
 <li><strong><code>tryEmitNext</code> 실패 무시.</strong> 버퍼가 차거나 동시 emit이 겹치면 <code>EmitResult</code>가 실패로 돌아오는데, 반환값을 버리면 이벤트가 조용히 사라진다. 결과를 검사하거나 <code>emitNext</code>에 <code>EmitFailureHandler</code>를 지정한다.</li>
 <li><strong>구독 인증.</strong> WebSocket은 HTTP 헤더를 연결 시 한 번만 전달하므로 <code>ConnectionInit</code> 페이로드의 토큰을 <code>WebSocketGraphQlInterceptor</code>에서 검증한다. 다른 사용자의 방을 인자로 넘기는 경우는 리졸버의 <code>filter</code>나 <code>@PreAuthorize</code>로 메시지 단위 권한을 다시 확인해야 막힌다.</li>
-<li><strong>연결 수와 메모리.</strong> 구독당 수 KB라 WebSocket 수만 개는 가능하지만 <code>replay</code> Sink와 큰 버퍼는 구독자 수만큼 곱해져 힙을 누른다. <code>take(Duration)</code>으로 유휴 구독을 정리하고, 방 Sink 맵은 마지막 구독자가 떠날 때 제거하지 않으면 누수가 된다.</li>
+<li><strong>연결 수와 메모리.</strong> 구독당 수 KB라 WebSocket 수만 개는 가능하지만 <code>replay</code> Sink와 큰 버퍼는 구독자 수만큼 곱해져 힙을 누른다. <code>take(Duration)</code>으로 유휴 구독을 정리하고, <mark>방 Sink 맵은 마지막 구독자가 떠날 때 제거하지 않으면 누수가 된다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

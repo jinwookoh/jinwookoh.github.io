@@ -96,15 +96,15 @@ public Flux<Long> batchSave(Flux<Order> orders) {
 
 ## 실무에서 걸리는 지점
 
-**flatMap의 순서 뒤섞임과 동시성 폭주.** 결제·이벤트 적재처럼 순서가 의미 있는 처리에 `flatMap`을 쓰면 결과가 뒤섞인다. 순서가 필요하면 `concatMap`, 순서는 지키되 내부 구독은 동시에 하려면 `flatMapSequential`을 쓴다. 기본 동시성 256을 외부 API 호출에 그대로 두면 연결이 폭주하므로 `flatMap(fn, concurrency)`로 상한을 명시한다.
+**flatMap의 순서 뒤섞임과 동시성 폭주.** 결제·이벤트 적재처럼 순서가 의미 있는 처리에 `flatMap`을 쓰면 결과가 뒤섞인다. 순서가 필요하면 `concatMap`, 순서는 지키되 내부 구독은 동시에 하려면 `flatMapSequential`을 쓴다. ==기본 동시성 256을 외부 API 호출에 그대로 두면 연결이 폭주하므로 `flatMap(fn, concurrency)`로 상한을 명시한다.==
 
-**zip의 조용한 유실.** `zip`은 가장 짧은 소스가 끝나는 순간 완료되어 남은 아이템은 버려진다. `Mono.zip`은 하나라도 empty이면 결과 전체가 empty가 되므로 선택적 데이터에는 `defaultIfEmpty`를 먼저 붙인다.
+**zip의 조용한 유실.** ==`zip`은 가장 짧은 소스가 끝나는 순간 완료되어 남은 아이템은 버려진다.== `Mono.zip`은 하나라도 empty이면 결과 전체가 empty가 되므로 선택적 데이터에는 `defaultIfEmpty`를 먼저 붙인다.
 
-**에러 전파 범위.** `merge` 중 한 소스가 에러를 내면 나머지 소스는 즉시 취소되고, `concat`은 에러 이후 소스를 구독하지 않는다. 에러를 마지막에 받으려면 `concatDelayError`·`mergeDelayError`를, 소스 단위 격리가 필요하면 결합 전에 각 소스에 `onErrorResume`을 붙인다.
+**에러 전파 범위.** ==`merge` 중 한 소스가 에러를 내면 나머지 소스는 즉시 취소되고, `concat`은 에러 이후 소스를 구독하지 않는다.== 에러를 마지막에 받으려면 `concatDelayError`·`mergeDelayError`를, 소스 단위 격리가 필요하면 결합 전에 각 소스에 `onErrorResume`을 붙인다.
 
 **buffer(n)의 마지막 배치와 무한 대기.** 스트림이 완료되면 n개 미만인 마지막 배치도 방출되므로 배치 크기를 고정값으로 가정하면 안 된다. 완료되지 않는 스트림에서는 n개가 찰 때까지 마지막 배치가 나오지 않으므로 `bufferTimeout`을 쓴다. `buffer(Duration)`은 구간에 아이템이 없으면 빈 리스트를 방출한다.
 
-**groupBy의 카디널리티와 미구독 그룹.** 키마다 `GroupedFlux`가 생기므로 무한 스트림에서 고유 키를 쓰면 그룹이 누적되어 메모리가 고갈된다. 그룹을 구독하지 않으면 내부 prefetch가 차면서 상류가 멈춘다. 키는 상태·카테고리처럼 유한한 값으로 제한하고, 무한 스트림에서는 그룹마다 `take`나 `buffer`로 경계를 둔다.
+**groupBy의 카디널리티와 미구독 그룹.** 키마다 `GroupedFlux`가 생기므로 무한 스트림에서 고유 키를 쓰면 그룹이 누적되어 메모리가 고갈된다. ==그룹을 구독하지 않으면 내부 prefetch가 차면서 상류가 멈춘다.== 키는 상태·카테고리처럼 유한한 값으로 제한하고, 무한 스트림에서는 그룹마다 `take`나 `buffer`로 경계를 둔다.
 
 ## 관련 글
 

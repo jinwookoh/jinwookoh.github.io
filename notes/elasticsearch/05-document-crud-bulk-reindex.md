@@ -15,11 +15,11 @@ Elasticsearch의 문서 API는 RDBMS의 INSERT·UPDATE·DELETE와 이름이 같�
 
 ### RDBMS와 다른 점
 
-검색은 **near-realtime**이다. 색인된 문서는 `refresh_interval`(기본 1초)마다 segment로 내려가며 그 전에는 `_search`에 잡히지 않는다. 반면 Get API는 translog를 읽으므로 refresh와 무관하게 최신 값을 돌려준다.
+검색은 **near-realtime**이다. 색인된 문서는 `refresh_interval`(기본 1초)마다 segment로 내려가며 그 전에는 `_search`에 잡히지 않는다. ==반면 Get API는 translog를 읽으므로 refresh와 무관하게 최신 값을 돌려준다.==
 
 segment는 불변이므로 **in-place update가 없다**. `_update`는 원본 조회 → 병합 → 재색인 → 옛 문서 tombstone 순서로 동작하고, 삭제된 공간은 segment merge 때 회수된다.
 
-락 대신 **Optimistic Concurrency Control**을 쓴다. 모든 문서는 `_seq_no`(primary shard 안에서 단조 증가하는 일련번호)와 `_primary_term`(primary 재선출마다 증가하는 임기 번호)을 가진다. `if_seq_no`·`if_primary_term`을 붙인 쓰기는 두 값이 일치할 때만 반영되고, 아니면 409 `version_conflict_engine_exception`이 돌아온다. `_version` 단독 조건부 쓰기는 primary 교체 시 정확하지 않아 8.x에서 권장되지 않는다. `version_type=external`은 외부 순번이 저장된 값보다 클 때만 받아들이므로 CDC에서 늦게 도착한 옛 이벤트가 최신 데이터를 덮는 사고를 막는다.
+락 대신 **Optimistic Concurrency Control**을 쓴다. 모든 문서는 `_seq_no`(primary shard 안에서 단조 증가하는 일련번호)와 `_primary_term`(primary 재선출마다 증가하는 임기 번호)을 가진다. `if_seq_no`·`if_primary_term`을 붙인 쓰기는 두 값이 일치할 때만 반영되고, 아니면 409 `version_conflict_engine_exception`이 돌아온다. `_version` 단독 조건부 쓰기는 primary 교체 시 정확하지 않아 8.x에서 권장되지 않는다. ==`version_type=external`은 외부 순번이 저장된 값보다 클 때만 받아들이므로 CDC에서 늦게 도착한 옛 이벤트가 최신 데이터를 덮는 사고를 막는다.==
 
 ### 단건 API
 
@@ -29,7 +29,7 @@ segment는 불변이므로 **in-place update가 없다**. `_update`는 원본 �
 
 본문은 **NDJSON**이다. action 라인과 source 라인이 짝을 이루고, 마지막 줄도 `\n`으로 끝나야 하며, `Content-Type: application/x-ndjson`을 보낸다. action은 `index`(upsert, 멱등), `create`(중복 시 항목 단위 409), `update`(부분 갱신), `delete`(source 라인 없음) 네 가지다.
 
-요청 크기는 건수가 아니라 **바이트**로 잡으며 권장은 요청당 5~15MB다. 응답은 HTTP 200이어도 **부분 실패**를 담을 수 있으므로 `errors`가 true면 `items`를 순회해 각 `status`를 본다. 4xx는 재시도 대상이 아니고, 429(write thread pool 큐 포화)와 503은 backoff 후 재시도한다.
+==요청 크기는 건수가 아니라 **바이트**로 잡으며 권장은 요청당 5~15MB다.== 응답은 HTTP 200이어도 **부분 실패**를 담을 수 있으므로 `errors`가 true면 `items`를 순회해 각 `status`를 본다. 4xx는 재시도 대상이 아니고, 429(write thread pool 큐 포화)와 503은 backoff 후 재시도한다.
 
 ### Reindex·by-query
 
@@ -169,7 +169,7 @@ public void decreaseStock(String productId, int qty) throws IOException {
 ## 실무에서 걸리는 지점
 
 - **`refresh=true`를 운영에 끌고 오는 경우.** 요청마다 segment가 생기고 merge가 CPU를 점유해 검색 지연이 수십 배로 뛴다. 즉시 조회는 `wait_for` 또는 Get API로 풀고, `true`는 테스트로 한정한다.
-- **부분 실패를 예외로 잡으려는 코드.** Bulk는 항목이 실패해도 예외를 던지지 않는다. `errors()` 검사와 `items()` 순회가 필수다.
+- **부분 실패를 예외로 잡으려는 코드.** ==Bulk는 항목이 실패해도 예외를 던지지 않는다.== `errors()` 검사와 `items()` 순회가 필수다.
 - **4xx와 5xx를 같은 재시도 큐에 넣는 경우.** `create`의 409는 정상 케이스이고 400은 매핑 버그라 재시도해도 결과가 같다. 429·503만 exponential backoff로 재시도하고, 429를 받으면 동시 요청 수를 줄인다.
 - **초기 적재와 운영 설정을 구분하지 않는 경우.** `refresh_interval: -1`, `number_of_replicas: 0`은 적재 처리량을 수 배 올리지만 운영 인덱스에 적용하면 가용성이 사라진다. 신규 인덱스에만 쓰고 완료 후 원복한다.
 - **카운터를 script update로 처리하는 경우.** 같은 문서에 요청이 몰리면 409가 폭증한다. 경합이 큰 값은 Redis에 두고 집계 결과만 반영한다.

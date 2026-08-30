@@ -27,7 +27,7 @@ Reactive Streams 명세는 네 인터페이스만 정의한다. 이것만으로 
 
 Flux는 `just`·`fromIterable`·`fromArray`가 정적 값, `range(start, count)`가 연속 정수, `interval(Duration)`이 parallel 스케줄러에서 주기적 Long 값을 낸다. `range`의 두 번째 인자는 개수다. `fromStream`에는 재구독을 위해 `list::stream`처럼 Supplier를 넘긴다. 동적 생성은 `generate`(`SynchronousSink`, 호출당 `next` 한 번, 상태 전달)·`create`(`FluxSink`, 다중 방출, 멀티스레드 안전)·`push`(`create`와 같되 단일 스레드 전용)로 나뉜다.
 
-`map`은 동기 1:1 변환, `flatMap`은 함수가 반환한 Publisher를 구독해 평탄화한다. `map` 안에서 `Mono`를 반환하면 `Mono<Mono<T>>`가 되어 내부 Mono가 구독되지 않는다. `zipWith`는 두 Mono를 동시에 구독해 결합하며 한쪽이 empty면 전체가 empty다.
+`map`은 동기 1:1 변환, `flatMap`은 함수가 반환한 Publisher를 구독해 평탄화한다. `map` 안에서 `Mono`를 반환하면 `Mono<Mono<T>>`가 되어 내부 Mono가 구독되지 않는다. ==`zipWith`는 두 Mono를 동시에 구독해 결합하며 한쪽이 empty면 전체가 empty다.==
 
 에러는 던지지 않고 신호로 다룬다. `onErrorReturn`은 값으로 대체해 정상 완료로 바꾸고, `onErrorResume`은 대체 Publisher로 전환하며, `onErrorMap`은 타입만 바꾸고 에러를 계속 흘린다. `switchIfEmpty`·`defaultIfEmpty`는 빈 완료를 대체한다. 타입 변환은 `mono.flux()`, `flux.next()`, `flux.collectList()`를 쓴다.
 
@@ -141,8 +141,8 @@ class ProductController {
 ## 실무에서 걸리는 지점
 
 - **이벤트 루프 안의 `block()`.** 핸들러나 연산자 내부에서 `block()`을 호출하면 결과를 만들 스레드가 자기 자신이라 데드락이 난다. 테스트와 main 최외곽에서만 허용하고, 블로킹 I/O는 `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`으로 격리한다.
-- **`Mono.just`에 무거운 호출.** `Mono.just(blockingQuery())`는 생성 시점에 실행되어 재시도·조건부 실행이 동작하지 않는다. `fromSupplier`·`fromCallable`·`defer`를 기본으로 쓴다.
-- **구독되지 않은 파이프라인.** `void` 메서드에서 `repository.deleteById(id)`만 호출하면 실행되지 않는다. 리액티브 타입을 끝까지 반환한다.
+- **`Mono.just`에 무거운 호출.** ==`Mono.just(blockingQuery())`는 생성 시점에 실행되어 재시도·조건부 실행이 동작하지 않는다.== `fromSupplier`·`fromCallable`·`defer`를 기본으로 쓴다.
+- **구독되지 않은 파이프라인.** ==`void` 메서드에서 `repository.deleteById(id)`만 호출하면 실행되지 않는다.== 리액티브 타입을 끝까지 반환한다.
 - **`interval`과 프로세스 종료.** 별도 스레드에서 돌기 때문에 main이 먼저 끝나면 출력이 없다. 테스트는 `StepVerifier` 가상 시간을 쓰고 무한 스트림에는 `take`로 상한을 둔다.
 - **`generate`·`create` 계약 위반.** `generate`에서 `next`를 두 번 호출하면 `IllegalStateException`, `create`에서 `complete()`를 빠뜨리면 요청이 끝나지 않는다. `create`에는 `OverflowStrategy`를 명시한다.
 

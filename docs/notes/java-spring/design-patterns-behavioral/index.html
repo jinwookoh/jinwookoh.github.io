@@ -24,7 +24,7 @@
   <h1>디자인 패턴 — 행위·조합</h1>
   <p class="summary">행위 패턴 9가지의 역할 분담 원칙과 Observer·Strategy·Mediator를 한 시스템에 조합하는 기준을 정리한다</p>
   <div class="content">
-<p>객체 생성과 구조를 정리해도 객체 사이의 통신과 책임 분배를 규칙 없이 두면 문제가 남는다. 결제 방식이 늘 때마다 <code>if-else</code> 분기가 자라고, 상태 변경을 알려야 할 대상이 늘 때마다 호출 코드가 흩어지며, 객체들이 서로를 직접 참조하면서 N×N 결합이 만들어진다. 한 클래스 수정이 여러 클래스에 번지고 테스트 격리도 어려워진다. <mark>GoF 행위 패턴은 이 문제에 대한 답이고, 실제 시스템에서는 여러 패턴이 동시에 결합된 형태로 나타난다.</mark></p>
+<p>객체 생성과 구조를 정리해도 객체 사이의 통신과 책임 분배를 규칙 없이 두면 문제가 남는다. 결제 방식이 늘 때마다 <code>if-else</code> 분기가 자라고, 상태 변경을 알려야 할 대상이 늘 때마다 호출 코드가 흩어지며, 객체들이 서로를 직접 참조하면서 N×N 결합이 만들어진다. 한 클래스 수정이 여러 클래스에 번지고 테스트 격리도 어려워진다. GoF 행위 패턴은 이 문제에 대한 답이고, 실제 시스템에서는 여러 패턴이 동시에 결합된 형태로 나타난다.</p>
 <h2>핵심 개념</h2>
 <p>행위 패턴 중 자주 쓰는 아홉 가지는 다음처럼 구분한다.</p>
 <table>
@@ -169,12 +169,12 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><mark><strong>Observer 재진입 루프.</strong> 리스너 안에서 Subject 상태를 다시 바꾸면 통지가 재귀적으로 발생한다.</mark> 커밋 이후 처리해야 하는 리스너는 <code>@TransactionalEventListener</code>로 분리한다.</li>
+<li><strong>Observer 재진입 루프.</strong> 리스너 안에서 Subject 상태를 다시 바꾸면 통지가 재귀적으로 발생한다. 커밋 이후 처리해야 하는 리스너는 <code>@TransactionalEventListener</code>로 분리한다.</li>
 <li><strong>Mediator의 God Object화.</strong> 모든 통신이 중재자를 지나면 비즈니스 로직까지 그곳으로 모인다. 중재자는 라우팅과 조정만 맡고 도메인 규칙은 각 Colleague에 둔다.</li>
 <li><strong>Command·Memento의 비용.</strong> 단순 호출까지 Command로 감싸면 클래스 수가 폭발하고, 모든 변경마다 Memento를 저장하면 메모리가 무한히 자란다. undo·큐잉·로깅 요구가 있을 때만 도입하고 히스토리는 <code>ArrayDeque</code>로 크기를 제한한다.</li>
 <li><strong>Iterator 순회 중 수정.</strong> <code>for-each</code> 안에서 컬렉션을 수정하면 <code>ConcurrentModificationException</code>이 발생한다. <code>Iterator.remove()</code>나 <code>removeIf()</code>를 쓴다.</li>
-<li><strong>Chain의 종단 처리 누락.</strong> 끝까지 처리자가 없을 때의 동작을 정의하지 않으면 요청이 조용히 사라진다. 기본 처리자를 두거나 예외를 던지고, 처리한 핸들러를 로그에 남긴다.</li>
-<li><mark><strong>패턴 과잉 적용.</strong> 변경 가능성이 없는 코드에 패턴을 먼저 넣으면 오버엔지니어링이 된다.</mark> 큰 <code>if-else</code>, 흩어진 <code>new</code>, 강한 참조망 같은 코드 냄새가 보일 때 그 부분부터 점진적으로 리팩토링한다.</li>
+<li><strong>Chain의 종단 처리 누락.</strong> <mark>끝까지 처리자가 없을 때의 동작을 정의하지 않으면 요청이 조용히 사라진다.</mark> 기본 처리자를 두거나 예외를 던지고, 처리한 핸들러를 로그에 남긴다.</li>
+<li><strong>패턴 과잉 적용.</strong> 변경 가능성이 없는 코드에 패턴을 먼저 넣으면 오버엔지니어링이 된다. 큰 <code>if-else</code>, 흩어진 <code>new</code>, 강한 참조망 같은 코드 냄새가 보일 때 그 부분부터 점진적으로 리팩토링한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

@@ -15,7 +15,7 @@ updated: 2026-08-29
 
 의존성은 `spring-boot-starter-data-elasticsearch` 하나다. Spring Boot 3.x 기준 Spring Data Elasticsearch 5.x와 `elasticsearch-java`가 함께 들어오며, 서버 버전과의 호환 범위는 공식 호환표로 맞춘다. `spring.elasticsearch.uris`, `username`, `password`를 설정하면 자동 구성이 `ElasticsearchClient`, `ElasticsearchOperations`(구현체 `ElasticsearchTemplate`), Repository를 등록한다.
 
-매핑은 `@Document(indexName)`이 클래스를 인덱스에, `@Field(type, analyzer, format)`이 필드 타입에, `@Id`가 `_id`에 대응한다. `@MultiField`와 `@InnerField`로 `name.keyword` 같은 하위 필드를 만들고, custom analyzer나 synonym은 `@Setting`, `@Mapping`으로 JSON 파일을 읽는다. `createIndex`는 기본값이 `true`라 기동 시 인덱스를 자동 생성하는데, 운영에서는 검토되지 않은 매핑이 들어가는 경로가 되므로 `false`로 잠그고 `IndexOperations`나 마이그레이션 스크립트로 만든다.
+매핑은 `@Document(indexName)`이 클래스를 인덱스에, `@Field(type, analyzer, format)`이 필드 타입에, `@Id`가 `_id`에 대응한다. `@MultiField`와 `@InnerField`로 `name.keyword` 같은 하위 필드를 만들고, custom analyzer나 synonym은 `@Setting`, `@Mapping`으로 JSON 파일을 읽는다. ==`createIndex`는 기본값이 `true`라 기동 시 인덱스를 자동 생성하는데==, 운영에서는 검토되지 않은 매핑이 들어가는 경로가 되므로 `false`로 잠그고 `IndexOperations`나 마이그레이션 스크립트로 만든다.
 
 쿼리 작성 수단은 네 가지이며 조건의 복잡도와 동적 여부로 고른다.
 
@@ -114,11 +114,11 @@ public class ProductSearchService {
 
 ## 실무에서 걸리는 지점
 
-RefreshPolicy 누수. `save`의 기본 정책은 `NONE`이며, 테스트 편의로 걸어 둔 `IMMEDIATE`가 운영 빌드에 섞이면 색인마다 refresh가 돌아 처리량이 급감한다. 운영은 `NONE` 또는 `WAIT_UNTIL`만 쓰고 `IMMEDIATE`는 `@TestConfiguration`으로 격리한다.
+RefreshPolicy 누수. ==`save`의 기본 정책은 `NONE`이며, 테스트 편의로 걸어 둔 `IMMEDIATE`가 운영 빌드에 섞이면 색인마다 refresh가 돌아 처리량이 급감한다.== 운영은 `NONE` 또는 `WAIT_UNTIL`만 쓰고 `IMMEDIATE`는 `@TestConfiguration`으로 격리한다.
 
 동적 매핑 의존. `@Field` 타입을 생략하면 첫 문서 값으로 타입이 추론되어 숫자 문자열이 `text`로 잡히고 range 쿼리가 동작하지 않는다. 모든 필드에 타입을 명시하고 `dynamic: strict`로 잠근다.
 
-Auditing 미활성. `@CreatedDate`, `@CreatedBy`는 `@EnableElasticsearchAuditing`이 있어야 동작하며 JPA Auditing만 켜 두면 예외 없이 `null`이 들어간다. Reactive 환경에서는 ThreadLocal 값이 Reactor 체인을 따라가지 않아 `Hooks.enableAutomaticContextPropagation()`이 필요하다.
+Auditing 미활성. ==`@CreatedDate`, `@CreatedBy`는 `@EnableElasticsearchAuditing`이 있어야 동작하며 JPA Auditing만 켜 두면 예외 없이 `null`이 들어간다.== Reactive 환경에서는 ThreadLocal 값이 Reactor 체인을 따라가지 않아 `Hooks.enableAutomaticContextPropagation()`이 필요하다.
 
 매핑 변경과 배포 순서. Rolling deploy 도중 매핑이 다른 인스턴스가 트래픽을 받으면 색인 거부가 사용자 오류로 이어진다. 새 인덱스 생성, reindex, alias 교체 뒤에 코드를 배포하고 `indexName`에는 alias를 적는다.
 

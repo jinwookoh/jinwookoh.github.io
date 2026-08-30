@@ -28,9 +28,9 @@ Scope는 컨테이너가 하나의 Bean 정의로부터 인스턴스를 몇 개 
 
 singleton이 기본인 이유는 비용이다. 서비스·리포지토리·컨트롤러는 상태를 갖지 않는 것이 원칙이므로 객체 하나를 재사용해도 정합성 문제가 없고 GC 부담도 줄어든다. 반대로 singleton Bean에 가변 인스턴스 필드를 두면 모든 스레드가 그 필드를 공유해 race condition이 발생한다. 대응은 우선순위 순으로 상태를 두지 않는다, 불가피하면 `AtomicInteger` 같은 스레드 안전 도구를 쓴다, 호출마다 독립된 상태가 필요하면 prototype으로 바꾼다.
 
-prototype은 `getBean()`이나 주입이 일어날 때마다 새 인스턴스를 만든다. 컨테이너는 생성·주입·초기화 콜백까지만 책임지고 참조를 버리므로 `@PreDestroy`가 호출되지 않으며 자원 정리는 사용하는 쪽의 몫이다.
+prototype은 `getBean()`이나 주입이 일어날 때마다 새 인스턴스를 만든다. ==컨테이너는 생성·주입·초기화 콜백까지만 책임지고 참조를 버리므로 `@PreDestroy`가 호출되지 않으며 자원 정리는 사용하는 쪽의 몫이다.==
 
-singleton이 prototype을 필드로 주입받으면 singleton 생성 시점에 prototype 인스턴스 하나가 고정되어 이후 모든 호출이 같은 객체를 쓴다. 매번 새 객체가 필요하면 `ObjectProvider<T>`, `@Lookup`, JSR-330 `Provider<T>`로 조회 시점을 늦춘다. request·session Scope를 singleton에 주입할 때도 같은 문제가 생기므로 `proxyMode = ScopedProxyMode.TARGET_CLASS`로 프록시를 주입받고 실제 대상은 호출 시점의 요청·세션에서 찾게 한다.
+==singleton이 prototype을 필드로 주입받으면 singleton 생성 시점에 prototype 인스턴스 하나가 고정되어 이후 모든 호출이 같은 객체를 쓴다.== 매번 새 객체가 필요하면 `ObjectProvider<T>`, `@Lookup`, JSR-330 `Provider<T>`로 조회 시점을 늦춘다. request·session Scope를 singleton에 주입할 때도 같은 문제가 생기므로 `proxyMode = ScopedProxyMode.TARGET_CLASS`로 프록시를 주입받고 실제 대상은 호출 시점의 요청·세션에서 찾게 한다.
 
 ### 생명주기 — 생성부터 소멸까지
 
@@ -168,7 +168,7 @@ class ClientConfig {
 
 - singleton 서비스의 가변 필드는 동시 요청 사이에서 값이 섞인다. 요청 단위 데이터는 파라미터와 지역 변수로 흘려보내고, 공유가 필요한 상태만 스레드 안전 자료구조에 둔다.
 - prototype Bean은 `@PreDestroy`가 호출되지 않는다. 커넥션이나 파일 핸들을 여는 prototype Bean은 사용하는 쪽이 직접 닫는다.
-- `@PostConstruct`에서 외부 시스템을 호출하면 기동 시간이 늘고, 그 시스템이 내려가 있으면 기동이 실패한다. 의도된 검증인지 지연 초기화로 넘길 워밍업인지 구분한다.
+- ==`@PostConstruct`에서 외부 시스템을 호출하면 기동 시간이 늘고, 그 시스템이 내려가 있으면 기동이 실패한다.== 의도된 검증인지 지연 초기화로 넘길 워밍업인지 구분한다.
 - `@PreDestroy`는 SIGTERM 이후 종료 과정에서 실행되며 오래 걸리면 종료가 지연된다. 종료 유예 시간 안에 끝나도록 짧게 유지하고, 진행 중 요청의 완료 대기는 Graceful Shutdown 설정에 맡긴다.
 ## 관련 글
 

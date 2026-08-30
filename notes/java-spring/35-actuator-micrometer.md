@@ -15,11 +15,11 @@ updated: 2026-08-29
 
 ### Actuator 엔드포인트와 노출 제어
 
-`spring-boot-starter-actuator` 의존성을 추가하면 `/actuator/*` 경로에 `health`(상태)·`info`(빌드 버전)·`metrics`·`prometheus`·`loggers`(로그 레벨 변경)·`env`·`heapdump` 등이 등록된다. Spring Boot 3.x 기준 웹으로 기본 노출되는 것은 `health` 하나뿐이며, 나머지는 `management.endpoints.web.exposure.include`에 명시해야 열린다. `/health`는 등록된 `HealthIndicator`를 모두 집계하며 DB·Redis·디스크 중 하나라도 DOWN이면 전체가 DOWN이다.
+`spring-boot-starter-actuator` 의존성을 추가하면 `/actuator/*` 경로에 `health`(상태)·`info`(빌드 버전)·`metrics`·`prometheus`·`loggers`(로그 레벨 변경)·`env`·`heapdump` 등이 등록된다. Spring Boot 3.x 기준 웹으로 기본 노출되는 것은 `health` 하나뿐이며, 나머지는 `management.endpoints.web.exposure.include`에 명시해야 열린다. ==`/health`는 등록된 `HealthIndicator`를 모두 집계하며 DB·Redis·디스크 중 하나라도 DOWN이면 전체가 DOWN이다.==
 
 ### Kubernetes 프로브
 
-`management.health.probes.enabled=true`를 켜면 `/actuator/health/liveness`와 `/readiness`가 생긴다. Liveness 실패는 컨테이너 재시작을 유발하고, Readiness 실패는 라우팅에서 제외될 뿐 재시작하지 않는다. Readiness는 초기화가 끝날 때까지 OUT_OF_SERVICE를 유지하므로 DB 연결 대기 같은 일시적 상태는 Readiness에만 반영한다.
+`management.health.probes.enabled=true`를 켜면 `/actuator/health/liveness`와 `/readiness`가 생긴다. ==Liveness 실패는 컨테이너 재시작을 유발하고, Readiness 실패는 라우팅에서 제외될 뿐 재시작하지 않는다.== Readiness는 초기화가 끝날 때까지 OUT_OF_SERVICE를 유지하므로 DB 연결 대기 같은 일시적 상태는 Readiness에만 반영한다.
 
 ### Micrometer와 자동 계측
 
@@ -140,8 +140,8 @@ public class OrderService {
 
 ## 실무에서 걸리는 지점
 
-- **`include: "*"`를 운영에 두는 것.** `/env`는 시크릿을, `/heapdump`는 메모리 전체를 노출한다. `health,info,prometheus`로 제한하고 관리 포트를 분리한다.
-- **`@Timed`·`@Observed`를 붙였는데 메트릭이 없다.** `TimedAspect`·`ObservedAspect` 빈이 없으면 AOP가 연결되지 않고 컴파일 오류도 없다. `http.server.requests`만 잡히는 증상이면 Aspect 빈부터 확인한다.
+- **`include: "*"`를 운영에 두는 것.** ==`/env`는 시크릿을, `/heapdump`는 메모리 전체를 노출한다.== `health,info,prometheus`로 제한하고 관리 포트를 분리한다.
+- **`@Timed`·`@Observed`를 붙였는데 메트릭이 없다.** ==`TimedAspect`·`ObservedAspect` 빈이 없으면 AOP가 연결되지 않고 컴파일 오류도 없다.== `http.server.requests`만 잡히는 증상이면 Aspect 빈부터 확인한다.
 - **`initialDelaySeconds`가 짧으면 재시작 루프에 빠진다.** 기동이 60초 넘게 걸리면 Liveness가 먼저 실패해 컨테이너가 계속 죽는다. `startupProbe`를 두거나 지연을 기동 시간에 맞춘다.
 - **히스토그램을 모든 Timer에 켜면 Prometheus 메모리가 급증한다.** `histogram_quantile()`을 실제로 쓰는 메트릭에만 켜고 `uri` 태그 카디널리티를 `MeterFilter`로 제한한다.
 - **SecurityFilterChain에 `@Order`가 없으면 Actuator 요청이 401을 받는다.** API 체인이 먼저 매칭될 수 있다. `/actuator/loggers` POST는 반드시 인증 뒤에 둔다.

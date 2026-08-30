@@ -25,7 +25,7 @@ JavaScript 클래스는 필드 선언 없이 아무 프로퍼티나 붙일 수 �
 
 TypeScript 5.0부터 ECMAScript 표준(stage 3) 데코레이터를 기본 지원한다. 표준 데코레이터는 `(value, context)`를 받으며 `context.kind`가 `class`·`method`·`field`·`accessor` 등 대상을 알려주고, `context.addInitializer`로 초기화 훅을 등록한다. 반환값이 있으면 원래 멤버를 대체한다.
 
-`experimentalDecorators`를 켜면 이전 방식(legacy)으로 동작한다. legacy는 `(target, propertyKey, descriptor)` 시그니처를 쓰고, 매개변수 데코레이터와 `emitDecoratorMetadata`를 통한 타입 정보 방출(`design:paramtypes`)을 지원한다. 표준 데코레이터에는 둘 다 없다. NestJS 11은 `@Body()` 같은 매개변수 데코레이터와 생성자 타입 기반 DI를 위해 legacy 모드를 요구하며, 두 모드는 공존하지 못한다.
+`experimentalDecorators`를 켜면 이전 방식(legacy)으로 동작한다. legacy는 `(target, propertyKey, descriptor)` 시그니처를 쓰고, 매개변수 데코레이터와 `emitDecoratorMetadata`를 통한 타입 정보 방출(`design:paramtypes`)을 지원한다. 표준 데코레이터에는 둘 다 없다. ==NestJS 11은 `@Body()` 같은 매개변수 데코레이터와 생성자 타입 기반 DI를 위해 legacy 모드를 요구하며, 두 모드는 공존하지 못한다.==
 
 Spring과 대응시키면 클래스 데코레이터는 `@Component` 같은 스테레오타입 애노테이션, 메서드 데코레이터는 `@Transactional` 같은 AOP 애노테이션에 해당한다. 다만 Java 애노테이션은 순수 메타데이터인 반면 TypeScript 데코레이터는 클래스 정의 시점에 실행되는 함수다.
 
@@ -140,8 +140,8 @@ export async function GET(): Promise<NextResponse<UserDto[]>> {
 ## 실무에서 걸리는 지점
 
 - **데코레이터 모드 불일치.** NestJS 프로젝트에서 `experimentalDecorators`를 빼면 `@Injectable()`이 타입 오류를 내고 DI가 동작하지 않는다. 프레임워크가 요구하는 모드로 프로젝트 전체를 통일한다.
-- **`emitDecoratorMetadata`와 타입 전용 import.** DI 컨테이너는 `design:paramtypes`로 생성자 매개변수의 클래스를 읽는다. 의존성을 `import type`으로 가져오거나 인터페이스로 선언하면 메타데이터가 `Object`가 되어 주입이 실패하므로 `@Inject(TOKEN)`으로 토큰을 명시한다.
-- **`useDefineForClassFields`와 필드 초기화 순서.** `target`이 ES2022 이상이면 기본값이 `true`가 되어 필드가 `[[Define]]` 시맨틱으로 초기화된다. 부모 생성자에서 세팅한 값을 자식의 필드 선언이 `undefined`로 덮어쓰며, `declare` 필드 선언으로 회피한다.
+- **`emitDecoratorMetadata`와 타입 전용 import.** DI 컨테이너는 `design:paramtypes`로 생성자 매개변수의 클래스를 읽는다. ==의존성을 `import type`으로 가져오거나 인터페이스로 선언하면 메타데이터가 `Object`가 되어 주입이 실패하므로 `@Inject(TOKEN)`으로 토큰을 명시한다.==
+- **`useDefineForClassFields`와 필드 초기화 순서.** `target`이 ES2022 이상이면 기본값이 `true`가 되어 필드가 `[[Define]]` 시맨틱으로 초기화된다. ==부모 생성자에서 세팅한 값을 자식의 필드 선언이 `undefined`로 덮어쓰며, `declare` 필드 선언으로 회피한다.==
 - **`this` 바인딩 손실.** 메서드를 콜백으로 그대로 넘기면 `this`가 `undefined`가 된다. 화살표 함수 필드는 인스턴스마다 함수를 생성하므로 빈번히 생성되는 클래스에서는 명시적 바인딩을 택한다.
 - **배럴 파일과 순환 의존.** `index.ts`로 재수출을 모으면 순환 의존이 생기기 쉽고, 데코레이터 평가 순서가 꼬여 `undefined` 클래스가 DI에 등록되는 원인이 된다.
 

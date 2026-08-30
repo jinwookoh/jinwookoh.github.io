@@ -137,9 +137,9 @@ elasticsearch:
 
 ## 실무에서 걸리는 지점
 
-- **`X-User-Id` 위장.** 클라이언트가 게이트웨이를 우회해 8081~8083으로 직접 접속하면서 `X-User-Id: 1`을 넣으면 해당 사용자로 위장된다. 운영에서는 서비스 포트를 외부에 노출하지 않고 게이트웨이만 열어야 한다.
-- **Kafka advertised.listeners.** 클라이언트는 최초 접속 후 브로커가 알려준 advertised 주소로 재접속한다. 컨테이너는 `kafka:29092`, 호스트에서 실행한 Spring Boot는 `localhost:9092`를 써야 하며, 주소가 잘못되면 첫 핸드셰이크는 성공하고 두 번째 요청부터 끊기는 증상이 나타난다.
-- **Zookeeper healthcheck.** Confluent 이미지는 `ruok` 4글자 명령을 기본 화이트리스트에서 제외한다. `ruok`로 작성하면 영원히 unhealthy 상태로 남으므로 `srvr` 출력에 `Mode`가 포함되는지로 확인한다.
+- **`X-User-Id` 위장.** ==클라이언트가 게이트웨이를 우회해 8081~8083으로 직접 접속하면서 `X-User-Id: 1`을 넣으면 해당 사용자로 위장된다.== 운영에서는 서비스 포트를 외부에 노출하지 않고 게이트웨이만 열어야 한다.
+- **Kafka advertised.listeners.** 클라이언트는 최초 접속 후 브로커가 알려준 advertised 주소로 재접속한다. 컨테이너는 `kafka:29092`, 호스트에서 실행한 Spring Boot는 `localhost:9092`를 써야 하며, ==주소가 잘못되면 첫 핸드셰이크는 성공하고 두 번째 요청부터 끊기는 증상이 나타난다.==
+- **Zookeeper healthcheck.** ==Confluent 이미지는 `ruok` 4글자 명령을 기본 화이트리스트에서 제외한다.== `ruok`로 작성하면 영원히 unhealthy 상태로 남으므로 `srvr` 출력에 `Mode`가 포함되는지로 확인한다.
 - **Elasticsearch OOM.** 기본 힙이 512MB~1GB라 Docker VM 메모리가 부족하면 exit code 137로 종료된다. 로컬에서 컨테이너 14개를 함께 띄울 때는 힙을 128MB로 제한하되, 운영 값으로 쓰면 안 된다.
 - **게이트웨이 블로킹 호출.** WebFlux 이벤트 루프에서 동기 `StringRedisTemplate`이나 블로킹 HTTP 클라이언트를 호출하면 게이트웨이 전체 처리량이 떨어진다.
 

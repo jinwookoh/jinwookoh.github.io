@@ -13,7 +13,7 @@ updated: 2026-08-29
 
 ## 핵심 개념
 
-Connector 설정의 공통 필수값은 `name`, `connector.class`, `tasks.max`다. `name`은 Sink에서 Consumer Group ID(`connect-<name>`)로 쓰이므로 운영 중 바꾸면 토픽을 처음부터 다시 읽는다. 토픽 지정 키는 Source가 `topic`, Sink가 `topics` 또는 `topics.regex`다.
+Connector 설정의 공통 필수값은 `name`, `connector.class`, `tasks.max`다. ==`name`은 Sink에서 Consumer Group ID(`connect-<name>`)로 쓰이므로 운영 중 바꾸면 토픽을 처음부터 다시 읽는다.== 토픽 지정 키는 Source가 `topic`, Sink가 `topics` 또는 `topics.regex`다.
 
 오프셋 저장 위치도 다르다. Source는 source partition과 source offset을 `connect-offsets` 내부 토픽에 기록하고, Sink는 일반 Consumer Group 오프셋을 쓴다. Sink의 `tasks.max`는 토픽 파티션 수가 상한이고, Source는 외부 시스템이 병렬 읽기를 지원하는 만큼만 유효하다.
 
@@ -170,9 +170,9 @@ public class UpperCaseField<R extends ConnectRecord<R>> implements Transformatio
 ## 실무에서 걸리는 지점
 
 - **plugin.path 구조와 의존성 격리.** `plugin.path`는 Connector 디렉토리들의 부모 경로이며, 각 디렉토리에 의존성 jar까지 들어 있어야 한다. 플러그인별 classloader가 분리되므로 의존성이 빠지면 `ClassNotFoundException`이 나고, `connect-api`를 `provided`가 아닌 스코프로 묶으면 런타임과 충돌한다. 모든 Worker에 같은 플러그인을 설치한다.
-- **Sink의 Exactly-once는 외부 시스템 몫이다.** 외부 쓰기와 오프셋 커밋이 원자적이지 않아 재시작 시 중복 쓰기가 생긴다. JDBC Sink의 `insert.mode=upsert`와 `pk.mode=kafka`처럼 멱등 쓰기를 대상 쪽에서 보장한다. 중첩 필드는 `Flatten` SMT로 평탄화한 뒤 적재한다.
-- **외부 API의 rate limit과 인터럽트.** 외부 API를 호출하는 Source는 `X-RateLimit-Remaining` 헤더를 보고 스스로 쉬어야 하고, `InterruptedException`은 반드시 다시 던져야 Connect가 Task를 종료시킬 수 있다.
-- **비밀값 노출.** `Type.STRING`으로 잡은 토큰은 로그와 REST 응답에 그대로 찍힌다. `Type.PASSWORD`로 정의하고, Connector JSON에서는 ConfigProvider의 `${file:path:key}` 참조로 값을 밖에 둔다.
+- **Sink의 Exactly-once는 외부 시스템 몫이다.** ==외부 쓰기와 오프셋 커밋이 원자적이지 않아 재시작 시 중복 쓰기가 생긴다.== JDBC Sink의 `insert.mode=upsert`와 `pk.mode=kafka`처럼 멱등 쓰기를 대상 쪽에서 보장한다. 중첩 필드는 `Flatten` SMT로 평탄화한 뒤 적재한다.
+- **외부 API의 rate limit과 인터럽트.** 외부 API를 호출하는 Source는 `X-RateLimit-Remaining` 헤더를 보고 스스로 쉬어야 하고, ==`InterruptedException`은 반드시 다시 던져야 Connect가 Task를 종료시킬 수 있다.==
+- **비밀값 노출.** ==`Type.STRING`으로 잡은 토큰은 로그와 REST 응답에 그대로 찍힌다.== `Type.PASSWORD`로 정의하고, Connector JSON에서는 ConfigProvider의 `${file:path:key}` 참조로 값을 밖에 둔다.
 - **Connector RUNNING과 Task FAILED는 별개다.** 상태 점검은 Task 단위까지 내려가야 하고, `errors.tolerance=all`과 DLQ가 없으면 레코드 하나의 실패로 Task가 멈춘다.
 
 ## 관련 글
