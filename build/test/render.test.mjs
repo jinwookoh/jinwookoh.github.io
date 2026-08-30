@@ -37,10 +37,9 @@ test('notes index lists series with post count', () => {
   assert.match(html, /2편/);
 });
 
-test('sitemap lists only the profile; notes are noindex', () => {
+test('sitemap is empty; pages are noindex', () => {
   const xml = renderSitemap({ site, baseUrl: 'https://jinwookoh.github.io' });
-  assert.match(xml, /<loc>https:\/\/jinwookoh\.github\.io\/<\/loc>/);
-  assert.doesNotMatch(xml, /\/notes\//);
+  assert.doesNotMatch(xml, /<loc>/);
   const html = renderPostPage({ site, series, post: series.posts[0], prev: null, next: null });
   assert.match(html, /<meta name="robots" content="noindex, nofollow">/);
 });

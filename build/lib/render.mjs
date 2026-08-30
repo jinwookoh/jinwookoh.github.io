@@ -100,7 +100,7 @@ export function renderNotesIndex({ site }) {
 }
 
 export function renderSitemap({ site, baseUrl }) {
-  // 노트 페이지는 검색 엔진 색인 대상이 아니므로 sitemap에는 프로필만 넣는다.
-  const urls = ['/'];
+  // 사이트 전체가 색인 제외 대상이므로 sitemap은 비워 둔다.
+  const urls = [];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${baseUrl}${u}</loc></url>`).join('\n')}\n</urlset>\n`;
 }
