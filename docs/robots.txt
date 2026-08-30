@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /notes/
+Allow: /
+Sitemap: https://jinwookoh.github.io/sitemap.xml
