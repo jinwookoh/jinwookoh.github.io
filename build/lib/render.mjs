@@ -9,7 +9,18 @@ renderer.code = ({ text, lang }) => {
   const out = hljs.highlight(text, { language: l }).value;
   return `<pre><code class="hljs language-${l}">${out}</code></pre>\n`;
 };
-marked.use({ renderer, gfm: true });
+// ==텍스트== → <mark> (형광펜)
+const highlight = {
+  name: 'highlight',
+  level: 'inline',
+  start(src) { return src.indexOf('=='); },
+  tokenizer(src) {
+    const m = /^==([^=\n](?:[^\n]*?[^=\n])?)==/.exec(src);
+    if (m) return { type: 'highlight', raw: m[0], text: m[1], tokens: this.lexer.inlineTokens(m[1]) };
+  },
+  renderer(token) { return `<mark>${this.parser.parseInline(token.tokens)}</mark>`; },
+};
+marked.use({ renderer, gfm: true, extensions: [highlight] });
 
 export function renderMarkdown(md) {
   return marked.parse(md);
@@ -33,7 +44,7 @@ function layout({ title, description, url, body, crumbs = [] }) {
   <meta property="og:url" content="https://jinwookoh.github.io${url}">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>

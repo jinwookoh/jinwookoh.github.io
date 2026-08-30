@@ -48,6 +48,8 @@ a { color:var(--accent); text-decoration:none; }
 .content table { border-collapse:collapse; width:100%; margin:0 0 18px; font-size:14.5px; display:block; overflow-x:auto; }
 .content th, .content td { border:1px solid var(--line); padding:7px 10px; text-align:left; }
 .content th { background:var(--tag); }
+.content mark { background: linear-gradient(transparent 40%, #fff176 40%, #fff176 92%, transparent 92%); color: inherit; padding: 0 2px; border-radius: 2px; }
+@media (prefers-color-scheme: dark) { .content mark { background: linear-gradient(transparent 40%, rgba(255,213,0,.45) 40%, rgba(255,213,0,.45) 92%, transparent 92%); } }
 .content blockquote { border-left:3px solid var(--navy); padding:4px 14px; color:var(--muted); margin:0 0 14px; }
 .post .meta { margin-top:32px; font-size:13px; color:var(--muted); }
 .pager { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:28px; padding-top:20px; border-top:1px solid var(--line); }

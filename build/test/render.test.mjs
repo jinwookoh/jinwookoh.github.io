@@ -15,6 +15,12 @@ test('renderMarkdown highlights fenced code', () => {
   assert.match(html, /hljs-/);
 });
 
+test('==text== renders as highlighter mark', () => {
+  const html = renderMarkdown('이것은 ==중요한 **문장**== 이다.');
+  assert.match(html, /<mark>중요한 <strong>문장<\/strong><\/mark>/);
+  assert.doesNotMatch(renderMarkdown('a == b'), /<mark>/);
+});
+
 test('post page has title, breadcrumb, summary, prev/next', () => {
   const html = renderPostPage({ site, series, post: series.posts[0], prev: null, next: series.posts[1] });
   assert.match(html, /<title>첫 글 · 데모 시리즈<\/title>/);
