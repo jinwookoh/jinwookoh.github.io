@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/pipelining-transactions/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,13 +24,13 @@
   <h1>Pipelining·Transaction·WATCH</h1>
   <p class="summary">Pipelining은 왕복을 줄이고 MULTI/EXEC는 격리만 보장한다. 롤백은 없고 조건부 갱신은 WATCH 재시도로 푼다.</p>
   <div class="content">
-<p>Redis 서버가 명령 하나를 처리하는 시간은 μs 단위지만, 클라이언트와 서버 사이의 네트워크 왕복(RTT)은 같은 리전에서도 수백 μs, 다른 AZ면 1ms 안팎이다. 명령 100개를 순서대로 보내면 응답 시간의 99%가 네트워크 대기로 채워진다. 여기에 &quot;잔액을 읽고, 충분하면 차감한다&quot; 같은 read-modify-write가 겹치면 두 클라이언트가 같은 값을 읽고 같은 결과를 쓰는 lost update가 생긴다. 앞의 문제는 Pipelining이, 뒤의 문제는 MULTI/EXEC와 WATCH가 담당한다. 둘 다 여러 명령을 묶지만 해결하는 문제가 다르다.</p>
+<p>Redis 서버가 명령 하나를 처리하는 시간은 μs 단위지만, 클라이언트와 서버 사이의 네트워크 왕복(RTT)은 같은 리전에서도 수백 μs, 다른 AZ면 1ms 안팎이다. 명령 100개를 순서대로 보내면 응답 시간의 99%가 네트워크 대기로 채워진다. 여기에 &quot;잔액을 읽고, 충분하면 차감한다&quot; 같은 read-modify-write가 겹치면 두 클라이언트가 같은 값을 읽고 같은 결과를 쓰는 lost update가 생긴다. 앞의 문제는 Pipelining이, 뒤의 문제는 MULTI/EXEC와 WATCH가 담당한다. <mark>둘 다 여러 명령을 묶지만 해결하는 문제가 다르다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Pipelining — 왕복 횟수 압축</h3>
-<p>Pipelining은 명령 N개를 응답을 기다리지 않고 연달아 전송하고, 응답 N개를 한 번에 받는 방식이다. 서버 처리 시간은 그대로이고 네트워크 왕복만 N회에서 1회로 줄어든다. 효과는 RTT에 비례하므로 로컬에서는 수 배, 다른 리전에서는 수십 배 차이가 난다. 응답은 보낸 순서대로 돌아오지만 원자성은 없다. 다른 클라이언트의 명령이 묶음 사이에 끼어들 수 있고, 한 명령이 실패해도 나머지는 실행되며 응답 리스트에 에러 객체가 섞인다.</p>
+<p>Pipelining은 명령 N개를 응답을 기다리지 않고 연달아 전송하고, 응답 N개를 한 번에 받는 방식이다. 서버 처리 시간은 그대로이고 네트워크 왕복만 N회에서 1회로 줄어든다. 효과는 RTT에 비례하므로 로컬에서는 수 배, 다른 리전에서는 수십 배 차이가 난다. <mark>응답은 보낸 순서대로 돌아오지만 원자성은 없다.</mark> 다른 클라이언트의 명령이 묶음 사이에 끼어들 수 있고, 한 명령이 실패해도 나머지는 실행되며 응답 리스트에 에러 객체가 섞인다.</p>
 <h3>MULTI/EXEC — 격리된 일괄 실행</h3>
 <p><code>MULTI</code> 이후의 명령은 실행되지 않고 큐에 쌓이며 <code>QUEUED</code> 응답만 받는다. <code>EXEC</code>가 호출되면 큐의 명령이 다른 클라이언트의 명령이 끼어들지 못하는 상태로 순차 실행되고 결과가 배열로 반환된다. <code>DISCARD</code>는 큐를 비운다.</p>
-<p>보장 범위를 정확히 잡아야 한다. Redis 트랜잭션이 제공하는 것은 격리와 묶음 응답뿐이고, RDBMS 의미의 all-or-nothing과 롤백은 없다. 에러 시점에 따라 동작이 갈린다.</p>
+<p>보장 범위를 정확히 잡아야 한다. <mark>Redis 트랜잭션이 제공하는 것은 격리와 묶음 응답뿐이고, RDBMS 의미의 all-or-nothing과 롤백은 없다.</mark> 에러 시점에 따라 동작이 갈린다.</p>
 <table>
 <thead>
 <tr>
@@ -150,7 +150,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>묶음 크기.</strong> 파이프라인에 수십만 명령을 넣으면 양쪽에서 응답 버퍼가 메모리에 쌓인다. 한 묶음은 수백~수천 명령으로 자르고 chunk 단위로 반복한다. MULTI/EXEC는 반대로 더 작아야 한다. <code>EXEC</code> 실행 중에는 단일 스레드가 다른 요청을 처리하지 못하므로 트랜잭션 안의 명령은 수십 개 이내로 두고, 큰 묶음은 트랜잭션 없는 파이프라인으로 보낸다.</li>
-<li><strong>WATCH와 커넥션 풀.</strong> WATCH 상태는 연결에 붙는다. <code>RedisTemplate</code>을 그냥 호출하면 명령마다 풀에서 다른 연결을 꺼낼 수 있어 WATCH가 무력화되므로, <code>SessionCallback</code> 안에서 WATCH·MULTI·EXEC를 끝내야 한다.</li>
+<li><strong>WATCH와 커넥션 풀.</strong> WATCH 상태는 연결에 붙는다. <mark><code>RedisTemplate</code>을 그냥 호출하면 명령마다 풀에서 다른 연결을 꺼낼 수 있어 WATCH가 무력화되므로, <code>SessionCallback</code> 안에서 WATCH·MULTI·EXEC를 끝내야 한다.</mark></li>
 <li><strong>Cluster의 CROSSSLOT.</strong> MULTI/EXEC 안의 모든 키는 같은 해시 슬롯에 있어야 하며 아니면 <code>CROSSSLOT</code> 에러가 난다. <code>{user42}:balance</code>, <code>{user42}:orders</code>처럼 hash tag로 슬롯을 고정한다.</li>
 <li><strong>중간 결과로 분기할 수 없다.</strong> MULTI 안에서 <code>GET</code>은 큐잉만 되므로 그 값을 보고 다음 명령을 정할 수 없다. 조건부 로직은 WATCH 재시도 루프이거나, 왕복 1회에 원자성까지 얻는 Lua 스크립트여야 한다.</li>
 <li><strong>비동기 병렬 호출과 파이프라인은 다르다.</strong> <code>CompletableFuture</code>로 명령 100개를 동시에 던져도 서버는 여전히 요청 100개를 받는다. 왕복을 1회로 만드는 것은 파이프라인뿐이며, <code>MGET</code>처럼 한 명령으로 묶이는 read는 그 명령이 더 단순하다.</li>

@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-persistence-context-lazy-loading.md]
 updated: 2026-08-29
 ---
 
-JPA를 처음 쓰면 설명되지 않는 동작이 연달아 나타난다. `save()`를 호출하지 않았는데 UPDATE가 실행되고, 같은 PK로 `findById`를 두 번 호출했는데 SQL은 한 번만 나가며, 서비스 메서드가 끝난 뒤 컨트롤러에서 연관 필드를 읽으면 `LazyInitializationException`이 발생한다. JPA는 SQL을 즉시 실행하는 라이브러리가 아니라 Entity를 메모리에서 관리하다가 필요한 시점에 SQL로 동기화하는 계층이고, 그 관리 공간이 영속성 컨텍스트다. 이 구조를 모르면 조회 한 번이 쿼리 101번으로 늘어나는 N+1 문제도 로그를 보기 전까지 알아채지 못한다.
+JPA를 처음 쓰면 설명되지 않는 동작이 연달아 나타난다. `save()`를 호출하지 않았는데 UPDATE가 실행되고, 같은 PK로 `findById`를 두 번 호출했는데 SQL은 한 번만 나가며, 서비스 메서드가 끝난 뒤 컨트롤러에서 연관 필드를 읽으면 `LazyInitializationException`이 발생한다. ==JPA는 SQL을 즉시 실행하는 라이브러리가 아니라 Entity를 메모리에서 관리하다가 필요한 시점에 SQL로 동기화하는 계층이고, 그 관리 공간이 영속성 컨텍스트다.== 이 구조를 모르면 조회 한 번이 쿼리 101번으로 늘어나는 N+1 문제도 로그를 보기 전까지 알아채지 못한다.
 
 ## 핵심 개념
 
@@ -152,11 +152,11 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- **N+1은 로그에서만 보인다.** 주문 100건을 조회한 뒤 반복문에서 `getMember()`를 읽으면 SELECT가 1 + 100번 나간다. 테스트 데이터가 적으면 드러나지 않으므로 SQL 로그로 쿼리 수를 확인해야 한다. Fetch Join 또는 `@EntityGraph`로 명시하고, 놓친 경로를 위해 `default_batch_fetch_size`를 전역으로 두어 프록시 초기화가 IN 쿼리로 묶이게 하는 조합이 기본 대응이다.
+- ==**N+1은 로그에서만 보인다.** 주문 100건을 조회한 뒤 반복문에서 `getMember()`를 읽으면 SELECT가 1 + 100번 나간다.== 테스트 데이터가 적으면 드러나지 않으므로 SQL 로그로 쿼리 수를 확인해야 한다. Fetch Join 또는 `@EntityGraph`로 명시하고, 놓친 경로를 위해 `default_batch_fetch_size`를 전역으로 두어 프록시 초기화가 IN 쿼리로 묶이게 하는 조합이 기본 대응이다.
 
 - **컬렉션 Fetch Join의 한계.** `@OneToMany`를 Fetch Join하면서 `Pageable`을 붙이면 Hibernate가 전체를 메모리로 가져와 페이징하는 경고를 내고, 컬렉션 두 개 이상을 동시에 Fetch Join하면 `MultipleBagFetchException`이 발생한다. 컬렉션은 `default_batch_fetch_size`에 맡기는 편이 안전하다.
 
-- **open-in-view 기본값은 true다.** Spring Boot는 HTTP 응답이 끝날 때까지 컨텍스트를 열어두는 인터셉터를 기본 등록한다. 예외는 사라지지만 직렬화 중에 쿼리가 나가고 DB 커넥션이 요청 전체 시간 동안 점유된다. 운영에서는 `open-in-view: false`로 끄고 조회 서비스에서 DTO 변환까지 끝낸다.
+- ==**open-in-view 기본값은 true다.**== Spring Boot는 HTTP 응답이 끝날 때까지 컨텍스트를 열어두는 인터셉터를 기본 등록한다. 예외는 사라지지만 직렬화 중에 쿼리가 나가고 DB 커넥션이 요청 전체 시간 동안 점유된다. 운영에서는 `open-in-view: false`로 끄고 조회 서비스에서 DTO 변환까지 끝낸다.
 
 - **의도하지 않은 변경 감지.** 트랜잭션 안에서 계산용으로 Entity 필드를 바꾸면 그대로 UPDATE가 나간다. Entity에 무분별한 setter를 두지 않고, 읽기 전용 경로는 `@Transactional(readOnly = true)`로 선언해 플러시를 막는다.
 

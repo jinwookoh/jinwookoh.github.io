@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/step-chunk-tasklet/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,13 +24,13 @@
   <h1>Step — Chunk 지향과 Tasklet·Commit Interval</h1>
   <p class="summary">Step은 chunk 지향과 Tasklet 두 방식으로 동작하며, chunk 크기가 곧 트랜잭션 경계이자 성능 튜닝의 핵심이다.</p>
   <div class="content">
-<p>수백만 건을 단일 트랜잭션으로 묶으면 전체 데이터가 메모리에 올라가 OOM이 나고, 마지막 한 건의 실패가 앞선 결과를 모두 되돌린다. 반대로 한 건마다 commit하면 트랜잭션 오버헤드가 건수만큼 늘어난다. 파일 이동이나 프로시저 호출 같은 단발 작업을 Reader·Writer로 억지로 짜면 no-op Writer 같은 코드도 생긴다. Step은 이 문제를 chunk 지향 처리와 Tasklet이라는 두 실행 모델로 나누어 해결한다.</p>
+<p>수백만 건을 단일 트랜잭션으로 묶으면 전체 데이터가 메모리에 올라가 OOM이 나고, 마지막 한 건의 실패가 앞선 결과를 모두 되돌린다. 반대로 한 건마다 commit하면 트랜잭션 오버헤드가 건수만큼 늘어난다. 파일 이동이나 프로시저 호출 같은 단발 작업을 Reader·Writer로 억지로 짜면 no-op Writer 같은 코드도 생긴다. <mark>Step은 이 문제를 chunk 지향 처리와 Tasklet이라는 두 실행 모델로 나누어 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Step은 Job을 구성하는 독립적이고 순차적인 단계로, 별도의 StepExecution과 트랜잭션 경계를 갖는다. 실행 모델은 두 가지뿐이며 <code>StepBuilder</code>에서 <code>.chunk()</code>와 <code>.tasklet()</code> 중 하나만 호출한다.</p>
 <h3>Chunk 지향 처리</h3>
 <p>Reader가 chunk 크기만큼 <code>read()</code>를 반복해 아이템을 모으고, Processor가 한 건씩 처리한 뒤, Writer가 처리된 묶음을 한 번에 받아 쓴다. 이 사이클 하나가 트랜잭션 하나이며 write가 끝나면 commit한다. Reader와 Processor는 건 단위, Writer는 chunk 단위로 호출된다.</p>
 <p><code>read()</code>의 null은 데이터 종료 신호다. 모아둔 부분 chunk를 commit하고 Step을 끝내므로 마지막 chunk가 설정 크기보다 작은 것은 정상이다. Processor의 null은 해당 아이템을 Writer에 넘기지 않는 필터링이며 <code>filterCount</code>에 기록된다. 예외 후 건너뛰는 skip은 <code>skipCount</code>로 따로 집계된다.</p>
-<p>chunk 중간에 예외가 나면 그 chunk만 rollback되고 이미 commit된 이전 chunk는 보존된다. 그래서 재시작·skip·retry의 단위가 chunk가 된다.</p>
+<p><mark>chunk 중간에 예외가 나면 그 chunk만 rollback되고 이미 commit된 이전 chunk는 보존된다.</mark> 그래서 재시작·skip·retry의 단위가 chunk가 된다.</p>
 <h3>Commit Interval</h3>
 <p><code>chunk(N, transactionManager)</code>의 N이 commit interval이다. 100만 건을 N=1로 돌리면 트랜잭션이 100만 번, N=1000이면 1천 번이다. 크기를 키울수록 트랜잭션 오버헤드는 줄지만 메모리 점유, rollback 범위, DB lock 유지 시간이 함께 늘어난다.</p>
 <table>
@@ -120,7 +120,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>커스텀 Reader의 null 누락은 무한 루프다.</strong> 직접 구현한 Reader는 종료 조건을 검증한다. <code>CONTINUABLE</code>을 반환하는 Tasklet도 같으며, 제한 없는 폴링은 스케줄러로 분리한다.</li>
+<li><mark><strong>커스텀 Reader의 null 누락은 무한 루프다.</strong></mark> 직접 구현한 Reader는 종료 조건을 검증한다. <code>CONTINUABLE</code>을 반환하는 Tasklet도 같으며, 제한 없는 폴링은 스케줄러로 분리한다.</li>
 <li><strong>chunk 크기를 10만 단위로 잡으면 OOM과 긴 rollback이 함께 온다.</strong> 한 건의 실패가 chunk 전체를 되돌리므로 skip을 켜지 않은 환경에서 비용이 크다.</li>
 <li><strong>Tasklet도 트랜잭션 안에서 실행된다.</strong> 긴 작업은 timeout에 걸리고 외부 호출 실패가 곧 rollback이 된다. 긴 작업은 chunk로 쪼개거나 외부 호출을 트랜잭션 밖으로 뺀다.</li>
 <li><strong>Tasklet 안에서 ItemReader를 직접 돌리면 ItemStream이 등록되지 않는다.</strong> <code>.stream(reader)</code>를 명시해야 재시작 시 위치가 복원된다.</li>

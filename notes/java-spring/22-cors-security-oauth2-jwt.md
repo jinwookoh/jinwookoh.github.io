@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-cors-configuration.md, spring/2026-05-17-spring-secu
 updated: 2026-08-29
 ---
 
-프론트엔드와 백엔드가 다른 Origin에서 서비스되면 서버가 허용 헤더를 명시하지 않는 한 브라우저가 응답을 자바스크립트에 전달하지 않는다. 반대로 서버 쪽 보호가 없으면 URL을 아는 누구나 엔드포인트를 호출할 수 있다. 두 문제는 같은 필터 체인 위에서 해결되며, 따로 설정하면 OPTIONS 요청이 인증에 막히는 식으로 충돌한다.
+프론트엔드와 백엔드가 다른 Origin에서 서비스되면 서버가 허용 헤더를 명시하지 않는 한 브라우저가 응답을 자바스크립트에 전달하지 않는다. 반대로 서버 쪽 보호가 없으면 URL을 아는 누구나 엔드포인트를 호출할 수 있다. ==두 문제는 같은 필터 체인 위에서 해결되며, 따로 설정하면 OPTIONS 요청이 인증에 막히는 식으로 충돌한다.==
 
 ## 핵심 개념
 
@@ -124,8 +124,8 @@ void tamperedTokenIsRejected() throws Exception {
 
 ## 실무에서 걸리는 지점
 
-- **`allowedOrigins("*")`와 `allowCredentials(true)`는 함께 쓸 수 없다.** 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 `allowedOriginPatterns`를 쓰되 운영에서는 정확한 도메인만 남긴다.
-- **preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.** OPTIONS 요청에는 Authorization 헤더가 없으므로 `permitAll()`로 명시하고 `http.cors()`로 CorsFilter를 인증 필터 앞에 둔다.
+- ==**`allowedOrigins("*")`와 `allowCredentials(true)`는 함께 쓸 수 없다.**== 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 `allowedOriginPatterns`를 쓰되 운영에서는 정확한 도메인만 남긴다.
+- ==**preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.**== OPTIONS 요청에는 Authorization 헤더가 없으므로 `permitAll()`로 명시하고 `http.cors()`로 CorsFilter를 인증 필터 앞에 둔다.
 - **프록시·CDN 뒤에서 CORS 헤더가 이중으로 붙는다.** nginx나 CloudFront가 이미 헤더를 추가하면 브라우저는 중복 값을 거부한다. 헤더를 붙이는 계층은 하나만 둔다.
 - **폼 기반 세션 앱에서 CSRF를 끄면 안 된다.** CSRF 비활성화는 토큰을 헤더로 보내는 stateless API에만 유효하며, 쿠키에 JWT를 담아 자동 전송하면 다시 CSRF 대상이 된다.
 - **Resource Server는 기동 시 인증 서버에 접속한다.** 인증 서버가 내려가 있으면 `Unable to resolve the Configuration with the provided Issuer`로 부팅이 실패하고, `issuer-uri` 오타는 모든 요청을 401로 만든다. 기동 순서를 맞추고, 서명 키 교체 시에는 `kid`가 다른 새 키를 먼저 JWKS에 추가한 뒤 구 키를 제거한다.

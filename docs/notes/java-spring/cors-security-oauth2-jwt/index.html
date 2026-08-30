@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/cors-security-oauth2-jwt/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>CORS와 Spring Security — OAuth2·JWT</h1>
   <p class="summary">CORS 허용 헤더, SecurityFilterChain 인증·인가, 그리고 JWT를 공개 키로 검증하는 OAuth2 Resource Server 구성을 정리한다.</p>
   <div class="content">
-<p>프론트엔드와 백엔드가 다른 Origin에서 서비스되면 서버가 허용 헤더를 명시하지 않는 한 브라우저가 응답을 자바스크립트에 전달하지 않는다. 반대로 서버 쪽 보호가 없으면 URL을 아는 누구나 엔드포인트를 호출할 수 있다. 두 문제는 같은 필터 체인 위에서 해결되며, 따로 설정하면 OPTIONS 요청이 인증에 막히는 식으로 충돌한다.</p>
+<p>프론트엔드와 백엔드가 다른 Origin에서 서비스되면 서버가 허용 헤더를 명시하지 않는 한 브라우저가 응답을 자바스크립트에 전달하지 않는다. 반대로 서버 쪽 보호가 없으면 URL을 아는 누구나 엔드포인트를 호출할 수 있다. <mark>두 문제는 같은 필터 체인 위에서 해결되며, 따로 설정하면 OPTIONS 요청이 인증에 막히는 식으로 충돌한다.</mark></p>
 <h2>핵심 개념</h2>
 <p><strong>Origin</strong>은 프로토콜·호스트·포트의 조합이다. 하나라도 다르면 다른 Origin이며, <code>localhost:3000</code>과 <code>localhost:8080</code>도 교차 출처다. CORS는 브라우저 정책이므로 서버 간 호출이나 모바일 앱에는 적용되지 않는다.</p>
 <p>POST + JSON, PUT, DELETE, 커스텀 헤더처럼 단순 요청이 아니면 브라우저는 본 요청 전에 <code>OPTIONS</code> <strong>preflight</strong>를 보낸다. 서버는 <code>Access-Control-Allow-Origin</code>, <code>-Methods</code>, <code>-Headers</code>, <code>-Credentials</code> 헤더로 응답하고, 브라우저는 <code>Access-Control-Max-Age</code> 동안 결과를 캐시한다.</p>
@@ -132,8 +132,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>allowedOrigins(&quot;*&quot;)</code>와 <code>allowCredentials(true)</code>는 함께 쓸 수 없다.</strong> 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 <code>allowedOriginPatterns</code>를 쓰되 운영에서는 정확한 도메인만 남긴다.</li>
-<li><strong>preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.</strong> OPTIONS 요청에는 Authorization 헤더가 없으므로 <code>permitAll()</code>로 명시하고 <code>http.cors()</code>로 CorsFilter를 인증 필터 앞에 둔다.</li>
+<li><mark><strong><code>allowedOrigins(&quot;*&quot;)</code>와 <code>allowCredentials(true)</code>는 함께 쓸 수 없다.</strong></mark> 자격 증명 요청에는 와일드카드 응답이 무효다. 환경별 도메인이 많으면 <code>allowedOriginPatterns</code>를 쓰되 운영에서는 정확한 도메인만 남긴다.</li>
+<li><mark><strong>preflight가 인증 필터에 막히면 모든 변경 요청이 실패한다.</strong></mark> OPTIONS 요청에는 Authorization 헤더가 없으므로 <code>permitAll()</code>로 명시하고 <code>http.cors()</code>로 CorsFilter를 인증 필터 앞에 둔다.</li>
 <li><strong>프록시·CDN 뒤에서 CORS 헤더가 이중으로 붙는다.</strong> nginx나 CloudFront가 이미 헤더를 추가하면 브라우저는 중복 값을 거부한다. 헤더를 붙이는 계층은 하나만 둔다.</li>
 <li><strong>폼 기반 세션 앱에서 CSRF를 끄면 안 된다.</strong> CSRF 비활성화는 토큰을 헤더로 보내는 stateless API에만 유효하며, 쿠키에 JWT를 담아 자동 전송하면 다시 CSRF 대상이 된다.</li>
 <li><strong>Resource Server는 기동 시 인증 서버에 접속한다.</strong> 인증 서버가 내려가 있으면 <code>Unable to resolve the Configuration with the provided Issuer</code>로 부팅이 실패하고, <code>issuer-uri</code> 오타는 모든 요청을 401로 만든다. 기동 순서를 맞추고, 서명 키 교체 시에는 <code>kid</code>가 다른 새 키를 먼저 JWKS에 추가한 뒤 구 키를 제거한다.</li>

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/caching-cacheable-redis/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>캐싱 — @Cacheable과 Spring Data Redis</h1>
   <p class="summary">@Cacheable·@CachePut·@CacheEvict로 메서드 결과를 캐싱하고, Redis 연동 시 TTL·직렬화·자기 호출 함정을 어떻게 다루는가</p>
   <div class="content">
-<p>상품 카탈로그, 공통 코드처럼 수백만 번 읽히지만 갱신은 몇 번뿐인 데이터를 매번 DB까지 보내면 읽기 트래픽이 곧 DB 병목이 된다. 첫 조회 결과를 메모리나 외부 저장소에 두고 같은 인자의 요청은 거기서 반환하면 응답 시간이 밀리초에서 마이크로초 단위로 내려간다. 다만 캐시를 손으로 넣고 빼는 코드가 서비스마다 흩어지면 갱신 누락과 키 불일치가 생기므로, Spring은 이를 어노테이션 기반 추상화로 표준화한다.</p>
+<p>상품 카탈로그, 공통 코드처럼 수백만 번 읽히지만 갱신은 몇 번뿐인 데이터를 매번 DB까지 보내면 읽기 트래픽이 곧 DB 병목이 된다. 첫 조회 결과를 메모리나 외부 저장소에 두고 같은 인자의 요청은 거기서 반환하면 응답 시간이 밀리초에서 마이크로초 단위로 내려간다. <mark>다만 캐시를 손으로 넣고 빼는 코드가 서비스마다 흩어지면 갱신 누락과 키 불일치가 생기므로, Spring은 이를 어노테이션 기반 추상화로 표준화한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Spring Cache는 저장소와 무관한 추상화 계층이다. 코드에는 어노테이션만 붙이고 실제 저장소는 <code>CacheManager</code> 구현으로 결정한다. 활성화는 <code>@EnableCaching</code>이며, 이것이 없으면 캐시 어노테이션은 무시된다.</p>
 <p>동작 원리는 AOP 프록시다. 외부에서 메서드가 호출될 때 프록시가 먼저 캐시를 조회해, 값이 있으면 메서드를 실행하지 않고 반환하고 없으면 실행 후 결과를 저장한다. 프록시를 거치지 않는 호출에서는 캐시가 동작하지 않는다.</p>
@@ -170,8 +170,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>자기 호출.</strong> 같은 클래스 안에서 <code>this.findById(id)</code>로 부르면 프록시를 거치지 않아 캐시가 적용되지 않는다. <code>@Transactional</code>과 같은 원리이며, 캐시 대상 메서드를 별도 Bean으로 분리한다. public 메서드에만 적용된다.</li>
-<li><strong>TTL 부재.</strong> <code>RedisCacheManager</code> 기본 설정은 만료 없이 영구 보관이라 키가 쌓여 메모리가 고갈된다. <code>entryTtl</code>이나 <code>spring.cache.redis.time-to-live</code>로 기본 TTL을 지정하고, <code>RedisTemplate</code>으로 직접 쓸 때도 <code>set(key, value, Duration)</code>으로 TTL을 함께 넘긴다.</li>
+<li><mark><strong>자기 호출.</strong> 같은 클래스 안에서 <code>this.findById(id)</code>로 부르면 프록시를 거치지 않아 캐시가 적용되지 않는다.</mark> <code>@Transactional</code>과 같은 원리이며, 캐시 대상 메서드를 별도 Bean으로 분리한다. public 메서드에만 적용된다.</li>
+<li><mark><strong>TTL 부재.</strong> <code>RedisCacheManager</code> 기본 설정은 만료 없이 영구 보관이라 키가 쌓여 메모리가 고갈된다.</mark> <code>entryTtl</code>이나 <code>spring.cache.redis.time-to-live</code>로 기본 TTL을 지정하고, <code>RedisTemplate</code>으로 직접 쓸 때도 <code>set(key, value, Duration)</code>으로 TTL을 함께 넘긴다.</li>
 <li><strong>null 캐싱.</strong> null 결과도 저장되므로 데이터가 나중에 생겨도 TTL이 끝날 때까지 null만 반환된다. <code>disableCachingNullValues()</code>나 <code>unless = &quot;#result == null&quot;</code>로 막는다.</li>
 <li><strong>무효화 누락과 키 설계.</strong> 쓰기 경로에 <code>@CachePut</code>이나 <code>@CacheEvict</code>가 빠지면 오래된 데이터가 계속 반환된다. 수정 메서드에 <code>@Cacheable</code>을 붙이면 두 번째 수정부터 DB 갱신이 생략된다. 키가 거칠면 다른 조회가 같은 항목을 덮어쓰고, 세밀하면 미스가 잦아진다.</li>
 <li><strong>직렬화와 타입.</strong> <code>GenericJackson2JsonRedisSerializer</code>는 클래스 정보를 JSON에 포함하므로 클래스 이름이 바뀌면 기존 캐시 역직렬화가 실패한다. 배포 시 캐시를 비우거나 캐시 이름에 버전을 붙인다. <code>Object</code> 캐스팅은 <code>ClassCastException</code> 위험이 있으므로 타입별 <code>RedisTemplate</code>이나 <code>StringRedisTemplate</code>을 쓴다.</li>

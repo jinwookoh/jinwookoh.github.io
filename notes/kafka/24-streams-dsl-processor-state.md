@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-streams-dsl.md, data-infra/2026-05-17-kafk
 updated: 2026-08-29
 ---
 
-Consumer API만으로 실시간 집계를 구현하면 키별 누적값 보관, 재시작 시 복구, 파티션 재할당 시 상태 이동, 늦은 레코드 처리를 전부 애플리케이션이 떠안는다. Kafka Streams는 이를 세 층으로 나눈다. DSL은 변환·집계·조인·윈도우를 선언적으로 표현하고, Processor API는 시간 기반 작업과 상태 조작을 저수준으로 제어하며, state store는 changelog로 복구되고 Interactive Queries로 외부에 노출된다.
+Consumer API만으로 실시간 집계를 구현하면 키별 누적값 보관, 재시작 시 복구, 파티션 재할당 시 상태 이동, 늦은 레코드 처리를 전부 애플리케이션이 떠안는다. Kafka Streams는 이를 세 층으로 나눈다. ==DSL은 변환·집계·조인·윈도우를 선언적으로 표현하고, Processor API는 시간 기반 작업과 상태 조작을 저수준으로 제어하며, state store는 changelog로 복구되고 Interactive Queries로 외부에 노출된다.==
 
 ## 핵심 개념
 
@@ -153,7 +153,7 @@ public class RevenueQueryController {
 - **SerDe 미지정**: `Grouped.with`·`Produced.with`·`Materialized.with`로 명시하지 않으면 기본 SerDe로 떨어지고 타입이 어긋나면 런타임 예외가 난다. 윈도우 결과 출력에는 `WindowedSerdes`가 필요하다.
 - **Punctuator 종류**: `STREAM_TIME`은 레코드가 없으면 호출되지 않으므로 heartbeat·주기적 정리는 `WALL_CLOCK_TIME`으로 등록한다.
 - **외부 호출과 iterator 누수**: `process`에서 HTTP·DB를 동기 호출하면 stream thread가 막힌다. `store.all()`·`range()`의 iterator는 try-with-resources로 닫는다.
-- **IQ 일관성과 메모리**: IQ는 커밋 전 상태와 standby의 지연된 상태를 그대로 보여 주므로 stale read를 허용하는 조회에만 쓴다. RocksDB는 JVM heap 밖 native 메모리를 쓰므로 컨테이너 한도를 heap 기준으로만 잡으면 OOM kill이 난다. store 이름을 바꾸면 상태를 다시 빌드한다.
+- **IQ 일관성과 메모리**: IQ는 커밋 전 상태와 standby의 지연된 상태를 그대로 보여 주므로 stale read를 허용하는 조회에만 쓴다. ==RocksDB는 JVM heap 밖 native 메모리를 쓰므로 컨테이너 한도를 heap 기준으로만 잡으면 OOM kill이 난다.== store 이름을 바꾸면 상태를 다시 빌드한다.
 
 ## 관련 글
 

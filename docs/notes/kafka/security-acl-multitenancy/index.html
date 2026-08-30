@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/security-acl-multitenancy/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>인가 — ACL과 Multi-tenancy</h1>
   <p class="summary">인증된 principal에게 PREFIXED ACL과 Quota를 팀 단위로 묶어 부여해야 공유 클러스터가 유지된다</p>
   <div class="content">
-<p>TLS와 SASL로 클라이언트가 누구인지 확인해도, 무엇을 할 수 있는지는 별개의 문제다. 인가 규칙이 없으면 인증만 통과한 애플리케이션이 다른 팀의 topic을 읽고 임의 이름의 topic을 만든다. 여러 팀이 한 클러스터를 공유하면 한 팀의 producer가 대역폭을 독점해 나머지 팀의 지연이 함께 오른다. ACL은 접근 범위를, Quota와 naming convention은 자원 사용 범위를 팀 단위로 가른다.</p>
+<p>TLS와 SASL로 클라이언트가 누구인지 확인해도, 무엇을 할 수 있는지는 별개의 문제다. 인가 규칙이 없으면 인증만 통과한 애플리케이션이 다른 팀의 topic을 읽고 임의 이름의 topic을 만든다. 여러 팀이 한 클러스터를 공유하면 한 팀의 producer가 대역폭을 독점해 나머지 팀의 지연이 함께 오른다. <mark>ACL은 접근 범위를, Quota와 naming convention은 자원 사용 범위를 팀 단위로 가른다.</mark></p>
 <h2>핵심 개념</h2>
 <p>ACL 한 건은 Principal · Operation · Resource 세 요소로 구성되며 &quot;Principal이 Resource에 대해 Operation을 할 수 있다&quot;로 읽는다. 여기에 Permission Type(ALLOW · DENY), Host(기본 <code>*</code>), Resource Pattern Type이 붙는다. Principal은 SASL/SCRAM이면 <code>User:&lt;username&gt;</code>, mTLS면 인증서 DN이다. Resource Type은 Topic · Group · Cluster · TransactionalId · DelegationToken이고, Operation은 많지만 애플리케이션이 실제로 쓰는 것은 Topic의 Read · Write · Describe와 Group의 Read · Describe다.</p>
 <table>
@@ -137,7 +137,7 @@ kafka-configs.sh <span class="hljs-variable">$OPTS</span> --alter \
       <span class="hljs-attr">group-id:</span> <span class="hljs-string">prod.order-team.order-service</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Group ACL 누락.</strong> Topic Read만 주면 poll은 되다가 offset commit에서 <code>GroupAuthorizationException</code>이 난다. <code>kafka-acls.sh --consumer</code>는 Topic Read · Describe와 Group Read를, <code>--producer</code>는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.</li>
+<li><mark><strong>Group ACL 누락.</strong> Topic Read만 주면 poll은 되다가 offset commit에서 <code>GroupAuthorizationException</code>이 난다.</mark> <code>kafka-acls.sh --consumer</code>는 Topic Read · Describe와 Group Read를, <code>--producer</code>는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.</li>
 <li><strong>mTLS principal 불일치.</strong> <code>ssl.principal.mapping.rules</code>가 어긋나면 ACL의 이름과 실제 principal이 달라 모든 요청이 거부된다. broker 로그의 principal 문자열을 ACL과 대조한다.</li>
 <li><strong><code>super.users</code> 남발과 <code>allow.everyone.if.no.acl.found=true</code>.</strong> 둘 다 ACL을 무력화한다. 운영 admin 1~2명만 super.users에 둔다.</li>
 <li><strong>Quota 부재 또는 과소.</strong> 없으면 producer 하나가 대역폭을 차지하고, 너무 낮으면 throttle이 정상 트래픽에 번진다. user · client-id 별 throttle-time 메트릭을 보며 점진적으로 조정한다.</li>

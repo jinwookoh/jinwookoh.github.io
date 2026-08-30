@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/iam-sts-cognito/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,13 +24,13 @@
   <h1>IAM·STS·Cognito — 사용자·역할·정책</h1>
   <p class="summary">AWS 권한은 정책 평가 순서·역할 수임·PassRole·Cognito 두 풀의 역할 분담을 알아야 안전하게 설계할 수 있다.</p>
   <div class="content">
-<p>AWS 워크로드는 대부분 다른 서비스를 호출한다. EC2가 S3에 쓰고, Lambda가 DynamoDB를 읽고, 타 계정이 우리 버킷을 조회한다. 이 호출을 통제하는 장치가 없으면 액세스 키를 코드에 박게 되고, 키가 유출되는 순간 계정 전체가 노출되며, 누가 무엇을 할 수 있는지 추적할 수 없어 감사가 불가능해진다. IAM은 &quot;누가 어떤 리소스에 무슨 작업을 할 수 있는가&quot;를 선언하고, STS는 그 권한을 만료되는 임시 자격 증명으로 빌려주며, Cognito는 IAM 바깥의 앱 최종 사용자를 같은 체계에 연결한다.</p>
+<p>AWS 워크로드는 대부분 다른 서비스를 호출한다. EC2가 S3에 쓰고, Lambda가 DynamoDB를 읽고, 타 계정이 우리 버킷을 조회한다. 이 호출을 통제하는 장치가 없으면 액세스 키를 코드에 박게 되고, 키가 유출되는 순간 계정 전체가 노출되며, 누가 무엇을 할 수 있는지 추적할 수 없어 감사가 불가능해진다. <mark>IAM은 &quot;누가 어떤 리소스에 무슨 작업을 할 수 있는가&quot;를 선언하고, STS는 그 권한을 만료되는 임시 자격 증명으로 빌려주며, Cognito는 IAM 바깥의 앱 최종 사용자를 같은 체계에 연결한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>IAM은 리전에 종속되지 않는 글로벌 서비스다. 계정 생성 시 만들어지는 루트 사용자는 모든 권한을 가지며 삭제할 수 없으므로 초기 설정과 결제 변경에만 쓰고 MFA를 켠 뒤 봉인한다.</p>
 <p>구성 요소는 넷이다. 사용자는 사람 한 명에 대응하며 콘솔 비밀번호와 액세스 키를 가진다. 그룹은 사용자만 담을 수 있고 중첩되지 않으며, 한 사용자가 속한 모든 그룹의 정책이 합집합으로 적용된다. 역할은 서비스·타 계정·외부 IdP가 신뢰 정책에 따라 수임하는 주체이고, STS가 임시 자격 증명을 발급한다. 정책은 Effect·Action·Resource·Condition으로 권한을 기술한 JSON이며 리소스 기반 정책에는 Principal이 추가된다. S3는 버킷 작업(<code>s3:ListBucket</code>)에 <code>arn:aws:s3:::bucket</code>, 객체 작업(<code>s3:GetObject</code>)에 <code>arn:aws:s3:::bucket/*</code>를 써야 하고, 이 불일치가 정책이 동작하지 않는 가장 흔한 원인이다.</p>
 <p>Identity 기반 정책은 AWS 관리형·고객 관리형·인라인으로 나뉘며 버전 관리가 되는 고객 관리형이 권장된다. 리소스 기반 정책은 S3 버킷·Lambda·SQS·SNS 등에 직접 붙는다.</p>
-<p>평가 규칙은 명시적 Deny가 모든 Allow보다 우선하고, 명시적 Allow가 없으면 암묵적 Deny다. 요청은 SCP, 리소스 기반 정책, Identity 기반 정책, Permission Boundary, 세션 정책을 모두 통과해야 허용된다. Permission Boundary는 사용자·역할의 권한 상한으로 유효 권한은 Identity 정책과의 교집합이며, 위임받은 사용자가 스스로 관리자 권한을 만드는 것을 막는다. SCP는 Organizations의 OU·계정 단위 상한으로 멤버 계정의 루트까지 제한하지만 관리 계정에는 적용되지 않는다.</p>
-<p>STS는 15분에서 12시간(기본 1시간) 유효한 Access Key ID·Secret Access Key·Session Token을 발급한다. <code>AssumeRole</code>은 같은 계정 또는 교차 계정 역할 수임, <code>GetSessionToken</code>은 MFA 사용자의 임시 자격 증명, <code>GetCallerIdentity</code>는 현재 주체 확인, <code>DecodeAuthorizationMessage</code>는 Access Denied 메시지 해독에 쓴다. 역할을 수임하면 세션 동안 원래 권한은 사라지고 역할 권한만 남는다. 따라서 A 계정 DynamoDB를 읽어 B 계정 S3에 쓰는 것처럼 두 계정 권한이 동시에 필요하면 B 계정 버킷 정책에 A 계정 주체를 허용하는 리소스 기반 정책을 쓴다.</p>
+<p><mark>평가 규칙은 명시적 Deny가 모든 Allow보다 우선하고, 명시적 Allow가 없으면 암묵적 Deny다.</mark> 요청은 SCP, 리소스 기반 정책, Identity 기반 정책, Permission Boundary, 세션 정책을 모두 통과해야 허용된다. Permission Boundary는 사용자·역할의 권한 상한으로 유효 권한은 Identity 정책과의 교집합이며, 위임받은 사용자가 스스로 관리자 권한을 만드는 것을 막는다. SCP는 Organizations의 OU·계정 단위 상한으로 멤버 계정의 루트까지 제한하지만 관리 계정에는 적용되지 않는다.</p>
+<p>STS는 15분에서 12시간(기본 1시간) 유효한 Access Key ID·Secret Access Key·Session Token을 발급한다. <code>AssumeRole</code>은 같은 계정 또는 교차 계정 역할 수임, <code>GetSessionToken</code>은 MFA 사용자의 임시 자격 증명, <code>GetCallerIdentity</code>는 현재 주체 확인, <code>DecodeAuthorizationMessage</code>는 Access Denied 메시지 해독에 쓴다. <mark>역할을 수임하면 세션 동안 원래 권한은 사라지고 역할 권한만 남는다.</mark> 따라서 A 계정 DynamoDB를 읽어 B 계정 S3에 쓰는 것처럼 두 계정 권한이 동시에 필요하면 B 계정 버킷 정책에 A 계정 주체를 허용하는 리소스 기반 정책을 쓴다.</p>
 <p><code>iam:PassRole</code>은 EC2·Lambda 같은 서비스에 역할을 전달하는 권한이다. Resource를 특정 역할 ARN으로 좁히지 않으면 권한이 적은 사용자가 관리자 역할을 인스턴스에 붙여 권한을 상승시킬 수 있다.</p>
 <p>Cognito User Pool은 가입·로그인·소셜 로그인·MFA를 처리해 JWT를 발급하고 API Gateway·ALB와 직접 통합된다. Identity Pool은 그 토큰이나 게스트 상태를 IAM 역할에 매핑해 임시 AWS 자격 증명을 발급한다. User Pool로 신원을 확인하고 Identity Pool로 AWS 권한을 주는 두 단계 조합이 표준이다.</p>
 <h2>코드</h2>
@@ -111,7 +111,7 @@
 <li>Secret Access Key는 생성 직후 한 번만 표시된다. 처음부터 키를 쓰지 않고 EC2는 인스턴스 프로파일, ECS·Lambda는 실행 역할로 자격 증명을 받는 구조가 기본이다.</li>
 <li><code>durationSeconds</code>는 역할의 최대 세션 시간을 넘길 수 없고, 역할 체이닝은 상한이 1시간으로 고정되어 장시간 배치에 쓰면 중간에 만료된다.</li>
 <li>Access Denied가 나면 <code>GetCallerIdentity</code>로 실제 호출 주체를 먼저 확인한다. 로컬 프로파일과 컨테이너 역할이 섞여 다른 주체로 호출되는 경우가 잦다.</li>
-<li><code>iam:PassRole</code>에 <code>Resource: &quot;*&quot;</code>를 준 CI 역할은 관리자 역할을 배포 대상에 붙일 수 있어 사실상 관리자와 같다. 전달 가능한 역할 ARN을 열거한다.</li>
+<li><mark><code>iam:PassRole</code>에 <code>Resource: &quot;*&quot;</code>를 준 CI 역할은 관리자 역할을 배포 대상에 붙일 수 있어 사실상 관리자와 같다.</mark> 전달 가능한 역할 ARN을 열거한다.</li>
 <li>미사용 권한은 Access Advisor로 찾아 제거하고, 계정 전체 MFA·키 교체 상태는 Credential Report로 감사한다. 태그 정책은 태그 없는 리소스 생성을 막지 않으므로 SCP나 Config 규칙이 따로 필요하다.</li>
 </ul>
 <h2>관련 글</h2>

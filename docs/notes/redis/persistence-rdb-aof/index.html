@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/persistence-rdb-aof/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Persistence — RDB·AOF·Hybrid</h1>
   <p class="summary">RDB 스냅샷·AOF 로그·Hybrid의 RPO/RTO 트레이드오프와 fsync 정책, fork 비용을 기준으로 영속화 옵션을 고른다.</p>
   <div class="content">
-<p>Redis는 모든 데이터를 메모리에 두기 때문에 프로세스가 종료되면 데이터도 함께 사라진다. 세션·분산 락·랭킹·Stream처럼 Redis가 유일한 저장소인 데이터는 재시작 한 번에 유실되고, 캐시라 해도 재시작 직후 모든 요청이 DB로 몰려 워밍 비용이 장애로 번질 수 있다. 영속화는 메모리 상태를 디스크에 기록해 재시작 후 자동 복구하는 메커니즘이며, 어떤 방식을 어떤 설정으로 쓰느냐에 따라 허용 손실 시간(RPO)·복구 시간(RTO)·쓰기 성능이 달라진다.</p>
+<p>Redis는 모든 데이터를 메모리에 두기 때문에 프로세스가 종료되면 데이터도 함께 사라진다. 세션·분산 락·랭킹·Stream처럼 Redis가 유일한 저장소인 데이터는 재시작 한 번에 유실되고, 캐시라 해도 재시작 직후 모든 요청이 DB로 몰려 워밍 비용이 장애로 번질 수 있다. 영속화는 메모리 상태를 디스크에 기록해 재시작 후 자동 복구하는 메커니즘이며, <mark>어떤 방식을 어떤 설정으로 쓰느냐에 따라 허용 손실 시간(RPO)·복구 시간(RTO)·쓰기 성능이 달라진다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Redis의 영속화 옵션은 네 가지로 정리된다.</p>
 <ul>
@@ -63,7 +63,7 @@
 <td align="left">손실 허용</td>
 </tr>
 </tbody></table>
-<p><code>everysec</code>은 별도 스레드가 매초 fsync를 수행하므로 메인 스레드 영향이 적다. 다만 fsync 직전 크래시 시 1초 분량은 사라지므로 무손실은 아니다.</p>
+<p><code>everysec</code>은 별도 스레드가 매초 fsync를 수행하므로 메인 스레드 영향이 적다. <mark>다만 fsync 직전 크래시 시 1초 분량은 사라지므로 무손실은 아니다.</mark></p>
 <p>AOF는 계속 커지므로 <strong>rewrite</strong>로 현재 메모리 상태를 최소 명령으로 다시 쓴다. <code>INCR counter</code> 1000회는 <code>SET counter 1000</code> 한 줄이 된다. <code>auto-aof-rewrite-percentage 100</code>과 <code>auto-aof-rewrite-min-size 64mb</code>가 모두 만족될 때 자동 실행되며 수동은 <code>BGREWRITEAOF</code>다.</p>
 <p>RDB는 파일이 작고 한 번에 로드해 복구가 빠르며 원격 백업이 쉽지만 마지막 스냅샷 이후 수 분이 유실된다. AOF는 손실이 1초 이하지만 파일이 크고 재실행 복구가 느리다. Hybrid는 둘의 장점을 동시에 얻는다. 시작 시 AOF가 켜져 있으면 AOF를 우선 로드하고, 꺼져 있을 때만 <code>dump.rdb</code>를 읽는다.</p>
 <p>용도별로는 순수 캐시는 No Persistence, 워밍 비용이 큰 캐시는 RDB only, 세션·중요 캐시와 DB 보완 용도는 Hybrid + everysec, 금융 거래는 AOF always에 정기 RDB 백업과 복제를 더한다.</p>
@@ -142,8 +142,8 @@ find <span class="hljs-string">&quot;<span class="hljs-variable">$BACKUP_DIR</sp
 <li><strong>fork 중 메모리 급증</strong> — 쓰기가 폭증하는 대용량 데이터셋에서는 BGSAVE 직후 대부분의 페이지가 복사돼 메모리가 2배 가까이 오르고, fork 자체도 수십 ms에서 수 초까지 메인 스레드를 멈춘다. <code>vm.overcommit_memory=1</code>로 fork 실패를 막고 transparent hugepage를 끈다. 복제 동기화는 <code>repl-diskless-sync yes</code>로 디스크를 건너뛴다.</li>
 <li><strong>디스크 가득 참</strong> — <code>aof_last_write_status</code>나 <code>rdb_last_bgsave_status</code>가 err로 바뀌면 <code>stop-writes-on-bgsave-error yes</code>에 따라 Redis가 쓰기 명령을 거부한다. 디스크 사용량과 두 상태 값을 모니터링한다.</li>
 <li><strong>rewrite 시점의 부하</strong> — fork와 새 파일 작성이 겹쳐 CPU·디스크 I/O를 크게 쓴다. <code>no-appendfsync-on-rewrite yes</code>로 rewrite 중 fsync를 미루면 지연은 줄지만 그 구간의 손실 폭이 커진다. 피크를 피하도록 threshold를 조정한다.</li>
-<li><strong>RDB만 빈번히 찍는 함정</strong> — 짧은 주기 RDB는 fork 비용이 계속 쌓여 오히려 AOF everysec보다 부담이 클 수 있다. 손실 폭을 줄이려면 RDB 주기를 당기기보다 AOF를 켠다.</li>
-<li><strong>로컬 디스크 백업과 손상 복구</strong> — 영속화 파일이 로컬에만 있으면 디스크 고장이 곧 영구 손실이므로 원격 스토리지로 자동 백업한다. <code>redis-check-aof --fix</code>는 손상 지점 이후를 잘라내므로 백업 없이 실행하면 그 이후 데이터를 잃는다. 영속화는 재시작 대응, 복제는 노드 장애 대응이므로 둘을 함께 쓴다.</li>
+<li><strong>RDB만 빈번히 찍는 함정</strong> — <mark>짧은 주기 RDB는 fork 비용이 계속 쌓여 오히려 AOF everysec보다 부담이 클 수 있다.</mark> 손실 폭을 줄이려면 RDB 주기를 당기기보다 AOF를 켠다.</li>
+<li><strong>로컬 디스크 백업과 손상 복구</strong> — 영속화 파일이 로컬에만 있으면 디스크 고장이 곧 영구 손실이므로 원격 스토리지로 자동 백업한다. <code>redis-check-aof --fix</code>는 손상 지점 이후를 잘라내므로 백업 없이 실행하면 그 이후 데이터를 잃는다. <mark>영속화는 재시작 대응, 복제는 노드 장애 대응이므로 둘을 함께 쓴다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

@@ -9,11 +9,11 @@ sources: [https://docs.nestjs.com/guards, https://docs.nestjs.com/security/authe
 updated: 2026-08-30
 ---
 
-인증 로직을 컨트롤러 메서드 안에 두면 같은 토큰 검증 코드가 핸들러마다 반복되고, 새 엔드포인트를 추가할 때 한 줄만 빠뜨려도 보호되지 않은 API가 열린다. 미들웨어로 끌어올리면 반복은 줄지만, 미들웨어는 다음에 어떤 핸들러가 실행될지 모르므로 핸들러 단위 정책을 적용할 수 없다. NestJS의 Guard는 실행 컨텍스트를 알고 있는 상태에서 핸들러 직전에 개입하는 구성 요소이며, 인증(누구인가)과 인가(무엇을 할 수 있는가)를 선언적으로 분리할 수 있게 한다.
+인증 로직을 컨트롤러 메서드 안에 두면 같은 토큰 검증 코드가 핸들러마다 반복되고, 새 엔드포인트를 추가할 때 한 줄만 빠뜨려도 보호되지 않은 API가 열린다. 미들웨어로 끌어올리면 반복은 줄지만, 미들웨어는 다음에 어떤 핸들러가 실행될지 모르므로 핸들러 단위 정책을 적용할 수 없다. ==NestJS의 Guard는 실행 컨텍스트를 알고 있는 상태에서 핸들러 직전에 개입하는 구성 요소이며, 인증(누구인가)과 인가(무엇을 할 수 있는가)를 선언적으로 분리할 수 있게 한다.==
 
 ## 핵심 개념
 
-Guard는 `@Injectable()` 클래스가 `CanActivate` 인터페이스를 구현한 것이다. 유일한 메서드 `canActivate(context: ExecutionContext)`는 `boolean | Promise<boolean> | Observable<boolean>`을 반환하고, false이면 Nest가 `ForbiddenException`을 던진다. 실행 순서는 미들웨어 → Guard → Interceptor → Pipe → 핸들러로 고정되어 있어, Guard가 거부한 요청은 Pipe의 검증이나 Interceptor의 로깅에 도달하지 않는다.
+Guard는 `@Injectable()` 클래스가 `CanActivate` 인터페이스를 구현한 것이다. 유일한 메서드 `canActivate(context: ExecutionContext)`는 `boolean | Promise<boolean> | Observable<boolean>`을 반환하고, false이면 Nest가 `ForbiddenException`을 던진다. ==실행 순서는 미들웨어 → Guard → Interceptor → Pipe → 핸들러로 고정되어 있어, Guard가 거부한 요청은 Pipe의 검증이나 Interceptor의 로깅에 도달하지 않는다.==
 
 `ExecutionContext`는 `ArgumentsHost`를 확장한 객체로, `switchToHttp().getRequest()`로 요청 객체를 꺼내는 것 외에 `getHandler()`와 `getClass()`로 곧 실행될 메서드와 컨트롤러 클래스 참조를 제공한다. 미들웨어와 결정적으로 다른 지점이 여기다. 핸들러 참조가 있으면 데코레이터로 붙여 둔 메타데이터를 `Reflector`로 읽어 정책을 분기할 수 있다.
 
@@ -132,9 +132,9 @@ export class RolesGuard implements CanActivate {
 
 ## 실무에서 걸리는 지점
 
-- **Guard 실행 순서는 등록 순서다.** `APP_GUARD`를 여러 개 등록하면 provider 배열 순서대로 실행되므로 `JwtAuthGuard`가 `RolesGuard`보다 앞에 와야 `request.user`가 채워진 상태로 역할 검사가 이루어진다. 순서가 뒤집히면 모든 요청이 403으로 떨어진다.
+- **==Guard 실행 순서는 등록 순서다.==** `APP_GUARD`를 여러 개 등록하면 provider 배열 순서대로 실행되므로 `JwtAuthGuard`가 `RolesGuard`보다 앞에 와야 `request.user`가 채워진 상태로 역할 검사가 이루어진다. 순서가 뒤집히면 모든 요청이 403으로 떨어진다.
 - **false 반환과 예외 던지기는 응답 코드가 다르다.** false를 반환하면 Nest가 403 `ForbiddenException`으로 바꾸고, 토큰이 없거나 만료된 경우는 직접 `UnauthorizedException`(401)을 던져야 클라이언트가 재로그인과 권한 부족을 구분한다.
-- **Guard는 Pipe보다 먼저 실행된다.** 따라서 Guard 안에서 본문 DTO가 검증·변환됐다고 가정하면 안 된다. 요청 본문에 의존하는 인가 판단은 raw 값을 직접 다루거나 Interceptor 이후 계층으로 옮긴다.
+- **==Guard는 Pipe보다 먼저 실행된다.==** 따라서 Guard 안에서 본문 DTO가 검증·변환됐다고 가정하면 안 된다. 요청 본문에 의존하는 인가 판단은 raw 값을 직접 다루거나 Interceptor 이후 계층으로 옮긴다.
 - **Passport 경로에서는 `validate()`의 반환값이 곧 `request.user`다.** 여기서 DB 조회를 하면 모든 보호 요청마다 쿼리가 발생한다. 토큰 payload만으로 충분한 정보를 담거나, 조회가 필요하면 캐시를 앞에 두는 것이 일반적이다.
 
 ## 관련 글

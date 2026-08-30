@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-redis-lua-scripting.md, data-infra/2026-05-17-re
 updated: 2026-08-29
 ---
 
-MULTI/EXEC는 명령을 묶어 격리해 줄 뿐, "GET한 값이 이 UUID와 같을 때만 DEL한다" 같은 조건 분기를 담지 못한다. WATCH를 쓰면 재시도 루프가 애플리케이션에 남고, 분산 락 해제나 슬라이딩 윈도우 rate limiter처럼 읽고 판단하고 쓰는 작업은 클라이언트 왕복 사이에 다른 요청이 끼어든다. Redis는 이 문제를 서버 안에서 Lua 코드를 한 명령처럼 실행하는 EVAL로 풀고, Redis 7부터는 스크립트를 이름 있는 영속 라이브러리로 관리하는 Functions를 추가했다.
+MULTI/EXEC는 명령을 묶어 격리해 줄 뿐, "GET한 값이 이 UUID와 같을 때만 DEL한다" 같은 조건 분기를 담지 못한다. WATCH를 쓰면 재시도 루프가 애플리케이션에 남고, 분산 락 해제나 슬라이딩 윈도우 rate limiter처럼 읽고 판단하고 쓰는 작업은 클라이언트 왕복 사이에 다른 요청이 끼어든다. ==Redis는 이 문제를 서버 안에서 Lua 코드를 한 명령처럼 실행하는 EVAL로 풀고, Redis 7부터는 스크립트를 이름 있는 영속 라이브러리로 관리하는 Functions를 추가했다.==
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ EVAL의 시그니처는 `EVAL <script> <numkeys> <key...> <arg...>`다. 앞쪽 n
 
 스크립트 안에서 Redis 명령은 `redis.call`로 호출하며, 에러가 나면 스크립트 전체가 중단된다. `redis.pcall`은 에러를 `{err = "..."}` 테이블로 돌려주어 진행을 계속한다. 반환값은 Integer는 number, Bulk string은 string, Multi-bulk는 table, nil은 false로 변환된다.
 
-스크립트는 통째로 하나의 명령으로 실행되어 다른 클라이언트의 명령이 끼어들지 못한다. `redis.call` 사이에 조건문을 넣어도 원자성이 유지된다는 점이 MULTI/EXEC와의 결정적 차이다.
+스크립트는 통째로 하나의 명령으로 실행되어 다른 클라이언트의 명령이 끼어들지 못한다. ==`redis.call` 사이에 조건문을 넣어도 원자성이 유지된다는 점이 MULTI/EXEC와의 결정적 차이다.==
 
 `SCRIPT LOAD`로 등록하면 SHA1이 반환되고 이후 `EVALSHA <sha>`로 호출한다. 캐시는 메모리에만 있어 재시작이나 `SCRIPT FLUSH` 뒤에는 NOSCRIPT 에러가 나며, 클라이언트는 이때 EVAL로 다시 보낸다. Spring Data Redis와 Lettuce는 이 폴백을 내장하고 있다.
 
@@ -147,7 +147,7 @@ public class LockFunctions {
 
 ## 실무에서 걸리는 지점
 
-- 스크립트는 메인 스레드를 점유한다. 실행이 `busy-reply-threshold`(기본 5,000ms, Redis 7 이전 이름은 `lua-time-limit`)를 넘으면 다른 클라이언트는 BUSY 응답을 받는다. `SCRIPT KILL`·`FUNCTION KILL`은 쓰기를 시작하지 않은 스크립트에만 통하고, 그 뒤에는 `SHUTDOWN NOSAVE`밖에 없다.
+- ==스크립트는 메인 스레드를 점유한다.== 실행이 `busy-reply-threshold`(기본 5,000ms, Redis 7 이전 이름은 `lua-time-limit`)를 넘으면 다른 클라이언트는 BUSY 응답을 받는다. `SCRIPT KILL`·`FUNCTION KILL`은 쓰기를 시작하지 않은 스크립트에만 통하고, 그 뒤에는 `SHUTDOWN NOSAVE`밖에 없다.
 - Cluster에서는 한 스크립트가 만지는 모든 키가 같은 슬롯에 있어야 한다. `rate:{user42}`처럼 hash tag로 슬롯을 고정하고, 키 이름을 `ARGV`에 숨겨 검사를 우회하지 않는다.
 - `TIME`, `SRANDMEMBER`, `SPOP` 같은 비결정적 명령을 스크립트 안에서 호출하면 replica와 AOF 재생 결과가 달라질 수 있다. 시각이나 난수는 클라이언트가 `ARGV`로 넘긴다.
 - EVALSHA만 쓰는 코드는 `SCRIPT FLUSH`, 재시작, replica 승격 뒤 NOSCRIPT로 실패한다. 폴백이 내장된 클라이언트를 쓰거나 Functions로 옮긴다. Functions는 Redis 7.0 이상, Lettuce 6.2 이상·Jedis 5 이상이 필요하다.

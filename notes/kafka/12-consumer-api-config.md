@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-consumer-api.md, data-infra/2026-05-17-kaf
 updated: 2026-08-29
 ---
 
-Consumer는 offset, 파티션 할당, 그룹 멤버십을 클라이언트가 스스로 관리하며 이 셋이 서로 맞물린다. commit 타이밍을 잘못 잡으면 메시지가 손실되거나 중복 처리되고, 처리 시간이 길어지면 브로커가 Consumer를 죽은 것으로 판정해 Rebalance를 일으킨다. API 호출 패턴과 설정값을 같이 봐야 한다.
+Consumer는 offset, 파티션 할당, 그룹 멤버십을 클라이언트가 스스로 관리하며 이 셋이 서로 맞물린다. ==commit 타이밍을 잘못 잡으면 메시지가 손실되거나 중복 처리되고, 처리 시간이 길어지면 브로커가 Consumer를 죽은 것으로 판정해 Rebalance를 일으킨다.== API 호출 패턴과 설정값을 같이 봐야 한다.
 
 ## 핵심 개념
 
@@ -145,7 +145,7 @@ public class OrderListener {
 - **Auto commit과 처리 실패.** commit 후 처리 중 장애가 나면 그 레코드는 다시 읽히지 않는다. 손실이 허용되지 않으면 `enable.auto.commit=false`로 둔다.
 - **큰 메시지와 `max.partition.fetch.bytes`.** 브로커·토픽의 `max.message.bytes`보다 작으면 그 파티션은 해당 레코드에서 멈춘다.
 - **heartbeat와 session 비율.** 두 값이 비슷하면 heartbeat 한 번만 놓쳐도 죽은 것으로 판정된다.
-- **`KafkaConsumer`는 thread-safe가 아니다.** 다른 스레드에서 호출해도 되는 것은 `wakeup()`뿐이다. 병렬화는 인스턴스를 늘려서 한다. `group.instance.id`가 중복되면 `FencedInstanceIdException`으로 종료된다.
+- ==**`KafkaConsumer`는 thread-safe가 아니다.**== 다른 스레드에서 호출해도 되는 것은 `wakeup()`뿐이다. 병렬화는 인스턴스를 늘려서 한다. `group.instance.id`가 중복되면 `FencedInstanceIdException`으로 종료된다.
 
 ## 관련 글
 

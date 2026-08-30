@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-job-repository.md, batch/2026-05-17-batch-meta-
 updated: 2026-08-29
 ---
 
-배치 Job이 중간에 죽으면 어디까지 처리했는지 알아야 이어서 실행할 수 있고, 완료된 Job의 중복 실행과 같은 JobInstance의 동시 시작도 막아야 한다. 이 판단은 실행 상태가 프로세스 밖에 영속되어 있어야 가능하다. Spring Batch에서 그 저장소가 JobRepository이고, 저장 형식이 `BATCH_*` 메타데이터 스키마다.
+배치 Job이 중간에 죽으면 어디까지 처리했는지 알아야 이어서 실행할 수 있고, 완료된 Job의 중복 실행과 같은 JobInstance의 동시 시작도 막아야 한다. 이 판단은 실행 상태가 프로세스 밖에 영속되어 있어야 가능하다. ==Spring Batch에서 그 저장소가 JobRepository이고, 저장 형식이 `BATCH_*` 메타데이터 스키마다.==
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ JDBC 구현체는 도메인 객체와 1:1로 대응하는 테이블 여섯 개�
 
 스키마가 보장하는 동작은 세 가지다.
 
-첫째, 인스턴스 식별. `JOB_KEY`는 `IDENTIFYING = 'Y'`인 파라미터를 직렬화해 MD5로 해시한 32자다. 같은 이름과 같은 식별 파라미터는 같은 JobInstance로 판정되고, 이미 COMPLETED면 `JobInstanceAlreadyCompleteException`이 발생한다.
+첫째, 인스턴스 식별. `JOB_KEY`는 `IDENTIFYING = 'Y'`인 파라미터를 직렬화해 MD5로 해시한 32자다. ==같은 이름과 같은 식별 파라미터는 같은 JobInstance로 판정되고, 이미 COMPLETED면 `JobInstanceAlreadyCompleteException`이 발생한다.==
 
 둘째, 낙관적 잠금. `VERSION` 컬럼은 갱신마다 1씩 증가하고 UPDATE는 `WHERE ... AND VERSION = ?`로 실행된다. 어긋나면 `OptimisticLockingFailureException`이 발생한다.
 
@@ -133,7 +133,7 @@ WHERE JOB_EXECUTION_ID = ?;
 
 ## 실무에서 걸리는 지점
 
-- **STARTED 잔존.** `kill -9`·OOM 뒤에는 `END_TIME`이 NULL인 STARTED 레코드가 남아 재시작이 막힌다. `LAST_UPDATED` 기준으로 탐지해 ABANDONED 처리하는 절차를 마련한다.
+- ==**STARTED 잔존.** `kill -9`·OOM 뒤에는 `END_TIME`이 NULL인 STARTED 레코드가 남아 재시작이 막힌다.== `LAST_UPDATED` 기준으로 탐지해 ABANDONED 처리하는 절차를 마련한다.
 - **트랜잭션 매니저 분리.** 메타데이터 DB와 업무 DB가 다르면 `StepBuilder.chunk(size, businessTxManager)`에 업무 DB의 매니저를 넘긴다. XA 없이 두 DB를 한 트랜잭션에 묶을 수 없다.
 - **격리 수준 완화.** 데드락이 잦다고 `READ_COMMITTED`로 낮추면 같은 JobInstance가 두 번 생성될 수 있다. 완화 전에 스케줄러 단의 단일 실행 보장을 갖춘다.
 - **ExecutionContext 비대화.** 큰 객체를 넣으면 chunk 커밋마다 CLOB이 다시 쓰여 병목이 된다. 단순 값만 저장하고, 직렬화기 교체 시 기존 레코드의 역직렬화 호환을 확인한다.

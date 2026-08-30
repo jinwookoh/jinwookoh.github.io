@@ -9,7 +9,7 @@ sources: [https://nextjs.org/docs/app/building-your-application/rendering/server
 updated: 2026-08-30
 ---
 
-전통적인 React SPA는 모든 컴포넌트 코드를 브라우저로 보내고, 데이터도 브라우저가 API를 호출해 받아온다. 한 번 그리고 끝나는 정적 본문과 그 파싱 라이브러리까지 번들에 포함된다. DB 접근 코드는 브라우저에 둘 수 없으니 API 계층이 필수이고, 렌더링 전에 네트워크 왕복이 한 번 더 생긴다. Next.js App Router는 컴포넌트를 실행 환경에 따라 두 종류로 나누어 이 비용을 줄인다.
+전통적인 React SPA는 모든 컴포넌트 코드를 브라우저로 보내고, 데이터도 브라우저가 API를 호출해 받아온다. 한 번 그리고 끝나는 정적 본문과 그 파싱 라이브러리까지 번들에 포함된다. DB 접근 코드는 브라우저에 둘 수 없으니 API 계층이 필수이고, 렌더링 전에 네트워크 왕복이 한 번 더 생긴다. ==Next.js App Router는 컴포넌트를 실행 환경에 따라 두 종류로 나누어 이 비용을 줄인다.==
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ Client Component는 파일 최상단에 `'use client'` 지시어를 선언한 �
 
 서버는 Server Component를 실행해 RSC Payload를 만들고 그 안에 Client Component의 참조와 props를 기록한다. 초기 요청은 HTML과 함께 전달되고, 이후 페이지 이동에서는 RSC Payload만 받아 트리를 갱신한다.
 
-두 종류의 경계를 넘나드는 데는 제약이 있다. Server Component에서 Client Component를 import하는 것은 자유롭지만, 그 반대는 불가능하다. 대신 Server Component를 `children`이나 다른 prop으로 넘기는 방식은 허용된다. 또한 경계를 넘어가는 props는 직렬화 가능해야 한다. 함수, 클래스 인스턴스, Date 같은 값은 그대로 넘길 수 없고, Server Action 함수만 예외로 전달된다.
+두 종류의 경계를 넘나드는 데는 제약이 있다. ==Server Component에서 Client Component를 import하는 것은 자유롭지만, 그 반대는 불가능하다.== 대신 Server Component를 `children`이나 다른 prop으로 넘기는 방식은 허용된다. 또한 경계를 넘어가는 props는 직렬화 가능해야 한다. 함수, 클래스 인스턴스, Date 같은 값은 그대로 넘길 수 없고, Server Action 함수만 예외로 전달된다.
 
 | 구분 | Server Component | Client Component |
 |---|---|---|
@@ -111,7 +111,7 @@ export default function Page() {
 
 ## 실무에서 걸리는 지점
 
-- **경계가 위로 올라가는 문제.** 페이지 최상단 컴포넌트에 `'use client'`를 붙이면 그 아래 import 트리 전체가 클라이언트 번들이 된다. 지시어는 상호작용이 필요한 말단 컴포넌트에만 붙이고, 데이터 페칭과 정적 마크업은 위쪽 Server Component에 남긴다.
+- ==**경계가 위로 올라가는 문제.** 페이지 최상단 컴포넌트에 `'use client'`를 붙이면 그 아래 import 트리 전체가 클라이언트 번들이 된다.== 지시어는 상호작용이 필요한 말단 컴포넌트에만 붙이고, 데이터 페칭과 정적 마크업은 위쪽 Server Component에 남긴다.
 - **서버 전용 코드의 유출.** 환경 변수를 읽는 유틸리티나 DB 클라이언트를 Client Component에서 실수로 import하면 코드가 번들에 섞인다. 그런 모듈 최상단에 `import 'server-only'`를 넣어 빌드 단계에서 차단한다.
 - **직렬화 불가 props.** 서버에서 만든 `Date`, `Map`, 클래스 인스턴스, 콜백 함수를 Client Component에 넘기면 런타임 오류가 난다. ISO 문자열이나 일반 객체로 바꿔 넘기고, 서버 로직 호출이 필요하면 Server Action을 prop으로 전달한다.
 - **서드파티 컴포넌트 래핑.** 훅을 사용하면서 `'use client'`를 선언하지 않은 라이브러리 컴포넌트는 Server Component에서 바로 쓰면 실패한다. 지시어를 붙인 얇은 래퍼 파일로 감싸 사용한다.

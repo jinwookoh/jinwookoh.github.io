@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-jpa-query-methods.md, spring/2026-05-17-querydsl.md,
 updated: 2026-08-29
 ---
 
-`JpaRepository`의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 `(:status IS NULL OR o.status = :status)` 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. `created_at`·`updated_at`을 서비스 코드에서 손으로 채우면 누락이 생긴다. 쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.
+`JpaRepository`의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 `(:status IS NULL OR o.status = :status)` 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. `created_at`·`updated_at`을 서비스 코드에서 손으로 채우면 누락이 생긴다. ==쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.==
 
 ## 핵심 개념
 
@@ -197,9 +197,9 @@ public class Order extends BaseEntity {
 
 ## 실무에서 걸리는 지점
 
-- **`@Modifying` 벌크 쿼리와 1차 캐시 불일치.** 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다. `clearAutomatically = true`를 준다. Auditing도 타지 않는다.
+- ==**`@Modifying` 벌크 쿼리와 1차 캐시 불일치.** 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다.== `clearAutomatically = true`를 준다. Auditing도 타지 않는다.
 - **count 쿼리 비용.** `Page<T>`는 매 요청마다 count 쿼리를 실행한다. count 쿼리에서는 fetch join을 빼고, 전체 개수가 필요 없으면 `Slice<T>`로 대체한다.
-- **컬렉션 fetch join과 페이징.** `@OneToMany`를 fetch join한 채 `limit`을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(`HHH90003004` 경고). 컬렉션은 `default_batch_fetch_size`로 푼다.
+- ==**컬렉션 fetch join과 페이징.** `@OneToMany`를 fetch join한 채 `limit`을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(`HHH90003004` 경고).== 컬렉션은 `default_batch_fetch_size`로 푼다.
 - **Q 클래스 생성 실패.** `QOrder cannot be resolved`는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. Spring Boot 3에서는 `querydsl-jpa`·`querydsl-apt`에 `jakarta` classifier가 필요하다.
 - **Auditing이 비는 경우.** `@EnableJpaAuditing`이나 부모 클래스의 `@EntityListeners`가 빠지면 null이 들어간다. `AuditorAware`가 익명 인증을 거르지 않으면 `createdBy`에 `anonymousUser`가 기록된다.
 

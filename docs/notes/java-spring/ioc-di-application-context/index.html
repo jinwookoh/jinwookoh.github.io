@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/ioc-di-application-context/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>IoC/DI와 ApplicationContext — Bean이란</h1>
   <p class="summary">객체 생성과 연결의 책임을 컨테이너로 넘기는 IoC/DI의 원리와, ApplicationContext가 Bean을 다루는 방식을 정리한다.</p>
   <div class="content">
-<p>객체가 사용할 다른 객체를 직접 <code>new</code>로 만들면 세 가지 문제가 생긴다. <code>OrderService</code>가 <code>new KakaoPayGateway()</code>를 들고 있으면 결제사를 바꿀 때 <code>OrderService</code>를 고쳐야 하고, 가짜 게이트웨이를 끼울 지점이 없어 단위 테스트가 실제 API를 호출하며, 구체 타입을 알아야 하므로 변경이 전파된다. 객체의 생성과 연결을 코드 밖으로 빼낸 것이 IoC이고, Spring에서 그 역할을 맡는 것이 ApplicationContext다.</p>
+<p>객체가 사용할 다른 객체를 직접 <code>new</code>로 만들면 세 가지 문제가 생긴다. <code>OrderService</code>가 <code>new KakaoPayGateway()</code>를 들고 있으면 결제사를 바꿀 때 <code>OrderService</code>를 고쳐야 하고, 가짜 게이트웨이를 끼울 지점이 없어 단위 테스트가 실제 API를 호출하며, 구체 타입을 알아야 하므로 변경이 전파된다. <mark>객체의 생성과 연결을 코드 밖으로 빼낸 것이 IoC이고, Spring에서 그 역할을 맡는 것이 ApplicationContext다.</mark></p>
 <h2>핵심 개념</h2>
 <p><strong>IoC(Inversion of Control)</strong> 는 객체의 생성·연결·생명주기를 애플리케이션 코드가 아닌 컨테이너가 관리한다는 원칙이다. <strong>DI(Dependency Injection)</strong> 는 IoC를 구현하는 기법으로, 객체가 의존성을 직접 만들지 않고 외부에서 받도록 한다. IoC는 원칙, DI는 그 실현 방식 중 하나다. DI는 인터페이스와 함께 써야 효과가 난다. <code>OrderService</code>가 <code>PaymentGateway</code> 인터페이스만 알고 구현체를 생성자로 받으면 교체는 조립하는 쪽에서 결정되고, 테스트에서는 가짜 구현체를 넘기면 된다.</p>
 <p>주입 방식은 생성자·세터·필드 세 가지이고 Spring은 생성자 주입을 권장한다. 필드를 <code>final</code>로 둘 수 있고, 의존성 누락이 생성 시점에 드러나며, 컨테이너 없이 테스트할 수 있다. 세터 주입은 선택적 의존성에만 쓰고 필드 주입은 피한다. 생성자가 하나면 <code>@Autowired</code>를 생략해도 된다.</p>
@@ -120,8 +120,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>singleton Bean의 인스턴스 필드는 공유 상태다.</strong> 요청별 값을 필드로 두면 모든 스레드가 같은 객체를 쓰므로 데이터가 섞인다. 요청 단위 상태는 지역 변수로 다룬다.</li>
-<li><strong>순환 참조는 구조 문제다.</strong> 생성자 주입은 순환 의존성을 기동 시점에 드러내며, Spring Boot 2.6부터 기본 금지다. <code>@Lazy</code>로 우회하기보다 의존 방향을 고친다.</li>
+<li><mark><strong>singleton Bean의 인스턴스 필드는 공유 상태다.</strong></mark> 요청별 값을 필드로 두면 모든 스레드가 같은 객체를 쓰므로 데이터가 섞인다. 요청 단위 상태는 지역 변수로 다룬다.</li>
+<li><mark><strong>순환 참조는 구조 문제다.</strong></mark> 생성자 주입은 순환 의존성을 기동 시점에 드러내며, Spring Boot 2.6부터 기본 금지다. <code>@Lazy</code>로 우회하기보다 의존 방향을 고친다.</li>
 <li><strong>같은 타입의 Bean이 둘 이상이면 주입이 모호해진다.</strong> <code>NoUniqueBeanDefinitionException</code>이 나면 <code>@Primary</code>나 <code>@Qualifier</code>로 대상을 지정한다.</li>
 <li><strong><code>getBean</code> 직접 호출은 IoC를 되돌린다.</strong> 실행 시점에 구현체를 골라야 하면 <code>Map&lt;String, PaymentGateway&gt;</code> 주입을 쓴다.</li>
 <li><strong>스캔 범위 밖의 클래스는 조용히 빠진다.</strong> 스캔 시작점은 <code>@SpringBootApplication</code> 클래스의 패키지이므로, 상위나 형제 패키지의 <code>@Service</code>는 주입 시점의 <code>NoSuchBeanDefinitionException</code>으로만 드러난다.</li>

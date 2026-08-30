@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/what-is-nestjs/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,10 +24,10 @@
   <h1>NestJS란 — 모듈·컨트롤러·프로바이더</h1>
   <p class="summary">NestJS는 모듈·컨트롤러·프로바이더 세 축과 DI 컨테이너로 Node 서버에 Spring식 구조를 부여한다</p>
   <div class="content">
-<p>Express나 Fastify만으로 서버를 만들면 라우팅·비즈니스 로직·DB 접근이 한 파일에 섞이고, 의존 객체를 어디서 생성해 어떻게 넘길지가 팀마다 달라진다. 테스트에서 의존성을 갈아 끼우기 어렵고, 서비스가 커질수록 핸들러의 의존 관계를 코드에서 읽어낼 수 없게 된다. NestJS는 이 문제를 강제된 구조로 해결한다. 모듈로 경계를 긋고, 컨트롤러가 HTTP를 받고, 프로바이더가 로직을 담당하며, 이 셋의 결합은 IoC 컨테이너가 맡는다. Spring Boot를 써 본 개발자라면 구조가 낯설지 않다.</p>
+<p>Express나 Fastify만으로 서버를 만들면 라우팅·비즈니스 로직·DB 접근이 한 파일에 섞이고, 의존 객체를 어디서 생성해 어떻게 넘길지가 팀마다 달라진다. 테스트에서 의존성을 갈아 끼우기 어렵고, 서비스가 커질수록 핸들러의 의존 관계를 코드에서 읽어낼 수 없게 된다. <mark>NestJS는 이 문제를 강제된 구조로 해결한다.</mark> 모듈로 경계를 긋고, 컨트롤러가 HTTP를 받고, 프로바이더가 로직을 담당하며, 이 셋의 결합은 IoC 컨테이너가 맡는다. Spring Boot를 써 본 개발자라면 구조가 낯설지 않다.</p>
 <h2>핵심 개념</h2>
 <p>NestJS 애플리케이션은 <code>NestFactory.create(AppModule)</code>로 루트 모듈을 읽어 의존성 그래프를 구성하고, <code>app.listen()</code>으로 HTTP 서버를 띄운다. 기본 HTTP 어댑터는 Express이며 Fastify로 교체할 수 있다. 실행에는 Node 20.19 이상 또는 22.12 이상이 필요하다.</p>
-<p><strong>모듈</strong>은 <code>@Module()</code> 데코레이터가 붙은 클래스로, <code>controllers</code>·<code>providers</code>·<code>imports</code>·<code>exports</code> 네 항목으로 구성 단위를 선언한다. 루트 모듈 하나는 반드시 있어야 하고, 기능 단위로 하위 모듈을 나눠 <code>imports</code>로 연결한다. 프로바이더는 기본적으로 모듈 내부에 캡슐화되며, 다른 모듈에서 쓰려면 <code>exports</code>에 올려야 한다. Spring의 <code>@Configuration</code> + 컴포넌트 스캔 범위를 명시적으로 적어 놓은 것에 가깝다.</p>
+<p><strong>모듈</strong>은 <code>@Module()</code> 데코레이터가 붙은 클래스로, <code>controllers</code>·<code>providers</code>·<code>imports</code>·<code>exports</code> 네 항목으로 구성 단위를 선언한다. 루트 모듈 하나는 반드시 있어야 하고, 기능 단위로 하위 모듈을 나눠 <code>imports</code>로 연결한다. <mark>프로바이더는 기본적으로 모듈 내부에 캡슐화되며, 다른 모듈에서 쓰려면 <code>exports</code>에 올려야 한다.</mark> Spring의 <code>@Configuration</code> + 컴포넌트 스캔 범위를 명시적으로 적어 놓은 것에 가깝다.</p>
 <p><strong>컨트롤러</strong>는 <code>@Controller(&#39;cats&#39;)</code>로 경로 접두사를 갖고, 메서드에 <code>@Get()</code>·<code>@Post()</code> 등 HTTP 메서드 데코레이터를 붙여 라우트를 정의한다. 요청 데이터는 <code>@Param()</code>·<code>@Query()</code>·<code>@Body()</code>·<code>@Headers()</code> 같은 파라미터 데코레이터로 꺼낸다. 핸들러가 객체를 반환하면 JSON으로 직렬화되고, 원시값은 그대로 전송된다. 상태 코드는 GET 200, POST 201이 기본이며 <code>@HttpCode()</code>로 바꾼다. <code>Promise</code>나 RxJS <code>Observable</code>을 반환해도 프레임워크가 해소한다. Spring의 <code>@RestController</code> + <code>@GetMapping</code> + <code>@PathVariable</code>·<code>@RequestBody</code>에 대응한다.</p>
 <p><strong>프로바이더</strong>는 <code>@Injectable()</code>이 붙은 클래스로, 서비스·리포지토리·팩토리·헬퍼 등 주입 가능한 모든 것을 가리킨다. 생성자 파라미터의 타입을 보고 컨테이너가 인스턴스를 만들어 넣어 주며, 기본 스코프는 싱글턴이다. 요청마다 새 인스턴스가 필요하면 <code>Scope.REQUEST</code>를 지정한다. 의존성이 없어도 되는 경우 <code>@Optional()</code>을, 토큰을 직접 지정할 때는 <code>@Inject()</code>를 쓴다. Spring의 <code>@Service</code>·<code>@Component</code>와 생성자 주입에 대응한다.</p>
 <table>
@@ -154,10 +154,10 @@
 <span class="hljs-built_in">void</span> <span class="hljs-title function_">bootstrap</span>();</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>emitDecoratorMetadata</code> 의존.</strong> 생성자 타입 기반 주입은 TypeScript가 데코레이터 메타데이터를 내보내야 동작한다. <code>tsconfig</code>에서 <code>experimentalDecorators</code>·<code>emitDecoratorMetadata</code>가 꺼져 있거나, esbuild·SWC 같은 트랜스파일러가 메타데이터를 생략하면 <code>Nest can&#39;t resolve dependencies</code> 오류가 난다. 인터페이스 타입은 런타임에 사라지므로 토큰 주입이 필요하다.</li>
+<li><strong><mark><code>emitDecoratorMetadata</code> 의존.</mark></strong> 생성자 타입 기반 주입은 TypeScript가 데코레이터 메타데이터를 내보내야 동작한다. <code>tsconfig</code>에서 <code>experimentalDecorators</code>·<code>emitDecoratorMetadata</code>가 꺼져 있거나, esbuild·SWC 같은 트랜스파일러가 메타데이터를 생략하면 <code>Nest can&#39;t resolve dependencies</code> 오류가 난다. 인터페이스 타입은 런타임에 사라지므로 토큰 주입이 필요하다.</li>
 <li><strong>모듈 경계를 넘는 주입 실패.</strong> 다른 모듈의 프로바이더를 <code>exports</code>에 올리지 않고 주입하면 같은 오류가 발생한다. 흔한 우회가 프로바이더를 두 모듈에 중복 등록하는 것인데, 이 경우 인스턴스가 두 개 생겨 싱글턴 가정이 깨진다.</li>
 <li><strong><code>@Res()</code> 직접 사용의 부작용.</strong> 라이브러리 응답 객체를 주입하면 인터셉터·직렬화·<code>@HttpCode()</code>가 무력화되고, 응답을 수동으로 끝내지 않으면 요청이 걸린다. 쿠키나 헤더만 만지려면 <code>@Res({ passthrough: true })</code>를 쓰고 반환값은 프레임워크에 맡긴다.</li>
-<li><strong>요청 스코프의 전파.</strong> <code>Scope.REQUEST</code> 프로바이더를 하나 주입하면 그것을 참조하는 컨트롤러와 상위 프로바이더까지 전부 요청 스코프로 승격된다. 요청마다 인스턴스 그래프를 새로 만들므로 지연 시간이 늘고, 무엇이 승격됐는지 코드에서 드러나지 않는다.</li>
+<li><strong>요청 스코프의 전파.</strong> <mark><code>Scope.REQUEST</code> 프로바이더를 하나 주입하면 그것을 참조하는 컨트롤러와 상위 프로바이더까지 전부 요청 스코프로 승격된다.</mark> 요청마다 인스턴스 그래프를 새로 만들므로 지연 시간이 늘고, 무엇이 승격됐는지 코드에서 드러나지 않는다.</li>
 <li><strong>v11 라우트 와일드카드 문법.</strong> Express 5 기반으로 바뀌면서 <code>&#39;cats/*&#39;</code> 형태가 아니라 <code>&#39;cats/*splat&#39;</code>처럼 이름 있는 와일드카드를 써야 한다. v10 예제를 그대로 옮기면 라우트 등록 시 예외가 난다.</li>
 </ul>
 <h2>관련 글</h2>

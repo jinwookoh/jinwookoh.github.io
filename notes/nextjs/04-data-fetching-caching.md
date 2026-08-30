@@ -9,7 +9,7 @@ sources: [https://nextjs.org/docs/app/building-your-application/data-fetching/fe
 updated: 2026-08-30
 ---
 
-Server Component는 서버에서 직접 데이터를 읽어 렌더링하므로, 캐시 전략을 정하지 않으면 페이지 요청마다 원격 API와 DB를 그대로 때린다. 반대로 캐시를 켜 두고 무효화 경로를 설계하지 않으면 데이터를 수정해도 화면이 바뀌지 않는다. Next.js는 이 문제를 요청 메모이제이션, Data Cache, Full Route Cache, Router Cache라는 네 계층으로 나누어 처리하며, 각 계층이 어디에 살고 언제 비워지는지 알아야 "왜 데이터가 안 바뀌는가"와 "왜 매번 느린가"를 구분할 수 있다.
+Server Component는 서버에서 직접 데이터를 읽어 렌더링하므로, 캐시 전략을 정하지 않으면 페이지 요청마다 원격 API와 DB를 그대로 때린다. 반대로 캐시를 켜 두고 무효화 경로를 설계하지 않으면 데이터를 수정해도 화면이 바뀌지 않는다. Next.js는 이 문제를 요청 메모이제이션, Data Cache, Full Route Cache, Router Cache라는 네 계층으로 나누어 처리하며, ==각 계층이 어디에 살고 언제 비워지는지 알아야 "왜 데이터가 안 바뀌는가"와 "왜 매번 느린가"를 구분할 수 있다.==
 
 ## 핵심 개념
 
@@ -24,7 +24,7 @@ Server Component는 서버에서 직접 데이터를 읽어 렌더링하므로, 
 
 요청 메모이제이션은 React의 기능이다. 한 렌더 패스 안에서 동일한 `fetch(url, options)`가 여러 컴포넌트에서 호출되면 첫 호출만 네트워크로 나가고 나머지는 결과를 공유한다. `fetch`가 아닌 ORM 호출은 React의 `cache()`로 감싸야 같은 효과를 얻는다.
 
-Data Cache는 Next.js가 서버에 두는 영속 캐시다. Next.js 15부터 `fetch`의 기본값은 캐시하지 않음이며, `cache: 'force-cache'`를 명시하거나 `next: { revalidate: n }`을 주어야 저장된다. 14까지는 기본이 캐시였으므로 마이그레이션 시 동작이 뒤집힌다. `next: { tags: [...] }`로 항목에 태그를 붙이면 `revalidateTag`로 묶어서 지울 수 있다. `fetch`를 쓰지 않는 DB 쿼리는 `unstable_cache(fn, keyParts, { revalidate, tags })`로 감싸 Data Cache에 넣는다.
+Data Cache는 Next.js가 서버에 두는 영속 캐시다. ==Next.js 15부터 `fetch`의 기본값은 캐시하지 않음이며, `cache: 'force-cache'`를 명시하거나 `next: { revalidate: n }`을 주어야 저장된다.== 14까지는 기본이 캐시였으므로 마이그레이션 시 동작이 뒤집힌다. `next: { tags: [...] }`로 항목에 태그를 붙이면 `revalidateTag`로 묶어서 지울 수 있다. `fetch`를 쓰지 않는 DB 쿼리는 `unstable_cache(fn, keyParts, { revalidate, tags })`로 감싸 Data Cache에 넣는다.
 
 Full Route Cache는 빌드 시점에 정적으로 렌더링된 라우트의 결과물이다. 라우트 안의 모든 데이터가 캐시 가능하고 `cookies()`, `headers()`, `searchParams` 같은 요청 시점 API를 쓰지 않으면 정적 라우트가 되어 여기에 저장된다. 하나라도 동적 요소가 있으면 라우트 전체가 요청마다 렌더링되지만, Data Cache는 별개로 계속 동작한다.
 
@@ -100,7 +100,7 @@ export async function createPost(formData: FormData) {
 ## 실무에서 걸리는 지점
 
 - 15 기본값 역전. 14에서 캐시에 기대던 `fetch`가 15에서는 매 요청 원격 호출로 바뀐다. 업그레이드 후 외부 API 호출량이 급증하면 이 지점부터 확인한다.
-- 동적 요소 하나가 라우트 전체를 동적으로 만든다. layout에서 `cookies()`를 읽으면 그 아래 모든 page가 Full Route Cache에서 빠진다. 사용자별 정보는 Client Component나 별도 Suspense 경계로 분리한다.
+- ==동적 요소 하나가 라우트 전체를 동적으로 만든다.== layout에서 `cookies()`를 읽으면 그 아래 모든 page가 Full Route Cache에서 빠진다. 사용자별 정보는 Client Component나 별도 Suspense 경계로 분리한다.
 - revalidate 값은 라우트에서 가장 짧은 값이 이긴다. 한 `fetch`에 `revalidate: 0`이나 `no-store`가 있으면 라우트가 동적 렌더링으로 전환된다. `revalidate = 60 * 10` 같은 계산식은 빌드가 거부한다.
 - 다중 인스턴스 배포에서 기본 캐시는 파일 시스템이라 인스턴스마다 따로 존재한다. `revalidateTag`가 호출을 받은 인스턴스만 비우므로 Redis 등 공유 cacheHandler를 설정해야 한다.
 - 개발 서버에서는 페이지가 항상 즉시 렌더링되고 캐시되지 않는다. ISR 검증은 `next build` 후 `next start`로 하고, `next.config`의 `logging.fetches.fullUrl`을 켜면 어떤 `fetch`가 캐시를 탔는지 로그로 드러난다.

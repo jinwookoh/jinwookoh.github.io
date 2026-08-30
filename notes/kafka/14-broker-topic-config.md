@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-broker-config.md, data-infra/2026-05-17-ka
 updated: 2026-08-29
 ---
 
-Kafka broker 설정은 수백 개가 있고, topic 설정은 그 기본값을 topic 단위로 덮어쓴다. 두 층의 관계를 모르면 `acks=all`을 걸어 놓고도 `min.insync.replicas=1` 때문에 사실상 `acks=1`로 동작하거나, topic의 `max.message.bytes`만 올려 놓고 broker가 메시지를 거부하는 상황을 겪는다. `auto.create.topics.enable`이 켜진 운영 클러스터에는 오타 topic이 쌓인다.
+Kafka broker 설정은 수백 개가 있고, topic 설정은 그 기본값을 topic 단위로 덮어쓴다. ==두 층의 관계를 모르면 `acks=all`을 걸어 놓고도 `min.insync.replicas=1` 때문에 사실상 `acks=1`로 동작하거나, topic의 `max.message.bytes`만 올려 놓고 broker가 메시지를 거부하는 상황을 겪는다.== `auto.create.topics.enable`이 켜진 운영 클러스터에는 오타 topic이 쌓인다.
 
 ## 핵심 개념
 
@@ -143,7 +143,7 @@ public class TopicConfiguration {
 ## 실무에서 걸리는 지점
 
 - `retention.bytes`는 partition 단위다. partition 10개에 1GB를 주면 topic 전체는 10GB까지 커진다.
-- `max.message.bytes`를 topic에서만 올리면 broker의 `message.max.bytes`에 걸려 거부된다. 두 값을 함께 조정하고 consumer의 `max.partition.fetch.bytes`도 맞춘다.
+- ==`max.message.bytes`를 topic에서만 올리면 broker의 `message.max.bytes`에 걸려 거부된다.== 두 값을 함께 조정하고 consumer의 `max.partition.fetch.bytes`도 맞춘다.
 - `advertised.listeners`가 resolve되지 않는 호스트명이면 bootstrap 연결은 되어도 metadata의 주소로 재연결하면서 실패한다.
 - `log.flush.interval.*`를 명시하면 매번 fsync가 발생해 처리량이 크게 떨어진다. 내구성은 replication과 `min.insync.replicas`로 보장한다.
 - `compression.type=producer`는 producer가 압축하지 않으면 비압축으로 저장된다. `segment.bytes`를 너무 낮추면 파일 수가 폭증해 file descriptor를 소진한다.

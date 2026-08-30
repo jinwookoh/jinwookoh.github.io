@@ -9,13 +9,13 @@ sources: [batch/2026-05-17-batch-intro.md, batch/2026-05-17-batch-architecture.m
 updated: 2026-08-29
 ---
 
-야간 정산, 월말 청구서 발행, CSV 일괄 적재는 사용자 요청 없이 정해진 시점에 수백만 건을 읽고 변환해 저장한다. 반복문으로 직접 짜면 실패 지점부터의 재시작, 커밋 주기, 손상 레코드의 skip·retry, 처리 건수 기록이 전부 개별 코드로 쌓이고 배치마다 구현이 달라진다. Spring Batch는 이 공통 뼈대를 프레임워크가 맡고 개발자는 읽기·가공·쓰기 로직만 구현하도록 만든 경량 배치 프레임워크다. 별도 서버 없이 일반 Java 애플리케이션 안에서 동작한다.
+야간 정산, 월말 청구서 발행, CSV 일괄 적재는 사용자 요청 없이 정해진 시점에 수백만 건을 읽고 변환해 저장한다. 반복문으로 직접 짜면 실패 지점부터의 재시작, 커밋 주기, 손상 레코드의 skip·retry, 처리 건수 기록이 전부 개별 코드로 쌓이고 배치마다 구현이 달라진다. ==Spring Batch는 이 공통 뼈대를 프레임워크가 맡고 개발자는 읽기·가공·쓰기 로직만 구현하도록 만든 경량 배치 프레임워크다.== 별도 서버 없이 일반 Java 애플리케이션 안에서 동작한다.
 
 ## 핵심 개념
 
 ### 스케줄러가 아니다
 
-"언제 실행할지"는 Quartz, Spring `@Scheduled`, cron, Kubernetes CronJob의 몫이고, Spring Batch는 "실행되었을 때 대량 데이터를 어떻게 안정적으로 처리할지"를 맡는다. 건별 즉시 처리, 사용자 요청 응답, 소량 데이터에는 맞지 않으며, 대량·주기적 실행·재시작 보장이 동시에 요구될 때 선택한다.
+"언제 실행할지"는 Quartz, Spring `@Scheduled`, cron, Kubernetes CronJob의 몫이고, ==Spring Batch는 "실행되었을 때 대량 데이터를 어떻게 안정적으로 처리할지"를 맡는다.== 건별 즉시 처리, 사용자 요청 응답, 소량 데이터에는 맞지 않으며, 대량·주기적 실행·재시작 보장이 동시에 요구될 때 선택한다.
 
 ### 3계층 아키텍처
 
@@ -127,7 +127,7 @@ public class SettlementRunner {
 
 ## 실무에서 걸리는 지점
 
-- **같은 파라미터 재실행** — COMPLETED된 JobInstance를 같은 identifying 파라미터로 다시 실행하면 `JobInstanceAlreadyCompleteException`이 발생한다. 개발 중 반복 실행에만 `RunIdIncrementer`를 붙인다.
+- **같은 파라미터 재실행** — ==COMPLETED된 JobInstance를 같은 identifying 파라미터로 다시 실행하면 `JobInstanceAlreadyCompleteException`이 발생한다.== 개발 중 반복 실행에만 `RunIdIncrementer`를 붙인다.
 - **기동 시 자동 실행** — Spring Boot는 시작 시 등록된 Job을 자동 실행한다. 실행 시점을 직접 제어하려면 `spring.batch.job.enabled=false`로 끄고, Job이 여럿이면 `spring.batch.job.name`으로 대상을 지정한다.
 - **메타데이터 스키마** — H2 인메모리는 재기동 시 이력이 사라진다. 운영에서는 `spring.batch.jdbc.initialize-schema=never`로 두고 마이그레이션 도구로 `BATCH_*` 테이블을 관리한다.
 - **Chunk 크기** — 키우면 커밋 횟수는 줄지만 메모리 점유, 실패 시 롤백 범위, DB lock 유지 시간이 함께 커진다.

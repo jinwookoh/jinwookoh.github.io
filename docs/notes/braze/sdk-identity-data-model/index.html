@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/braze/sdk-identity-data-model/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>SDK 통합·Identity·데이터 모델</h1>
   <p class="summary">External ID를 어떻게 정하고 언제 changeUser를 부르느냐가 이후 모든 세그먼트와 분석의 정확도를 결정한다.</p>
   <div class="content">
-<p>Braze의 세그먼트와 캠페인은 한 사용자 프로필에 상태·행동·결제가 정확히 쌓여야 동작한다. 그 연결 고리가 External ID인데, 통합 초기에 식별자 선택과 호출 시점을 대충 잡으면 같은 사람이 모바일과 웹에서 두 프로필로 갈라지고, 로그인 전 행동이 사라지고, 결제가 LTV 집계에서 빠진다. 나중에 바로잡으려면 프로필 마이그레이션 비용을 그대로 치른다.</p>
+<p><mark>Braze의 세그먼트와 캠페인은 한 사용자 프로필에 상태·행동·결제가 정확히 쌓여야 동작한다.</mark> 그 연결 고리가 External ID인데, 통합 초기에 식별자 선택과 호출 시점을 대충 잡으면 같은 사람이 모바일과 웹에서 두 프로필로 갈라지고, 로그인 전 행동이 사라지고, 결제가 LTV 집계에서 빠진다. 나중에 바로잡으려면 프로필 마이그레이션 비용을 그대로 치른다.</p>
 <h2>핵심 개념</h2>
 <p><strong>두 통합 경로.</strong> SDK(Web·iOS·Android)는 디바이스에서 세션·이벤트를 자동 수집하고 메시지를 수신한다. REST API는 서버가 <code>POST /users/track</code>으로 프로필·이벤트·결제를 명시적으로 기록한다. 운영은 둘을 함께 쓴다. SDK Key는 노출돼도 권한이 로깅·수신으로 제한되지만, REST API Key는 전체 운영 권한이므로 서버에만 두고 용도별 최소 권한으로 발급한다. 엔드포인트는 리전마다 다르므로(<code>sdk.iad-01.braze.com</code>, <code>rest.fra-01.braze.eu</code>) 콘솔에서 확인한 값을 환경변수로 관리한다.</p>
 <p><strong>SDK 데이터 흐름.</strong> SDK 호출은 버퍼에 쌓였다가 주기적으로 동기화된다. 마지막 호출 직후 앱이 종료되면 손실될 수 있으므로 <code>requestImmediateDataFlush()</code> 명시 플러시나 서버 측 이중 기록이 필요하다.</p>
@@ -54,7 +54,7 @@
 <td align="left">병합되지 않음</td>
 </tr>
 </tbody></table>
-<p>가입 직후 <code>changeUser</code>를 호출하면 가입 전 행동이 새 프로필에 보존된다. 반면 기존 사용자가 로그아웃 후 익명으로 남긴 행동은 재로그인해도 붙지 않는다. 그래서 로그아웃 시 <code>changeUser(null)</code>이나 공유 기본 ID(<code>&quot;default-user&quot;</code>) 호출은 금지 패턴이다. 전자는 익명 활동을 유실하고, 후자는 공용 키오스크의 여러 사람을 한 프로필로 합친다. 로그아웃은 별도 처리 없이 두고 다음 로그인에서 <code>changeUser</code>만 호출한다.</p>
+<p>가입 직후 <code>changeUser</code>를 호출하면 가입 전 행동이 새 프로필에 보존된다. 반면 기존 사용자가 로그아웃 후 익명으로 남긴 행동은 재로그인해도 붙지 않는다. <mark>그래서 로그아웃 시 <code>changeUser(null)</code>이나 공유 기본 ID(<code>&quot;default-user&quot;</code>) 호출은 금지 패턴이다.</mark> 전자는 익명 활동을 유실하고, 후자는 공용 키오스크의 여러 사람을 한 프로필로 합친다. 로그아웃은 별도 처리 없이 두고 다음 로그인에서 <code>changeUser</code>만 호출한다.</p>
 <p><strong>User Alias.</strong> name과 label(네임스페이스)로 구성된 부가 식별자다. 익명 상태 타깃팅이나 legacy·CRM ID 병행 조회에 쓰며, External ID를 대체하지는 못한다.</p>
 <p><strong><code>/users/track</code> 식별자 우선순위.</strong> primary는 <code>external_id</code>·<code>user_alias</code>·<code>braze_id</code>, secondary는 <code>email</code>·<code>phone</code>이다. primary가 있으면 email·phone은 속성으로 저장된다. 한 요청에 attributes·events·purchases 합산 75개까지 보낼 수 있고, rate limit은 3초당 3,000요청이다.</p>
 <p><strong>데이터 모델 네 단위.</strong></p>
@@ -162,7 +162,7 @@ braze.<span class="hljs-title function_">initialize</span>(<span class="hljs-key
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>클라이언트와 서버의 External ID 불일치.</strong> 클라이언트는 <code>user.id</code>, 서버는 <code>email</code>을 보내면 프로필이 둘로 갈라진다. <code>externalId</code>를 도메인 객체 한 곳에서 생성하고 양쪽이 같은 값을 읽게 한다.</li>
+<li><mark><strong>클라이언트와 서버의 External ID 불일치.</strong> 클라이언트는 <code>user.id</code>, 서버는 <code>email</code>을 보내면 프로필이 둘로 갈라진다.</mark> <code>externalId</code>를 도메인 객체 한 곳에서 생성하고 양쪽이 같은 값을 읽게 한다.</li>
 <li><strong>익명 병합 가정.</strong> 기존 사용자 재로그인 시 익명 활동이 자동으로 붙는다고 가정한 분석은 틀린다. 필요하면 Identity Merge API나 device-specific Alias로 설계하고, 아니면 익명 구간은 버린다고 명시한다.</li>
 <li><strong>Attribute cardinality 폭증.</strong> <code>signup_timestamp</code>·<code>session_id</code>·IP처럼 사용자마다 고유한 값을 attribute로 넣으면 세그먼트 필터가 무의미해진다. 고유 값은 event property나 외부 시스템에 두고 attribute는 tier·country 같은 분류 값만 담는다.</li>
 <li><strong>푸시 권한 요청 시점.</strong> 앱 시작 즉시 OS 다이얼로그를 띄우면 거부율이 절반에 이르고 OS 설정 전까지 복구되지 않는다. 자체 soft prompt로 가치를 설명한 뒤 첫 결제 같은 시점에 OS prompt를 띄우면 거부율을 20% 수준으로 낮출 수 있다.</li>

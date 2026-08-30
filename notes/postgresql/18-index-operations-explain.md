@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-indexes.md, data-infra/2026-05-17-pg-explain.
 updated: 2026-08-29
 ---
 
-인덱스를 만들었는데도 쿼리가 느린 경우는 흔하다. 통계가 오래되어 계획자가 인덱스를 무시하거나, `CONCURRENTLY` 생성이 실패해 INVALID 상태로 남았거나, 복합 인덱스의 컬럼 순서가 쿼리와 맞지 않는 경우다. 반대로 한 번도 조회되지 않는 인덱스가 모든 쓰기를 느리게 만드는 일도 잦다. 계획자가 택한 경로를 EXPLAIN으로 확인하고, `pg_stat_user_indexes`로 사용 여부를 관찰하고, REINDEX와 ANALYZE로 상태를 되돌리는 운영 절차가 필요하다.
+인덱스를 만들었는데도 쿼리가 느린 경우는 흔하다. 통계가 오래되어 계획자가 인덱스를 무시하거나, `CONCURRENTLY` 생성이 실패해 INVALID 상태로 남았거나, 복합 인덱스의 컬럼 순서가 쿼리와 맞지 않는 경우다. 반대로 한 번도 조회되지 않는 인덱스가 모든 쓰기를 느리게 만드는 일도 잦다. ==계획자가 택한 경로를 EXPLAIN으로 확인하고, `pg_stat_user_indexes`로 사용 여부를 관찰하고, REINDEX와 ANALYZE로 상태를 되돌리는 운영 절차가 필요하다.==
 
 ## 핵심 개념
 
@@ -23,7 +23,7 @@ updated: 2026-08-29
 
 ### EXPLAIN 읽기
 
-`EXPLAIN`은 추정 계획만 보여주고 `EXPLAIN ANALYZE`는 쿼리를 실제로 실행해 실측치를 함께 출력한다. 운영 진단 표준은 `EXPLAIN (ANALYZE, BUFFERS)`다. `BUFFERS`는 `shared hit`(캐시 적중)과 `read`(디스크 읽기)를 구분해 I/O 병목을 드러낸다.
+`EXPLAIN`은 추정 계획만 보여주고 `EXPLAIN ANALYZE`는 쿼리를 실제로 실행해 실측치를 함께 출력한다. ==운영 진단 표준은 `EXPLAIN (ANALYZE, BUFFERS)`다.== `BUFFERS`는 `shared hit`(캐시 적중)과 `read`(디스크 읽기)를 구분해 I/O 병목을 드러낸다.
 
 `cost=START..TOTAL rows=N width=W`에서 START는 첫 행 반환까지의 추정 비용, TOTAL은 전체 완료 비용, rows는 추정 행 수다. `actual time=START..TOTAL rows=N loops=L`은 실측 ms와 실제 행 수, 노드 실행 횟수다. cost는 단위 없는 상대값이라 actual time과 직접 비교하지 않는다. 대신 추정 rows와 실제 rows를 비교하고, 수십 배 이상 어긋나면 `ANALYZE`를 돌린다. `loops`가 큰 노드는 time에 loops를 곱해야 총 소요 시간이 된다.
 
@@ -140,7 +140,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
 ## 실무에서 걸리는 지점
 
-- **EXPLAIN ANALYZE는 실제 실행이다.** UPDATE·DELETE에 붙이면 데이터가 실제로 바뀐다. 쓰기 쿼리 진단은 `BEGIN`으로 열고 `ROLLBACK`으로 닫는다.
+- ==**EXPLAIN ANALYZE는 실제 실행이다.**== UPDATE·DELETE에 붙이면 데이터가 실제로 바뀐다. 쓰기 쿼리 진단은 `BEGIN`으로 열고 `ROLLBACK`으로 닫는다.
 - **`CONCURRENTLY`는 실패 흔적을 남긴다.** 배포 파이프라인에서 `pg_index.indisvalid`를 점검하고, INVALID 인덱스는 `DROP INDEX CONCURRENTLY` 후 재생성한다.
 - **통계 갱신을 잊으면 인덱스가 무시된다.** 대량 적재·삭제 뒤 autovacuum이 따라오기 전에는 계획자가 오래된 추정으로 Seq Scan을 고른다. 추정 rows와 실제 rows가 어긋나면 인덱스 추가보다 `ANALYZE`가 먼저다.
 - **미사용 판단에는 관찰 기간이 필요하다.** 월말 배치만 쓰는 인덱스가 있으므로 `idx_scan = 0`만 보고 지우지 않는다. 통계 초기화 시점을 확인하고 최소 몇 주 관찰 뒤 제거한다.

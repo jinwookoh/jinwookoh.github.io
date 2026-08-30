@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jpa-relations-n-plus-1/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>연관관계·N+1·값 객체</h1>
   <p class="summary">외래 키를 가진 쪽이 연관관계의 주인이며, 모든 관계를 LAZY로 두고 Fetch Join으로 N+1을 끊고, 식별자 없는 값은 @Embeddable로 묶는다.</p>
   <div class="content">
-<p>고객은 여러 주문을 가지고, 주문은 여러 항목을 담으며, 주문에는 주소와 금액이 붙는다. 이 구조를 외래 키 컬럼과 개별 필드로만 표현하면 서비스 코드가 ID를 들고 반복 조회를 하고, 연관 객체의 로딩 시점이 드러나지 않아 목록 화면 하나에 SQL이 수백 번 나가는 N+1이 생기며, 주소·금액 필드가 엔티티마다 흩어져 검증·계산 로직이 중복된다. 연관관계 매핑, 페치 전략, <code>@Embeddable</code> 값 객체가 이 세 문제를 각각 맡는다.</p>
+<p>고객은 여러 주문을 가지고, 주문은 여러 항목을 담으며, 주문에는 주소와 금액이 붙는다. 이 구조를 외래 키 컬럼과 개별 필드로만 표현하면 서비스 코드가 ID를 들고 반복 조회를 하고, 연관 객체의 로딩 시점이 드러나지 않아 목록 화면 하나에 SQL이 수백 번 나가는 N+1이 생기며, 주소·금액 필드가 엔티티마다 흩어져 검증·계산 로직이 중복된다. <mark>연관관계 매핑, 페치 전략, <code>@Embeddable</code> 값 객체가 이 세 문제를 각각 맡는다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>네 가지 연관관계와 주인</h3>
 <p>JPA는 관계를 <code>@ManyToOne</code>·<code>@OneToMany</code>·<code>@OneToOne</code>·<code>@ManyToMany</code>로 분류한다. 외래 키 컬럼 하나가 <code>@ManyToOne</code> 필드 하나에 대응하므로 실무에서 가장 자주 쓰는 것은 <code>@ManyToOne</code>이다.</p>
@@ -198,10 +198,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>컬렉션 Fetch Join과 페이징을 함께 쓰면 메모리 페이징이 일어난다.</strong> Hibernate는 <code>HHH90003004</code> 경고를 남기고 전체 결과를 메모리에 올린 뒤 잘라낸다. 컬렉션은 <code>hibernate.default_batch_fetch_size</code>로 IN 쿼리 묶음 로딩을 하고, Fetch Join은 <code>@ManyToOne</code> 방향에만 쓴다.</li>
+<li><mark><strong>컬렉션 Fetch Join과 페이징을 함께 쓰면 메모리 페이징이 일어난다.</strong></mark> Hibernate는 <code>HHH90003004</code> 경고를 남기고 전체 결과를 메모리에 올린 뒤 잘라낸다. 컬렉션은 <code>hibernate.default_batch_fetch_size</code>로 IN 쿼리 묶음 로딩을 하고, Fetch Join은 <code>@ManyToOne</code> 방향에만 쓴다.</li>
 <li><strong><code>CascadeType.REMOVE</code>와 <code>orphanRemoval</code>은 자식 행을 한 건씩 DELETE한다.</strong> 자식이 수천 건이면 그만큼의 DELETE 문이 나간다. 대량 삭제는 <code>@Modifying</code> 벌크 JPQL이나 DB의 <code>ON DELETE CASCADE</code>로 처리한다.</li>
 <li><strong>Lombok <code>@Data</code>·<code>@ToString</code>을 엔티티에 붙이면 양방향 관계에서 <code>StackOverflowError</code>가 난다.</strong> <code>equals</code>는 ID 기반으로 직접 구현하고, <code>hashCode</code>는 영속화 전후로 ID가 바뀌어도 <code>Set</code> 버킷이 유지되도록 클래스 상수로 둔다.</li>
-<li><strong>트랜잭션 밖에서 LAZY 컬렉션에 접근하면 <code>LazyInitializationException</code>이 난다.</strong> <code>spring.jpa.open-in-view=true</code> 기본값이 이를 감추지만 뷰 렌더링까지 커넥션을 붙잡는다. OSIV를 끄고 서비스 계층 안에서 DTO로 변환해 반환한다.</li>
+<li><mark><strong>트랜잭션 밖에서 LAZY 컬렉션에 접근하면 <code>LazyInitializationException</code>이 난다.</strong></mark> <code>spring.jpa.open-in-view=true</code> 기본값이 이를 감추지만 뷰 렌더링까지 커넥션을 붙잡는다. OSIV를 끄고 서비스 계층 안에서 DTO로 변환해 반환한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

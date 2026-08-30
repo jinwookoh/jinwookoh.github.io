@@ -9,13 +9,13 @@ sources: [data-infra/2026-05-17-redis-json.md, data-infra/2026-05-17-redis-searc
 updated: 2026-08-29
 ---
 
-기본 자료구조만으로 JSON 객체, 조건 검색, 시계열, 벡터 검색을 흉내내면 중첩 필드 하나를 바꾸려고 객체 전체를 다시 쓰고, 세컨더리 인덱스를 손으로 유지하고, Sorted Set 시계열이 메모리를 잠식하고, 벡터 거리를 애플리케이션에서 전수 계산하게 된다. RedisJSON·RediSearch·Time Series·Vector Search 모듈은 이를 서버 안에서 네이티브 타입과 인덱스로 처리한다. Redis 8부터 기본 포함이고, 7 이하는 `redis-stack-server` 이미지나 `loadmodule`로 올린다.
+기본 자료구조만으로 JSON 객체, 조건 검색, 시계열, 벡터 검색을 흉내내면 중첩 필드 하나를 바꾸려고 객체 전체를 다시 쓰고, 세컨더리 인덱스를 손으로 유지하고, Sorted Set 시계열이 메모리를 잠식하고, 벡터 거리를 애플리케이션에서 전수 계산하게 된다. ==RedisJSON·RediSearch·Time Series·Vector Search 모듈은 이를 서버 안에서 네이티브 타입과 인덱스로 처리한다.== Redis 8부터 기본 포함이고, 7 이하는 `redis-stack-server` 이미지나 `loadmodule`로 올린다.
 
 ## 핵심 개념
 
 ### RedisJSON
 
-`JSON.SET key $ '{...}'`로 문서를 저장하고 JSONPath(`$.field`, `$.arr[0]`, `$..field` 재귀, `$.arr[?(@.price > 100)]` 필터)로 하위 경로에 접근한다. 핵심은 부분 갱신이다. `JSON.SET user:42 $.address.city '"Busan"'`은 중첩 필드 하나만 원자적으로 바꾸고, `JSON.NUMINCRBY`·`JSON.ARRAPPEND`·`JSON.DEL`은 카운터·배열·경로 단위로 조작한다. `JSON.GET`의 경로 결과는 항상 배열로 감싸여 온다. SQL 조인·다중 행 ACID·영구 보관은 PostgreSQL JSONB가 맡고, 자주 읽고 쓰는 작은 문서만 RedisJSON에 둔다.
+`JSON.SET key $ '{...}'`로 문서를 저장하고 JSONPath(`$.field`, `$.arr[0]`, `$..field` 재귀, `$.arr[?(@.price > 100)]` 필터)로 하위 경로에 접근한다. 핵심은 부분 갱신이다. `JSON.SET user:42 $.address.city '"Busan"'`은 중첩 필드 하나만 원자적으로 바꾸고, `JSON.NUMINCRBY`·`JSON.ARRAPPEND`·`JSON.DEL`은 카운터·배열·경로 단위로 조작한다. `JSON.GET`의 경로 결과는 항상 배열로 감싸여 온다. ==SQL 조인·다중 행 ACID·영구 보관은 PostgreSQL JSONB가 맡고, 자주 읽고 쓰는 작은 문서만 RedisJSON에 둔다.==
 
 ### RediSearch
 
@@ -146,7 +146,7 @@ public class DocSearchService {
 ## 실무에서 걸리는 지점
 
 - **문서 크기와 인덱스 메모리.** 큰 JSON은 부분 갱신도 비싸지고 RediSearch는 원본과 역인덱스를 모두 메모리에 든다. 키를 잘게 쪼개고 TEXT 필드를 최소화한다.
-- **스키마 변경은 재빌드다.** `FT.DROPINDEX` 후 재생성해야 하고 데이터셋이 크면 수 분이 걸린다. 새 인덱스를 만든 뒤 `FT.ALIASUPDATE`로 교체한다.
+- ==**스키마 변경은 재빌드다.**== `FT.DROPINDEX` 후 재생성해야 하고 데이터셋이 크면 수 분이 걸린다. 새 인덱스를 만든 뒤 `FT.ALIASUPDATE`로 교체한다.
 - **TAG separator와 한국어.** TAG 기본 구분자는 `,`라 값에 콤마가 있으면 쪼개지므로 `SEPARATOR "|"`를 명시한다. 한국어 형태소 검색은 Elasticsearch nori가 낫다.
 - **Time Series는 retention·compaction을 직접 건다.** `RETENTION 0`(기본)은 무제한 누적이고 `TS.CREATERULE` 없이는 downsampling이 돌지 않는다. `UNCOMPRESSED`는 메모리가 수십 배 늘어 쓰지 않는다.
 - **벡터 메모리와 모델 일관성.** 768차원 float32 100만 개는 벡터만 3GB다. 색인과 쿼리의 임베딩 모델이 다르면 결과가 무의미해지므로 모델명을 메타데이터에 기록한다.

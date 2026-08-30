@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/kibana-cloud-opensearch-iac/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Kibana·Elastic Cloud·OpenSearch·IaC</h1>
   <p class="summary">Kibana로 데이터를 보고, Elastic Cloud와 AWS OpenSearch 중 하나를 고르고, 클러스터를 코드로 관리하는 기준</p>
   <div class="content">
-<p>Elasticsearch에는 사람이 보는 화면이 없어 데이터 확인마다 JSON 요청이 필요하다. 클러스터를 직접 운영하면 패치·백업·노드 교체가 전부 팀 몫이고, 매니지드도 Elastic Cloud와 AWS OpenSearch Service는 엔진 자체가 다르다. 콘솔 클릭으로 만든 클러스터는 옵션 추적이 안 되고, dev·prod 사이 analyzer나 ILM 정책이 어긋나 prod에서만 검색이 깨진다.</p>
+<p>Elasticsearch에는 사람이 보는 화면이 없어 데이터 확인마다 JSON 요청이 필요하다. 클러스터를 직접 운영하면 패치·백업·노드 교체가 전부 팀 몫이고, 매니지드도 Elastic Cloud와 AWS OpenSearch Service는 엔진 자체가 다르다. <mark>콘솔 클릭으로 만든 클러스터는 옵션 추적이 안 되고, dev·prod 사이 analyzer나 ILM 정책이 어긋나 prod에서만 검색이 깨진다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Kibana</h3>
 <p>Elasticsearch 전용 웹 UI로, Logstash·Beats와 함께 Elastic Stack(ELK)을 이룬다. Elasticsearch와 메이저·마이너 버전을 정확히 맞춰야 한다.</p>
@@ -70,7 +70,7 @@
 </tbody></table>
 <p>단가는 AWS OpenSearch보다 20~30% 높지만 ML·CCR·Frozen tier·APM이 기본 포함이라 고급 기능을 쓸수록 총비용이 역전된다. Apache 2.0 강제 또는 기본 검색·로그만이면 OpenSearch, 고급 기능·멀티 클라우드면 Elastic Cloud, K8s 표준이면 ECK다. region과 provider는 생성 후 불변이다.</p>
 <h3>IaC</h3>
-<p>클러스터·인덱스·ILM·alias를 코드로 선언하고 git을 단일 진실 원천으로 둔다. <code>plan</code>으로 drift를 잡고, 같은 모듈에 다른 변수로 환경을 복제한다. Terraform은 <code>hashicorp/aws</code>와 <code>elastic/ec</code>·<code>elastic/elasticstack</code> provider로 멀티 클라우드를 한 코드베이스에서 다루며 state는 원격 백엔드에 둔다. AWS CDK는 CloudFormation으로 컴파일되어 AWS 외 자원은 못 다룬다. ECK는 CRD를 ArgoCD·Flux로 동기화하며 <code>selfHeal: true</code>가 콘솔 수작업을 git 상태로 되돌린다.</p>
+<p><mark>클러스터·인덱스·ILM·alias를 코드로 선언하고 git을 단일 진실 원천으로 둔다.</mark> <code>plan</code>으로 drift를 잡고, 같은 모듈에 다른 변수로 환경을 복제한다. Terraform은 <code>hashicorp/aws</code>와 <code>elastic/ec</code>·<code>elastic/elasticstack</code> provider로 멀티 클라우드를 한 코드베이스에서 다루며 state는 원격 백엔드에 둔다. AWS CDK는 CloudFormation으로 컴파일되어 AWS 외 자원은 못 다룬다. ECK는 CRD를 ArgoCD·Flux로 동기화하며 <code>selfHeal: true</code>가 콘솔 수작업을 git 상태로 되돌린다.</p>
 <h2>코드</h2>
 <p>Terraform으로 AWS OpenSearch Domain을 3-AZ·전용 마스터·VPC·암호화 활성으로 선언한다.</p>
 <pre><code class="hljs language-plaintext">resource &quot;aws_opensearch_domain&quot; &quot;search&quot; {
@@ -177,7 +177,7 @@
 <li><strong>Saved Object 백업.</strong> 대시보드는 <code>.kibana</code> 시스템 인덱스에 있으므로 export ndjson을 git에 커밋하고 정기 스냅샷에 포함한다.</li>
 <li><strong>UltraWarm 응답.</strong> 캐시 미스 시 수십 초까지 느려져 사용자 대면 인덱스는 Hot에 둔다.</li>
 <li><strong>매니지드 스냅샷 보존.</strong> AWS는 14일, Elastic Cloud Hosted는 직전 24시간만 보관한다. 그 이전 복구는 자체 리포지토리와 SLM 정책이 필요하다.</li>
-<li><strong>인덱스 매핑 immutability.</strong> <code>elasticstack_elasticsearch_index</code>의 mappings를 바꾸면 인덱스 replace로 데이터가 사라진다. Terraform은 index template·alias를 관리하고 새 매핑은 새 인덱스로 만든다. 비밀은 Secrets Manager·Vault로 분리한다.</li>
+<li><mark><strong>인덱스 매핑 immutability.</strong> <code>elasticstack_elasticsearch_index</code>의 mappings를 바꾸면 인덱스 replace로 데이터가 사라진다.</mark> Terraform은 index template·alias를 관리하고 새 매핑은 새 인덱스로 만든다. 비밀은 Secrets Manager·Vault로 분리한다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

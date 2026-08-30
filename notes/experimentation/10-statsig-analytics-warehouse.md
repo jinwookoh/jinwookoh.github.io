@@ -9,11 +9,11 @@ sources: [statsig/2026-05-17-statsig-product-analytics-deep.md, statsig/2026-05-
 updated: 2026-08-30
 ---
 
-Feature Gate와 Experiment만으로는 게이트를 켠 사용자가 결제 퍼널의 어느 단계에서 이탈하는지, 신규 코호트가 이전보다 오래 남는지 알 수 없다. 한편 데이터 규모가 크거나 PII·금융 데이터를 외부 SaaS로 보낼 수 없는 조직은 Cloud 모드 자체가 불가능하다. 전자는 Product Analytics의 이벤트 설계가, 후자는 Warehouse Native(WHN)가 해결한다.
+Feature Gate와 Experiment만으로는 게이트를 켠 사용자가 결제 퍼널의 어느 단계에서 이탈하는지, 신규 코호트가 이전보다 오래 남는지 알 수 없다. 한편 데이터 규모가 크거나 PII·금융 데이터를 외부 SaaS로 보낼 수 없는 조직은 Cloud 모드 자체가 불가능하다. ==전자는 Product Analytics의 이벤트 설계가, 후자는 Warehouse Native(WHN)가 해결한다.==
 
 ## 핵심 개념
 
-Product Analytics의 원자 단위는 Event다. eventName·value·metadata·timestamp로 구성되고, Funnel·Retention·Cohort는 모두 이 이벤트의 가공 결과다. Event가 단일 발생의 raw log라면 Metric은 이벤트를 집계해 의미를 붙인 정의로, Count·Sum·Mean·Ratio·Funnel·Retention·Time to Event 일곱 유형이 있다.
+==Product Analytics의 원자 단위는 Event다.== eventName·value·metadata·timestamp로 구성되고, Funnel·Retention·Cohort는 모두 이 이벤트의 가공 결과다. Event가 단일 발생의 raw log라면 Metric은 이벤트를 집계해 의미를 붙인 정의로, Count·Sum·Mean·Ratio·Funnel·Retention·Time to Event 일곱 유형이 있다.
 
 이벤트 설계 원칙은 다섯 가지다. 이름은 `checkout_completed`처럼 명사와 과거형 동사를 조합하고, 한 코드베이스 안에서 표기법을 하나로 통일한다. value에는 sum·avg가 의미 있는 정량값만 넣고 분류값은 property로 보낸다. user_id·session_id처럼 unique 값이 무한한 속성은 property로 넣지 않는다.
 
@@ -102,7 +102,7 @@ GROUP BY 1, 2
 - 이벤트 property의 의미 변경이나 제거는 과거 데이터와 호환되지 않으므로 `purchase_v2`처럼 새 이벤트로 분리한다. dbt 모델 컬럼이 바뀌면 Statsig Metric이 조용히 깨지므로 contract를 선언하고 함께 갱신한다.
 - 퍼널 step 간 시간 제한을 1시간처럼 짧게 두면 며칠에 걸쳐 전환하는 대다수가 제외된다.
 - 평균 주문 금액 상승만 보고 배포했더니 상위 5%의 일시 증가였던 사례가 흔하다. Distribution으로 median·P90·P99를 함께 본다. User Journeys는 3~5단계로 압축해야 경로가 unique해지지 않는다.
-- WHN의 최대 비용은 웨어하우스 compute다. 날짜 partition과 user_id·event_name clustering, materialized view, 전용 warehouse의 auto-suspend를 적용한다. 도입 전 PoC로 비용을 시뮬레이션하지 않으면 Metric 정의가 얽혀 Cloud로 돌아가기 어렵다.
+- ==WHN의 최대 비용은 웨어하우스 compute다.== 날짜 partition과 user_id·event_name clustering, materialized view, 전용 warehouse의 auto-suspend를 적용한다. 도입 전 PoC로 비용을 시뮬레이션하지 않으면 Metric 정의가 얽혀 Cloud로 돌아가기 어렵다.
 - CUPED는 실험 전 데이터가 noise인 지표에서 검정력을 오히려 떨어뜨리므로 preview로 확인 후 적용한다. Switchback은 carry-over가 생기므로 전환 구간을 길게 잡고, Existing 모델에서는 외부 할당의 SRM을 Exposure Analysis로 점검한다.
 
 ## 관련 글

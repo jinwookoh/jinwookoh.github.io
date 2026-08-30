@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/what-is-elasticsearch/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Elasticsearch란 — Index·Document·Shard·Replica</h1>
   <p class="summary">Elasticsearch는 Lucene 위의 분산 검색 엔진이며, Index·Document·Shard·Replica·Mapping 다섯 단위로 데이터를 나누고 복제한다.</p>
   <div class="content">
-<p>RDBMS의 <code>LIKE &#39;%검색어%&#39;</code>는 인덱스를 타지 못해 전체 스캔을 하고, 형태소 분석·오타 허용·관련도 정렬을 제공하지 않는다. 대량 로그를 필드 단위로 필터하거나 임베딩 벡터로 유사 문서를 찾는 요구도 RDBMS·Redis·Kafka만으로는 풀리지 않는다. Elasticsearch는 JSON 문서를 넣으면 자동 색인하고, 풀텍스트 검색·집계·벡터 검색을 하나의 REST API로 처리한다.</p>
+<p>RDBMS의 <code>LIKE &#39;%검색어%&#39;</code>는 인덱스를 타지 못해 전체 스캔을 하고, 형태소 분석·오타 허용·관련도 정렬을 제공하지 않는다. 대량 로그를 필드 단위로 필터하거나 임베딩 벡터로 유사 문서를 찾는 요구도 RDBMS·Redis·Kafka만으로는 풀리지 않는다. <mark>Elasticsearch는 JSON 문서를 넣으면 자동 색인하고, 풀텍스트 검색·집계·벡터 검색을 하나의 REST API로 처리한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Elasticsearch는 단일 머신용 자바 검색 라이브러리인 Apache Lucene 위에 클러스터링·REST API·운영 도구를 얹은 검색·분석 엔진이다. 검색의 본질은 단어에서 문서 목록을 찾는 역색인(Inverted Index)이다.</p>
 <table>
@@ -56,7 +56,7 @@
 <td>Near Real-Time</td>
 </tr>
 </tbody></table>
-<p>Elasticsearch는 운영 데이터의 단일 진실 원천이 아니다. 원본은 RDBMS에 두고 검색·로그·분석용으로 병행한다. 데이터는 Cluster → Node → Index → Shard → Document 계층으로 나뉘며, 운영 환경은 master-eligible 노드를 3개 이상 두어 quorum 선출이 가능하게 한다.</p>
+<p><mark>Elasticsearch는 운영 데이터의 단일 진실 원천이 아니다.</mark> 원본은 RDBMS에 두고 검색·로그·분석용으로 병행한다. 데이터는 Cluster → Node → Index → Shard → Document 계층으로 나뉘며, 운영 환경은 master-eligible 노드를 3개 이상 두어 quorum 선출이 가능하게 한다.</p>
 <p><strong>Index</strong>는 같은 종류의 문서가 모이는 논리 컬렉션이다. 설정은 <code>_settings</code>(샤드·replica 수, refresh 주기)와 <code>_mappings</code>(필드 타입)로 나뉜다. <code>number_of_shards</code>는 생성 시점에만 정하는 static 설정이고 <code>number_of_replicas</code>·<code>refresh_interval</code>은 운영 중 바꿀 수 있다. 애플리케이션은 실제 인덱스 이름 대신 alias로 접근한다. 매핑 변경은 새 인덱스에 reindex한 뒤 alias를 교체하는 방식으로만 가능하기 때문이다.</p>
 <p><strong>Document</strong>는 인덱스에 저장되는 JSON 한 건이며 <code>_id</code>가 PK 역할을 한다. ID를 지정한 PUT은 반복해도 update가 되어 멱등성이 확보되고, ID 없는 POST는 매번 새 문서를 만든다. <code>_source</code>는 색인 시 받은 원본 JSON으로, 끄면 reindex와 update API를 쓸 수 없다. <code>_routing</code>은 샤드를 결정하는 해시 입력값으로 기본은 <code>_id</code>이며, tenant_id로 바꾸면 같은 고객의 문서가 한 샤드에 모인다. 동시성 제어는 <code>if_seq_no</code>와 <code>if_primary_term</code>을 함께 보내는 방식이 표준이다.</p>
 <p><strong>Shard</strong>는 인덱스를 쪼갠 물리 단위이며 각 샤드가 독립된 Lucene 인덱스다. Primary Shard가 쓰기를 먼저 받고 성공하면 Replica로 동기 복제된다. Primary 수는 생성 후 바꿀 수 없다. <code>_split</code>은 정수배로만 늘리고 <code>_shrink</code>는 조건이 까다로워 실제로는 reindex와 alias 교체로 푼다. 샤드 하나는 30<del>50GB, Primary 수는 데이터 노드 수의 1.5</del>3배가 기준이다.</p>
@@ -113,7 +113,7 @@
 <span class="hljs-punctuation">}</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Mapping Explosion.</strong> 임의의 키가 들어오는 로그 인덱스에 <code>dynamic: true</code>가 켜져 있으면 필드 수가 수천 개로 늘어 힙이 고갈된다. <code>strict</code>로 잠그고 <code>index.mapping.total_fields.limit</code>을 1,000 수준으로 건다.</li>
+<li><mark><strong>Mapping Explosion.</strong> 임의의 키가 들어오는 로그 인덱스에 <code>dynamic: true</code>가 켜져 있으면 필드 수가 수천 개로 늘어 힙이 고갈된다.</mark> <code>strict</code>로 잠그고 <code>index.mapping.total_fields.limit</code>을 1,000 수준으로 건다.</li>
 <li><strong>Primary Shard 수 미설계.</strong> 너무 적으면 수평 확장이 막히고 너무 많으면 오버헤드가 커진다. 초기에 6처럼 <code>_split</code>이 유연한 값을 잡는다.</li>
 <li><strong>Replica 0 운영.</strong> 데이터 노드 한 대가 죽는 순간 해당 샤드를 잃고 red가 된다. replica 1과 데이터 노드 2대가 하한이다.</li>
 <li><strong>alias 없이 인덱스 이름 직접 호출.</strong> 매핑 변경마다 다운타임이 따라온다. 인덱스가 하나여도 alias로 노출한다.</li>

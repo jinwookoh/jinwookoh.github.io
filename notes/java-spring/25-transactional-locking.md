@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-transactional-annotation.md, spring/2026-05-26-jpa-o
 updated: 2026-08-29
 ---
 
-계좌 이체는 출금과 입금이라는 두 번의 SQL로 이루어진다. 출금이 끝난 직후 예외가 발생하면 출금만 반영되고 입금은 누락된다. 여러 SQL을 하나의 단위로 묶어 모두 커밋되거나 모두 롤백되도록 보장하는 장치가 트랜잭션이고, Spring에서는 `@Transactional` 한 줄로 이를 선언한다. 그러나 트랜잭션은 한 작업 묶음의 원자성을 보장할 뿐, 다른 트랜잭션이 같은 행을 동시에 수정하는 것까지 막지 않는다. 재고 1개짜리 상품에 주문 두 건이 동시에 들어오면 둘 다 "1개 남음"을 읽고 각자 0으로 저장해 실제로는 2개가 팔린다. 이 갱신 손실(lost update)은 락으로 별도 처리해야 한다.
+계좌 이체는 출금과 입금이라는 두 번의 SQL로 이루어진다. 출금이 끝난 직후 예외가 발생하면 출금만 반영되고 입금은 누락된다. 여러 SQL을 하나의 단위로 묶어 모두 커밋되거나 모두 롤백되도록 보장하는 장치가 트랜잭션이고, Spring에서는 `@Transactional` 한 줄로 이를 선언한다. ==그러나 트랜잭션은 한 작업 묶음의 원자성을 보장할 뿐, 다른 트랜잭션이 같은 행을 동시에 수정하는 것까지 막지 않는다.== 재고 1개짜리 상품에 주문 두 건이 동시에 들어오면 둘 다 "1개 남음"을 읽고 각자 0으로 저장해 실제로는 2개가 팔린다. 이 갱신 손실(lost update)은 락으로 별도 처리해야 한다.
 
 ## 핵심 개념
 
@@ -142,8 +142,8 @@ public class PessimisticStockService {
 
 ## 실무에서 걸리는 지점
 
-- 자기 호출과 private 메서드. 같은 클래스 안에서 `this.save()`로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, private 메서드의 `@Transactional`은 무시된다. 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.
-- 예외 흡수. 트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다. 롤백하려면 `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`를 호출한다. 반대로 `REQUIRED`로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 `UnexpectedRollbackException`이 난다.
+- ==자기 호출과 private 메서드. 같은 클래스 안에서 `this.save()`로 호출하면 프록시를 거치지 않아 트랜잭션이 열리지 않고, private 메서드의 `@Transactional`은 무시된다.== 위 코드에서 재시도 루프와 트랜잭션 메서드를 다른 빈으로 나눈 이유다.
+- ==예외 흡수. 트랜잭션 메서드 안에서 try-catch로 예외를 삼키면 프록시는 정상 종료로 판단해 커밋한다.== 롤백하려면 `TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()`를 호출한다. 반대로 `REQUIRED`로 참여한 내부 트랜잭션의 예외를 바깥에서 잡으면 전체가 rollback-only가 되어 `UnexpectedRollbackException`이 난다.
 - 재시도 위치. 낙관적 락 재시도를 트랜잭션 안에서 돌리면 영속성 컨텍스트가 낡은 version을 계속 들고 있어 무한 실패한다. 기존 테이블에 `@Version`을 추가할 때는 기존 행의 null version을 마이그레이션으로 0으로 채운다.
 - 비관적 락 대기와 데드락. 락 타임아웃이 없으면 요청이 무한 대기하고, 두 트랜잭션이 서로의 행을 기다리면 데드락이 된다. `jakarta.persistence.lock.timeout` 힌트로 상한을 두고 여러 행은 항상 같은 순서로 잠근다.
 - 락이 필요 없는 경우. 이메일 중복 가입처럼 유일성만 필요하면 unique 제약이 락보다 싸고 확실하다. 조회 전용 메서드는 `readOnly = true`로 더티 체킹을 끈다. 트랜잭션 경계는 서비스 레이어에 두고 컨트롤러나 리포지토리에는 붙이지 않는다.

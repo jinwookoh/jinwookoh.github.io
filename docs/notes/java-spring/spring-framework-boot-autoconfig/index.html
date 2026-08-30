@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/spring-framework-boot-autoconfig/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Spring Framework와 Boot 자동 구성</h1>
   <p class="summary">Spring Boot는 Framework를 대체하지 않으며, 클래스패스와 조건 어노테이션으로 인프라 Bean을 채우는 래퍼다</p>
   <div class="content">
-<p>2000년대 초 자바 백엔드 표준이던 EJB는 비즈니스 클래스 하나에 Home·Remote·Bean 인터페이스 구현, 수십 줄의 XML, 전용 컨테이너 배포를 요구했고 컨테이너 없이는 단위 테스트가 불가능했다. 2004년 Spring Framework는 일반 자바 객체(POJO)를 그대로 두고 객체 생성·주입·트랜잭션·웹 요청 처리 같은 인프라만 프레임워크가 맡는 구조로 이 문제를 풀었다. 다만 Framework만으로는 web.xml, DispatcherServlet, DataSource 등록을 여전히 직접 적어야 했다. 2014년 Spring Boot는 이 부담을 자동 구성(Auto-configuration)으로 없앴다. 이 메커니즘을 모르면 내가 만들지 않은 Bean이 어디서 왔는지 설명할 수 없다.</p>
+<p>2000년대 초 자바 백엔드 표준이던 EJB는 비즈니스 클래스 하나에 Home·Remote·Bean 인터페이스 구현, 수십 줄의 XML, 전용 컨테이너 배포를 요구했고 컨테이너 없이는 단위 테스트가 불가능했다. 2004년 Spring Framework는 일반 자바 객체(POJO)를 그대로 두고 객체 생성·주입·트랜잭션·웹 요청 처리 같은 인프라만 프레임워크가 맡는 구조로 이 문제를 풀었다. 다만 Framework만으로는 web.xml, DispatcherServlet, DataSource 등록을 여전히 직접 적어야 했다. <mark>2014년 Spring Boot는 이 부담을 자동 구성(Auto-configuration)으로 없앴다.</mark> 이 메커니즘을 모르면 내가 만들지 않은 Bean이 어디서 왔는지 설명할 수 없다.</p>
 <h2>핵심 개념</h2>
 <p>Spring Framework는 Core(IoC 컨테이너)·AOP·SpEL·Web MVC·Data Access·Testing·Integration 모듈로 구성된 도구 모음이며, 나머지 모듈은 Core 컨테이너가 관리하는 Bean 위에서 동작한다. Spring Boot는 Framework를 대체하지 않는다. &quot;Convention over Configuration&quot; 원칙으로 기본값과 내장 서버를 얹은 편의 계층이고, 실제로 실행되는 코드 대부분은 Framework 코드다. Spring Boot 3.x는 Java 17 이상과 Jakarta EE 10을 요구하며 <code>javax.*</code> 네임스페이스는 <code>jakarta.*</code>로 바뀌었다.</p>
 <p>자동 구성의 출발점은 <code>@SpringBootApplication</code>이다. <code>@SpringBootConfiguration</code>(설정 클래스 선언), <code>@ComponentScan</code>(메인 클래스 패키지 이하의 컴포넌트 등록), <code>@EnableAutoConfiguration</code>(인프라 Bean 자동 등록)의 합성이다. 내 코드는 <code>@ComponentScan</code>이, 나머지는 <code>@EnableAutoConfiguration</code>이 등록한다.</p>
@@ -90,8 +90,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li>컴포넌트가 등록되지 않는 문제의 대부분은 스캔 범위다. <code>@ComponentScan</code>은 메인 클래스 패키지 이하만 훑으므로 <code>com.example.controller</code>에 둔 컨트롤러는 <code>com.example.app.Main</code>이 찾지 못한다.</li>
-<li>켜진 구성은 리포트로 확인한다. <code>debug: true</code> 또는 <code>--debug</code>로 실행하면 ConditionEvaluationReport가 Positive/Negative matches와 불발 이유를 출력하고, Actuator가 있으면 <code>/actuator/conditions</code>에서 같은 정보를 JSON으로 받는다.</li>
+<li><mark>컴포넌트가 등록되지 않는 문제의 대부분은 스캔 범위다.</mark> <code>@ComponentScan</code>은 메인 클래스 패키지 이하만 훑으므로 <code>com.example.controller</code>에 둔 컨트롤러는 <code>com.example.app.Main</code>이 찾지 못한다.</li>
+<li><mark>켜진 구성은 리포트로 확인한다.</mark> <code>debug: true</code> 또는 <code>--debug</code>로 실행하면 ConditionEvaluationReport가 Positive/Negative matches와 불발 이유를 출력하고, Actuator가 있으면 <code>/actuator/conditions</code>에서 같은 정보를 JSON으로 받는다.</li>
 <li>특정 자동 구성을 완전히 배제하려면 <code>@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)</code>를 쓴다. 클래스 자체가 후보에서 빠지므로 관련 프로퍼티 바인딩도 함께 사라진다.</li>
 <li>같은 타입 Bean을 여러 개 정의하면 주입 지점에서 모호성 예외가 난다. 하나에 <code>@Primary</code>를 붙이거나 주입부에 <code>@Qualifier</code>를 지정한다.</li>
 <li>Boot 2에서 3으로 올릴 때 가장 먼저 깨지는 것은 <code>javax.servlet</code>·<code>javax.persistence</code> import다. Jakarta로 치환하고, 직접 만든 라이브러리의 <code>spring.factories</code> 등록도 <code>AutoConfiguration.imports</code>로 옮긴다.</li>

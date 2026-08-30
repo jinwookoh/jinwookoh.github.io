@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/exception-handling/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>예외 처리</h1>
   <p class="summary">체크드와 언체크드 예외의 경계를 정확히 긋고, try-with-resources와 예외 체이닝으로 자원 누수와 원인 소실을 막는 방법을 정리한다.</p>
   <div class="content">
-<p>예외 처리 체계가 없으면 비정상 상황을 반환값으로 표현해야 한다. 실패를 <code>-1</code>이나 <code>null</code>로 돌려주는 방식은 호출자가 검사를 빠뜨려도 컴파일러가 알려주지 않고, 실패 지점과 실제 오류가 드러나는 지점이 멀어져 원인 추적이 어렵다. 자원 정리도 문제다. 파일이나 DB 커넥션을 연 뒤 중간에 실패하면 닫는 코드까지 도달하지 못해 핸들과 커넥션이 누수된다. 자바 예외는 실패를 일반 흐름과 분리된 별도 경로로 전파하고, 스택 트레이스로 발생 지점을 보존하며, <code>finally</code>와 try-with-resources로 자원 해제를 보장하는 장치다.</p>
+<p>예외 처리 체계가 없으면 비정상 상황을 반환값으로 표현해야 한다. 실패를 <code>-1</code>이나 <code>null</code>로 돌려주는 방식은 호출자가 검사를 빠뜨려도 컴파일러가 알려주지 않고, 실패 지점과 실제 오류가 드러나는 지점이 멀어져 원인 추적이 어렵다. 자원 정리도 문제다. 파일이나 DB 커넥션을 연 뒤 중간에 실패하면 닫는 코드까지 도달하지 못해 핸들과 커넥션이 누수된다. <mark>자바 예외는 실패를 일반 흐름과 분리된 별도 경로로 전파하고, 스택 트레이스로 발생 지점을 보존하며, <code>finally</code>와 try-with-resources로 자원 해제를 보장하는 장치다.</mark></p>
 <h2>핵심 개념</h2>
 <p>예외는 <code>Throwable</code>을 상속한 객체다. <code>Throwable</code> 아래에 <code>Error</code>와 <code>Exception</code>이 있고, <code>Exception</code> 아래에 다시 <code>RuntimeException</code>이 있다. <code>Error</code>는 <code>OutOfMemoryError</code>처럼 애플리케이션이 복구할 수 없는 JVM 수준 문제이므로 잡지 않는다. 실제 설계 판단이 갈리는 지점은 <code>Exception</code>의 두 갈래다.</p>
 <table>
@@ -126,10 +126,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>빈 catch와 원인 없는 재던지기.</strong> <code>catch (Exception e) {}</code>는 장애를 묵살하고, <code>throw new XxxException(e.getMessage())</code>는 스택 트레이스를 버린다. 잡았으면 로그를 남기거나 원인을 붙여 다시 던지는 둘 중 하나를 반드시 한다. 로그와 재던지기를 동시에 하면 상위 계층에서 같은 예외가 중복 기록되므로 한 계층에서만 로그를 남긴다.</li>
+<li><mark><strong>빈 catch와 원인 없는 재던지기.</strong> <code>catch (Exception e) {}</code>는 장애를 묵살하고, <code>throw new XxxException(e.getMessage())</code>는 스택 트레이스를 버린다.</mark> 잡았으면 로그를 남기거나 원인을 붙여 다시 던지는 둘 중 하나를 반드시 한다. 로그와 재던지기를 동시에 하면 상위 계층에서 같은 예외가 중복 기록되므로 한 계층에서만 로그를 남긴다.</li>
 <li><strong>예외로 흐름 제어.</strong> 예외 생성 시 <code>fillInStackTrace()</code>가 스택을 캡처하므로 정상 흐름에서 초당 수천 번 던지면 비용이 눈에 띈다. 존재 여부 확인 같은 예상 가능한 분기는 <code>Optional</code>이나 boolean 반환으로 처리한다. 스택이 불필요한 예외라면 <code>writableStackTrace=false</code> 생성자를 쓴다.</li>
 <li><strong><code>InterruptedException</code> 삼키기.</strong> 잡은 뒤 아무 처리도 하지 않으면 스레드의 인터럽트 플래그가 지워져 종료 신호가 사라진다. <code>Thread.currentThread().interrupt()</code>로 플래그를 복원한 뒤 종료하거나 언체크드 예외로 감싼다. Virtual Thread 환경에서도 동일하다.</li>
-<li><strong><code>@Transactional</code> 롤백 규칙.</strong> 기본 설정은 <code>RuntimeException</code>과 <code>Error</code>에서만 롤백하고 체크드 예외는 커밋한다. 체크드 예외를 그대로 전파하는 서비스 메서드는 실패했는데 커밋되는 상황을 만든다. 도메인 예외를 언체크드로 통일하면 이 문제가 사라진다.</li>
+<li><mark><strong><code>@Transactional</code> 롤백 규칙.</strong> 기본 설정은 <code>RuntimeException</code>과 <code>Error</code>에서만 롤백하고 체크드 예외는 커밋한다.</mark> 체크드 예외를 그대로 전파하는 서비스 메서드는 실패했는데 커밋되는 상황을 만든다. 도메인 예외를 언체크드로 통일하면 이 문제가 사라진다.</li>
 <li><strong><code>finally</code>에서의 <code>return</code>.</strong> <code>finally</code> 블록에 <code>return</code>이 있으면 <code>try</code>에서 던진 예외가 무시된다. <code>finally</code>는 정리 작업만 두고 제어 흐름을 바꾸지 않는다.</li>
 </ul>
 <h2>관련 글</h2>

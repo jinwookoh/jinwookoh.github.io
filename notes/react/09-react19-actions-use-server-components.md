@@ -9,7 +9,7 @@ sources: [https://react.dev/blog/2024/12/05/react-19, https://react.dev/referenc
 updated: 2026-08-30
 ---
 
-React 18까지 폼 제출은 `isPending`·`error`·낙관적 값을 `useState`로 따로 들고 `try/catch/finally`로 정리해야 했다. 데이터 페칭은 `useEffect`에서 시작해 로딩 플래그를 세웠고, 렌더링에만 쓰는 라이브러리도 클라이언트 번들에 실려 갔다. React 19는 이를 Actions, `use`, Server Components로 프레임워크 안에 들여왔다. 서버에서 렌더링하고, 서버 함수를 폼에 연결하고, 그 결과 Promise를 컴포넌트가 직접 읽는 하나의 흐름이다.
+React 18까지 폼 제출은 `isPending`·`error`·낙관적 값을 `useState`로 따로 들고 `try/catch/finally`로 정리해야 했다. 데이터 페칭은 `useEffect`에서 시작해 로딩 플래그를 세웠고, 렌더링에만 쓰는 라이브러리도 클라이언트 번들에 실려 갔다. ==React 19는 이를 Actions, `use`, Server Components로 프레임워크 안에 들여왔다.== 서버에서 렌더링하고, 서버 함수를 폼에 연결하고, 그 결과 Promise를 컴포넌트가 직접 읽는 하나의 흐름이다.
 
 ## 핵심 개념
 
@@ -23,9 +23,9 @@ React 18까지 폼 제출은 `isPending`·`error`·낙관적 값을 `useState`�
 | `useFormStatus()` | 부모 `<form>`의 `pending`·`data`·`method`를 자식에서 읽는다. props 드릴링 없이 제출 버튼을 비활성화할 때 쓴다 |
 | `useOptimistic(state, updateFn)` | Action이 끝나기 전 UI에 먼저 반영할 값을 만든다. 실패하거나 완료되면 실제 상태로 되돌아간다 |
 
-**`use`**는 Promise나 Context를 렌더링 중에 읽는 API다. 훅과 달리 조건문·반복문 안에서 호출할 수 있다. Promise를 넘기면 resolve까지 가장 가까운 `<Suspense>` fallback을 보여주고, reject되면 Error Boundary가 잡는다.
+**`use`**는 Promise나 Context를 렌더링 중에 읽는 API다. ==훅과 달리 조건문·반복문 안에서 호출할 수 있다.== Promise를 넘기면 resolve까지 가장 가까운 `<Suspense>` fallback을 보여주고, reject되면 Error Boundary가 잡는다.
 
-**Server Components**는 빌드 또는 요청 시점에 서버에서만 실행된다. 브라우저 번들에 포함되지 않고 파일 시스템·DB에 직접 접근할 수 있는 대신, 상태·이펙트·이벤트 핸들러를 쓸 수 없다. 상호작용이 필요한 지점만 `'use client'` 파일로 분리하면 그 아래가 클라이언트 경계가 된다. Server가 기본값이고 Client가 명시 대상이다.
+**Server Components**는 빌드 또는 요청 시점에 서버에서만 실행된다. 브라우저 번들에 포함되지 않고 파일 시스템·DB에 직접 접근할 수 있는 대신, 상태·이펙트·이벤트 핸들러를 쓸 수 없다. 상호작용이 필요한 지점만 `'use client'` 파일로 분리하면 그 아래가 클라이언트 경계가 된다. ==Server가 기본값이고 Client가 명시 대상이다.==
 
 **Server Functions**는 `'use server'`로 표시한 함수로, 클라이언트에서 호출하면 React가 네트워크 요청을 만들어 서버에서 실행한다. 폼 `action`에 넘기면 JavaScript 로드 전에도 제출이 동작한다. Spring 기준으로 Server Component는 Thymeleaf 템플릿이 컴포넌트 트리로 바뀐 것이고, Server Function은 `@PostMapping` 핸들러를 폼에 직접 바인딩한 형태다.
 
@@ -157,7 +157,7 @@ export function LikeButton({ postId, likes }: { postId: string; likes: number })
 
 ## 실무에서 걸리는 지점
 
-- **Server Function은 공개 HTTP 엔드포인트다.** `'use server'` 파일에서 export한 함수는 누구나 호출할 수 있다. Controller에서 하던 인증 확인과 입력 검증을 함수 안에서 그대로 수행해야 한다.
+- ==**Server Function은 공개 HTTP 엔드포인트다.** `'use server'` 파일에서 export한 함수는 누구나 호출할 수 있다.== Controller에서 하던 인증 확인과 입력 검증을 함수 안에서 그대로 수행해야 한다.
 - **렌더 중 생성한 Promise를 `use`에 넘기면 무한 로딩에 빠진다.** 매 렌더마다 새 Promise가 만들어져 suspend가 반복된다. Server Component에서 만들어 props로 넘기거나 `cache`·TanStack Query를 거친 Promise만 전달한다.
 - **Server에서 Client로 넘기는 props는 직렬화 가능해야 한다.** 함수·클래스 인스턴스·Symbol은 넘길 수 없고 Server Function만 참조로 전달된다. Prisma의 `Decimal` 같은 타입이 섞이면 경계에서 에러가 난다.
 - **`useActionState`의 Action은 첫 인자로 이전 상태를 받는다.** 일반 폼 `action`과 시그니처가 달라 같은 함수를 두 곳에 재사용하면 인자가 어긋난다.

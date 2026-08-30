@@ -9,7 +9,7 @@ sources: [2026-05-03-rsocket-basics.md, 2026-05-03-rsocket-interaction-models.md
 updated: 2026-08-29
 ---
 
-서비스 간 통신을 HTTP로만 구성하면 스트리밍과 양방향 통신에서 한계가 드러난다. HTTP/2는 애플리케이션 수준의 흐름 제어가 없고, WebSocket은 메시지에 의미가 없어 수신 측이 처리하지 못해도 송신 측은 계속 보낸다. gRPC는 HTTP/2 흐름 제어에 기대므로 Reactive Streams의 `request(n)`과 직접 연결되지 않는다. 서버가 10만 건을 스트리밍하는데 클라이언트가 느리면 메모리가 쌓이다 OOM이 난다. RSocket은 Reactive Streams 명세를 프로토콜 수준으로 끌어올려 이 문제를 해결한다.
+서비스 간 통신을 HTTP로만 구성하면 스트리밍과 양방향 통신에서 한계가 드러난다. HTTP/2는 애플리케이션 수준의 흐름 제어가 없고, WebSocket은 메시지에 의미가 없어 수신 측이 처리하지 못해도 송신 측은 계속 보낸다. gRPC는 HTTP/2 흐름 제어에 기대므로 Reactive Streams의 `request(n)`과 직접 연결되지 않는다. 서버가 10만 건을 스트리밍하는데 클라이언트가 느리면 메모리가 쌓이다 OOM이 난다. ==RSocket은 Reactive Streams 명세를 프로토콜 수준으로 끌어올려 이 문제를 해결한다.==
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ RSocket은 Reactive Streams 위에 정의된 바이너리 메시징 프로토콜
 | REQUEST_N | N개 더 받을 수 있음을 통보 |
 | CANCEL / ERROR / KEEPALIVE | 취소 / 에러 / 연결 유지 |
 
-핵심은 REQUEST_N이다. `Subscription.request(n)`이 그대로 프레임으로 전송되어, 클라이언트가 REQUEST_N(10)을 보내면 서버는 10개만 보내고 다음 REQUEST_N을 기다린다. 흐름 제어가 TCP 윈도우가 아니라 프로토콜 의미론 안에서 이뤄진다는 점이 다른 프로토콜과의 결정적 차이다.
+핵심은 REQUEST_N이다. `Subscription.request(n)`이 그대로 프레임으로 전송되어, 클라이언트가 REQUEST_N(10)을 보내면 서버는 10개만 보내고 다음 REQUEST_N을 기다린다. ==흐름 제어가 TCP 윈도우가 아니라 프로토콜 의미론 안에서 이뤄진다는 점이 다른 프로토콜과의 결정적 차이다.==
 
 ### 4가지 Interaction Model
 
@@ -154,7 +154,7 @@ public class TradingClient {
 - **Fire-and-Forget은 전달을 보장하지 않는다.** 유실이 허용되지 않으면 Request-Response로 ack를 받거나 영속 메시지 큐를 쓴다.
 - **SETUP은 연결당 한 번이다.** MIME 타입·인증 정보는 연결 시점에 고정되므로, 토큰 갱신처럼 연결 중 바뀌는 값은 요청별 메타데이터로 보낸다.
 - **에러는 ERROR 프레임으로 전달되며 예외 타입이 보존되지 않는다.** 서버의 `RuntimeException`은 클라이언트에서 `ApplicationErrorException`으로 도착하므로 비즈니스 에러는 페이로드에 코드를 담는다.
-- **백프레셔는 구독자가 요청량을 제한해야 동작한다.** `subscribe()`만 호출하면 무제한 요청이 되어 REQUEST_N이 의미를 잃는다. `flatMap(fn, concurrency)`·`limitRate`·`BaseSubscriber`로 명시한다.
+- **백프레셔는 구독자가 요청량을 제한해야 동작한다.** ==`subscribe()`만 호출하면 무제한 요청이 되어 REQUEST_N이 의미를 잃는다.== `flatMap(fn, concurrency)`·`limitRate`·`BaseSubscriber`로 명시한다.
 - **TCP 전송은 HTTP 인프라를 통과하지 못한다.** L7 로드 밸런서를 재사용하려면 WebSocket 전송을 택한다.
 
 ## 관련 글

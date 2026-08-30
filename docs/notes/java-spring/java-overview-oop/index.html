@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/java-overview-oop/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>자바 백엔드 개관 — JVM·객체와 클래스·OOP 4기둥</h1>
   <p class="summary">자바가 JVM 위에서 어떻게 실행되고, 클래스·객체와 OOP 4기둥이 Spring Bean 설계의 전제가 되는 이유를 정리한다.</p>
   <div class="content">
-<p>C로 작성한 서버 프로그램은 OS와 CPU 아키텍처마다 따로 컴파일해야 하고, 메모리 해제를 개발자가 직접 책임진다. 해제 누락은 장기 실행 서버에서 메모리 누수로 이어진다. 또한 데이터와 그 데이터를 다루는 함수가 분리된 절차적 코드는 필드 하나가 바뀔 때 영향 범위를 추적하기 어렵다. 자바는 이 문제를 JVM, 가비지 컬렉터, 객체지향 모델로 해결했고, 그 위에 Spring 생태계가 쌓이면서 국내 백엔드의 사실상 표준이 됐다. Spring의 Bean, IoC, DI는 &quot;클래스로 객체를 만들고 인터페이스로 의존을 끊는다&quot;는 자바 기본 모델 위에 서 있으므로, 이 글의 개념이 이후 모든 글의 전제가 된다.</p>
+<p>C로 작성한 서버 프로그램은 OS와 CPU 아키텍처마다 따로 컴파일해야 하고, 메모리 해제를 개발자가 직접 책임진다. 해제 누락은 장기 실행 서버에서 메모리 누수로 이어진다. 또한 데이터와 그 데이터를 다루는 함수가 분리된 절차적 코드는 필드 하나가 바뀔 때 영향 범위를 추적하기 어렵다. 자바는 이 문제를 JVM, 가비지 컬렉터, 객체지향 모델로 해결했고, 그 위에 Spring 생태계가 쌓이면서 국내 백엔드의 사실상 표준이 됐다. <mark>Spring의 Bean, IoC, DI는 &quot;클래스로 객체를 만들고 인터페이스로 의존을 끊는다&quot;는 자바 기본 모델 위에 서 있으므로, 이 글의 개념이 이후 모든 글의 전제가 된다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>JVM과 실행 모델</h3>
 <p>자바 소스(<code>.java</code>)는 <code>javac</code>가 바이트코드(<code>.class</code>)로 컴파일하고, 바이트코드는 각 OS용 JVM이 실행한다. 바이트코드는 특정 OS나 CPU에 종속되지 않으므로 한 번 빌드한 산출물을 어느 플랫폼에서든 그대로 배포할 수 있다. 자바는 순수 인터프리터 언어가 아니라 컴파일과 인터프리트를 모두 거치는 혼합형이다. JVM은 처음에는 바이트코드를 인터프리트하다가 호출 빈도가 높은 메서드를 JIT 컴파일러로 기계어로 변환해 캐싱하므로, 장기 실행 서버에서는 기동 후 시간이 지날수록 처리 성능이 올라간다. 짧은 CLI 도구에서는 기동 비용 때문에 불리하다.</p>
@@ -88,7 +88,7 @@
 </tr>
 </tbody></table>
 <p>캡슐화는 인스턴스의 데이터 무결성을 지키는 것이고, 추상화는 설계 차원에서 사용자가 알아야 할 것을 시그니처로 줄이는 것이다. 접근 제어자는 <code>public</code>(어디서나), <code>protected</code>(같은 패키지 + 다른 패키지의 하위 클래스), 키워드 없는 package-private(같은 패키지), <code>private</code>(같은 클래스) 네 단계이며, 두 기둥을 코드로 강제하는 도구다.</p>
-<p>상속은 하위 클래스가 상위 클래스의 한 종류로 읽힐 때(IS-A)만 쓰고, 부품으로 갖는 관계(HAS-A)는 컴포지션으로 표현한다. 런타임 다형성은 상위 타입 변수에 하위 객체를 담았을 때 실제 객체의 메서드가 호출되는 메커니즘이며, 새 타입을 추가해도 호출 코드를 수정하지 않게 만드는 OCP의 기반이다. 인터페이스는 CAN-DO 계약이고 다중 구현이 가능하며, 추상 클래스는 IS-A 관계에서 공통 구현과 계약을 함께 제공하고 단일 상속만 허용한다. Java 8부터 인터페이스도 <code>default</code> 메서드로 구현을 가질 수 있다.</p>
+<p>상속은 하위 클래스가 상위 클래스의 한 종류로 읽힐 때(IS-A)만 쓰고, 부품으로 갖는 관계(HAS-A)는 컴포지션으로 표현한다. <mark>런타임 다형성은 상위 타입 변수에 하위 객체를 담았을 때 실제 객체의 메서드가 호출되는 메커니즘이며, 새 타입을 추가해도 호출 코드를 수정하지 않게 만드는 OCP의 기반이다.</mark> 인터페이스는 CAN-DO 계약이고 다중 구현이 가능하며, 추상 클래스는 IS-A 관계에서 공통 구현과 계약을 함께 제공하고 단일 상속만 허용한다. Java 8부터 인터페이스도 <code>default</code> 메서드로 구현을 가질 수 있다.</p>
 <h2>코드</h2>
 <p><code>Player.java</code>를 컴파일하고 실행하는 기본 흐름이다.</p>
 <pre><code class="hljs language-bash">javac Player.java        <span class="hljs-comment"># Player.class 생성</span>
@@ -177,7 +177,7 @@ java Player.java         <span class="hljs-comment"># 단일 파일은 컴파일
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>getter/setter 자동 생성은 캡슐화가 아니다.</strong> 모든 필드에 setter를 열면 <code>public</code> 필드와 같다. 상태 변경은 <code>takeDamage</code>처럼 의도가 드러나는 메서드로 제한한다. Lombok <code>@Data</code>를 엔티티에 붙이면 이 원칙이 무너지기 쉽다.</li>
+<li><mark><strong>getter/setter 자동 생성은 캡슐화가 아니다.</strong> 모든 필드에 setter를 열면 <code>public</code> 필드와 같다.</mark> 상태 변경은 <code>takeDamage</code>처럼 의도가 드러나는 메서드로 제한한다. Lombok <code>@Data</code>를 엔티티에 붙이면 이 원칙이 무너지기 쉽다.</li>
 <li><strong><code>instanceof</code> 분기가 늘면 다형성을 잃고 있다는 신호다.</strong> 타입별 <code>if-else</code>는 새 타입마다 수정 지점이 생기므로 오버라이딩으로 옮긴다. 다만 Java 21의 sealed 타입 + 패턴 매칭 <code>switch</code>는 컴파일러가 누락을 검출하므로 예외다.</li>
 <li><strong>상속 계층이 3단계를 넘으면 컴포지션을 검토한다.</strong> <code>Stack extends Vector</code>가 대표적인 표준 라이브러리의 실패 사례다. Spring에서도 공통 로직은 상속보다 위임·AOP로 풀리는 경우가 많다.</li>
 <li><strong>JIT 워밍업 전 성능으로 판단하지 않는다.</strong> 기동 직후 응답 시간은 정상 상태보다 느리다. 부하 테스트는 워밍업 이후를 측정하고, 롤링 배포 시 신규 인스턴스에 트래픽을 점진적으로 보낸다.</li>

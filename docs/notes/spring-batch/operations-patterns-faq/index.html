@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/operations-patterns-faq/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>운영 패턴과 FAQ</h1>
   <p class="summary">Job 중단·Footer 집계·Driving Query·Step 간 데이터 전달 패턴과 재실행·Chunk 크기·스케줄링 FAQ를 정리한다</p>
   <div class="content">
-<p>Reader·Writer·Skip·Retry를 개별로 이해해도 운영에서는 조합 문제가 남는다. 파일 끝 집계가 재시작 후 0부터 시작하고, 특정 데이터에서 Job을 멈춰야 하는데 Skip 설정이 예외를 삼키며, 0건을 읽고도 COMPLETED로 끝나 잘못된 파일명을 뒤늦게 발견한다. 같은 파라미터로 다시 돌리면 <code>JobInstanceAlreadyCompleteException</code>이 나고, 강제 종료 후에는 STARTED 상태가 남아 재시작이 막힌다.</p>
+<p><mark>Reader·Writer·Skip·Retry를 개별로 이해해도 운영에서는 조합 문제가 남는다.</mark> 파일 끝 집계가 재시작 후 0부터 시작하고, 특정 데이터에서 Job을 멈춰야 하는데 Skip 설정이 예외를 삼키며, 0건을 읽고도 COMPLETED로 끝나 잘못된 파일명을 뒤늦게 발견한다. 같은 파라미터로 다시 돌리면 <code>JobInstanceAlreadyCompleteException</code>이 나고, 강제 종료 후에는 STARTED 상태가 남아 재시작이 막힌다.</p>
 <h2>핵심 개념</h2>
 <h3>Job을 로직 안에서 멈추는 세 가지 방법</h3>
 <table>
@@ -61,7 +61,7 @@
 <h3>Driving Query</h3>
 <p>큰 테이블을 cursor로 훑으면 잠금이 길어져 온라인 시스템에 영향을 준다. key만 select하고 ItemProcessor에서 상세를 조회하면 cursor 부담이 줄고 기존 DAO를 재사용한다. 대신 N+1 구조라 throughput이 떨어진다.</p>
 <h3>Step 간 데이터 전달</h3>
-<p>Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다. Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 <code>ExecutionContextPromotionListener</code>가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다. 다음 Step은 <code>@StepScope</code> + <code>#{jobExecutionContext[&#39;key&#39;]}</code>로 받는다.</p>
+<p>Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다. <mark>Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 <code>ExecutionContextPromotionListener</code>가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다.</mark> 다음 Step은 <code>@StepScope</code> + <code>#{jobExecutionContext[&#39;key&#39;]}</code>로 받는다.</p>
 <h3>운영 FAQ</h3>
 <ul>
 <li><strong>같은 파라미터로 재실행 불가</strong> — identifying parameter가 같은 COMPLETED JobInstance는 다시 실행할 수 없다. <code>RunIdIncrementer</code>를 Job에 등록하거나 실행 시각을 파라미터에 넣는다.</li>
@@ -171,7 +171,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Listener 안의 DB 로깅이 rollback과 함께 사라진다.</strong> <code>onReadError</code>·<code>onWriteError</code>에서 DB에 기록하면 chunk 트랜잭션 rollback 시 같이 지워진다. <code>REQUIRES_NEW</code>로 분리하거나 commit 직전 호출이 보장되는 <code>SkipListener</code>를 쓴다.</li>
+<li><mark><strong>Listener 안의 DB 로깅이 rollback과 함께 사라진다.</strong></mark> <code>onReadError</code>·<code>onWriteError</code>에서 DB에 기록하면 chunk 트랜잭션 rollback 시 같이 지워진다. <code>REQUIRES_NEW</code>로 분리하거나 commit 직전 호출이 보장되는 <code>SkipListener</code>를 쓴다.</li>
 <li><strong>Multi-threaded Step에서 Reader가 thread-safe하지 않다.</strong> <code>FlatFileItemReader</code>·<code>JdbcCursorItemReader</code>는 동기화되지 않는다. <code>SynchronizedItemStreamReader</code>로 감싸면 재시작 안전성을 잃으므로 <code>saveState(false)</code>를 두거나 Partitioning으로 전환한다.</li>
 <li><strong>Promotion Listener가 동작하지 않는다.</strong> <code>setKeys</code> 누락, ExitStatus와 <code>setStatuses</code> 불일치, Step ExecutionContext에 key 부재가 대부분의 원인이다.</li>
 <li><strong>Driving Query의 N+1.</strong> key별 단건 조회가 throughput을 깎는다. Writer에서 <code>WHERE id IN (...)</code>으로 묶어 조회하면 절충된다.</li>

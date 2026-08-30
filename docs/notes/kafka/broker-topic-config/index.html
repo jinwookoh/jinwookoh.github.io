@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/broker-topic-config/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Broker·Topic 설정</h1>
   <p class="summary">Broker 기본값과 Topic 단위 override의 관계, 운영에서 실제로 손대는 설정과 적용 시점을 정리한다</p>
   <div class="content">
-<p>Kafka broker 설정은 수백 개가 있고, topic 설정은 그 기본값을 topic 단위로 덮어쓴다. 두 층의 관계를 모르면 <code>acks=all</code>을 걸어 놓고도 <code>min.insync.replicas=1</code> 때문에 사실상 <code>acks=1</code>로 동작하거나, topic의 <code>max.message.bytes</code>만 올려 놓고 broker가 메시지를 거부하는 상황을 겪는다. <code>auto.create.topics.enable</code>이 켜진 운영 클러스터에는 오타 topic이 쌓인다.</p>
+<p>Kafka broker 설정은 수백 개가 있고, topic 설정은 그 기본값을 topic 단위로 덮어쓴다. <mark>두 층의 관계를 모르면 <code>acks=all</code>을 걸어 놓고도 <code>min.insync.replicas=1</code> 때문에 사실상 <code>acks=1</code>로 동작하거나, topic의 <code>max.message.bytes</code>만 올려 놓고 broker가 메시지를 거부하는 상황을 겪는다.</mark> <code>auto.create.topics.enable</code>이 켜진 운영 클러스터에는 오타 topic이 쌓인다.</p>
 <h2>핵심 개념</h2>
 <h3>Broker 설정의 범주</h3>
 <p>실무에서 조정하는 broker 설정은 다음과 같이 나뉜다.</p>
@@ -138,7 +138,7 @@ kafka-configs.sh --bootstrap-server localhost:9092 \
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><code>retention.bytes</code>는 partition 단위다. partition 10개에 1GB를 주면 topic 전체는 10GB까지 커진다.</li>
-<li><code>max.message.bytes</code>를 topic에서만 올리면 broker의 <code>message.max.bytes</code>에 걸려 거부된다. 두 값을 함께 조정하고 consumer의 <code>max.partition.fetch.bytes</code>도 맞춘다.</li>
+<li><mark><code>max.message.bytes</code>를 topic에서만 올리면 broker의 <code>message.max.bytes</code>에 걸려 거부된다.</mark> 두 값을 함께 조정하고 consumer의 <code>max.partition.fetch.bytes</code>도 맞춘다.</li>
 <li><code>advertised.listeners</code>가 resolve되지 않는 호스트명이면 bootstrap 연결은 되어도 metadata의 주소로 재연결하면서 실패한다.</li>
 <li><code>log.flush.interval.*</code>를 명시하면 매번 fsync가 발생해 처리량이 크게 떨어진다. 내구성은 replication과 <code>min.insync.replicas</code>로 보장한다.</li>
 <li><code>compression.type=producer</code>는 producer가 압축하지 않으면 비압축으로 저장된다. <code>segment.bytes</code>를 너무 낮추면 파일 수가 폭증해 file descriptor를 소진한다.</li>

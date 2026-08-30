@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-quickstart.md, 2026-05-02-kafka-administra
 updated: 2026-08-29
 ---
 
-Kafka의 설계 개념은 Topic·Partition·Consumer Group·Offset처럼 추상 용어가 많아, 문서만 읽고 넘어가면 각 용어가 실제로 어떤 모양인지 감이 잡히지 않는다. 이 상태로 Producer 설정이나 Rebalance를 공부하면 원인과 결과를 연결하지 못한다. 로컬에 브로커 한 대를 띄우고 CLI로 메시지를 넣고 빼면서 partition 배분과 lag를 눈으로 확인해 두면 이후 개념 학습의 기준점이 생긴다. 또한 운영 환경에서 장애를 진단할 때도 애플리케이션 코드보다 콘솔 도구가 먼저 손에 잡히므로, 기본 CLI 네 개는 반드시 익혀 둔다.
+Kafka의 설계 개념은 Topic·Partition·Consumer Group·Offset처럼 추상 용어가 많아, 문서만 읽고 넘어가면 각 용어가 실제로 어떤 모양인지 감이 잡히지 않는다. 이 상태로 Producer 설정이나 Rebalance를 공부하면 원인과 결과를 연결하지 못한다. ==로컬에 브로커 한 대를 띄우고 CLI로 메시지를 넣고 빼면서 partition 배분과 lag를 눈으로 확인해 두면 이후 개념 학습의 기준점이 생긴다.== 또한 운영 환경에서 장애를 진단할 때도 애플리케이션 코드보다 콘솔 도구가 먼저 손에 잡히므로, 기본 CLI 네 개는 반드시 익혀 둔다.
 
 ## 핵심 개념
 
@@ -108,7 +108,7 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- **`--from-beginning`은 커밋된 offset이 없을 때만 동작한다.** 이미 offset을 커밋한 group에 붙이면 커밋 지점부터 이어 읽는다. 처음부터 다시 읽으려면 `--reset-offsets`를 써야 하고, 이 명령은 해당 group의 consumer가 모두 종료된 상태에서만 적용된다. 애플리케이션의 `auto.offset.reset=earliest`도 같은 조건으로만 효과가 있다.
+- ==**`--from-beginning`은 커밋된 offset이 없을 때만 동작한다.**== 이미 offset을 커밋한 group에 붙이면 커밋 지점부터 이어 읽는다. 처음부터 다시 읽으려면 `--reset-offsets`를 써야 하고, 이 명령은 해당 group의 consumer가 모두 종료된 상태에서만 적용된다. 애플리케이션의 `auto.offset.reset=earliest`도 같은 조건으로만 효과가 있다.
 - **첫 연결은 되는데 그 다음부터 Connection refused가 난다면 `advertised.listeners`를 본다.** 클라이언트는 `bootstrap.servers`로 접속한 뒤 메타데이터에 실린 광고 주소로 재연결한다. Docker·Kubernetes·클라우드에서 브로커가 컨테이너 내부 주소를 광고하면 이 두 번째 연결이 실패한다.
 - **Partition 수 이상의 consumer는 놀고 있다.** Lag가 쌓여 consumer를 늘렸는데 처리량이 그대로라면 partition 수부터 확인한다. 반대로 partition을 과도하게 잡으면 메타데이터·컨트롤러 부담과 장애 복구 시간이 늘어난다.
 - **`auto.create.topics.enable`에 의존하지 않는다.** 개발용 기본값이 켜져 있으면 오타 난 topic 이름으로 partition 1개짜리 topic이 조용히 생성된다. 운영에서는 끄고 `kafka-topics.sh --create` 또는 Admin Client로 명시적으로 만든다.

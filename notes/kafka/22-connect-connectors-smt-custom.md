@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-connect-developer-guide.md, data-infra/202
 updated: 2026-08-29
 ---
 
-외부 시스템과 Kafka를 잇는 코드를 직접 짜면 재시도, 오프셋 영속화, 장애 후 재개, 병렬 분할, 포맷 변환을 시스템마다 반복 구현하게 된다. Connect는 이 운영 기능을 프레임워크가 맡고 외부 시스템과 닿는 부분만 Connector 플러그인으로 교체하게 한다. 작업은 Pre-built Connector 설정, 레코드 단위 변환인 SMT, Pre-built가 없을 때만 들어가는 커스텀 개발 세 층으로 갈린다.
+외부 시스템과 Kafka를 잇는 코드를 직접 짜면 재시도, 오프셋 영속화, 장애 후 재개, 병렬 분할, 포맷 변환을 시스템마다 반복 구현하게 된다. ==Connect는 이 운영 기능을 프레임워크가 맡고 외부 시스템과 닿는 부분만 Connector 플러그인으로 교체하게 한다.== 작업은 Pre-built Connector 설정, 레코드 단위 변환인 SMT, Pre-built가 없을 때만 들어가는 커스텀 개발 세 층으로 갈린다.
 
 ## 핵심 개념
 
@@ -170,7 +170,7 @@ public class UpperCaseField<R extends ConnectRecord<R>> implements Transformatio
 ## 실무에서 걸리는 지점
 
 - **plugin.path 구조와 의존성 격리.** `plugin.path`는 Connector 디렉토리들의 부모 경로이며, 각 디렉토리에 의존성 jar까지 들어 있어야 한다. 플러그인별 classloader가 분리되므로 의존성이 빠지면 `ClassNotFoundException`이 나고, `connect-api`를 `provided`가 아닌 스코프로 묶으면 런타임과 충돌한다. 모든 Worker에 같은 플러그인을 설치한다.
-- **Sink의 Exactly-once는 외부 시스템 몫이다.** 외부 쓰기와 오프셋 커밋이 원자적이지 않아 재시작 시 중복 쓰기가 생긴다. JDBC Sink의 `insert.mode=upsert`와 `pk.mode=kafka`처럼 멱등 쓰기를 대상 쪽에서 보장한다. 중첩 필드는 `Flatten` SMT로 평탄화한 뒤 적재한다.
+- ==**Sink의 Exactly-once는 외부 시스템 몫이다.**== 외부 쓰기와 오프셋 커밋이 원자적이지 않아 재시작 시 중복 쓰기가 생긴다. JDBC Sink의 `insert.mode=upsert`와 `pk.mode=kafka`처럼 멱등 쓰기를 대상 쪽에서 보장한다. 중첩 필드는 `Flatten` SMT로 평탄화한 뒤 적재한다.
 - **외부 API의 rate limit과 인터럽트.** 외부 API를 호출하는 Source는 `X-RateLimit-Remaining` 헤더를 보고 스스로 쉬어야 하고, `InterruptedException`은 반드시 다시 던져야 Connect가 Task를 종료시킬 수 있다.
 - **비밀값 노출.** `Type.STRING`으로 잡은 토큰은 로그와 REST 응답에 그대로 찍힌다. `Type.PASSWORD`로 정의하고, Connector JSON에서는 ConfigProvider의 `${file:path:key}` 참조로 값을 밖에 둔다.
 - **Connector RUNNING과 Task FAILED는 별개다.** 상태 점검은 Task 단위까지 내려가야 하고, `errors.tolerance=all`과 DLQ가 없으면 레코드 하나의 실패로 Task가 멈춘다.

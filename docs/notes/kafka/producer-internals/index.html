@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/producer-internals/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Producer 동작 원리 — 파티션 선택·ACK·멱등성</h1>
   <p class="summary">Producer가 파티션을 고르고 ACK를 기다리고 중복을 걸러내는 과정을 설정 단위로 따라가며, 안전한 기본 조합을 정한다.</p>
   <div class="content">
-<p><code>producer.send()</code>는 호출 즉시 반환된다. 레코드는 내부 버퍼에 쌓이고 별도 스레드가 배치 단위로 전송한다. 이 비동기 경로를 통제하지 못하면 같은 주문의 이벤트 순서가 뒤섞이고, 낮은 ACK 수준에서 리더가 죽어 메시지가 조용히 사라지며, 재시도 중 ACK 유실로 같은 레코드가 두 번 저장된다. 파티션 선택·ACK·멱등성은 이 세 사고를 각각 막는 장치다.</p>
+<p><code>producer.send()</code>는 호출 즉시 반환된다. 레코드는 내부 버퍼에 쌓이고 별도 스레드가 배치 단위로 전송한다. 이 비동기 경로를 통제하지 못하면 같은 주문의 이벤트 순서가 뒤섞이고, 낮은 ACK 수준에서 리더가 죽어 메시지가 조용히 사라지며, 재시도 중 ACK 유실로 같은 레코드가 두 번 저장된다. <mark>파티션 선택·ACK·멱등성은 이 세 사고를 각각 막는 장치다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>전송 경로</h3>
 <p><code>ProducerRecord</code>는 Serializer에서 바이트 배열로 바뀌고, Partitioner가 파티션을 정한 뒤 Record Accumulator에 파티션별 배치로 누적된다. Sender 스레드가 배치를 리더 브로커에 보내고, 응답에 따라 콜백 또는 재시도가 이어진다. 배치는 <code>batch.size</code>(기본 16KB)가 차거나 <code>linger.ms</code>(기본 0)가 지나면 전송되고, <code>buffer.memory</code>(기본 32MB)가 가득 차면 <code>send()</code>가 블로킹된다. 종료 전 <code>flush()</code>와 <code>close()</code>를 호출하지 않으면 버퍼에 남은 레코드는 버려진다.</p>
@@ -138,7 +138,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>acks=all</code>만 켜고 <code>min.insync.replicas</code>를 두지 않는다.</strong> 브로커 기본값 1이면 리더가 쓰는 즉시 응답이 나가 <code>acks=1</code>과 손실 위험이 같다. 토픽 생성 시점에 두 값을 함께 확인한다.</li>
+<li><mark><strong><code>acks=all</code>만 켜고 <code>min.insync.replicas</code>를 두지 않는다.</strong> 브로커 기본값 1이면 리더가 쓰는 즉시 응답이 나가 <code>acks=1</code>과 손실 위험이 같다.</mark> 토픽 생성 시점에 두 값을 함께 확인한다.</li>
 <li><strong>커스텀 Partitioner가 키 없는 레코드까지 처리하면 Sticky 이점이 사라진다.</strong> 키 없는 경로는 내장 동작에 맡기고 키 있는 경로만 커스텀하는 편이 안전하다.</li>
 <li><strong><code>linger.ms</code>가 크면 지연이 그만큼 늘어난다.</strong> 알림처럼 도착 시간이 중요한 경로는 0~5ms로 둔다. <code>batch-size-avg</code>가 <code>batch.size</code>에 한참 못 미치면 <code>linger.ms</code>가 매번 만료되어 전송되는 상태다.</li>
 <li><strong><code>max.request.size</code>(기본 1MB)를 넘는 레코드는 <code>RecordTooLargeException</code>으로 즉시 실패한다.</strong> 재시도 대상이 아니며, 브로커 <code>message.max.bytes</code>도 함께 올려야 통과한다.</li>

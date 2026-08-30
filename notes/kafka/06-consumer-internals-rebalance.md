@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-design-consumer.md, 2026-05-02-kafka-consu
 updated: 2026-08-29
 ---
 
-메시지마다 확인 상태를 추적하는 전통적인 큐는 브로커 부담이 크고, Push 방식은 느린 컨슈머를 넘어뜨리며, 소비 후 삭제하므로 재처리가 불가능하다. Kafka는 Pull 모델, 파티션당 정수 하나인 offset, Consumer Group으로 이를 푼다. 대신 멤버가 바뀔 때 파티션을 재분배하는 rebalance가 운영 부담으로 들어온다.
+메시지마다 확인 상태를 추적하는 전통적인 큐는 브로커 부담이 크고, Push 방식은 느린 컨슈머를 넘어뜨리며, 소비 후 삭제하므로 재처리가 불가능하다. ==Kafka는 Pull 모델, 파티션당 정수 하나인 offset, Consumer Group으로 이를 푼다.== 대신 멤버가 바뀔 때 파티션을 재분배하는 rebalance가 운영 부담으로 들어온다.
 
 ## 핵심 개념
 
@@ -165,7 +165,7 @@ spring:
 
 - **파티션 수가 병렬도 상한이다.** 컨슈머를 파티션 수 이상으로 늘려도 처리량은 늘지 않는다.
 - **Rebalance storm.** 한 컨슈머의 이탈이 rebalance를 부르고 그 사이 다른 컨슈머가 timeout을 넘겨 연쇄된다. `rebalance-rate-per-hour`가 10을 넘으면 session timeout 상향·Static Membership·cooperative 전략으로 대응한다.
-- **처리 시간 대비 poll 간격.** 한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다. `max.poll.records`를 줄이거나 interval을 늘린다.
+- ==**처리 시간 대비 poll 간격.** 한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다.== `max.poll.records`를 줄이거나 interval을 늘린다.
 - **assign()과 subscribe()는 함께 쓸 수 없다.** `assign()`은 그룹과 무관하게 파티션을 직접 잡는 재처리·디버깅용이다.
 - **Graceful shutdown 누락.** `close()` 없이 죽으면 session timeout까지 파티션 재배정이 미뤄진다.
 

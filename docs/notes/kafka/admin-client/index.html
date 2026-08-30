@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/admin-client/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Admin Client — API 5종 개관과 관리 작업</h1>
   <p class="summary">Kafka 5가지 API의 분담을 정리하고, Admin Client로 Topic·Consumer Group·ACL을 코드로 관리하는 방법을 다룬다.</p>
   <div class="content">
-<p>Topic 생성·파티션 확장·Consumer Group offset 되돌리기를 매번 CLI로 수동 처리하면 환경마다 Topic 설정이 어긋나고, 배포 직후 없는 Topic 때문에 애플리케이션이 실패하며, 장애 복구 수단이 사람 손밖에 남지 않는다. Admin Client는 이런 운영 작업을 코드와 CI/CD 파이프라인 안으로 끌어들여 재현 가능하게 만드는 API다.</p>
+<p>Topic 생성·파티션 확장·Consumer Group offset 되돌리기를 매번 CLI로 수동 처리하면 환경마다 Topic 설정이 어긋나고, 배포 직후 없는 Topic 때문에 애플리케이션이 실패하며, 장애 복구 수단이 사람 손밖에 남지 않는다. <mark>Admin Client는 이런 운영 작업을 코드와 CI/CD 파이프라인 안으로 끌어들여 재현 가능하게 만드는 API다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Kafka API 5종의 분담</h3>
 <table>
@@ -180,7 +180,7 @@
         <span class="hljs-attr">sasl.mechanism:</span> <span class="hljs-string">SCRAM-SHA-512</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>파티션은 늘릴 수만 있다.</strong> 늘리는 순간 key 기반 매핑이 바뀌어 같은 key의 순서 보장이 그 시점에 끊긴다. 기존 메시지는 원래 파티션에 남고 새 메시지만 재해시된다.</li>
+<li><mark><strong>파티션은 늘릴 수만 있다.</strong></mark> 늘리는 순간 key 기반 매핑이 바뀌어 같은 key의 순서 보장이 그 시점에 끊긴다. 기존 메시지는 원래 파티션에 남고 새 메시지만 재해시된다.</li>
 <li><strong><code>deleteTopics</code>는 요청만 접수한다.</strong> 실제 삭제는 broker가 백그라운드에서 처리하며 큰 Topic은 수 분이 걸린다. 같은 이름으로 재생성하려면 <code>listTopics</code>로 확인한 뒤 진행한다.</li>
 <li><strong><code>.get()</code>은 hot path에 두지 않는다.</strong> <code>default.api.timeout.ms</code>만큼 스레드가 묶이므로 동기 호출은 시작 시점과 운영 스크립트로 한정한다.</li>
 <li><strong><code>alterConsumerGroupOffsets</code>는 그룹이 비어 있어야 한다.</strong> 활성 멤버가 있으면 실패하므로 Consumer를 모두 내린 뒤 offset을 옮기고 다시 올린다.</li>

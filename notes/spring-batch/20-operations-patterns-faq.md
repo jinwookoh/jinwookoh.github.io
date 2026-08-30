@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-common-patterns.md, batch/2026-05-17-batch-faq-
 updated: 2026-08-29
 ---
 
-Reader·Writer·Skip·Retry를 개별로 이해해도 운영에서는 조합 문제가 남는다. 파일 끝 집계가 재시작 후 0부터 시작하고, 특정 데이터에서 Job을 멈춰야 하는데 Skip 설정이 예외를 삼키며, 0건을 읽고도 COMPLETED로 끝나 잘못된 파일명을 뒤늦게 발견한다. 같은 파라미터로 다시 돌리면 `JobInstanceAlreadyCompleteException`이 나고, 강제 종료 후에는 STARTED 상태가 남아 재시작이 막힌다.
+==Reader·Writer·Skip·Retry를 개별로 이해해도 운영에서는 조합 문제가 남는다.== 파일 끝 집계가 재시작 후 0부터 시작하고, 특정 데이터에서 Job을 멈춰야 하는데 Skip 설정이 예외를 삼키며, 0건을 읽고도 COMPLETED로 끝나 잘못된 파일명을 뒤늦게 발견한다. 같은 파라미터로 다시 돌리면 `JobInstanceAlreadyCompleteException`이 나고, 강제 종료 후에는 STARTED 상태가 남아 재시작이 막힌다.
 
 ## 핵심 개념
 
@@ -33,7 +33,7 @@ Writer가 `FlatFileFooterCallback`을 함께 구현해 누적 합계를 파일 �
 
 ### Step 간 데이터 전달
 
-Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다. Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 `ExecutionContextPromotionListener`가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다. 다음 Step은 `@StepScope` + `#{jobExecutionContext['key']}`로 받는다.
+Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다. ==Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 `ExecutionContextPromotionListener`가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다.== 다음 Step은 `@StepScope` + `#{jobExecutionContext['key']}`로 받는다.
 
 ### 운영 FAQ
 
@@ -157,7 +157,7 @@ public void launch() throws Exception {
 
 ## 실무에서 걸리는 지점
 
-- **Listener 안의 DB 로깅이 rollback과 함께 사라진다.** `onReadError`·`onWriteError`에서 DB에 기록하면 chunk 트랜잭션 rollback 시 같이 지워진다. `REQUIRES_NEW`로 분리하거나 commit 직전 호출이 보장되는 `SkipListener`를 쓴다.
+- ==**Listener 안의 DB 로깅이 rollback과 함께 사라진다.**== `onReadError`·`onWriteError`에서 DB에 기록하면 chunk 트랜잭션 rollback 시 같이 지워진다. `REQUIRES_NEW`로 분리하거나 commit 직전 호출이 보장되는 `SkipListener`를 쓴다.
 - **Multi-threaded Step에서 Reader가 thread-safe하지 않다.** `FlatFileItemReader`·`JdbcCursorItemReader`는 동기화되지 않는다. `SynchronizedItemStreamReader`로 감싸면 재시작 안전성을 잃으므로 `saveState(false)`를 두거나 Partitioning으로 전환한다.
 - **Promotion Listener가 동작하지 않는다.** `setKeys` 누락, ExitStatus와 `setStatuses` 불일치, Step ExecutionContext에 key 부재가 대부분의 원인이다.
 - **Driving Query의 N+1.** key별 단건 조회가 throughput을 깎는다. Writer에서 `WHERE id IN (...)`으로 묶어 조회하면 절충된다.

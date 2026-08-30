@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/first-job-infrastructure/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>첫 Job — Infrastructure 설정과 v5/v6 변경 사항</h1>
   <p class="summary">Spring Boot 위에서 첫 Job을 띄우는 최소 설정과 v4→v5→v6에서 @EnableBatchProcessing·Builder·JobRepository가 바뀐 지점을 정리한다.</p>
   <div class="content">
-<p>Job 하나를 돌리려면 JobRepository·PlatformTransactionManager·JobOperator 같은 인프라 빈이 먼저 있어야 한다. 이 빈들의 출처와 기본값을 모르면 버전에 따라 의미가 뒤집힌 <code>@EnableBatchProcessing</code> 때문에 Boot 자동 구성이 꺼지거나 빌더 빈을 찾지 못하고, 메모리 전용 저장소로 운영에 나가 재시작이 불가능해진다.</p>
+<p>Job 하나를 돌리려면 JobRepository·PlatformTransactionManager·JobOperator 같은 인프라 빈이 먼저 있어야 한다. <mark>이 빈들의 출처와 기본값을 모르면 버전에 따라 의미가 뒤집힌 <code>@EnableBatchProcessing</code> 때문에 Boot 자동 구성이 꺼지거나 빌더 빈을 찾지 못하고, 메모리 전용 저장소로 운영에 나가 재시작이 불가능해진다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>인프라 빈</h3>
 <ul>
@@ -35,7 +35,7 @@
 </ul>
 <p>의존 방향은 <code>DataSource → TransactionManager → JobRepository → JobOperator → Job</code>이며, Boot는 DataSource가 있으면 JDBC 기반 JobRepository까지 자동 구성한다.</p>
 <h3><code>@EnableBatchProcessing</code>의 버전별 의미</h3>
-<p>Batch 4.x(Boot 2.x, <code>javax.*</code>)에서 이 어노테이션은 JobBuilderFactory·JobRepository를 만드는 필수 선언이었다. Batch 5.x(Boot 3.x, Java 17+, Framework 6, <code>jakarta.*</code>)부터는 Boot의 <code>BatchAutoConfiguration</code>이 그 역할을 하고, 사용자가 <code>@EnableBatchProcessing</code>이나 <code>DefaultBatchConfiguration</code>을 선언하면 Boot가 뒤로 물러난다. Boot에서는 쓰지 않는 것이 기본이며, 남겨 두면 <code>spring.batch.*</code> 프로퍼티가 무시된다. 빌더는 팩토리 대신 <code>new JobBuilder(name, repo)</code>·<code>new StepBuilder(name, repo)</code>로 직접 생성한다.</p>
+<p>Batch 4.x(Boot 2.x, <code>javax.*</code>)에서 이 어노테이션은 JobBuilderFactory·JobRepository를 만드는 필수 선언이었다. Batch 5.x(Boot 3.x, Java 17+, Framework 6, <code>jakarta.*</code>)부터는 Boot의 <code>BatchAutoConfiguration</code>이 그 역할을 하고, 사용자가 <code>@EnableBatchProcessing</code>이나 <code>DefaultBatchConfiguration</code>을 선언하면 Boot가 뒤로 물러난다. <mark>Boot에서는 쓰지 않는 것이 기본이며, 남겨 두면 <code>spring.batch.*</code> 프로퍼티가 무시된다.</mark> 빌더는 팩토리 대신 <code>new JobBuilder(name, repo)</code>·<code>new StepBuilder(name, repo)</code>로 직접 생성한다.</p>
 <p>Batch 6.x(Boot 4.x, Framework 7)는 저장소를 선언으로 고른다. <code>@EnableBatchProcessing</code> 단독은 <code>ResourcelessJobRepository</code>(메모리 전용), <code>@EnableJdbcJobRepository</code>는 JDBC, <code>@EnableMongoJobRepository</code>는 MongoDB다. 상속 방식은 <code>DefaultBatchConfiguration</code>과 Jdbc·Mongo 변형이 대응하며 <code>getTablePrefix()</code>·<code>getDatabaseType()</code> 등을 override할 수 있다. 이 밖에 Virtual Thread 동시성, <code>ChunkOrientedStep</code>, <code>CommandLineJobOperator</code>, <code>recover</code>, graceful shutdown, JFR, JSpecify, Jackson 3이 추가됐고 Spring Retry는 Framework core retry로 대체됐다. API는 5.x와 거의 호환된다.</p>
 <h2>코드</h2>
 <p>Spring Boot 3.x + Batch 5.x 기준 최소 Job이다. <code>@EnableBatchProcessing</code> 없이 인프라 빈을 메서드 파라미터로 받는다.</p>
@@ -123,7 +123,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong><code>@EnableBatchProcessing</code>을 4.x 습관으로 남겨 둔다.</strong> Boot 3.x 이상에서 자동 구성이 꺼진다. <code>No qualifying bean of type JobBuilderFactory</code>는 팩토리 제거를 놓친 신호다.</li>
-<li><strong>Resourceless 저장소로 운영에 나간다.</strong> v6에서 <code>@EnableBatchProcessing</code>만 쓰면 메모리 저장소가 기본이라 재시작도 중복 실행 방지도 동작하지 않는다.</li>
+<li><mark><strong>Resourceless 저장소로 운영에 나간다.</strong> v6에서 <code>@EnableBatchProcessing</code>만 쓰면 메모리 저장소가 기본이라 재시작도 중복 실행 방지도 동작하지 않는다.</mark></li>
 <li><strong><code>initialize-schema: always</code>·<code>job.enabled: true</code>를 운영에 둔다.</strong> 부팅마다 스키마 생성과 전체 Job 실행이 일어난다. <code>schema-&lt;db&gt;.sql</code>을 DBA가 적용하고 명시 실행한다.</li>
 <li><strong>여러 배치가 같은 table prefix를 쓴다.</strong> 메타데이터가 섞이므로 <code>table-prefix</code>로 분리한다.</li>
 <li><strong>메타데이터 DB와 업무 DB를 한 트랜잭션으로 묶는다.</strong> XA 없이는 원자성이 없으므로 분리한다. Boot 3.x 전환 시 <code>javax.*</code>→<code>jakarta.*</code>, <code>com.mysql:mysql-connector-j</code> 전환도 점검한다.</li>

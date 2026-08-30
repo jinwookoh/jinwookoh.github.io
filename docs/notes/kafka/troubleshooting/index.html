@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/troubleshooting/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>장애 대응</h1>
   <p class="summary">URP·Offline Partition·TimeoutException·Lag·리밸런스 루프를 증상에서 원인, 복구 조치까지 잇는 진단 절차를 정리한다.</p>
   <div class="content">
-<p>모니터링은 <code>UnderReplicatedPartitions</code>가 0보다 크다는 증상을 보여줄 뿐, 왜 올랐고 무엇을 해야 하는지는 알려주지 않는다. 증상과 조치를 잇는 절차가 없으면 브로커를 무작정 재기동하거나 설정 여러 개를 동시에 바꾸게 되고, 그 자체가 2차 장애의 원인이 된다. 자주 발생하는 장애를 Broker·Producer·Consumer·컨트롤러·디스크 다섯 영역으로 나누어 증상, 원인, 조치 순서로 정리한다.</p>
+<p>모니터링은 <code>UnderReplicatedPartitions</code>가 0보다 크다는 증상을 보여줄 뿐, 왜 올랐고 무엇을 해야 하는지는 알려주지 않는다. <mark>증상과 조치를 잇는 절차가 없으면 브로커를 무작정 재기동하거나 설정 여러 개를 동시에 바꾸게 되고, 그 자체가 2차 장애의 원인이 된다.</mark> 자주 발생하는 장애를 Broker·Producer·Consumer·컨트롤러·디스크 다섯 영역으로 나누어 증상, 원인, 조치 순서로 정리한다.</p>
 <h2>핵심 개념</h2>
 <h3>공통 진단 순서</h3>
 <p>어떤 영역이든 같은 순서를 밟는다. 증상 확인 → 시점 → 최근 변경(배포·설정·트래픽) → 로그와 메트릭 교차 확인 → 가설 → 범위가 좁은 조치 → 회복 확인. 가장 자주 생략되는 단계가 최근 변경 확인이다. 장애의 상당수는 직전 배포, 설정 변경, 트래픽 급증이 방아쇠이므로 여기서 출발하면 진단이 빨라진다.</p>
@@ -101,7 +101,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>복구 중 과잉 조치.</strong> URP 감소가 느리다고 다른 브로커를 재기동하거나 파티션 재배치를 시작하면 복제 트래픽이 겹쳐 회복이 더 늦어진다. 조치는 한 번에 하나만 한다.</li>
+<li><strong>복구 중 과잉 조치.</strong> URP 감소가 느리다고 다른 브로커를 재기동하거나 파티션 재배치를 시작하면 복제 트래픽이 겹쳐 회복이 더 늦어진다. <mark>조치는 한 번에 하나만 한다.</mark></li>
 <li><strong>재시도로 증상 가리기.</strong> <code>delivery.timeout.ms</code>를 늘리면 에러 로그는 사라지지만 근본 원인은 남고, 버퍼가 차오르다 결국 <code>max.block.ms</code> 초과로 터진다.</li>
 <li><strong>Lag 절대값 알람.</strong> 임계값 하나로 알람을 걸면 트래픽 피크마다 오탐이 난다. 기울기와 함께 판단한다.</li>
 <li><strong><code>max.poll.interval.ms</code>만 늘리기.</strong> 값을 키울수록 죽은 컨슈머 감지도 늦어진다. 긴 작업은 별도 스레드로 분리하고 <code>pause()</code>/<code>resume()</code>으로 poll 간격을 지킨다.</li>

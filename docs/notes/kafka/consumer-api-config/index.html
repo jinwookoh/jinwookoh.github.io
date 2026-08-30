@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/consumer-api-config/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Consumer API와 설정</h1>
   <p class="summary">poll 루프·commit 방식·Rebalance 대응·seek과 그 동작을 좌우하는 설정을 한 번에 정리한다</p>
   <div class="content">
-<p>Consumer는 offset, 파티션 할당, 그룹 멤버십을 클라이언트가 스스로 관리하며 이 셋이 서로 맞물린다. commit 타이밍을 잘못 잡으면 메시지가 손실되거나 중복 처리되고, 처리 시간이 길어지면 브로커가 Consumer를 죽은 것으로 판정해 Rebalance를 일으킨다. API 호출 패턴과 설정값을 같이 봐야 한다.</p>
+<p>Consumer는 offset, 파티션 할당, 그룹 멤버십을 클라이언트가 스스로 관리하며 이 셋이 서로 맞물린다. <mark>commit 타이밍을 잘못 잡으면 메시지가 손실되거나 중복 처리되고, 처리 시간이 길어지면 브로커가 Consumer를 죽은 것으로 판정해 Rebalance를 일으킨다.</mark> API 호출 패턴과 설정값을 같이 봐야 한다.</p>
 <h2>핵심 개념</h2>
 <h3>구독과 Poll 루프</h3>
 <p>필수 설정은 <code>bootstrap.servers</code>, <code>group.id</code>, <code>key.deserializer</code>, <code>value.deserializer</code>다. <code>subscribe</code>는 Consumer Group에 참여해 파티션을 자동 할당받고, <code>assign</code>은 그룹 없이 <code>TopicPartition</code>을 직접 지정한다.</p>
@@ -132,7 +132,7 @@ consumer.offsetsForTimes(query).forEach((tp, ot) -&gt; {
 <li><strong>Auto commit과 처리 실패.</strong> commit 후 처리 중 장애가 나면 그 레코드는 다시 읽히지 않는다. 손실이 허용되지 않으면 <code>enable.auto.commit=false</code>로 둔다.</li>
 <li><strong>큰 메시지와 <code>max.partition.fetch.bytes</code>.</strong> 브로커·토픽의 <code>max.message.bytes</code>보다 작으면 그 파티션은 해당 레코드에서 멈춘다.</li>
 <li><strong>heartbeat와 session 비율.</strong> 두 값이 비슷하면 heartbeat 한 번만 놓쳐도 죽은 것으로 판정된다.</li>
-<li><strong><code>KafkaConsumer</code>는 thread-safe가 아니다.</strong> 다른 스레드에서 호출해도 되는 것은 <code>wakeup()</code>뿐이다. 병렬화는 인스턴스를 늘려서 한다. <code>group.instance.id</code>가 중복되면 <code>FencedInstanceIdException</code>으로 종료된다.</li>
+<li><mark><strong><code>KafkaConsumer</code>는 thread-safe가 아니다.</strong></mark> 다른 스레드에서 호출해도 되는 것은 <code>wakeup()</code>뿐이다. 병렬화는 인스턴스를 늘려서 한다. <code>group.instance.id</code>가 중복되면 <code>FencedInstanceIdException</code>으로 종료된다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

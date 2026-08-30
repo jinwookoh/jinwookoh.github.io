@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/sorted-set/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,9 +24,9 @@
   <h1>Sorted Set — 랭킹과 Rate Limiter</h1>
   <p class="summary">score가 붙은 집합 하나로 Top N 랭킹·순위 조회·Sliding Window Rate Limiter·우선순위 큐를 O(log N)에 처리한다</p>
   <div class="content">
-<p>점수 순으로 정렬된 목록에서 &quot;내 순위&quot;를 구하려면 관계형 DB에서는 <code>SELECT COUNT(*) WHERE score &gt; :my_score</code> 같은 쿼리를 매번 실행해야 한다. 인덱스가 있어도 ms 단위이고, 점수가 초당 수천 번 갱신되는 리더보드나 인기 검색어라면 쓰기와 읽기가 서로를 잠그며 병목이 된다. &quot;최근 60초 동안 몇 번 호출했는가&quot;를 판정하는 rate limiter도 시간 범위 기준의 개수 세기와 오래된 기록 삭제를 원자적으로 처리할 저장소가 필요하다. Redis Sorted Set은 멤버마다 score를 붙여 항상 정렬 상태를 유지하는 자료구조로, 이 두 문제를 O(log N) 연산으로 해결한다.</p>
+<p>점수 순으로 정렬된 목록에서 &quot;내 순위&quot;를 구하려면 관계형 DB에서는 <code>SELECT COUNT(*) WHERE score &gt; :my_score</code> 같은 쿼리를 매번 실행해야 한다. 인덱스가 있어도 ms 단위이고, 점수가 초당 수천 번 갱신되는 리더보드나 인기 검색어라면 쓰기와 읽기가 서로를 잠그며 병목이 된다. &quot;최근 60초 동안 몇 번 호출했는가&quot;를 판정하는 rate limiter도 시간 범위 기준의 개수 세기와 오래된 기록 삭제를 원자적으로 처리할 저장소가 필요하다. <mark>Redis Sorted Set은 멤버마다 score를 붙여 항상 정렬 상태를 유지하는 자료구조로, 이 두 문제를 O(log N) 연산으로 해결한다.</mark></p>
 <h2>핵심 개념</h2>
-<p>Sorted Set은 Set의 정렬판이 아니라 <code>(member, score)</code> 쌍의 컬렉션이다. member는 중복이 없고, score는 double 값으로 갱신할 수 있다. 조회는 순위(rank)·점수 범위(score)·사전순(lex) 세 축으로 가능하며, score가 같은 멤버는 사전순으로 정렬된다.</p>
+<p><mark>Sorted Set은 Set의 정렬판이 아니라 <code>(member, score)</code> 쌍의 컬렉션이다.</mark> member는 중복이 없고, score는 double 값으로 갱신할 수 있다. 조회는 순위(rank)·점수 범위(score)·사전순(lex) 세 축으로 가능하며, score가 같은 멤버는 사전순으로 정렬된다.</p>
 <p>내부 구조는 크기에 따라 자동 전환된다. 작은 집합은 listpack으로 저장하고, <code>zset-max-listpack-entries</code>(기본 128)·<code>zset-max-listpack-value</code>(기본 64)를 넘으면 skiplist와 hashtable을 결합한 구조로 바뀐다. hashtable이 member→score 조회를 O(1)로, skiplist가 순위·범위 조회를 O(log N)으로 담당한다.</p>
 <p>자주 쓰는 명령은 <code>ZADD</code>(추가·갱신, <code>NX·XX·GT·LT·CH·INCR</code> 옵션), <code>ZRANGE</code>(범위 조회), <code>ZRANK</code>/<code>ZREVRANK</code>(0-based 순위), <code>ZSCORE</code>, <code>ZINCRBY</code>(원자적 증감), <code>ZCARD</code>, <code>ZPOPMIN</code>/<code>ZPOPMAX</code>, <code>ZREMRANGEBYSCORE</code>(점수 범위 삭제)다. <code>ZSCORE</code>·<code>ZCARD</code>는 O(1), 나머지는 O(log N), 범위 연산은 반환 개수 M이 더해져 O(log N + M)이다.</p>
 <p>Redis 6.2부터 <code>ZRANGE</code>가 <code>REV</code>·<code>BYSCORE</code>·<code>BYLEX</code>·<code>LIMIT</code> 옵션을 흡수했고 <code>ZREVRANGE</code>·<code>ZRANGEBYSCORE</code>·<code>ZRANGEBYLEX</code>는 deprecated 상태다. 점수 범위에서 <code>(</code>는 경계 제외, <code>-inf</code>·<code>+inf</code>는 무한대다.</p>
@@ -162,7 +162,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Rate limiter의 member 충돌.</strong> <code>ZADD key now now</code>처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다. 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 <code>TIME</code> 명령으로 Redis 시각을 쓴다.</li>
+<li><strong>Rate limiter의 member 충돌.</strong> <mark><code>ZADD key now now</code>처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다.</mark> 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 <code>TIME</code> 명령으로 Redis 시각을 쓴다.</li>
 <li><strong>Rate limiter 메모리.</strong> 윈도우 안 요청 수만큼 member가 쌓인다. 분당 1만 회 같은 큰 한도라면 키 하나가 수 MB가 되므로, 정확도가 덜 중요하면 String 카운터 기반 sliding window counter나 token bucket을 고려한다.</li>
 <li><strong>동점 처리.</strong> score가 같으면 사전순이므로 &quot;먼저 도달한 사람이 상위&quot;는 자동으로 충족되지 않는다. <code>score = 점수 × 2^20 + (MAX_TS - timestamp)</code> 식으로 합성하되, double의 정수 정밀도 한계인 2^53을 넘지 않아야 한다.</li>
 <li><strong>범위 연산의 M.</strong> <code>LIMIT</code> 없이 넓은 범위를 조회하면 반환 개수가 그대로 지연이 되고, 큰 범위 삭제는 단일 스레드를 점유한다. 페이징과 <code>LIMIT</code>을 기본으로 둔다.</li>

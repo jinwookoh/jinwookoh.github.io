@@ -9,7 +9,7 @@ sources: [2026-05-03-vt-patterns.md, 2026-05-03-vt-performance.md, 2026-05-03-vt
 updated: 2026-08-29
 ---
 
-Tomcat 기본 워커 풀은 200개다. 요청이 외부 API나 DB 응답을 기다리는 동안 스레드가 묶이고, 동시 요청이 200을 넘으면 나머지는 큐에서 대기한다. 처리량을 올리려면 WebFlux로 다시 쓰거나 풀을 키워 메모리를 소모해야 했다. Virtual Thread를 서블릿 컨테이너와 `@Async`에 연결하면 동기 코드를 그대로 두고 이 한계를 넘는다. 다만 병목은 DB 커넥션과 외부 API로 옮겨가고, 여러 스레드를 한 작업 단위로 묶어 실패와 취소를 전파할 구조가 필요해진다.
+Tomcat 기본 워커 풀은 200개다. 요청이 외부 API나 DB 응답을 기다리는 동안 스레드가 묶이고, 동시 요청이 200을 넘으면 나머지는 큐에서 대기한다. 처리량을 올리려면 WebFlux로 다시 쓰거나 풀을 키워 메모리를 소모해야 했다. ==Virtual Thread를 서블릿 컨테이너와 `@Async`에 연결하면 동기 코드를 그대로 두고 이 한계를 넘는다.== 다만 병목은 DB 커넥션과 외부 API로 옮겨가고, 여러 스레드를 한 작업 단위로 묶어 실패와 취소를 전파할 구조가 필요해진다.
 
 ## 핵심 개념
 
@@ -116,9 +116,9 @@ public class PriceAggregator {
 
 ## 실무에서 걸리는 지점
 
-- **무제한 동시성은 DB와 외부 API 폭주로 이어진다.** Platform Thread 풀은 그 자체가 백프레셔였다. Virtual Thread에서는 커넥션을 못 얻은 스레드가 HikariCP 앞에 무한정 쌓이므로 `Semaphore`·RateLimiter·Circuit Breaker를 명시적으로 둔다.
+- ==**무제한 동시성은 DB와 외부 API 폭주로 이어진다.** Platform Thread 풀은 그 자체가 백프레셔였다.== Virtual Thread에서는 커넥션을 못 얻은 스레드가 HikariCP 앞에 무한정 쌓이므로 `Semaphore`·RateLimiter·Circuit Breaker를 명시적으로 둔다.
 - **Pinning 비율이 처리량을 직접 깎는다.** 1,000 동시 요청에서 Pinning 30%만 있어도 처리 시간이 약 1초에서 3초로 는다. JDBC 드라이버·HikariCP·Logback을 최신으로 올리고 JFR의 `jdk.VirtualThreadPinned` 이벤트로 추적한다. Java 24부터는 `synchronized` 안의 블로킹이 Pinning을 일으키지 않는다.
-- **CPU 집약 작업은 이득이 없다.** 캐리어 전환 비용만 더해지므로 `ForkJoinPool`로 분리한다. Virtual Thread를 `newFixedThreadPool`에 넣는 것도 재사용 이득이 없으므로 `newVirtualThreadPerTaskExecutor`를 쓴다.
+- ==**CPU 집약 작업은 이득이 없다.**== 캐리어 전환 비용만 더해지므로 `ForkJoinPool`로 분리한다. Virtual Thread를 `newFixedThreadPool`에 넣는 것도 재사용 이득이 없으므로 `newVirtualThreadPerTaskExecutor`를 쓴다.
 - **자동 취소는 interrupt에 의존한다.** `Thread.sleep`·소켓 I/O처럼 interrupt에 반응하는 지점이 있어야 멈추므로 루프 연산은 `isInterrupted()`를 검사한다. `ShutdownOnSuccess` 기반 Race는 비용이 후보 수만큼 는다.
 - **측정 없이 도입 효과를 판단하지 않는다.** 처리량·p99 지연·메모리를 전후 비교한다. Actuator의 `http.server.requests` 히스토그램과 `jvm.threads.virtual.live`·`peak`를 Prometheus로 수집하고, 부하는 wrk·Gatling, 운영 워크로드는 JFR 캡처 후 JMC로 본다. Virtual Thread 스택은 힙에 있어 수백만 개가 살아 있으면 GC 빈도가 오른다.
 

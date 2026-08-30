@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/sns-project/elasticsearch-s3/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,13 +24,13 @@
   <h1>Elasticsearch 검색과 S3 업로드</h1>
   <p class="summary">DB를 진실의 원천으로 두고 검색 인덱싱과 파일 업로드를 트랜잭션 바깥으로 분리하는 방법</p>
   <div class="content">
-<p>게시글 검색을 PostgreSQL의 <code>LIKE &#39;%검색어%&#39;</code>로 구현하면 세 가지 문제가 동시에 나타난다. B-tree 인덱스를 타지 못해 전체 테이블을 스캔하고, &quot;자동차&quot;로 검색해도 &quot;자동차 정비&quot;가 조사·어미 처리 없이 매칭되지 않으며, 검색어와의 연관도(relevance)로 정렬할 수 없다. 파일 업로드도 비슷하다. 서버가 multipart로 받아 다시 S3에 올리는 방식은 파일이 서버 메모리를 한 번 거치고 네트워크를 두 번 타기 때문에, 대용량 파일이나 동시 업로드가 늘어나면 서버 인스턴스를 함께 늘려야 한다. 두 문제 모두 전용 인프라에 넘기되, 그 인프라의 실패가 핵심 흐름을 막지 않도록 분리하는 것이 해법이다.</p>
+<p>게시글 검색을 PostgreSQL의 <code>LIKE &#39;%검색어%&#39;</code>로 구현하면 세 가지 문제가 동시에 나타난다. B-tree 인덱스를 타지 못해 전체 테이블을 스캔하고, &quot;자동차&quot;로 검색해도 &quot;자동차 정비&quot;가 조사·어미 처리 없이 매칭되지 않으며, 검색어와의 연관도(relevance)로 정렬할 수 없다. 파일 업로드도 비슷하다. 서버가 multipart로 받아 다시 S3에 올리는 방식은 파일이 서버 메모리를 한 번 거치고 네트워크를 두 번 타기 때문에, 대용량 파일이나 동시 업로드가 늘어나면 서버 인스턴스를 함께 늘려야 한다. <mark>두 문제 모두 전용 인프라에 넘기되, 그 인프라의 실패가 핵심 흐름을 막지 않도록 분리하는 것이 해법이다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>역색인과 nori 형태소 분석</h3>
 <p>Elasticsearch는 문서를 단어 단위로 쪼개 &quot;단어 → 문서 목록&quot; 형태의 역색인(inverted index)을 만든다. &quot;자동차 수리 전문점&quot;, &quot;자동차 보험 추천&quot;, &quot;오토바이 수리&quot; 세 문서가 있으면 <code>자동차 → [1, 2]</code>, <code>수리 → [1, 3]</code> 같은 목록이 미리 생성되고, &quot;자동차 수리&quot; 검색은 두 목록의 교집합 <code>[1]</code>을 구하는 집합 연산으로 끝난다. 문서 수가 수백만이어도 상위 결과를 꺼내는 비용이 검색어 수에 비례할 뿐 문서 수에 비례하지 않는다.</p>
 <p>한국어는 공백만으로 단어가 분리되지 않으므로 형태소 분석기가 필요하다. nori 토크나이저는 &quot;서울역 근처 맛집&quot;을 <code>[&quot;서울역&quot;, &quot;근처&quot;, &quot;맛집&quot;]</code>으로 쪼개고 조사 같은 의미 없는 토큰을 걸러낸다. nori는 기본 내장 분석기가 아니라 <code>analysis-nori</code> 플러그인으로 별도 설치해야 하며, 설치 후 재시작하지 않으면 인덱스 생성 시 analyzer not found 오류가 난다.</p>
 <h3>인덱싱과 트랜잭션의 분리</h3>
-<p>게시글 저장과 ES 인덱싱을 같은 트랜잭션 안에서 처리하면 두 가지 문제가 생긴다. DB가 롤백됐는데 ES에는 문서가 남거나, ES 장애가 게시글 저장 자체를 실패시킨다. 이 프로젝트는 DB를 진실의 원천(source of truth)으로 두고 인덱싱을 <code>afterCommit()</code> 시점으로 미룬 뒤, 인덱싱 실패는 예외를 던지지 않고 로그만 남긴다. ES가 잠시 내려가도 게시글은 정상 저장되고 검색 결과에서만 잠시 빠지며, 누락분은 별도 동기화 작업으로 채운다.</p>
+<p>게시글 저장과 ES 인덱싱을 같은 트랜잭션 안에서 처리하면 두 가지 문제가 생긴다. DB가 롤백됐는데 ES에는 문서가 남거나, ES 장애가 게시글 저장 자체를 실패시킨다. <mark>이 프로젝트는 DB를 진실의 원천(source of truth)으로 두고 인덱싱을 <code>afterCommit()</code> 시점으로 미룬 뒤, 인덱싱 실패는 예외를 던지지 않고 로그만 남긴다.</mark> ES가 잠시 내려가도 게시글은 정상 저장되고 검색 결과에서만 잠시 빠지며, 누락분은 별도 동기화 작업으로 채운다.</p>
 <h3>Presigned URL 직접 업로드</h3>
 <p>Presigned URL은 &quot;이 키에 대해 제한 시간 동안 PUT을 허용한다&quot;는 서명이 붙은 URL이다. 서버는 URL을 발급만 하고, 브라우저가 S3에 직접 PUT한다. 파일 바이트가 서버를 전혀 거치지 않으므로 파일 크기와 무관하게 서버 부담이 일정하다. 업로드는 네 단계로 진행된다.</p>
 <table>
@@ -151,7 +151,7 @@
 <li><strong>S3 버킷 CORS.</strong> 브라우저가 <code>localhost:3000</code>에서 <code>localhost:4566</code>으로 PUT을 보내려면 버킷에 PUT·HEAD를 허용하는 CORS 규칙이 있어야 한다. 없으면 브라우저가 preflight 단계에서 요청을 차단하고, 서버 로그에는 아무것도 남지 않아 원인 찾기가 어렵다.</li>
 <li><strong>Presigned URL의 Content-Type 불일치.</strong> 발급 시 서명에 포함한 Content-Type과 실제 PUT 헤더가 다르면 S3가 SignatureDoesNotMatch로 거부한다. 클라이언트가 보내는 헤더를 발급 요청 값과 동일하게 맞춰야 한다.</li>
 <li><strong>고아 파일.</strong> 1~2단계까지만 진행하고 complete를 호출하지 않으면 DB에 기록되지 않은 파일이 S3에 남는다. 업로드 prefix에 수명 주기 규칙을 걸거나, 주기적으로 DB와 대조해 정리하는 작업이 필요하다.</li>
-<li><strong>ES 힙과 인덱싱 누락.</strong> 학습 환경에서 기본 힙으로 컨테이너를 띄우면 OOM으로 exit 137이 나므로 <code>-Xms128m -Xmx128m</code>으로 제한한다. afterCommit 인덱싱은 실패를 흡수하므로 재인덱싱 배치를 함께 두지 않으면 DB와 ES의 불일치가 누적된다.</li>
+<li><strong>ES 힙과 인덱싱 누락.</strong> 학습 환경에서 기본 힙으로 컨테이너를 띄우면 OOM으로 exit 137이 나므로 <code>-Xms128m -Xmx128m</code>으로 제한한다. <mark>afterCommit 인덱싱은 실패를 흡수하므로 재인덱싱 배치를 함께 두지 않으면 DB와 ES의 불일치가 누적된다.</mark></li>
 </ul>
 <h2>관련 글</h2>
 <ul>

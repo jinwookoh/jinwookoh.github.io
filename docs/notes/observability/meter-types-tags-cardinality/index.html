@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/meter-types-tags-cardinality/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Meter 타입·태그·카디널리티</h1>
   <p class="summary">측정 대상의 성격에 맞는 Meter 타입을 고르고, 태그 값을 유한 집합으로 제한해 시계열 폭발을 막는다</p>
   <div class="content">
-<p>메트릭을 수집하기로 했다면 두 가지 결정이 따라온다. 어떤 종류의 값으로 기록할 것인가, 그 값을 어떤 축으로 쪼개서 볼 것인가. 전자를 잘못 고르면 대시보드가 거짓말을 하고, 후자를 잘못 고르면 요청마다 새 시계열이 생겨 Prometheus가 OOM으로 죽는다.</p>
+<p>메트릭을 수집하기로 했다면 두 가지 결정이 따라온다. 어떤 종류의 값으로 기록할 것인가, 그 값을 어떤 축으로 쪼개서 볼 것인가. <mark>전자를 잘못 고르면 대시보드가 거짓말을 하고, 후자를 잘못 고르면 요청마다 새 시계열이 생겨 Prometheus가 OOM으로 죽는다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Meter 타입</h3>
 <table>
@@ -69,7 +69,7 @@
 <p>&quot;지금까지 총 몇 번&quot;이면 Counter, &quot;지금 이 순간 몇 개&quot;이면 Gauge, &quot;얼마나 걸렸나&quot;이면 Timer, &quot;크기나 건수가 얼마였나&quot;이면 DistributionSummary다.</p>
 <p>Gauge는 관찰 대상을 약한 참조로 잡아 대상이 GC되면 <code>NaN</code>을 보고한다. 반대로 람다가 외부 객체를 캡처하면 레지스트리가 Supplier를 강하게 붙들어 GC되지 않는다. 대상 객체를 두 번째 인자로 명시하면 두 문제를 모두 피한다.</p>
 <h3>태그는 차원이다</h3>
-<p>같은 이름의 Meter라도 태그 조합이 다르면 별개의 시계열이 되고, <code>sum by (region)</code>처럼 태그가 집계의 축이 된다. 시계열 수는 태그별 고유 값 수의 곱이라 region 3종 × type 2종이면 6개지만 <code>userId</code>를 넣으면 3 × 1,000,000이 된다. 각 시계열은 Prometheus 메모리에 상주하므로 태그 값은 유한 집합에서 나와야 한다. userId·requestId·raw URL·IP는 태그 값으로 쓰지 않으며, 요청별 추적은 로그와 트레이스의 영역이다.</p>
+<p>같은 이름의 Meter라도 태그 조합이 다르면 별개의 시계열이 되고, <code>sum by (region)</code>처럼 태그가 집계의 축이 된다. 시계열 수는 태그별 고유 값 수의 곱이라 region 3종 × type 2종이면 6개지만 <code>userId</code>를 넣으면 3 × 1,000,000이 된다. <mark>각 시계열은 Prometheus 메모리에 상주하므로 태그 값은 유한 집합에서 나와야 한다.</mark> userId·requestId·raw URL·IP는 태그 값으로 쓰지 않으며, 요청별 추적은 로그와 트레이스의 영역이다.</p>
 <h3>common tags와 URI 정규화</h3>
 <p><code>application</code>·<code>env</code>처럼 모든 메트릭에 붙는 태그는 <code>management.metrics.tags.*</code> 설정이나 <code>MeterRegistryCustomizer</code> 빈으로 한 번만 등록한다. <code>instance</code>는 Prometheus가 이미 부여하므로 중복으로 넣지 않는다.</p>
 <p><code>http.server.requests</code>는 <code>uri=&quot;/order/{id}&quot;</code> 템플릿으로 기록하지만, <code>getRequestURI()</code>를 직접 태그에 넣으면 주문 수만큼 시계열이 생긴다. 커스텀 Timer에는 <code>HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE</code>의 템플릿이나 상수를 쓴다.</p>
@@ -169,7 +169,7 @@
 <li><strong>Counter로 감소를 표현하려는 시도.</strong> <code>increment(-1)</code>은 반영되지 않는다. <code>orders.cancelled</code> Counter를 따로 두거나 Gauge를 쓴다.</li>
 <li><strong>같은 이름에 다른 타입 등록.</strong> <code>orders.total</code>을 Counter와 Gauge로 함께 등록하면 <code>IllegalArgumentException</code>이 난다. 이름에 성격을 담아 구분한다.</li>
 <li><strong>수동 시간 계산.</strong> <code>System.currentTimeMillis()</code> 차이를 넘기면 예외 경로에서 기록이 빠진다. <code>timer.record(Runnable)</code>에 맡기고, <code>Timer.Sample</code>의 <code>stop()</code>은 <code>finally</code>에서 호출한다.</li>
-<li><strong>404·봇 트래픽이 만드는 시계열.</strong> 스캐너가 두드린 raw 경로가 uri 태그에 쌓인다. <code>replaceTagValues</code>로 fallback 값에 모으거나 <code>maximumAllowableTags</code>로 상한을 걸되, 상한은 초과분을 버리는 2차 방어선이다.</li>
+<li><mark><strong>404·봇 트래픽이 만드는 시계열.</strong> 스캐너가 두드린 raw 경로가 uri 태그에 쌓인다.</mark> <code>replaceTagValues</code>로 fallback 값에 모으거나 <code>maximumAllowableTags</code>로 상한을 걸되, 상한은 초과분을 버리는 2차 방어선이다.</li>
 <li><strong>방어적 태그 과다.</strong> 태그 여섯 개를 달면 3 × 4 × 2 × 10 × 5 × 3 = 3,600 시계열이 된다. 실제 쿼리에서 쓰는 3~4개로 줄이고 <code>topk</code>로 시계열 수 상위 메트릭을 점검한다.</li>
 </ul>
 <h2>관련 글</h2>

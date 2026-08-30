@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/document-crud-bulk-reindex/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Document CRUD·Bulk·Reindex·Versioning</h1>
   <p class="summary">Elasticsearch 문서 쓰기는 near-realtime·불변 세그먼트·낙관적 동시성 제어 위에서 Bulk 단위로 설계해야 한다</p>
   <div class="content">
-<p>Elasticsearch의 문서 API는 RDBMS의 INSERT·UPDATE·DELETE와 이름이 같지만 동작 모델이 다르다. 색인 직후 검색에 보이지 않고, 부분 갱신이 실제로는 재색인이며, 행 단위 락이 없고, 단건 API로 대량 데이터를 넣으면 클러스터가 먼저 무너진다. 이 차이를 모르면 &quot;저장했는데 검색이 안 된다&quot; 같은 장애가 반복된다.</p>
+<p>Elasticsearch의 문서 API는 RDBMS의 INSERT·UPDATE·DELETE와 이름이 같지만 동작 모델이 다르다. <mark>색인 직후 검색에 보이지 않고, 부분 갱신이 실제로는 재색인이며, 행 단위 락이 없고, 단건 API로 대량 데이터를 넣으면 클러스터가 먼저 무너진다.</mark> 이 차이를 모르면 &quot;저장했는데 검색이 안 된다&quot; 같은 장애가 반복된다.</p>
 <h2>핵심 개념</h2>
 <h3>RDBMS와 다른 점</h3>
 <p>검색은 <strong>near-realtime</strong>이다. 색인된 문서는 <code>refresh_interval</code>(기본 1초)마다 segment로 내려가며 그 전에는 <code>_search</code>에 잡히지 않는다. 반면 Get API는 translog를 읽으므로 refresh와 무관하게 최신 값을 돌려준다.</p>
@@ -34,7 +34,7 @@
 <p><code>PUT /idx/_doc/{id}</code>는 없으면 생성하고 있으면 덮어쓰며, <code>PUT /idx/_create/{id}</code>는 이미 있으면 409를 낸다. <code>POST /idx/_update/{id}</code>는 <code>doc</code> 병합·<code>script</code>·<code>doc_as_upsert</code> 세 모드를 가진다. 쓰기 API 공통의 <code>refresh</code> 파라미터는 <code>false</code>(기본), <code>wait_for</code>(다음 refresh까지 응답을 미룸), <code>true</code>(즉시 강제 refresh) 세 값이다.</p>
 <h3>Bulk API</h3>
 <p>본문은 <strong>NDJSON</strong>이다. action 라인과 source 라인이 짝을 이루고, 마지막 줄도 <code>\n</code>으로 끝나야 하며, <code>Content-Type: application/x-ndjson</code>을 보낸다. action은 <code>index</code>(upsert, 멱등), <code>create</code>(중복 시 항목 단위 409), <code>update</code>(부분 갱신), <code>delete</code>(source 라인 없음) 네 가지다.</p>
-<p>요청 크기는 건수가 아니라 <strong>바이트</strong>로 잡으며 권장은 요청당 5~15MB다. 응답은 HTTP 200이어도 <strong>부분 실패</strong>를 담을 수 있으므로 <code>errors</code>가 true면 <code>items</code>를 순회해 각 <code>status</code>를 본다. 4xx는 재시도 대상이 아니고, 429(write thread pool 큐 포화)와 503은 backoff 후 재시도한다.</p>
+<p>요청 크기는 건수가 아니라 <strong>바이트</strong>로 잡으며 권장은 요청당 5~15MB다. <mark>응답은 HTTP 200이어도 <strong>부분 실패</strong>를 담을 수 있으므로 <code>errors</code>가 true면 <code>items</code>를 순회해 각 <code>status</code>를 본다.</mark> 4xx는 재시도 대상이 아니고, 429(write thread pool 큐 포화)와 503은 backoff 후 재시도한다.</p>
 <h3>Reindex·by-query</h3>
 <p><code>_reindex</code>는 source를 scroll로 읽어 dest에 내부 Bulk로 쓴다. <code>source.query</code>로 일부만 복사하고, <code>script</code>로 값을 변환하며, <code>requests_per_second</code>로 속도를 제한하고, <code>wait_for_completion=false</code>로 받은 task ID를 <code>GET /_tasks/{id}</code>로 확인한다. <code>_update_by_query</code>·<code>_delete_by_query</code>도 같은 방식이라 매칭 수에 비례해 비싸며, 대량 삭제는 인덱스 drop이 훨씬 싸다.</p>
 <h2>코드</h2>
@@ -157,7 +157,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>refresh=true</code>를 운영에 끌고 오는 경우.</strong> 요청마다 segment가 생기고 merge가 CPU를 점유해 검색 지연이 수십 배로 뛴다. 즉시 조회는 <code>wait_for</code> 또는 Get API로 풀고, <code>true</code>는 테스트로 한정한다.</li>
+<li><mark><strong><code>refresh=true</code>를 운영에 끌고 오는 경우.</strong> 요청마다 segment가 생기고 merge가 CPU를 점유해 검색 지연이 수십 배로 뛴다.</mark> 즉시 조회는 <code>wait_for</code> 또는 Get API로 풀고, <code>true</code>는 테스트로 한정한다.</li>
 <li><strong>부분 실패를 예외로 잡으려는 코드.</strong> Bulk는 항목이 실패해도 예외를 던지지 않는다. <code>errors()</code> 검사와 <code>items()</code> 순회가 필수다.</li>
 <li><strong>4xx와 5xx를 같은 재시도 큐에 넣는 경우.</strong> <code>create</code>의 409는 정상 케이스이고 400은 매핑 버그라 재시도해도 결과가 같다. 429·503만 exponential backoff로 재시도하고, 429를 받으면 동시 요청 수를 줄인다.</li>
 <li><strong>초기 적재와 운영 설정을 구분하지 않는 경우.</strong> <code>refresh_interval: -1</code>, <code>number_of_replicas: 0</code>은 적재 처리량을 수 배 올리지만 운영 인덱스에 적용하면 가용성이 사라진다. 신규 인덱스에만 쓰고 완료 후 원복한다.</li>

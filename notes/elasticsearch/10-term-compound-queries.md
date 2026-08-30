@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-term-level-queries.md, elastics
 updated: 2026-08-29
 ---
 
-상품명에 키워드가 들어가고, 가격은 일정 구간이며, 카테고리는 지정 값이고, 단종 상품은 빼고, 베스트셀러는 앞으로 올린다. 이 요구사항은 풀텍스트 쿼리 하나로 표현할 수 없다. 카테고리·가격은 analyzer를 거치지 않는 정확 일치 쿼리가 필요하고, 조건들을 AND·OR·NOT·점수 조정으로 묶는 조합 쿼리가 필요하다. 이 둘을 구분하지 않으면 `text` 필드에 `term`을 던져 0건이 나오거나, 캐시를 받지 못하는 쿼리가 운영에 올라간다.
+상품명에 키워드가 들어가고, 가격은 일정 구간이며, 카테고리는 지정 값이고, 단종 상품은 빼고, 베스트셀러는 앞으로 올린다. 이 요구사항은 풀텍스트 쿼리 하나로 표현할 수 없다. ==카테고리·가격은 analyzer를 거치지 않는 정확 일치 쿼리가 필요하고, 조건들을 AND·OR·NOT·점수 조정으로 묶는 조합 쿼리가 필요하다.== 이 둘을 구분하지 않으면 `text` 필드에 `term`을 던져 0건이 나오거나, 캐시를 받지 못하는 쿼리가 운영에 올라간다.
 
 ## 핵심 개념
 
@@ -23,7 +23,7 @@ Term-level 쿼리는 검색어를 가공하지 않고 색인된 토큰과 1:1로
 | `prefix` / `wildcard` / `regexp` | 시작 일치 / glob / Lucene 정규식 | 앞쪽 `*`는 전체 토큰 스캔 |
 | `fuzzy` | 편집 거리 기반 오타 허용 | `fuzziness: AUTO` + `prefix_length` 1~2 |
 
-Compound 쿼리는 이 조각들을 조합한다. 실무 쿼리의 대부분은 `bool` 하나이고, 랭킹 조정이 필요할 때 `function_score`·`dis_max`·`boosting`이 한 겹 더 붙는다. `bool`의 네 절은 컨텍스트가 다르다. `must`·`should`는 query context에서 `_score`를 계산하고, `filter`·`must_not`은 filter context에서 매칭 여부만 판정해 결과가 node-level query cache에 저장된다. `must`와 `filter`는 둘 다 AND이지만 점수 계산과 캐시 여부가 갈리므로, 점수가 필요 없는 정확 일치 조건은 `filter`에 둔다.
+Compound 쿼리는 이 조각들을 조합한다. 실무 쿼리의 대부분은 `bool` 하나이고, 랭킹 조정이 필요할 때 `function_score`·`dis_max`·`boosting`이 한 겹 더 붙는다. `bool`의 네 절은 컨텍스트가 다르다. `must`·`should`는 query context에서 `_score`를 계산하고, `filter`·`must_not`은 filter context에서 매칭 여부만 판정해 결과가 node-level query cache에 저장된다. ==`must`와 `filter`는 둘 다 AND이지만 점수 계산과 캐시 여부가 갈리므로, 점수가 필요 없는 정확 일치 조건은 `filter`에 둔다.==
 
 `should`는 위치에 따라 의미가 바뀐다. `must`나 `filter`가 함께 있으면 점수만 올리는 옵션이고, `should`만 있으면 최소 하나는 매칭해야 하는 OR 조건이 된다. `minimum_should_match`로 명시하며 정수, 퍼센트, 조합식(`"3<75%"`)을 받는다.
 
@@ -120,7 +120,7 @@ public SearchResponse<Product> rankedSearch(String keyword) throws IOException {
 
 ## 실무에서 걸리는 지점
 
-- **`text` 필드에 `term`을 던져 0건.** 색인된 토큰은 쪼개져 있어 원문 전체와 일치하지 않는다. 정확 일치·집계·정렬은 `.keyword` multi-field로 간다. 대소문자 문제는 `case_insensitive: true`보다 색인 시점의 `normalizer: lowercase`가 빠르다.
+- ==**`text` 필드에 `term`을 던져 0건.** 색인된 토큰은 쪼개져 있어 원문 전체와 일치하지 않는다.== 정확 일치·집계·정렬은 `.keyword` multi-field로 간다. 대소문자 문제는 `case_insensitive: true`보다 색인 시점의 `normalizer: lowercase`가 빠르다.
 - **정확 일치를 `must`에 넣어 캐시를 못 받음.** QPS가 오르면 점수 계산이 CPU를 먼저 소진한다. `term`·`range`·`exists`를 `filter`로 옮기면 캐시 히트율이 크게 오른다.
 - **`should`만 있고 `minimum_should_match` 누락.** 키워드 5개 중 1개만 맞아도 통과해 결과가 수십만 건으로 튄다. 퍼센트는 내림 계산이라 절이 1~2개일 때 의도보다 강한 제약이 걸리므로 조합식으로 명시한다.
 - **leading wildcard·복잡한 regexp·`fuzziness: 2` + `prefix_length: 0`.** 전체 토큰 스캔에 가까워 클러스터 load를 단번에 올린다. 사용자 입력은 게이트웨이에서 검증하고, 자동완성은 `search_as_you_type`으로 푼다.

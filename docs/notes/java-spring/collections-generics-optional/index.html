@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/collections-generics-optional/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>컬렉션·제네릭·Optional</h1>
   <p class="summary">여러 객체를 담는 컬렉션, 담기는 타입을 컴파일 시점에 고정하는 제네릭, 없을 수 있는 반환값을 표현하는 Optional을 한 번에 정리한다.</p>
   <div class="content">
-<p>백엔드 코드의 대부분은 객체 여러 개를 모아서 조회하고, 걸러내고, 키로 찾는 일이다. 배열만으로는 크기 조절·중복 제거·키 조회를 직접 구현해야 하고, 제네릭이 없던 자바 1.4 시절처럼 컬렉션에 아무 타입이나 들어가면 꺼낼 때마다 캐스팅이 필요하며 잘못된 타입은 런타임 <code>ClassCastException</code>으로 드러난다. 값의 부재를 <code>null</code>로만 표현하면 검사를 빠뜨리는 순간 <code>NullPointerException</code>이 발생한다. 컬렉션, 제네릭, Optional은 이 세 문제를 각각 해결한다.</p>
+<p>백엔드 코드의 대부분은 객체 여러 개를 모아서 조회하고, 걸러내고, 키로 찾는 일이다. 배열만으로는 크기 조절·중복 제거·키 조회를 직접 구현해야 하고, 제네릭이 없던 자바 1.4 시절처럼 컬렉션에 아무 타입이나 들어가면 꺼낼 때마다 캐스팅이 필요하며 잘못된 타입은 런타임 <code>ClassCastException</code>으로 드러난다. 값의 부재를 <code>null</code>로만 표현하면 검사를 빠뜨리는 순간 <code>NullPointerException</code>이 발생한다. <mark>컬렉션, 제네릭, Optional은 이 세 문제를 각각 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>컬렉션 3대 인터페이스</h3>
 <table>
@@ -169,9 +169,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>HashMap</code>을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.</strong> 공유 상태에는 <code>ConcurrentHashMap</code>을 쓴다.</li>
+<li><mark><strong><code>HashMap</code>을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.</strong></mark> 공유 상태에는 <code>ConcurrentHashMap</code>을 쓴다.</li>
 <li><strong><code>orElse</code>의 인자는 값이 있어도 평가된다.</strong> DB 조회처럼 비용이 있는 기본값은 <code>orElseGet</code>으로 지연시킨다.</li>
-<li><strong><code>Optional</code>은 반환 타입 전용이다.</strong> 필드에 두면 직렬화와 JPA 매핑이 깨지고, 빈 컬렉션이 부재를 표현하므로 <code>Optional&lt;List&lt;T&gt;&gt;</code>로 감싸지 않는다.</li>
+<li><mark><strong><code>Optional</code>은 반환 타입 전용이다.</strong></mark> 필드에 두면 직렬화와 JPA 매핑이 깨지고, 빈 컬렉션이 부재를 표현하므로 <code>Optional&lt;List&lt;T&gt;&gt;</code>로 감싸지 않는다.</li>
 <li><strong>타입 소거 때문에 제네릭 타입 역직렬화는 힌트가 필요하다.</strong> <code>RestClient</code>에서 <code>.body(List.class)</code>로 받으면 <code>List&lt;LinkedHashMap&gt;</code>이 되므로 <code>ParameterizedTypeReference&lt;List&lt;User&gt;&gt;</code>를 넘긴다.</li>
 </ul>
 <h2>관련 글</h2>

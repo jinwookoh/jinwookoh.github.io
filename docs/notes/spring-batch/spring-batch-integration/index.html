@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/spring-batch-integration/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,9 +24,9 @@
   <h1>Spring Batch Integration — 메시지로 Job 실행</h1>
   <p class="summary">파일 도착·Kafka 메시지 같은 이벤트를 Job 실행 트리거로 바꾸고, 진행 상태를 메시지 채널로 내보내는 방법</p>
   <div class="content">
-<p>Job을 띄우는 기본 수단은 커맨드라인, <code>JobOperator.start()</code>, <code>@Scheduled</code> cron이다. 셋 다 시간 또는 명령이 기준이라서 &quot;SFTP에 파일이 올라오면&quot;, &quot;Kafka 메시지가 오면&quot; 같은 이벤트 기반 요구를 만나면 폴링 스레드를 직접 짜거나 cron 간격을 좁혀 빈 실행을 반복하게 된다. 반대 방향도 문제다. 진행 상태를 외부에 알리려면 리스너마다 알림 코드를 심어야 하고, 알림 대상이 바뀔 때마다 배치 코드를 고치게 된다. <code>spring-batch-integration</code> 모듈은 이 두 방향을 Spring Integration의 채널·게이트웨이로 흡수한다.</p>
+<p>Job을 띄우는 기본 수단은 커맨드라인, <code>JobOperator.start()</code>, <code>@Scheduled</code> cron이다. 셋 다 시간 또는 명령이 기준이라서 &quot;SFTP에 파일이 올라오면&quot;, &quot;Kafka 메시지가 오면&quot; 같은 이벤트 기반 요구를 만나면 폴링 스레드를 직접 짜거나 cron 간격을 좁혀 빈 실행을 반복하게 된다. 반대 방향도 문제다. 진행 상태를 외부에 알리려면 리스너마다 알림 코드를 심어야 하고, 알림 대상이 바뀔 때마다 배치 코드를 고치게 된다. <mark><code>spring-batch-integration</code> 모듈은 이 두 방향을 Spring Integration의 채널·게이트웨이로 흡수한다.</mark></p>
 <h2>핵심 개념</h2>
-<p>Spring Batch는 대량 레코드를 chunk 단위 트랜잭션으로 처리하고 JobRepository로 재시작을 보장한다. Spring Integration은 메시지 한 건을 채널·라우터·어댑터로 흘려보내며 대체로 stateless다. 경계는 granularity로 갈린다. batch run 안의 처리는 Batch가, run을 시작시키는 트리거와 결과를 내보내는 notify는 Integration이 맡는다.</p>
+<p>Spring Batch는 대량 레코드를 chunk 단위 트랜잭션으로 처리하고 JobRepository로 재시작을 보장한다. Spring Integration은 메시지 한 건을 채널·라우터·어댑터로 흘려보내며 대체로 stateless다. 경계는 granularity로 갈린다. <mark>batch run 안의 처리는 Batch가, run을 시작시키는 트리거와 결과를 내보내는 notify는 Integration이 맡는다.</mark></p>
 <p>모듈의 결합점은 여섯 가지다. 메시지로 Job 실행, Job-Launching Gateway, Informational Messages, <code>AsyncItemProcessor</code>/<code>AsyncItemWriter</code> 쌍, Step 실행의 원격 분리, 메시징 기반 Remote Chunking·Partitioning. 이 글은 앞의 셋을 다루고, 나머지는 Scaling 편의 기반이다.</p>
 <p>메시지 페이로드는 <code>Job</code>과 <code>JobParameters</code>를 감싼 <code>JobLaunchRequest</code>다. <code>JobLaunchingMessageHandler</code>가 이를 받아 Job을 실행하고 <code>JobExecution</code>을 reply 채널로 돌려준다. <code>JobLaunchingGateway</code>는 같은 핸들러의 게이트웨이 버전으로 request-channel·reply-channel·reply-timeout(기본 -1, 무한 대기)·auto-startup·order를 조정할 수 있다. Spring Batch 6부터는 <code>JobLauncher</code> 대신 <code>JobOperator</code>를 넘기는 생성자가 기본이다.</p>
 <p>반환 시점은 TaskExecutor가 결정한다. <code>SyncTaskExecutor</code>면 Job이 끝난 뒤에야 <code>JobExecution</code>이 돌아오고 그동안 폴링 스레드가 묶인다. 비동기 실행기면 시작 직후 STARTED 상태로 반환되며 이후 상태는 <code>JobExplorer</code>로 조회한다.</p>
@@ -115,7 +115,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>JobParameters 유일성</strong>. 파일 경로만 파라미터로 넣으면 같은 파일 재처리 시 <code>JobInstanceAlreadyCompleteException</code>이 난다. <code>run.id</code>에 타임스탬프를 넣거나, 재처리 차단이 의도라면 예외를 로그로 남긴다.</li>
-<li><strong>동기 실행기의 폴링 블로킹</strong>. <code>SyncTaskExecutor</code>는 Job이 끝날 때까지 poller 스레드를 점유해 다음 파일이 그만큼 대기한다. 비동기 실행기로 바꾸고 결과는 <code>JobExecutionListener</code>나 <code>JobExplorer</code>로 확인한다.</li>
+<li><mark><strong>동기 실행기의 폴링 블로킹</strong>. <code>SyncTaskExecutor</code>는 Job이 끝날 때까지 poller 스레드를 점유해 다음 파일이 그만큼 대기한다.</mark> 비동기 실행기로 바꾸고 결과는 <code>JobExecutionListener</code>나 <code>JobExplorer</code>로 확인한다.</li>
 <li><strong>비동기 결과 오인</strong>. 비동기 모드의 <code>JobExecution</code>은 시작 직후 상태라 실패 여부를 담지 않는다. reply만 보고 성공으로 처리하면 실패가 묻힌다.</li>
 <li><strong>인메모리 채널의 메시지 손실</strong>. <code>DirectChannel</code>·<code>QueueChannel</code>은 프로세스가 죽으면 메시지도 사라진다. 트리거 유실이 허용되지 않으면 Kafka·JMS 같은 durable 채널을 통로로 둔다.</li>
 <li><strong>중복 처리</strong>. <code>AcceptOnceFileListFilter</code>는 메모리 기반이라 재기동 후 초기화된다. 처리 후 archive로 옮기는 Tasklet을 두거나 <code>FileSystemPersistentAcceptOnceFileListFilter</code>로 상태를 외부에 저장한다.</li>

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/persistence-context-lazy-loading/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>영속성 컨텍스트와 LazyLoading</h1>
   <p class="summary">영속성 컨텍스트는 트랜잭션 범위의 1차 캐시이며, LazyInitializationException과 N+1은 이 범위를 벗어난 지연 로딩에서 발생한다</p>
   <div class="content">
-<p>JPA를 처음 쓰면 설명되지 않는 동작이 연달아 나타난다. <code>save()</code>를 호출하지 않았는데 UPDATE가 실행되고, 같은 PK로 <code>findById</code>를 두 번 호출했는데 SQL은 한 번만 나가며, 서비스 메서드가 끝난 뒤 컨트롤러에서 연관 필드를 읽으면 <code>LazyInitializationException</code>이 발생한다. JPA는 SQL을 즉시 실행하는 라이브러리가 아니라 Entity를 메모리에서 관리하다가 필요한 시점에 SQL로 동기화하는 계층이고, 그 관리 공간이 영속성 컨텍스트다. 이 구조를 모르면 조회 한 번이 쿼리 101번으로 늘어나는 N+1 문제도 로그를 보기 전까지 알아채지 못한다.</p>
+<p>JPA를 처음 쓰면 설명되지 않는 동작이 연달아 나타난다. <code>save()</code>를 호출하지 않았는데 UPDATE가 실행되고, 같은 PK로 <code>findById</code>를 두 번 호출했는데 SQL은 한 번만 나가며, 서비스 메서드가 끝난 뒤 컨트롤러에서 연관 필드를 읽으면 <code>LazyInitializationException</code>이 발생한다. <mark>JPA는 SQL을 즉시 실행하는 라이브러리가 아니라 Entity를 메모리에서 관리하다가 필요한 시점에 SQL로 동기화하는 계층이고, 그 관리 공간이 영속성 컨텍스트다.</mark> 이 구조를 모르면 조회 한 번이 쿼리 101번으로 늘어나는 N+1 문제도 로그를 보기 전까지 알아채지 못한다.</p>
 <h2>핵심 개념</h2>
 <p>영속성 컨텍스트(Persistence Context)는 <code>EntityManager</code>가 관리하는 Entity의 보관소다. Spring에서는 트랜잭션과 생명주기를 같이하며, <code>@Transactional</code> 메서드가 시작될 때 열리고 커밋 또는 롤백 시점에 닫힌다. 컨텍스트가 제공하는 기능은 네 가지다.</p>
 <p>첫째, 1차 캐시. 같은 컨텍스트 안에서 같은 PK로 조회하면 두 번째부터는 DB에 가지 않고 보관 중인 객체를 반환하므로 두 참조의 <code>==</code> 비교가 참이다. 트랜잭션 단위라 요청 간에 공유되지 않는다.</p>
@@ -164,11 +164,11 @@
         <span class="hljs-attr">default_batch_fetch_size:</span> <span class="hljs-number">100</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><p><strong>N+1은 로그에서만 보인다.</strong> 주문 100건을 조회한 뒤 반복문에서 <code>getMember()</code>를 읽으면 SELECT가 1 + 100번 나간다. 테스트 데이터가 적으면 드러나지 않으므로 SQL 로그로 쿼리 수를 확인해야 한다. Fetch Join 또는 <code>@EntityGraph</code>로 명시하고, 놓친 경로를 위해 <code>default_batch_fetch_size</code>를 전역으로 두어 프록시 초기화가 IN 쿼리로 묶이게 하는 조합이 기본 대응이다.</p>
+<li><p><mark><strong>N+1은 로그에서만 보인다.</strong> 주문 100건을 조회한 뒤 반복문에서 <code>getMember()</code>를 읽으면 SELECT가 1 + 100번 나간다.</mark> 테스트 데이터가 적으면 드러나지 않으므로 SQL 로그로 쿼리 수를 확인해야 한다. Fetch Join 또는 <code>@EntityGraph</code>로 명시하고, 놓친 경로를 위해 <code>default_batch_fetch_size</code>를 전역으로 두어 프록시 초기화가 IN 쿼리로 묶이게 하는 조합이 기본 대응이다.</p>
 </li>
 <li><p><strong>컬렉션 Fetch Join의 한계.</strong> <code>@OneToMany</code>를 Fetch Join하면서 <code>Pageable</code>을 붙이면 Hibernate가 전체를 메모리로 가져와 페이징하는 경고를 내고, 컬렉션 두 개 이상을 동시에 Fetch Join하면 <code>MultipleBagFetchException</code>이 발생한다. 컬렉션은 <code>default_batch_fetch_size</code>에 맡기는 편이 안전하다.</p>
 </li>
-<li><p><strong>open-in-view 기본값은 true다.</strong> Spring Boot는 HTTP 응답이 끝날 때까지 컨텍스트를 열어두는 인터셉터를 기본 등록한다. 예외는 사라지지만 직렬화 중에 쿼리가 나가고 DB 커넥션이 요청 전체 시간 동안 점유된다. 운영에서는 <code>open-in-view: false</code>로 끄고 조회 서비스에서 DTO 변환까지 끝낸다.</p>
+<li><p><mark><strong>open-in-view 기본값은 true다.</strong></mark> Spring Boot는 HTTP 응답이 끝날 때까지 컨텍스트를 열어두는 인터셉터를 기본 등록한다. 예외는 사라지지만 직렬화 중에 쿼리가 나가고 DB 커넥션이 요청 전체 시간 동안 점유된다. 운영에서는 <code>open-in-view: false</code>로 끄고 조회 서비스에서 DTO 변환까지 끝낸다.</p>
 </li>
 <li><p><strong>의도하지 않은 변경 감지.</strong> 트랜잭션 안에서 계산용으로 Entity 필드를 바꾸면 그대로 UPDATE가 나간다. Entity에 무분별한 setter를 두지 않고, 읽기 전용 경로는 <code>@Transactional(readOnly = true)</code>로 선언해 플러시를 막는다.</p>
 </li>

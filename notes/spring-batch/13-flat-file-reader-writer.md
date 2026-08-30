@@ -9,13 +9,13 @@ sources: [batch/2026-05-17-batch-flat-files-overview.md, batch/2026-05-17-batch-
 updated: 2026-08-29
 ---
 
-정산·결제·파트너 인터페이스 같은 대량 데이터 교환은 여전히 CSV나 고정 길이 텍스트 파일로 오간다. 이 파일을 직접 읽으면 header 건너뛰기, 따옴표 안의 구분자, 셀 안의 줄바꿈, 인코딩, 타입 변환, 중단 지점부터의 재시작을 job마다 다시 구현하게 된다. `FlatFileItemReader`와 `FlatFileItemWriter`는 이 과정을 교체 가능한 컴포넌트로 표준화하고 `ItemStream`으로 재시작 위치까지 관리한다.
+정산·결제·파트너 인터페이스 같은 대량 데이터 교환은 여전히 CSV나 고정 길이 텍스트 파일로 오간다. 이 파일을 직접 읽으면 header 건너뛰기, 따옴표 안의 구분자, 셀 안의 줄바꿈, 인코딩, 타입 변환, 중단 지점부터의 재시작을 job마다 다시 구현하게 된다. ==`FlatFileItemReader`와 `FlatFileItemWriter`는 이 과정을 교체 가능한 컴포넌트로 표준화하고 `ItemStream`으로 재시작 위치까지 관리한다.==
 
 ## 핵심 개념
 
 Flat file은 구분자로 필드를 나누는 Delimited와 position으로 자르는 Fixed length 두 형태다.
 
-Reader는 한 줄을 세 단계로 객체로 바꾼다. `FlatFileItemReader`가 한 줄 `String`을 읽고, `LineTokenizer`가 `FieldSet`으로 분리하고, `FieldSetMapper`가 객체로 매핑한다. 뒤의 둘을 묶는 표준 구현이 `DefaultLineMapper`다.
+Reader는 한 줄을 세 단계로 객체로 바꾼다. ==`FlatFileItemReader`가 한 줄 `String`을 읽고, `LineTokenizer`가 `FieldSet`으로 분리하고, `FieldSetMapper`가 객체로 매핑한다.== 뒤의 둘을 묶는 표준 구현이 `DefaultLineMapper`다.
 
 `LineTokenizer`는 `DelimitedLineTokenizer`, `FixedLengthTokenizer`(`Range` 배열, 1-based inclusive), `PatternMatchingCompositeLineTokenizer`(줄 prefix별로 다른 tokenizer)가 있다. `FieldSetMapper`는 `BeanWrapperFieldSetMapper`(setter 매칭), `RecordFieldSetMapper`(record component 매칭), 직접 구현이 있으며 `.targetType(Class)`가 대상 타입에 맞는 mapper를 자동 적용한다.
 
@@ -117,7 +117,7 @@ public FlatFileItemWriter<Customer> customerWriter(
 - **encoding·lineSeparator 미명시.** 기본값이 JVM 설정을 따라 환경마다 달라진다. Windows에서 저장된 UTF-8 파일은 BOM이 첫 컬럼 값에 섞이므로 전처리로 제거한다.
 - **`strict`는 두 곳에 있고 의미가 다르다.** Reader의 `strict(false)`는 resource가 없을 때 예외 대신 0건 처리이고, Tokenizer의 `strict(false)`는 token 수·line 길이 불일치 시 `IncorrectTokenCountException` 대신 빈 값으로 padding한다.
 - **`transactional(true)`(기본)는 chunk commit까지 출력을 buffer에 쌓는다.** rollback 시 파일 변경을 취소하기 위한 장치다. `false`로 바꾸면 즉시 flush되지만 rollback 후 부분 데이터가 남아 재시도 시 row가 중복된다.
-- **`shouldDeleteIfExists(true)`는 재시작과 충돌한다.** 재시작 시 `open()`은 `ExecutionContext`의 마지막 write 위치까지 파일을 truncate하고 이어서 쓰는데, 시작 시 파일을 삭제하면 이전 결과가 사라진다. 매번 새로 쓰는 멱등 출력일 때만 `true`를 쓴다.
+- ==**`shouldDeleteIfExists(true)`는 재시작과 충돌한다.**== 재시작 시 `open()`은 `ExecutionContext`의 마지막 write 위치까지 파일을 truncate하고 이어서 쓰는데, 시작 시 파일을 삭제하면 이전 결과가 사라진다. 매번 새로 쓰는 멱등 출력일 때만 `true`를 쓴다.
 - **`PatternMatchingCompositeLineMapper`는 매치되지 않는 줄에서 예외를 던진다.** `*` catch-all을 마지막에 둔다.
 
 ## 관련 글

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/spring-cloud-stream-reactor/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Spring Cloud Stream·StreamBridge·Reactor Kafka</h1>
   <p class="summary">함수형 빈 바인딩·StreamBridge 동적 발행·Reactor Kafka 백프레셔 파이프라인을 언제 어떻게 쓰는지 정리한다</p>
   <div class="content">
-<p><code>@KafkaListener</code>와 <code>KafkaTemplate</code>으로 직접 붙이면 코드가 Kafka 설정과 토픽 이름에 고정된다. 브로커를 바꾸려면 리스너를 다시 짜야 하고, 목적지를 런타임에 정하는 라우팅은 토픽 수만큼 빈을 늘리는 방식으로밖에 표현하지 못한다. WebFlux 서비스에서는 <code>poll()</code> 루프의 블로킹 처리가 이벤트 루프 스레드를 점유하고, 소비가 처리보다 빠르면 백프레셔 없이 메모리가 늘어난다. Spring Cloud Stream은 메시징 추상화로, StreamBridge는 동적 목적지로, Reactor Kafka는 논블로킹과 백프레셔로 각각의 문제를 다룬다.</p>
+<p><code>@KafkaListener</code>와 <code>KafkaTemplate</code>으로 직접 붙이면 코드가 Kafka 설정과 토픽 이름에 고정된다. 브로커를 바꾸려면 리스너를 다시 짜야 하고, 목적지를 런타임에 정하는 라우팅은 토픽 수만큼 빈을 늘리는 방식으로밖에 표현하지 못한다. WebFlux 서비스에서는 <code>poll()</code> 루프의 블로킹 처리가 이벤트 루프 스레드를 점유하고, 소비가 처리보다 빠르면 백프레셔 없이 메모리가 늘어난다. <mark>Spring Cloud Stream은 메시징 추상화로, StreamBridge는 동적 목적지로, Reactor Kafka는 논블로킹과 백프레셔로 각각의 문제를 다룬다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Spring Cloud Stream(SCS)에서 <strong>Binder</strong>는 메시징 시스템과의 연결 구현체이고, <strong>Binding</strong>은 그 Binder가 만들어 주는 개별 입출력 채널이다. 코드는 Binding만 알고 Binder는 설정이 결정한다.</p>
 <p>코드는 Spring Cloud Function 위에서 함수형 인터페이스 빈으로 작성한다. <code>Supplier&lt;T&gt;</code>는 출력 채널만, <code>Consumer&lt;T&gt;</code>는 입력 채널만, <code>Function&lt;T, R&gt;</code>은 둘 다 가진다. 바인딩 이름은 <code>&lt;빈이름&gt;-&lt;in|out&gt;-&lt;인덱스&gt;</code> 규칙으로 생성되며 인덱스는 0부터다. 빈 이름이 바인딩 이름의 접두사이므로 빈 이름을 바꾸면 YAML도 함께 바뀌어야 한다. 활성화할 함수는 <code>spring.cloud.function.definition</code>에 세미콜론으로 나열한다. <code>Function&lt;Flux&lt;T&gt;, Flux&lt;R&gt;&gt;</code> 형태로 등록하면 Binder가 Flux 전체를 한 번 넘기고 파이프라인 안에서 백프레셔가 동작한다.</p>
@@ -124,7 +124,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>group 누락은 anonymous consumer가 된다.</strong> <code>group</code>이 없으면 기동마다 새 그룹 ID를 받아 오프셋이 이어지지 않는다. 운영 바인딩은 group을 명시하고 <code>auto.offset.reset</code>도 의도에 맞게 고정한다.</li>
-<li><strong>Reactive Kafka Binder와 Reactor Kafka는 Kafka 트랜잭션을 지원하지 않는다.</strong> <code>transaction-id-prefix</code>는 일반 Kafka Binder에서만 동작한다. 리액티브 스택에서 DB 반영과 발행을 원자적으로 묶어야 하면 Outbox 패턴을 쓴다.</li>
+<li><mark><strong>Reactive Kafka Binder와 Reactor Kafka는 Kafka 트랜잭션을 지원하지 않는다.</strong></mark> <code>transaction-id-prefix</code>는 일반 Kafka Binder에서만 동작한다. 리액티브 스택에서 DB 반영과 발행을 원자적으로 묶어야 하면 Outbox 패턴을 쓴다.</li>
 <li><strong><code>flatMap</code> 동시성은 반드시 명시한다.</strong> 기본값이 사실상 무제한이라 백프레셔가 무력화된다. 순서가 필요하면 <code>concatMap</code>, 파티션 내 순서만 필요하면 <code>groupBy(partition)</code> 뒤 <code>concatMap</code>을 쓰고, 병렬 처리 시 재전달 중복에 대비해 처리를 멱등하게 만든다.</li>
 <li><strong>ack는 발행 성공 이후에 한다.</strong> 처리 직후 ack하고 발행이 실패하면 메시지가 유실된다. 발행 실패 시 ack를 건너뛰어야 재처리로 이어져 at-least-once가 유지된다. SCS 수동 ack 모드에서도 <code>KafkaHeaders.ACKNOWLEDGMENT</code>를 꺼내 같은 순서를 지킨다.</li>
 <li><strong>이기종 소비자와 <code>__TypeId__</code> 헤더.</strong> SCS의 JSON 변환기는 Java 클래스명을 헤더에 싣는다. Go·Python 소비자와 연동할 때는 <code>use-native-encoding: true</code>와 표준 serializer로 우회하고, Java 소비자는 <code>spring.json.trusted.packages</code>를 제한해 임의 클래스 역직렬화를 막는다. <code>enable-dlq</code>를 켜지 않으면 <code>max-attempts</code> 재시도 후에도 실패 메시지가 파티션을 막고, StreamBridge로 사용자별 토픽을 만들면 메타데이터 부담이 커지므로 사용자 단위 분리는 <code>partition-key-expression</code>으로 파티션에 맡긴다.</li>

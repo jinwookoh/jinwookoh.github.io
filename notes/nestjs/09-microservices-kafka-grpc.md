@@ -9,7 +9,7 @@ sources: [https://docs.nestjs.com/microservices/basics, https://docs.nestjs.com/
 updated: 2026-08-30
 ---
 
-서비스를 여러 개로 쪼개면 HTTP만으로 연결하기 어려운 지점이 생긴다. 주문 생성 뒤 재고·알림·정산이 각각 반응해야 하는데 REST로 순차 호출하면 한 서비스 장애가 전체 요청을 끌어내리고, 내부 동기 호출을 JSON으로 처리하면 직렬화 비용과 스키마 불일치가 누적된다. `@nestjs/microservices`는 이런 통신을 전송 계층과 분리된 하나의 모델로 묶는다.
+서비스를 여러 개로 쪼개면 HTTP만으로 연결하기 어려운 지점이 생긴다. 주문 생성 뒤 재고·알림·정산이 각각 반응해야 하는데 REST로 순차 호출하면 한 서비스 장애가 전체 요청을 끌어내리고, 내부 동기 호출을 JSON으로 처리하면 직렬화 비용과 스키마 불일치가 누적된다. ==`@nestjs/microservices`는 이런 통신을 전송 계층과 분리된 하나의 모델로 묶는다.==
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Spring에 대응시키면 `@EventPattern` + Kafka는 `@KafkaListener`, `ClientPr
 | 계약 | 토픽 + 자체 스키마 | `.proto` |
 | 용도 | 이벤트 전파, 재처리 | 서비스 간 조회·명령 |
 
-Kafka 트랜스포터는 `options.client.brokers`와 `options.consumer.groupId`로 브로커·컨슈머 그룹을 지정한다. 요청-응답을 쓰려면 클라이언트가 `onModuleInit()`에서 `subscribeToResponseOf(pattern)`을 호출해 응답 토픽을 미리 구독해야 한다. 발행만 하는 서비스는 `producerOnlyMode: true`로 컨슈머 등록을 건너뛴다. 핸들러 반환값을 `{ key, value, headers }` 형태로 주면 파티션 키와 헤더를 제어한다.
+Kafka 트랜스포터는 `options.client.brokers`와 `options.consumer.groupId`로 브로커·컨슈머 그룹을 지정한다. ==요청-응답을 쓰려면 클라이언트가 `onModuleInit()`에서 `subscribeToResponseOf(pattern)`을 호출해 응답 토픽을 미리 구독해야 한다.== 발행만 하는 서비스는 `producerOnlyMode: true`로 컨슈머 등록을 건너뛴다. 핸들러 반환값을 `{ key, value, headers }` 형태로 주면 파티션 키와 헤더를 제어한다.
 
 gRPC 트랜스포터는 `package`와 `protoPath`가 필수다. 서버는 `@GrpcMethod(service, method)`로 단항 호출을, `@GrpcStreamMethod()`로 Observable 스트리밍을, `@GrpcStreamCall()`로 Node 스트림을 직접 다룬다. 클라이언트는 `ClientGrpc.getService<T>(name)`로 proto 서비스 인터페이스를 얻고 각 메서드는 Observable을 반환한다. 예외는 `GrpcNotFoundException`처럼 상태 코드별 클래스가 있고 `GrpcExceptionFilter`를 전역 등록해 gRPC 상태로 변환한다.
 
@@ -180,11 +180,11 @@ export class HeroClient implements OnModuleInit {
 
 ## 실무에서 걸리는 지점
 
-- **Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.** `subscribeToResponseOf()`를 빠뜨리면 `send()`가 응답을 영원히 기다린다. 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.
+- **==Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.==** `subscribeToResponseOf()`를 빠뜨리면 `send()`가 응답을 영원히 기다린다. 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.
 - **오프셋 커밋과 재시도 의미를 정해야 한다.** 자동 커밋에서 핸들러가 실패하면 메시지가 유실될 수 있고, 수동 커밋에서 커밋을 빠뜨리면 반복 소비한다. 이벤트 핸들러의 미처리 예외는 기본 재시도 대상이므로 핸들러를 멱등하게 쓰고, 영구 실패는 일반 예외로 구분해 DLQ로 보낸다.
 - **긴 작업은 세션 타임아웃을 넘긴다.** `sessionTimeout` 안에 하트비트가 없으면 리밸런싱으로 파티션이 다른 인스턴스로 넘어간다. `ctx.getHeartbeat()`를 중간에 호출하거나 작업을 큐로 넘긴다.
 - **proto 계약 관리가 서비스 경계를 결정한다.** proto 파일을 저장소마다 복사하면 버전이 어긋난다. 별도 패키지로 배포하고 `protoPath`에 배열을 넘겨 함께 로드한다. 기본 4MB 메시지 제한은 `maxReceiveMessageLength`로 조정한다.
-- **하이브리드 앱은 가드·파이프 적용 범위가 다르다.** HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다. `connectMicroservice()`에 `inheritAppConfig: true`를 명시하거나 따로 등록한다. 예외는 `RpcException` 계열을 던져야 필터가 응답 형식을 맞춘다.
+- **하이브리드 앱은 가드·파이프 적용 범위가 다르다.** ==HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다.== `connectMicroservice()`에 `inheritAppConfig: true`를 명시하거나 따로 등록한다. 예외는 `RpcException` 계열을 던져야 필터가 응답 형식을 맞춘다.
 
 ## 관련 글
 

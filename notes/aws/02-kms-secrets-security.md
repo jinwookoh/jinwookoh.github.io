@@ -9,7 +9,7 @@ sources: [2026-05-01-aws-saa-security.md, 2026-05-03-aws-dva-security.md]
 updated: 2026-08-30
 ---
 
-DB 비밀번호를 환경 변수나 설정 파일에 평문으로 두면 값을 바꿀 때마다 재배포가 필요하고, 누가 언제 읽었는지 추적할 수 없으며, 유출 시 즉시 교체할 수단이 없다. 암호화 키를 애플리케이션이 코드와 같은 저장소에 들고 있는 구조도 마찬가지다. AWS는 이 문제를 키 관리(KMS)와 비밀 저장(Parameter Store·Secrets Manager)으로 분리해 해결한다.
+DB 비밀번호를 환경 변수나 설정 파일에 평문으로 두면 값을 바꿀 때마다 재배포가 필요하고, 누가 언제 읽었는지 추적할 수 없으며, 유출 시 즉시 교체할 수단이 없다. 암호화 키를 애플리케이션이 코드와 같은 저장소에 들고 있는 구조도 마찬가지다. ==AWS는 이 문제를 키 관리(KMS)와 비밀 저장(Parameter Store·Secrets Manager)으로 분리해 해결한다.==
 
 ## 핵심 개념
 
@@ -34,11 +34,11 @@ AWS Managed Key는 매년 자동 회전되고 주기를 바꿀 수 없다. Custo
 
 ### 봉투 암호화
 
-KMS의 `Encrypt`는 4KB 이하만 직접 암호화한다. 그 이상은 봉투 암호화를 쓴다. `GenerateDataKey`가 평문 DEK와 암호화된 DEK를 함께 반환하면, 평문 DEK로 데이터를 로컬에서 암호화한 뒤 폐기하고 암호화된 DEK를 암호문 옆에 저장한다. 복호화는 암호화된 DEK를 `Decrypt`에 넘겨 평문 DEK를 되찾는 순서다. 암호문 blob에 키 정보가 들어 있어 `Decrypt`에 키 ID를 줄 필요는 없다. S3 SSE-KMS와 AWS Encryption SDK 모두 내부적으로 이 패턴을 쓴다.
+==KMS의 `Encrypt`는 4KB 이하만 직접 암호화한다.== 그 이상은 봉투 암호화를 쓴다. `GenerateDataKey`가 평문 DEK와 암호화된 DEK를 함께 반환하면, 평문 DEK로 데이터를 로컬에서 암호화한 뒤 폐기하고 암호화된 DEK를 암호문 옆에 저장한다. 복호화는 암호화된 DEK를 `Decrypt`에 넘겨 평문 DEK를 되찾는 순서다. 암호문 blob에 키 정보가 들어 있어 `Decrypt`에 키 ID를 줄 필요는 없다. S3 SSE-KMS와 AWS Encryption SDK 모두 내부적으로 이 패턴을 쓴다.
 
 ### 키 정책과 교차 계정
 
-키 정책은 키에 직접 붙으며 IAM 정책과 별도로 평가된다. 키 정책이 허용하지 않으면 IAM 정책이 아무리 넓어도 키를 쓸 수 없다. 교차 계정 접근은 키 정책에 대상 계정을 명시해야 하며 AWS Managed Key로는 불가능하므로, EBS 스냅샷이나 AMI를 다른 계정과 공유하려면 Customer Managed Key로 암호화한다. Multi-Region Key는 Primary와 Replica가 같은 Key ID와 키 재료를 공유해 리전 간 재암호화 없이 복호화되지만 키 정책은 리전별로 독립이다.
+키 정책은 키에 직접 붙으며 IAM 정책과 별도로 평가된다. ==키 정책이 허용하지 않으면 IAM 정책이 아무리 넓어도 키를 쓸 수 없다.== 교차 계정 접근은 키 정책에 대상 계정을 명시해야 하며 AWS Managed Key로는 불가능하므로, EBS 스냅샷이나 AMI를 다른 계정과 공유하려면 Customer Managed Key로 암호화한다. Multi-Region Key는 Primary와 Replica가 같은 Key ID와 키 재료를 공유해 리전 간 재암호화 없이 복호화되지만 키 정책은 리전별로 독립이다.
 
 ### Parameter Store와 Secrets Manager
 
@@ -169,7 +169,7 @@ public class EnvelopeEncryptor {
 
 ## 실무에서 걸리는 지점
 
-- **권한이 둘 다 필요하다.** SecureString 읽기 실패의 대부분은 `kms:Decrypt`를 빠뜨린 경우다. Secrets Manager도 고객 관리 키로 암호화했다면 `secretsmanager:GetSecretValue`에 더해 키의 `kms:Decrypt`가 필요하다.
+- ==**권한이 둘 다 필요하다.** SecureString 읽기 실패의 대부분은 `kms:Decrypt`를 빠뜨린 경우다.== Secrets Manager도 고객 관리 키로 암호화했다면 `secretsmanager:GetSecretValue`에 더해 키의 `kms:Decrypt`가 필요하다.
 - **매 요청마다 비밀을 읽지 않는다.** Secrets Manager API는 건당 과금이고 호출 한도가 있다. 기동 시 읽어 캐시하고 인증 실패 시에만 다시 읽는다.
 - **회전 후 커넥션 풀.** DB 암호가 바뀌면 열린 커넥션은 유지되지만 새 커넥션은 실패한다. 인증 오류를 감지해 비밀을 재조회하고 풀을 재구성해야 무중단이 된다.
 - **키 정책을 비우면 잠긴다.** 키 정책에 계정 root나 관리자 주체를 빠뜨리면 아무도 키를 관리할 수 없다. 키 삭제는 최소 7일 대기 기간이 있어 되돌리기 어렵다.

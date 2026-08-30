@@ -9,11 +9,11 @@ sources: [data-infra/2026-05-17-redis-lists.md, data-infra/2026-05-17-redis-sets
 updated: 2026-08-29
 ---
 
-작업 대기열이나 "최근 본 상품 20개"를 String 하나에 JSON 배열로 직렬화해 두면 항목 하나를 넣고 뺄 때마다 전체를 읽고 다시 쓰게 되고, 워커 여러 개가 동시에 꺼내면 같은 작업을 두 번 처리한다. "이 사용자가 이미 좋아요를 눌렀는가", "두 태그를 모두 가진 글은 무엇인가"를 RDB로 풀면 JOIN 두 번에 인덱스가 있어도 ms 단위다. Redis List와 Set은 이 두 부류를 서버 측 원자 연산 한 번으로 처리하는 타입이다.
+작업 대기열이나 "최근 본 상품 20개"를 String 하나에 JSON 배열로 직렬화해 두면 항목 하나를 넣고 뺄 때마다 전체를 읽고 다시 쓰게 되고, 워커 여러 개가 동시에 꺼내면 같은 작업을 두 번 처리한다. "이 사용자가 이미 좋아요를 눌렀는가", "두 태그를 모두 가진 글은 무엇인가"를 RDB로 풀면 JOIN 두 번에 인덱스가 있어도 ms 단위다. ==Redis List와 Set은 이 두 부류를 서버 측 원자 연산 한 번으로 처리하는 타입이다.==
 
 ## 핵심 개념
 
-**List**는 양방향 링크드 리스트 계열 구조(내부적으로 quicklist·listpack)다. 양 끝 삽입·삭제(`LPUSH`·`RPUSH`·`LPOP`·`RPOP`)가 O(1)이고, 중간 인덱스 접근(`LINDEX`)과 중간 삽입(`LINSERT`)은 O(N)이다. Java `ArrayList`와 반대 특성이므로 인덱스 접근이 잦은 용도에는 맞지 않는다. 명령어 접두사 `L*`은 head, `R*`은 tail을 뜻하며, 큐인지 스택인지는 넣는 쪽과 빼는 쪽의 조합으로 결정된다. 한쪽에서 넣고 반대쪽에서 빼면 FIFO 큐(`RPUSH` + `LPOP`이 관례), 같은 쪽에서 넣고 빼면 LIFO 스택이다. `LRANGE start end`는 팝 없이 범위를 조회하며 end가 포함이라 `0 -1`이 전체다. `LLEN`은 O(1)이다.
+**List**는 양방향 링크드 리스트 계열 구조(내부적으로 quicklist·listpack)다. 양 끝 삽입·삭제(`LPUSH`·`RPUSH`·`LPOP`·`RPOP`)가 O(1)이고, 중간 인덱스 접근(`LINDEX`)과 중간 삽입(`LINSERT`)은 O(N)이다. ==Java `ArrayList`와 반대 특성이므로 인덱스 접근이 잦은 용도에는 맞지 않는다.== 명령어 접두사 `L*`은 head, `R*`은 tail을 뜻하며, 큐인지 스택인지는 넣는 쪽과 빼는 쪽의 조합으로 결정된다. 한쪽에서 넣고 반대쪽에서 빼면 FIFO 큐(`RPUSH` + `LPOP`이 관례), 같은 쪽에서 넣고 빼면 LIFO 스택이다. `LRANGE start end`는 팝 없이 범위를 조회하며 end가 포함이라 `0 -1`이 전체다. `LLEN`은 O(1)이다.
 
 큐로 쓸 때 핵심은 blocking 변형이다. `LPOP`은 비어 있으면 즉시 nil을 돌려주므로 워커가 폴링해야 하지만, `BLPOP key [key ...] timeout`은 원소가 들어올 때까지 연결을 대기시키고 가장 오래 기다린 클라이언트 한 곳에만 원자적으로 전달한다. timeout은 초 단위(6.0부터 소수 허용)이고 0은 무한 대기다. 키를 여러 개 지정하면 앞선 키부터 확인하므로 `BLPOP q:high q:low 0` 형태로 단순 우선순위 큐가 된다.
 
@@ -96,7 +96,7 @@ public boolean liked(String articleId, long userId) {
 
 ## 실무에서 걸리는 지점
 
-- **`LPOP` 큐는 at-most-once다.** 꺼낸 직후 워커가 죽으면 작업이 사라진다. `LMOVE`로 processing 목록에 보관하면 at-least-once가 되지만 중복 실행이 가능해지므로 작업 처리는 멱등해야 하고, 죽은 워커가 남긴 항목을 processing에서 다시 pending으로 되돌리는 회수 로직이 별도로 필요하다.
+- ==**`LPOP` 큐는 at-most-once다.**== 꺼낸 직후 워커가 죽으면 작업이 사라진다. `LMOVE`로 processing 목록에 보관하면 at-least-once가 되지만 중복 실행이 가능해지므로 작업 처리는 멱등해야 하고, 죽은 워커가 남긴 항목을 processing에서 다시 pending으로 되돌리는 회수 로직이 별도로 필요하다.
 - **Blocking 명령은 연결을 점유한다.** `BLPOP`·`BLMOVE`는 대기 중 커넥션을 붙잡으므로 Lettuce의 공유 커넥션이나 작은 풀에서 다른 요청을 막는다. 워커 전용 커넥션을 분리하고, 무한 대기(0) 대신 유한 timeout으로 루프를 돌려 종료 신호를 처리할 수 있게 한다.
 - **큰 컬렉션의 O(N) 명령은 서버 전체를 막는다.** Redis는 명령을 단일 스레드로 실행하므로 수십만 원소 List의 `LINDEX`·`LRANGE 0 -1`, 수백만 멤버 Set의 `SMEMBERS`는 다른 요청을 지연시킨다. 전체 조회는 `SSCAN`으로 페이징하고, 인덱스 접근이 잦으면 Sorted Set으로 설계를 바꾼다.
 - **집합 연산은 Cluster에서 같은 슬롯을 요구한다.** `SINTER`·`SINTERSTORE` 대상 키가 다른 슬롯에 있으면 CROSSSLOT 오류가 나므로 hash tag(`{article}:...`)로 묶는다. 결과 개수만 필요하면 `SINTERCARD`(7.0+)가 결과 집합을 만들지 않아 가볍다.

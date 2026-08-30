@@ -9,11 +9,11 @@ sources: [statsig/2026-05-17-statsig-feature-flags-deep.md, statsig/2026-05-17-s
 updated: 2026-08-30
 ---
 
-기능을 코드 배포와 함께 켜면 문제가 두 가지 생긴다. 국가·등급·앱 버전 같은 조건별 출시나 5%에서 100%까지의 점진 확대를 코드 수정 없이 표현할 수 없고, 기능을 켠 뒤 지표가 움직여도 원인이 기능인지 같은 주의 마케팅인지 분리할 수 없다. 전자는 Feature Gate의 Targeting이, 후자는 무작위 통제 시험(RCT)을 SaaS로 옮긴 Experiment가 해결한다. 두 도구는 같은 해싱 기반 위에 있지만 목적이 다르다.
+기능을 코드 배포와 함께 켜면 문제가 두 가지 생긴다. 국가·등급·앱 버전 같은 조건별 출시나 5%에서 100%까지의 점진 확대를 코드 수정 없이 표현할 수 없고, 기능을 켠 뒤 지표가 움직여도 원인이 기능인지 같은 주의 마케팅인지 분리할 수 없다. 전자는 Feature Gate의 Targeting이, 후자는 무작위 통제 시험(RCT)을 SaaS로 옮긴 Experiment가 해결한다. ==두 도구는 같은 해싱 기반 위에 있지만 목적이 다르다.==
 
 ## 핵심 개념
 
-**Targeting Rules.** Gate의 핵심은 누구에게 true인가를 정하는 규칙 목록이다. 규칙은 위에서 아래로 평가되고, 어느 규칙의 조건을 만족하면 그 규칙의 Pass %가 적용되며 아래 규칙은 검사하지 않는다. 따라서 좁은 조건을 위에, 넓은 조건을 아래에 두고 마지막에 Everyone 규칙을 catch-all로 배치한다. 한 규칙 안의 여러 조건은 AND로 결합되며, OR가 필요하면 규칙을 나누거나 Segment로 묶는다.
+**Targeting Rules.** Gate의 핵심은 누구에게 true인가를 정하는 규칙 목록이다. ==규칙은 위에서 아래로 평가되고, 어느 규칙의 조건을 만족하면 그 규칙의 Pass %가 적용되며 아래 규칙은 검사하지 않는다.== 따라서 좁은 조건을 위에, 넓은 조건을 아래에 두고 마지막에 Everyone 규칙을 catch-all로 배치한다. 한 규칙 안의 여러 조건은 AND로 결합되며, OR가 필요하면 규칙을 나누거나 Segment로 묶는다.
 
 **Conditions.** 조건은 사용자 식별(User ID·Email), 기기·브라우저(Browser·App Version·OS), 지역(Country·IP), 환경·시간(Environment Tier·Time), 다른 Gate·Segment 참조, Custom·Private 속성의 여섯 범주다. Client SDK는 IP·User Agent·Locale을 자동 추론하지만 Server SDK는 IP를 직접 넘겨야 한다. Private Attributes는 평가에만 쓰이고 로그에 남지 않는다.
 
@@ -95,7 +95,7 @@ public RecommendationResult recommend(HttpServletRequest req, Member member) {
 
 - **규칙 순서와 타입 불일치.** VIP 100% 규칙이 Everyone 5% 아래에 있으면 VIP도 5%만 켜진다. Custom 속성이 SDK마다 문자열 "2025"와 정수 2025로 갈리면 `>=` 비교가 어긋나므로 사용자 객체 스키마를 한 곳에서 관리한다.
 - **Override와 Temporary gate의 누적.** QA용 Override를 지우지 않으면 QA 계정 전부가 production 신기능을 계속 받는다. GA가 끝난 임시 gate는 코드 분기와 콘솔 항목을 함께 정리하고, 생성 시 temporary·permanent 태그와 만료일을 붙인다.
-- **Sample Ratio Mismatch.** 50/50 설계에서 47/53이 나왔고 카이제곱 검정이 유의하면 버그다. 봇 편중, treatment 코드 오류로 인한 로그 누락, 로그인 시 바뀌는 ID가 흔한 원인이며 결과를 무효로 하고 재시작한다.
+- ==**Sample Ratio Mismatch.** 50/50 설계에서 47/53이 나왔고 카이제곱 검정이 유의하면 버그다.== 봇 편중, treatment 코드 오류로 인한 로그 누락, 로그인 시 바뀌는 ID가 흔한 원인이며 결과를 무효로 하고 재시작한다.
 - **Peeking과 p-hacking.** 매일 결과를 보다가 유의해진 날 종료하면 false positive율이 0.05에서 0.20 이상으로 뛴다. 순차 검정 엔진이 있으면 조기 종료가 허용되고, 없으면 기간을 미리 고정한다. 세그먼트·메트릭을 잘라 보다 우연히 유의한 것을 채택하는 것도 같은 문제이며 Bonferroni 보정(0.05/N)으로 막는다.
 - **기간과 효과 크기.** 요일 효과를 흡수하려면 최소 1주, Novelty Effect가 가라앉으려면 2주가 필요하다. 반대로 +0.1%가 p < 0.01이어도 운영 비용보다 작으면 출시 가치가 없으므로 효과 크기 임계값을 가설에 미리 적는다.
 

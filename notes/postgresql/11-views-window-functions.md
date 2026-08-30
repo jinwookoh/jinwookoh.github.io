@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-views.md, data-infra/2026-05-17-pg-window-adv
 updated: 2026-08-29
 ---
 
-같은 JOIN과 집계를 애플리케이션 곳곳에서 반복하면 수정 지점이 흩어지고, Soft Delete의 `deleted_at IS NULL` 필터는 한 곳만 빠져도 삭제된 데이터가 노출된다. 무거운 통계를 대시보드가 열릴 때마다 원본에서 다시 계산하면 비용이 조회 횟수에 비례해 늘어난다. "사용자별 상위 3개 주문"이나 "전일 대비 증감"처럼 그룹 맥락을 유지한 채 행마다 값을 붙이는 요구는 GROUP BY로 표현할 수 없다. 이를 해결하는 도구가 뷰, MATERIALIZED VIEW, 윈도우 함수, CTE다.
+같은 JOIN과 집계를 애플리케이션 곳곳에서 반복하면 수정 지점이 흩어지고, Soft Delete의 `deleted_at IS NULL` 필터는 한 곳만 빠져도 삭제된 데이터가 노출된다. 무거운 통계를 대시보드가 열릴 때마다 원본에서 다시 계산하면 비용이 조회 횟수에 비례해 늘어난다. "사용자별 상위 3개 주문"이나 "전일 대비 증감"처럼 그룹 맥락을 유지한 채 행마다 값을 붙이는 요구는 GROUP BY로 표현할 수 없다. ==이를 해결하는 도구가 뷰, MATERIALIZED VIEW, 윈도우 함수, CTE다.==
 
 ## 핵심 개념
 
@@ -35,7 +35,7 @@ updated: 2026-08-29
 
 ### 윈도우 함수 — 행을 줄이지 않는 그룹 계산
 
-GROUP BY는 그룹당 한 행을 남기지만, 윈도우 함수는 원래 행을 유지하면서 각 행에 그룹 맥락의 계산값을 붙인다. `함수() OVER (PARTITION BY 그룹 ORDER BY 정렬 [프레임])` 형태로, PARTITION BY가 계산 단위를 나누고 ORDER BY가 파티션 안의 순서를 정하며 `ROWS BETWEEN ... AND ...` 프레임이 집계 대상 행의 범위를 제한한다.
+==GROUP BY는 그룹당 한 행을 남기지만, 윈도우 함수는 원래 행을 유지하면서 각 행에 그룹 맥락의 계산값을 붙인다.== `함수() OVER (PARTITION BY 그룹 ORDER BY 정렬 [프레임])` 형태로, PARTITION BY가 계산 단위를 나누고 ORDER BY가 파티션 안의 순서를 정하며 `ROWS BETWEEN ... AND ...` 프레임이 집계 대상 행의 범위를 제한한다.
 
 순위 함수는 동률 처리가 다르다. 금액 50000·40000·40000·30000에 대해 `ROW_NUMBER()`는 1, 2, 3, 4, `RANK()`는 1, 2, 2, 4, `DENSE_RANK()`는 1, 2, 2, 3을 돌려준다. `LAG()`·`LEAD()`는 이전·다음 행 값을, `SUM()`·`AVG()` 같은 집계 함수는 OVER와 함께 쓰면 파티션 합·평균을, ORDER BY까지 주면 누적값을 각 행에 붙인다.
 
@@ -121,7 +121,7 @@ public class UserOrderSummary {
 ## 실무에서 걸리는 지점
 
 - **뷰 위에 뷰를 쌓는 중첩**: 3단계 이상 중첩되면 실행 계획 추적이 어렵다. 뷰는 한두 단계까지만 쓰고 그 이상은 CTE로 쿼리 안에서 푼다.
-- **REFRESH 락과 UNIQUE 인덱스**: CONCURRENTLY 없는 REFRESH는 갱신 동안 조회를 막고, CONCURRENTLY는 UNIQUE 인덱스가 없으면 오류를 낸다. 뷰 생성과 인덱스 생성을 같은 마이그레이션에 묶는다.
+- ==**REFRESH 락과 UNIQUE 인덱스**: CONCURRENTLY 없는 REFRESH는 갱신 동안 조회를 막고, CONCURRENTLY는 UNIQUE 인덱스가 없으면 오류를 낸다.== 뷰 생성과 인덱스 생성을 같은 마이그레이션에 묶는다.
 - **LAST_VALUE의 기본 프레임**: ORDER BY가 있는 윈도우의 기본 프레임은 현재 행까지라서 LAST_VALUE가 현재 행 자신을 돌려준다. 파티션 마지막 값이 필요하면 `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`을 명시한다.
 - **재귀 CTE의 순환 데이터**: `manager_id`가 서로를 가리키면 무한히 돈다. PostgreSQL 14부터 `CYCLE` 절로 감지하고, 이전 버전은 깊이 상한으로 막는다.
 

@@ -9,7 +9,7 @@ sources: [2026-05-03-design-patterns-creational.md, 2026-05-03-design-patterns-s
 updated: 2026-08-29
 ---
 
-객체 하나를 만드는 데는 `new` 한 줄이면 충분하다. 문제는 옵션 조합이 많거나, 생성 비용이 크거나, 하나만 존재해야 하거나, 짝이 맞는 부품 묶음으로 만들어야 할 때 생긴다. 조합 단계에서도 문제가 반복된다. 기능 조합을 상속으로 풀면 클래스가 2^N으로 폭발하고, 외부 라이브러리 시그니처가 맞지 않아 호출부 전체를 고치며, 같은 모양의 객체 10만 개가 각자 이미지를 들고 있어 힙이 바닥난다. GoF 생성 패턴 5개와 구조 패턴 6개는 이런 상황의 처방이며, 핵심은 어떤 코드 신호에 어떤 패턴을 꺼내는지 아는 것이다.
+객체 하나를 만드는 데는 `new` 한 줄이면 충분하다. 문제는 옵션 조합이 많거나, 생성 비용이 크거나, 하나만 존재해야 하거나, 짝이 맞는 부품 묶음으로 만들어야 할 때 생긴다. 조합 단계에서도 문제가 반복된다. 기능 조합을 상속으로 풀면 클래스가 2^N으로 폭발하고, 외부 라이브러리 시그니처가 맞지 않아 호출부 전체를 고치며, 같은 모양의 객체 10만 개가 각자 이미지를 들고 있어 힙이 바닥난다. ==GoF 생성 패턴 5개와 구조 패턴 6개는 이런 상황의 처방이며, 핵심은 어떤 코드 신호에 어떤 패턴을 꺼내는지 아는 것이다.==
 
 ## 핵심 개념
 
@@ -176,10 +176,10 @@ public record Glyph(char ch, int x, int y, GlyphStyle style) {}
 
 ## 실무에서 걸리는 지점
 
-- **Singleton 직접 구현은 대부분 불필요하다.** Spring Bean이 기본 singleton scope이고, static 접근점은 DI를 우회해 테스트에서 mock 교체를 막는다.
+- ==**Singleton 직접 구현은 대부분 불필요하다.**== Spring Bean이 기본 singleton scope이고, static 접근점은 DI를 우회해 테스트에서 mock 교체를 막는다.
 - **Lazy 초기화는 Singleton이 아니어도 같은 경쟁 조건을 갖는다.** Virtual Proxy의 `if (real == null)` 역시 두 스레드가 동시에 통과한다. `volatile` + DCL이나 `computeIfAbsent`를 쓰고, Virtual Thread 환경에서는 `synchronized` 안의 블로킹 I/O가 pinning을 유발하므로 `ReentrantLock`을 검토한다.
 - **Lombok `@Builder`는 필수 값을 강제하지 못한다.** `@NonNull`이나 `build()` 검증을 별도로 둔다. 필드 2~3개짜리 객체에 Builder는 과설계다.
-- **Spring 프록시는 self-invocation을 가로채지 못한다.** `@Transactional`은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 `this.method()`에는 어드바이스가 빠진다. 대상 클래스가 `final`이면 CGLIB 서브클래싱도 실패한다.
+- ==**Spring 프록시는 self-invocation을 가로채지 못한다.** `@Transactional`은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 `this.method()`에는 어드바이스가 빠진다.== 대상 클래스가 `final`이면 CGLIB 서브클래싱도 실패한다.
 - **Facade가 비즈니스 로직을 흡수하면 God Object가 된다.** Composite의 재귀 순회는 깊이가 예측 불가능하면 스택 오버플로를 일으키므로 반복 순회로 바꾼다.
 
 ## 관련 글

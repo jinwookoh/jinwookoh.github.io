@@ -9,7 +9,7 @@ sources: [https://www.typescriptlang.org/tsconfig/#strict, https://www.typescrip
 updated: 2026-08-30
 ---
 
-`strict`를 끄고 시작한 프로젝트는 타입 검사가 통과해도 런타임에서 `Cannot read properties of undefined`가 터진다. `null`이 모든 타입에 암묵적으로 포함되고, 타입을 적지 않은 매개변수는 `any`가 되어 검사를 빠져나가며, `catch`에서 받은 값의 `err.message`가 그대로 컴파일된다. 컴파일러가 잡을 수 있는 오류를 런타임으로 미루는 구조다. strict 모드와 그 위에서 동작하는 좁히기(narrowing)·에러 처리 패턴이 기본값이어야 하는 이유다.
+`strict`를 끄고 시작한 프로젝트는 타입 검사가 통과해도 런타임에서 `Cannot read properties of undefined`가 터진다. `null`이 모든 타입에 암묵적으로 포함되고, 타입을 적지 않은 매개변수는 `any`가 되어 검사를 빠져나가며, `catch`에서 받은 값의 `err.message`가 그대로 컴파일된다. ==컴파일러가 잡을 수 있는 오류를 런타임으로 미루는 구조다.== strict 모드와 그 위에서 동작하는 좁히기(narrowing)·에러 처리 패턴이 기본값이어야 하는 이유다.
 
 ## 핵심 개념
 
@@ -37,7 +37,7 @@ Java 기준으로 판별 유니온 + `switch`는 sealed 클래스 패턴 매칭�
 
 ### unknown 기반 에러 처리
 
-JavaScript는 `throw`에 아무 값이나 던질 수 있으므로 strict 모드에서 `catch` 변수는 `unknown`이 되고, `instanceof Error`나 별도 가드를 통과해야 `message`에 접근할 수 있다. 예상 가능한 실패는 판별 유니온 결과 타입으로 반환해 호출자가 반드시 분기하게 하고, 예상 밖 실패만 `throw`로 올린다.
+JavaScript는 `throw`에 아무 값이나 던질 수 있으므로 strict 모드에서 `catch` 변수는 `unknown`이 되고, `instanceof Error`나 별도 가드를 통과해야 `message`에 접근할 수 있다. ==예상 가능한 실패는 판별 유니온 결과 타입으로 반환해 호출자가 반드시 분기하게 하고, 예상 밖 실패만 `throw`로 올린다.==
 
 ### 선언 파일 작성 규칙
 
@@ -129,7 +129,7 @@ async function loadConfig(path: string): Promise<Record<string, unknown>> {
 
 ## 실무에서 걸리는 지점
 
-- **non-null 단언(`!`)의 남용.** `strictNullChecks` 오류를 `x!.foo`로 눌러 버리면 검사를 끈 것과 같다. 실제로 값이 보장되는 곳(초기화 직후, 방금 검사한 맵 조회)에만 제한하고, 그 외에는 조기 반환이나 옵셔널 체이닝으로 흐름을 바꾼다.
+- ==**non-null 단언(`!`)의 남용.** `strictNullChecks` 오류를 `x!.foo`로 눌러 버리면 검사를 끈 것과 같다.== 실제로 값이 보장되는 곳(초기화 직후, 방금 검사한 맵 조회)에만 제한하고, 그 외에는 조기 반환이나 옵셔널 체이닝으로 흐름을 바꾼다.
 - **콜백 안에서 좁히기가 풀린다.** `if (user) { list.forEach(() => user.name) }`에서 `user`가 `let`이면 콜백 안에서는 다시 `undefined`가 포함된다. 콜백 실행 시점에 값이 바뀔 수 있기 때문이다. 좁힌 값을 `const`에 담아 넘기면 해결된다.
 - **가드의 조건과 반환 타입이 어긋난다.** `typeof x === "object"`는 `null`도 통과시킨다. 가드가 틀리면 컴파일러가 잘못된 타입을 믿게 되므로 가드 자체에 단위 테스트를 둔다.
 - **`strictPropertyInitialization`과 DI.** NestJS 11의 프로퍼티 주입이나 ORM 엔티티 필드는 생성자에서 초기화하지 않아 오류가 난다. 생성자 주입으로 바꾸는 것이 우선이고, 프레임워크가 반드시 채우는 필드에만 `!` 확정 할당 단언을 쓴다.

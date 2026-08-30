@@ -9,13 +9,13 @@ sources: [elasticsearch/2026-05-19-elasticsearch-spring-data-integration.md, 202
 updated: 2026-08-29
 ---
 
-자바 서비스에서 Elasticsearch를 JSON DSL 문자열 조립으로 호출하면 필드 이름 오타를 컴파일 시점에 잡지 못하고, 응답 파싱 코드가 서비스마다 중복되며, 날짜 직렬화 형식이 매핑과 어긋나도 색인이 조용히 잘못된다. RestHighLevelClient는 deprecated이고 8.x에서는 Elasticsearch Java API Client가 표준이다. Spring Data Elasticsearch는 이 클라이언트 위에 POJO 매핑, Repository, Template 추상화를 얹어 JPA와 같은 형태로 Elasticsearch를 다루게 한다.
+자바 서비스에서 Elasticsearch를 JSON DSL 문자열 조립으로 호출하면 필드 이름 오타를 컴파일 시점에 잡지 못하고, 응답 파싱 코드가 서비스마다 중복되며, 날짜 직렬화 형식이 매핑과 어긋나도 색인이 조용히 잘못된다. ==RestHighLevelClient는 deprecated이고 8.x에서는 Elasticsearch Java API Client가 표준이다.== Spring Data Elasticsearch는 이 클라이언트 위에 POJO 매핑, Repository, Template 추상화를 얹어 JPA와 같은 형태로 Elasticsearch를 다루게 한다.
 
 ## 핵심 개념
 
 의존성은 `spring-boot-starter-data-elasticsearch` 하나다. Spring Boot 3.x 기준 Spring Data Elasticsearch 5.x와 `elasticsearch-java`가 함께 들어오며, 서버 버전과의 호환 범위는 공식 호환표로 맞춘다. `spring.elasticsearch.uris`, `username`, `password`를 설정하면 자동 구성이 `ElasticsearchClient`, `ElasticsearchOperations`(구현체 `ElasticsearchTemplate`), Repository를 등록한다.
 
-매핑은 `@Document(indexName)`이 클래스를 인덱스에, `@Field(type, analyzer, format)`이 필드 타입에, `@Id`가 `_id`에 대응한다. `@MultiField`와 `@InnerField`로 `name.keyword` 같은 하위 필드를 만들고, custom analyzer나 synonym은 `@Setting`, `@Mapping`으로 JSON 파일을 읽는다. `createIndex`는 기본값이 `true`라 기동 시 인덱스를 자동 생성하는데, 운영에서는 검토되지 않은 매핑이 들어가는 경로가 되므로 `false`로 잠그고 `IndexOperations`나 마이그레이션 스크립트로 만든다.
+매핑은 `@Document(indexName)`이 클래스를 인덱스에, `@Field(type, analyzer, format)`이 필드 타입에, `@Id`가 `_id`에 대응한다. `@MultiField`와 `@InnerField`로 `name.keyword` 같은 하위 필드를 만들고, custom analyzer나 synonym은 `@Setting`, `@Mapping`으로 JSON 파일을 읽는다. ==`createIndex`는 기본값이 `true`라 기동 시 인덱스를 자동 생성하는데, 운영에서는 검토되지 않은 매핑이 들어가는 경로가 되므로 `false`로 잠그고 `IndexOperations`나 마이그레이션 스크립트로 만든다.==
 
 쿼리 작성 수단은 네 가지이며 조건의 복잡도와 동적 여부로 고른다.
 
@@ -114,7 +114,7 @@ public class ProductSearchService {
 
 ## 실무에서 걸리는 지점
 
-RefreshPolicy 누수. `save`의 기본 정책은 `NONE`이며, 테스트 편의로 걸어 둔 `IMMEDIATE`가 운영 빌드에 섞이면 색인마다 refresh가 돌아 처리량이 급감한다. 운영은 `NONE` 또는 `WAIT_UNTIL`만 쓰고 `IMMEDIATE`는 `@TestConfiguration`으로 격리한다.
+RefreshPolicy 누수. ==`save`의 기본 정책은 `NONE`이며, 테스트 편의로 걸어 둔 `IMMEDIATE`가 운영 빌드에 섞이면 색인마다 refresh가 돌아 처리량이 급감한다.== 운영은 `NONE` 또는 `WAIT_UNTIL`만 쓰고 `IMMEDIATE`는 `@TestConfiguration`으로 격리한다.
 
 동적 매핑 의존. `@Field` 타입을 생략하면 첫 문서 값으로 타입이 추론되어 숫자 문자열이 `text`로 잡히고 range 쿼리가 동작하지 않는다. 모든 필드에 타입을 명시하고 `dynamic: strict`로 잠근다.
 

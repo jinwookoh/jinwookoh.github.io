@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/item-processor-custom/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>ItemProcessor·서비스 재사용·커스텀 구현</h1>
   <p class="summary">ItemProcessor의 null·예외 분기, 기존 서비스를 Adapter로 감싸는 조건, 커스텀 Reader·Writer의 재시작 안전성 확보 방법을 정리한다.</p>
   <div class="content">
-<p>Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 못 한다. 변환·필터·검증을 Writer에 밀어 넣으면 테스트가 어렵고 롤백 후 재처리 때 같은 로직이 두 번 적용된다. 온라인 서비스의 DAO를 두고 배치용 Reader를 다시 작성하면 로직이 두 곳으로 갈라지고, 표준 구현체가 없는 소스를 직접 구현하면 재시작 시 처음부터 읽거나 ExecutionContext 키가 충돌한다.</p>
+<p>Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 못 한다. <mark>변환·필터·검증을 Writer에 밀어 넣으면 테스트가 어렵고 롤백 후 재처리 때 같은 로직이 두 번 적용된다.</mark> 온라인 서비스의 DAO를 두고 배치용 Reader를 다시 작성하면 로직이 두 곳으로 갈라지고, 표준 구현체가 없는 소스를 직접 구현하면 재시작 시 처음부터 읽거나 ExecutionContext 키가 충돌한다.</p>
 <h2>핵심 개념</h2>
 <h3>ItemProcessor의 세 가지 반환</h3>
 <p><code>ItemProcessor&lt;I, O&gt;</code>는 <code>O process(I item)</code> 하나짜리 함수형 인터페이스다. 입출력 타입이 달라도 되며 <code>chunk(N, tx)</code>의 <code>&lt;I, O&gt;</code>와 일치해야 한다.</p>
@@ -57,7 +57,7 @@
 </tr>
 </tbody></table>
 <p>지원하지 않는 DELETE 레코드를 제외하는 것은 filter이고, 수량이 음수인 레코드는 skip이다. invalid 레코드를 <code>return null</code>로 처리하면 skipCount가 올라가지 않는다. <code>CompositeItemProcessor</code>는 순차 체인이며 중간 단계의 null은 filter로 집계된다. <code>ValidatingItemProcessor</code>는 <code>Validator&lt;T&gt;</code>를, <code>BeanValidatingItemProcessor</code>는 Jakarta Bean Validation 어노테이션을 쓰고, <code>setFilter(true)</code>면 검증 실패를 예외 대신 null로 바꾼다.</p>
-<p>chunk가 롤백되면 캐시된 item이 다시 <code>process()</code>를 거친다. 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.</p>
+<p><mark>chunk가 롤백되면 캐시된 item이 다시 <code>process()</code>를 거친다.</mark> 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.</p>
 <h3>기존 서비스 재사용</h3>
 <p><code>ItemReaderAdapter</code>는 <code>targetObject</code>·<code>targetMethod</code>로 지정한 메서드를 <code>read()</code>마다 호출한다. 대상 메서드는 소진 시 null을 반환해야 하며 빈 <code>Optional</code>은 종료로 인식되지 않는다. <code>ItemWriterAdapter</code>는 item마다 개별 호출하고, <code>PropertyExtractingDelegatingItemWriter</code>는 item 프로퍼티를 추출해 다중 인자 메서드에 넘긴다. 기존 메서드가 배치 계약과 거의 같을 때만 Adapter를 쓴다.</p>
 <h3>Process Indicator</h3>
@@ -242,7 +242,7 @@
 <li><strong>Processor 안의 건별 조회.</strong> item마다 DB를 조회하면 N+1이다. Reader에서 join으로 읽거나 캐시로 줄이고, 무거운 외부 호출은 partitioning으로 분산한다.</li>
 <li><strong>ItemWriterAdapter의 대량 처리.</strong> 건별 호출이라 chunk 크기만큼 DB 왕복이 생긴다. bulk 메서드를 커스텀 Writer로 감싸거나 <code>JdbcBatchItemWriter</code>를 쓴다.</li>
 <li><strong>Process Indicator의 동시 실행.</strong> 두 스레드가 같은 row를 읽고 flag를 바꾸면 중복 처리된다. <code>FOR UPDATE SKIP LOCKED</code>나 partitioning으로 row 범위를 분리한다.</li>
-<li><strong>재시작 시 처음부터 읽는 커스텀 Reader.</strong> <code>remove(0)</code>처럼 원본을 변경하는 읽기, <code>ItemStream</code> 미구현, Step에 <code>.stream()</code> 등록 누락, 같은 타입 Reader 두 개의 키 공유가 원인이다.</li>
+<li><mark><strong>재시작 시 처음부터 읽는 커스텀 Reader.</strong> <code>remove(0)</code>처럼 원본을 변경하는 읽기, <code>ItemStream</code> 미구현, Step에 <code>.stream()</code> 등록 누락, 같은 타입 Reader 두 개의 키 공유가 원인이다.</mark></li>
 <li><strong>롤백되지 않는 리소스.</strong> 이메일·외부 API에 쓰는 Writer는 chunk 실패 시 부분 반영이 남으므로 idempotency key가 필요하다. <code>TransactionAwareProxyFactory.createTransactionalList()</code>는 테스트용이며 운영 대체재가 아니다.</li>
 </ul>
 <h2>관련 글</h2>

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/react/testing-typescript-deployment/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,9 +24,9 @@
   <h1>테스트(Testing Library)·TypeScript·배포</h1>
   <p class="summary">React 앱을 사용자 관점 테스트·정적 타입·프로덕션 빌드로 안정적으로 운영하는 기준을 정리한다.</p>
   <div class="content">
-<p>컴포넌트가 늘어나면 리팩터링 후 어디가 깨졌는지 눈으로 확인하는 방식은 한계에 이른다. props 이름을 바꿨는데 호출부 하나를 빠뜨리면 런타임에야 드러나고, 내부 구현에 묶인 테스트는 DOM 구조를 조금만 바꿔도 실패한다. 빌드 산출물과 환경 변수 처리를 모르면 개발 서버에서는 되던 것이 배포 후 동작하지 않는다. 이 세 문제를 각각 Testing Library, TypeScript, Vite 프로덕션 빌드가 맡는다.</p>
+<p>컴포넌트가 늘어나면 리팩터링 후 어디가 깨졌는지 눈으로 확인하는 방식은 한계에 이른다. props 이름을 바꿨는데 호출부 하나를 빠뜨리면 런타임에야 드러나고, 내부 구현에 묶인 테스트는 DOM 구조를 조금만 바꿔도 실패한다. 빌드 산출물과 환경 변수 처리를 모르면 개발 서버에서는 되던 것이 배포 후 동작하지 않는다. <mark>이 세 문제를 각각 Testing Library, TypeScript, Vite 프로덕션 빌드가 맡는다.</mark></p>
 <h2>핵심 개념</h2>
-<p><strong>Testing Library</strong>는 사용자가 쓰는 방식으로 테스트한다는 원칙을 API로 강제한다. 컴포넌트 state에 접근하는 수단을 주지 않고, 렌더된 DOM을 접근성 기준으로 조회한다. 쿼리 우선순위는 <code>getByRole</code> → <code>getByLabelText</code> → <code>getByText</code> → <code>getByTestId</code> 순이다. <code>getBy*</code>는 없으면 즉시 예외, <code>queryBy*</code>는 <code>null</code> 반환, <code>findBy*</code>는 나타날 때까지 기다리는 Promise다. 상호작용은 <code>fireEvent</code>보다 <code>@testing-library/user-event</code>를 쓴다. 클릭 하나에도 pointerdown·focus·click이 브라우저 순서대로 발생한다. Spring의 <code>@WebMvcTest</code> + MockMvc처럼 HTTP 경계에서 검증하는 위치에 해당한다.</p>
+<p><mark><strong>Testing Library</strong>는 사용자가 쓰는 방식으로 테스트한다는 원칙을 API로 강제한다.</mark> 컴포넌트 state에 접근하는 수단을 주지 않고, 렌더된 DOM을 접근성 기준으로 조회한다. 쿼리 우선순위는 <code>getByRole</code> → <code>getByLabelText</code> → <code>getByText</code> → <code>getByTestId</code> 순이다. <code>getBy*</code>는 없으면 즉시 예외, <code>queryBy*</code>는 <code>null</code> 반환, <code>findBy*</code>는 나타날 때까지 기다리는 Promise다. 상호작용은 <code>fireEvent</code>보다 <code>@testing-library/user-event</code>를 쓴다. 클릭 하나에도 pointerdown·focus·click이 브라우저 순서대로 발생한다. Spring의 <code>@WebMvcTest</code> + MockMvc처럼 HTTP 경계에서 검증하는 위치에 해당한다.</p>
 <p><strong>Vitest</strong>는 Vite 설정을 그대로 공유하는 테스트 러너다. alias·플러그인·환경 변수 처리가 테스트에도 동일하게 적용되어 Jest처럼 변환기를 따로 맞출 필요가 없다. DOM 테스트는 <code>environment: &#39;jsdom&#39;</code>을 지정하고, watch 모드는 모듈 그래프로 영향받는 테스트만 다시 돌린다.</p>
 <p><strong>TypeScript</strong>는 <code>.tsx</code> 확장자로 JSX와 함께 쓰며 타입은 <code>@types/react</code>·<code>@types/react-dom</code>에서 온다. props는 인터페이스로 선언하고, 자식은 <code>React.ReactNode</code>, 이벤트 핸들러는 <code>React.MouseEvent&lt;HTMLButtonElement&gt;</code> 같은 제네릭 이벤트 타입을 쓴다. 훅은 초기값에서 추론하지만 <code>useState&lt;User | null&gt;(null)</code>처럼 추론이 안 되면 명시한다. <code>useReducer</code>의 액션을 판별 유니온으로 정의하면 <code>switch</code> 분기마다 payload가 좁혀진다. Java의 sealed interface + pattern matching switch에 대응한다.</p>
 <p><strong>Vite 프로덕션 빌드</strong>는 <code>vite build</code>가 Rollup 기반으로 트리 셰이킹·코드 분할·해시 파일명을 적용해 <code>dist/</code>에 정적 산출물을 만든다. 기본 타깃은 <code>baseline-widely-available</code>이며 구형 브라우저는 별도 플러그인으로 대응한다. 환경 변수는 <code>VITE_</code> 접두사가 붙은 것만 번들에 주입되고 <code>import.meta.env</code>로 읽는다.</p>
@@ -138,7 +138,7 @@
 <li><strong><code>getByTestId</code> 남용.</strong> <code>data-testid</code>를 기본으로 쓰면 접근성 결함이 걸러지지 않고 마크업 변경마다 테스트를 고치게 된다. 다른 쿼리가 불가능할 때만 쓴다.</li>
 <li><strong><code>act</code> 경고.</strong> <code>userEvent</code>·<code>findBy*</code>·<code>waitFor</code>는 내부에서 <code>act</code>를 감싸므로 직접 호출할 일이 거의 없다. 경고가 남으면 <code>await</code>가 빠진 비동기 작업이 있다는 신호다. <code>findBy*</code> 기본 타임아웃은 1초다.</li>
 <li><strong>Provider 의존.</strong> <code>render</code>의 <code>wrapper</code> 옵션으로 Provider를 주입하는 <code>renderWithProviders</code>를 만든다. QueryClient는 테스트마다 새로 만들고 <code>retry: false</code>로 설정해야 캐시와 재시도가 테스트 간에 새지 않는다.</li>
-<li><strong>타입 검사와 번들의 분리.</strong> Vite와 Vitest는 esbuild로 타입을 지우기만 하고 검사하지 않는다. <code>tsc -b &amp;&amp; vite build</code>처럼 CI에 검사 단계를 넣지 않으면 타입 오류가 있는 코드가 그대로 배포된다.</li>
+<li><mark><strong>타입 검사와 번들의 분리.</strong> Vite와 Vitest는 esbuild로 타입을 지우기만 하고 검사하지 않는다.</mark> <code>tsc -b &amp;&amp; vite build</code>처럼 CI에 검사 단계를 넣지 않으면 타입 오류가 있는 코드가 그대로 배포된다.</li>
 <li><strong>환경 변수와 <code>base</code> 경로.</strong> <code>VITE_</code> 접두사가 붙은 값은 공개 번들에 노출되므로 비밀 키를 넣으면 안 된다. 서브 경로 배포 시 <code>base</code>를 빠뜨리면 자산 요청이 404가 나고, SPA는 서버에서 모든 경로를 <code>index.html</code>로 fallback 시켜야 새로고침이 동작한다.</li>
 <li><strong>청크와 캐시.</strong> <code>manualChunks</code>로 vendor를 분리하지 않으면 작은 수정에도 번들 해시가 바뀌어 캐시가 무효화된다. 500kB 경고는 라우트 단위 <code>lazy</code> 분할이 안 되어 있다는 신호다.</li>
 </ul>

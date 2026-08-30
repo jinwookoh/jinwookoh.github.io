@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/widgets-layout/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,11 +24,11 @@
   <h1>위젯과 레이아웃 — Stateless/Stateful·Row/Column/Stack</h1>
   <p class="summary">위젯은 불변 설계도이고 상태는 State가 들고 있으며, 크기는 부모 제약이 결정한다</p>
   <div class="content">
-<p>Flutter에는 XML 레이아웃 파일이나 CSS 같은 별도의 배치 언어가 없다. 텍스트와 버튼은 물론 여백·정렬·크기 제한까지 전부 위젯 객체로 표현한다. 이 규칙을 모른 채 <code>Column</code> 안에 <code>ListView</code>를 넣으면 &quot;unbounded height&quot; 오류로 렌더링이 중단되고, 상태를 가질 위젯과 순수하게 그리기만 할 위젯을 구분하지 못하면 버튼을 눌러도 화면이 갱신되지 않거나 불필요한 리빌드가 반복된다.</p>
+<p>Flutter에는 XML 레이아웃 파일이나 CSS 같은 별도의 배치 언어가 없다. <mark>텍스트와 버튼은 물론 여백·정렬·크기 제한까지 전부 위젯 객체로 표현한다.</mark> 이 규칙을 모른 채 <code>Column</code> 안에 <code>ListView</code>를 넣으면 &quot;unbounded height&quot; 오류로 렌더링이 중단되고, 상태를 가질 위젯과 순수하게 그리기만 할 위젯을 구분하지 못하면 버튼을 눌러도 화면이 갱신되지 않거나 불필요한 리빌드가 반복된다.</p>
 <h2>핵심 개념</h2>
 <h3>StatelessWidget과 StatefulWidget</h3>
 <p>위젯은 UI의 한 조각을 기술하는 불변 객체다. 생성자 인자는 <code>final</code>이고, 변경이 필요하면 새 인스턴스로 트리를 다시 구성한다. <code>StatelessWidget</code>은 부모가 준 값만으로 <code>build()</code>를 실행하며 아이콘·라벨·정적 카드에 쓴다.</p>
-<p><code>StatefulWidget</code>은 위젯 자체는 불변이지만 <code>createState()</code>로 만든 <code>State</code> 객체를 트리에 붙인다. 위젯이 새 인스턴스로 교체되어도 같은 위치의 <code>State</code>는 유지되므로 사용자 입력처럼 시간에 따라 바뀌는 데이터를 보관한다. 변경을 알리는 방법은 <code>setState()</code>이며, 그 안에서 필드를 수정하면 다음 프레임에 해당 <code>State</code>의 <code>build()</code>만 다시 실행된다. <code>setState()</code> 없이 필드를 바꾸면 화면은 그대로다.</p>
+<p><code>StatefulWidget</code>은 위젯 자체는 불변이지만 <code>createState()</code>로 만든 <code>State</code> 객체를 트리에 붙인다. 위젯이 새 인스턴스로 교체되어도 같은 위치의 <code>State</code>는 유지되므로 사용자 입력처럼 시간에 따라 바뀌는 데이터를 보관한다. 변경을 알리는 방법은 <code>setState()</code>이며, 그 안에서 필드를 수정하면 다음 프레임에 해당 <code>State</code>의 <code>build()</code>만 다시 실행된다. <mark><code>setState()</code> 없이 필드를 바꾸면 화면은 그대로다.</mark></p>
 <p>위젯 내부에서만 쓰는 상태(텍스트 필드 커서 등)는 위젯이 직접 관리하고, 부모가 알아야 하는 상태는 부모가 소유한 뒤 값과 콜백을 자식에게 내려 보낸다.</p>
 <p>Spring과 대응시키면 <code>StatelessWidget</code>은 입력이 같으면 출력이 같은 뷰 템플릿이고, <code>State</code>는 요청 사이에 살아 있는 세션 스코프 빈, <code>setState()</code>는 뷰 갱신을 유발하는 이벤트 발행에 해당한다.</p>
 <h3>레이아웃 위젯</h3>
@@ -64,7 +64,7 @@
 </tbody></table>
 <p><code>Row</code>와 <code>Column</code>은 주축과 교차축 기준으로 자식을 정렬하고, 주축 공간을 나눠야 하면 <code>Expanded</code>·<code>Flexible</code>의 <code>flex</code> 값으로 비율을 정한다. <code>Stack</code>은 자식을 순서대로 쌓으며 <code>Positioned</code>로 감싼 자식만 좌표를 직접 지정한다.</p>
 <h3>제약이 크기를 결정한다</h3>
-<p>핵심 규칙은 하나다. 제약은 아래로 내려가고, 크기는 위로 올라가며, 위치는 부모가 정한다. 부모는 최소·최대 너비와 높이를 담은 <code>BoxConstraints</code>를 자식에게 전달하고, 자식은 그 범위 안에서 크기를 골라 보고하며, 부모가 그 크기를 보고 위치를 정한다.</p>
+<p>핵심 규칙은 하나다. <mark>제약은 아래로 내려가고, 크기는 위로 올라가며, 위치는 부모가 정한다.</mark> 부모는 최소·최대 너비와 높이를 담은 <code>BoxConstraints</code>를 자식에게 전달하고, 자식은 그 범위 안에서 크기를 골라 보고하며, 부모가 그 크기를 보고 위치를 정한다.</p>
 <p>따라서 위젯은 자기 크기를 마음대로 정할 수 없다. <code>Container(width: 100)</code>이라 써도 부모가 tight 제약으로 화면 전체를 강제하면 100은 무시된다. 반대로 <code>Column</code>은 세로로 무한(unbounded) 제약을 주므로 자식이 최대로 커지려 하면 오류가 난다. <code>Center</code>·<code>Align</code>은 loose 제약을 주어 자식이 원하는 크기를 갖게 한다. 어떤 위젯이 제약을 조이고 푸는지 알면 대부분의 레이아웃 오류를 해석할 수 있다.</p>
 <h2>코드</h2>
 <p>카운터 상태를 <code>State</code>가 보관하고 <code>setState()</code>로 갱신하는 기본형이다.</p>
@@ -169,7 +169,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>unbounded 제약 오류.</strong> <code>Column</code> 안의 <code>ListView</code>, <code>Row</code> 안의 <code>TextField</code>처럼 무한 제약 아래에 최대로 커지려는 위젯을 두면 예외가 난다. <code>Expanded</code>로 감싸 남은 공간을 배정하거나 <code>shrinkWrap</code>·<code>SizedBox</code>로 크기를 고정한다.</li>
+<li><mark><strong>unbounded 제약 오류.</strong> <code>Column</code> 안의 <code>ListView</code>, <code>Row</code> 안의 <code>TextField</code>처럼 무한 제약 아래에 최대로 커지려는 위젯을 두면 예외가 난다.</mark> <code>Expanded</code>로 감싸 남은 공간을 배정하거나 <code>shrinkWrap</code>·<code>SizedBox</code>로 크기를 고정한다.</li>
 <li><strong>오버플로 경고.</strong> <code>Row</code> 안에 긴 <code>Text</code>를 그대로 넣으면 노란 줄무늬 오버플로가 표시된다. <code>Expanded</code>나 <code>Flexible</code>로 감싸야 줄바꿈되며, 경고는 디버그 빌드에서만 보여 놓치기 쉽다.</li>
 <li><strong>State 재사용과 Key.</strong> 같은 타입의 <code>StatefulWidget</code>을 리스트에서 순서만 바꾸면 프레임워크는 위치 기준으로 <code>State</code>를 재사용해 데이터가 엉킨다. 항목별 <code>ValueKey</code>를 지정해 위젯과 <code>State</code>의 대응을 고정한다.</li>
 <li><strong>불필요한 리빌드.</strong> 최상위 <code>State</code>에서 <code>setState()</code>를 호출하면 하위 트리 전체가 다시 빌드된다. 상태를 바뀌는 위젯 가까이로 내리고, 불변 서브트리는 <code>const</code> 생성자로 만들어 빌드를 건너뛴다.</li>

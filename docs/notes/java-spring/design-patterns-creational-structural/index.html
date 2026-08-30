@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/design-patterns-creational-structural/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>디자인 패턴 — 생성·구조</h1>
   <p class="summary">객체를 어떻게 만들고(생성) 어떻게 조합하는지(구조)를 GoF 11개 패턴의 적용 신호와 함정 중심으로 정리한다.</p>
   <div class="content">
-<p>객체 하나를 만드는 데는 <code>new</code> 한 줄이면 충분하다. 문제는 옵션 조합이 많거나, 생성 비용이 크거나, 하나만 존재해야 하거나, 짝이 맞는 부품 묶음으로 만들어야 할 때 생긴다. 조합 단계에서도 문제가 반복된다. 기능 조합을 상속으로 풀면 클래스가 2^N으로 폭발하고, 외부 라이브러리 시그니처가 맞지 않아 호출부 전체를 고치며, 같은 모양의 객체 10만 개가 각자 이미지를 들고 있어 힙이 바닥난다. GoF 생성 패턴 5개와 구조 패턴 6개는 이런 상황의 처방이며, 핵심은 어떤 코드 신호에 어떤 패턴을 꺼내는지 아는 것이다.</p>
+<p>객체 하나를 만드는 데는 <code>new</code> 한 줄이면 충분하다. 문제는 옵션 조합이 많거나, 생성 비용이 크거나, 하나만 존재해야 하거나, 짝이 맞는 부품 묶음으로 만들어야 할 때 생긴다. 조합 단계에서도 문제가 반복된다. 기능 조합을 상속으로 풀면 클래스가 2^N으로 폭발하고, 외부 라이브러리 시그니처가 맞지 않아 호출부 전체를 고치며, 같은 모양의 객체 10만 개가 각자 이미지를 들고 있어 힙이 바닥난다. <mark>GoF 생성 패턴 5개와 구조 패턴 6개는 이런 상황의 처방이며, 핵심은 어떤 코드 신호에 어떤 패턴을 꺼내는지 아는 것이다.</mark></p>
 <h2>핵심 개념</h2>
 <p>생성 패턴은 &quot;어떤 클래스의 인스턴스를 어떻게 만드는가&quot;를 클라이언트로부터 분리한다.</p>
 <table>
@@ -217,10 +217,10 @@
 <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Glyph</span><span class="hljs-params">(<span class="hljs-type">char</span> ch, <span class="hljs-type">int</span> x, <span class="hljs-type">int</span> y, GlyphStyle style)</span> {}</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Singleton 직접 구현은 대부분 불필요하다.</strong> Spring Bean이 기본 singleton scope이고, static 접근점은 DI를 우회해 테스트에서 mock 교체를 막는다.</li>
+<li><mark><strong>Singleton 직접 구현은 대부분 불필요하다.</strong></mark> Spring Bean이 기본 singleton scope이고, static 접근점은 DI를 우회해 테스트에서 mock 교체를 막는다.</li>
 <li><strong>Lazy 초기화는 Singleton이 아니어도 같은 경쟁 조건을 갖는다.</strong> Virtual Proxy의 <code>if (real == null)</code> 역시 두 스레드가 동시에 통과한다. <code>volatile</code> + DCL이나 <code>computeIfAbsent</code>를 쓰고, Virtual Thread 환경에서는 <code>synchronized</code> 안의 블로킹 I/O가 pinning을 유발하므로 <code>ReentrantLock</code>을 검토한다.</li>
 <li><strong>Lombok <code>@Builder</code>는 필수 값을 강제하지 못한다.</strong> <code>@NonNull</code>이나 <code>build()</code> 검증을 별도로 둔다. 필드 2~3개짜리 객체에 Builder는 과설계다.</li>
-<li><strong>Spring 프록시는 self-invocation을 가로채지 못한다.</strong> <code>@Transactional</code>은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 <code>this.method()</code>에는 어드바이스가 빠진다. 대상 클래스가 <code>final</code>이면 CGLIB 서브클래싱도 실패한다.</li>
+<li><mark><strong>Spring 프록시는 self-invocation을 가로채지 못한다.</strong> <code>@Transactional</code>은 프록시를 통한 호출에만 적용되므로 같은 클래스 안의 <code>this.method()</code>에는 어드바이스가 빠진다.</mark> 대상 클래스가 <code>final</code>이면 CGLIB 서브클래싱도 실패한다.</li>
 <li><strong>Facade가 비즈니스 로직을 흡수하면 God Object가 된다.</strong> Composite의 재귀 순회는 깊이가 예측 불가능하면 스택 오버플로를 일으키므로 반복 순회로 바꾼다.</li>
 </ul>
 <h2>관련 글</h2>

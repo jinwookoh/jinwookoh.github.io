@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/update-delete-hot-bloat-vacuum/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,10 +24,10 @@
   <h1>UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</h1>
   <p class="summary">UPDATE와 DELETE는 행을 제자리에서 고치지 않고 새 버전을 쓰거나 표시만 남기므로, HOT·fillfactor·VACUUM·파티션 DROP으로 그 비용을 관리해야 한다</p>
   <div class="content">
-<p>PostgreSQL의 UPDATE는 기존 행을 제자리에서 고치지 않는다. 새 버전의 행을 추가하고 옛 버전에는 &quot;더 이상 보이지 않음&quot; 표시만 남긴다. DELETE도 마찬가지로 표시만 남기고 디스크 공간을 회수하지 않는다. MVCC를 위한 설계지만, 이 구조를 모른 채 운영하면 두 가지 문제가 누적된다. 죽은 행이 쌓여 테이블과 인덱스가 부풀고(bloat), UPDATE마다 모든 인덱스가 새 행 위치를 가리키도록 갱신되어 쓰기 비용이 인덱스 개수에 비례해 커진다. HOT UPDATE, fillfactor, VACUUM, 파티션 DROP은 이 비용을 통제하는 도구다.</p>
+<p><mark>PostgreSQL의 UPDATE는 기존 행을 제자리에서 고치지 않는다.</mark> 새 버전의 행을 추가하고 옛 버전에는 &quot;더 이상 보이지 않음&quot; 표시만 남긴다. DELETE도 마찬가지로 표시만 남기고 디스크 공간을 회수하지 않는다. MVCC를 위한 설계지만, 이 구조를 모른 채 운영하면 두 가지 문제가 누적된다. 죽은 행이 쌓여 테이블과 인덱스가 부풀고(bloat), UPDATE마다 모든 인덱스가 새 행 위치를 가리키도록 갱신되어 쓰기 비용이 인덱스 개수에 비례해 커진다. HOT UPDATE, fillfactor, VACUUM, 파티션 DROP은 이 비용을 통제하는 도구다.</p>
 <h2>핵심 개념</h2>
 <h3>HOT UPDATE</h3>
-<p>HOT(Heap Only Tuple)는 새 행 버전을 옛 버전과 같은 데이터 페이지에 두고 인덱스를 갱신하지 않는 최적화다. 조건은 두 가지다. 새 버전이 들어갈 여유 공간이 같은 페이지에 있어야 하고, 변경된 컬럼이 어떤 인덱스에도 포함되지 않아야 한다. 둘 중 하나라도 어긋나면 일반 UPDATE가 되어 테이블의 모든 인덱스에 새 항목이 추가된다.</p>
+<p>HOT(Heap Only Tuple)는 새 행 버전을 옛 버전과 같은 데이터 페이지에 두고 인덱스를 갱신하지 않는 최적화다. 조건은 두 가지다. 새 버전이 들어갈 여유 공간이 같은 페이지에 있어야 하고, 변경된 컬럼이 어떤 인덱스에도 포함되지 않아야 한다. <mark>둘 중 하나라도 어긋나면 일반 UPDATE가 되어 테이블의 모든 인덱스에 새 항목이 추가된다.</mark></p>
 <p>HOT 비율은 <code>pg_stat_user_tables</code>의 <code>n_tup_hot_upd / n_tup_upd</code>로 계산한다. UPDATE가 잦은 테이블에서 이 비율이 낮으면 fillfactor나 인덱스 구성을 검토한다.</p>
 <h3>fillfactor</h3>
 <p>fillfactor는 페이지를 어느 비율까지 채울지 정하는 테이블 저장 옵션이다. 기본값 100은 페이지를 가득 채우므로 HOT을 위한 여유 공간이 없다. 70으로 설정하면 30%를 UPDATE용으로 남긴다. INSERT 위주 테이블은 100, 가끔 UPDATE되면 90, 자주 UPDATE되면 70~80이 일반적인 기준이다. <code>ALTER TABLE ... SET (fillfactor = 70)</code>은 이후 쓰이는 페이지에만 적용되므로 기존 페이지까지 재배치하려면 VACUUM FULL이나 pg_repack이 필요하다.</p>
@@ -103,7 +103,7 @@ LIMIT  <span class="hljs-number">10</span>;
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li>자주 바뀌는 컬럼에 인덱스를 걸면 HOT이 불가능해진다. <code>updated_at</code>이나 카운터 컬럼에 인덱스가 있으면 UPDATE마다 모든 인덱스가 갱신되므로, 정말 조회 조건에 쓰이는지 확인하고 없애는 편이 낫다.</li>
+<li><mark>자주 바뀌는 컬럼에 인덱스를 걸면 HOT이 불가능해진다.</mark> <code>updated_at</code>이나 카운터 컬럼에 인덱스가 있으면 UPDATE마다 모든 인덱스가 갱신되므로, 정말 조회 조건에 쓰이는지 확인하고 없애는 편이 낫다.</li>
 <li><code>UPDATE ... FROM</code>에서 조인 결과가 대상 행 하나에 여러 건 매칭되면 어느 값이 반영될지 정해져 있지 않다. 집계나 <code>DISTINCT ON</code>으로 소스를 1:1로 만든 뒤 조인한다.</li>
 <li>ON DELETE CASCADE가 걸린 부모 행 하나를 지우면 자식 수만 건이 연쇄 삭제되어 WAL과 락이 폭주한다. 운영 테이블은 NO ACTION으로 두고 애플리케이션에서 자식부터 청크로 지운다.</li>
 <li>Soft Delete를 쓰면 <code>deleted_at IS NULL</code> 조건의 부분 인덱스로 활성 행만 UNIQUE를 걸고 인덱스 크기를 줄인다. 보존 기간이 지난 행을 실제로 지우는 배치를 별도로 돌려야 bloat와 개인정보 보존 요건을 함께 해결한다.</li>

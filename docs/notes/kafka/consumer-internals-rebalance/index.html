@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/consumer-internals-rebalance/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Consumer 동작 원리 — Pull·Group·Offset·Rebalance</h1>
   <p class="summary">Consumer가 Pull로 읽고 offset 하나로 위치를 기록하며, 그룹 단위로 파티션을 나눠 갖고 재분배하는 원리를 정리한다</p>
   <div class="content">
-<p>메시지마다 확인 상태를 추적하는 전통적인 큐는 브로커 부담이 크고, Push 방식은 느린 컨슈머를 넘어뜨리며, 소비 후 삭제하므로 재처리가 불가능하다. Kafka는 Pull 모델, 파티션당 정수 하나인 offset, Consumer Group으로 이를 푼다. 대신 멤버가 바뀔 때 파티션을 재분배하는 rebalance가 운영 부담으로 들어온다.</p>
+<p>메시지마다 확인 상태를 추적하는 전통적인 큐는 브로커 부담이 크고, Push 방식은 느린 컨슈머를 넘어뜨리며, 소비 후 삭제하므로 재처리가 불가능하다. <mark>Kafka는 Pull 모델, 파티션당 정수 하나인 offset, Consumer Group으로 이를 푼다.</mark> 대신 멤버가 바뀔 때 파티션을 재분배하는 rebalance가 운영 부담으로 들어온다.</p>
 <h2>핵심 개념</h2>
 <h3>Pull과 Long Polling</h3>
 <p>Producer에서 브로커로는 push, 브로커에서 Consumer로는 pull이다. Consumer가 <code>poll()</code>로 offset을 지정해 fetch하므로 처리 속도를 스스로 조절한다. 데이터가 없을 때의 busy loop는 브로커 측 long polling이 막는다. <code>fetch.min.bytes</code>가 차거나 <code>fetch.max.wait.ms</code>가 지날 때까지 브로커가 응답을 보류한다.</p>
@@ -151,7 +151,7 @@
 <ul>
 <li><strong>파티션 수가 병렬도 상한이다.</strong> 컨슈머를 파티션 수 이상으로 늘려도 처리량은 늘지 않는다.</li>
 <li><strong>Rebalance storm.</strong> 한 컨슈머의 이탈이 rebalance를 부르고 그 사이 다른 컨슈머가 timeout을 넘겨 연쇄된다. <code>rebalance-rate-per-hour</code>가 10을 넘으면 session timeout 상향·Static Membership·cooperative 전략으로 대응한다.</li>
-<li><strong>처리 시간 대비 poll 간격.</strong> 한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다. <code>max.poll.records</code>를 줄이거나 interval을 늘린다.</li>
+<li><mark><strong>처리 시간 대비 poll 간격.</strong> 한 배치가 5분을 넘기면 heartbeat가 정상이어도 그룹에서 제외된다.</mark> <code>max.poll.records</code>를 줄이거나 interval을 늘린다.</li>
 <li><strong>assign()과 subscribe()는 함께 쓸 수 없다.</strong> <code>assign()</code>은 그룹과 무관하게 파티션을 직접 잡는 재처리·디버깅용이다.</li>
 <li><strong>Graceful shutdown 누락.</strong> <code>close()</code> 없이 죽으면 session timeout까지 파티션 재배정이 미뤄진다.</li>
 </ul>

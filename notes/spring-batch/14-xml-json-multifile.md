@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-xml-reader-writer.md, batch/2026-05-17-batch-js
 updated: 2026-08-29
 ---
 
-수 GB짜리 XML이나 JSON을 DOM 파서나 `ObjectMapper.readValue(file, List.class)`로 읽으면 파일 크기에 비례하는 힙이 필요하고, 중간에 실패하면 처음부터 다시 돌려야 한다. 일자별로 쪼개 들어오는 파일을 파일마다 Step으로 만들면 Step 수가 파일 수만큼 는다. Spring Batch는 XML·JSON을 record 단위로 스트리밍하는 Reader/Writer와, 여러 파일을 하나의 stream으로 합치는 `MultiResourceItemReader`로 이 문제를 처리한다.
+수 GB짜리 XML이나 JSON을 DOM 파서나 `ObjectMapper.readValue(file, List.class)`로 읽으면 파일 크기에 비례하는 힙이 필요하고, 중간에 실패하면 처음부터 다시 돌려야 한다. 일자별로 쪼개 들어오는 파일을 파일마다 Step으로 만들면 Step 수가 파일 수만큼 는다. ==Spring Batch는 XML·JSON을 record 단위로 스트리밍하는 Reader/Writer와, 여러 파일을 하나의 stream으로 합치는 `MultiResourceItemReader`로 이 문제를 처리한다.==
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ XML에서는 fragment가 record 단위다. `StaxEventItemReader`는 `addFragment
 
 `Resource[]`와 delegate Reader 하나를 받아, 첫 resource를 delegate에 주입해 읽다가 `read()`가 null이면 다음 resource로 전환하고 마지막까지 끝나면 null을 돌려준다. delegate는 `ResourceAwareItemReaderItemStream` 구현체여야 하며 빈에 `resource`를 지정하지 않는다.
 
-ExecutionContext에는 현재 resource index와 delegate 위치가 함께 저장돼 재시작 시 같은 파일의 같은 위치부터 이어간다. resource 순서가 실행 간에 같아야 성립하므로 `Comparator`로 순서를 고정한다. 포맷이 다른 Reader의 순차 연결은 Spring Batch 6의 `CompositeItemReader`가 맡는다.
+ExecutionContext에는 현재 resource index와 delegate 위치가 함께 저장돼 재시작 시 같은 파일의 같은 위치부터 이어간다. ==resource 순서가 실행 간에 같아야 성립하므로 `Comparator`로 순서를 고정한다.== 포맷이 다른 Reader의 순차 연결은 Spring Batch 6의 `CompositeItemReader`가 맡는다.
 
 ## 코드
 
@@ -201,7 +201,7 @@ public class MultiCsvConfig {
 - **fragment 이름 불일치.** `addFragmentRootElements("trade")`인데 실제 element가 `trades`이면 한 건도 읽지 못한 채 정상 종료된다.
 - **InputStreamResource는 재시작이 안 된다.** 위치 복구는 seek 가능한 resource를 전제하므로 `FileSystemResource`를 쓴다.
 - **JSON Writer의 append.** `append(true)`로 두 번 실행하면 `][`가 중간에 생겨 유효한 JSON이 아니다. 누적이 필요하면 NDJSON으로 바꾼다.
-- **Comparator 없는 MultiResourceItemReader.** 파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다. 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.
+- ==**Comparator 없는 MultiResourceItemReader.** 파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다.== 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.
 - **delegate 공유와 파일 수.** singleton delegate를 두 Reader가 공유하면 상태가 섞이므로 `@StepScope`로 분리한다. wildcard가 수만 파일에 매칭되면 `MultiResourcePartitioner`로 partition을 나눈다.
 
 ## 관련 글

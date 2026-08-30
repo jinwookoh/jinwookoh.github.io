@@ -9,11 +9,11 @@ sources: [2026-05-03-webflux-webclient.md, 2026-05-02-spring-webflux-advanced.md
 updated: 2026-08-29
 ---
 
-WebFlux 서버는 적은 수의 이벤트 루프 스레드로 수천 개의 연결을 처리한다. 이 구조에서 `RestTemplate`이나 `RestClient`로 외부 API를 호출하면 응답이 올 때까지 이벤트 루프 스레드가 묶이고, 그 스레드가 담당하던 다른 요청이 함께 멈춘다. WebClient는 Reactor Netty 위에서 동작하는 논블로킹 HTTP 클라이언트로, 결과를 `Mono`·`Flux`로 돌려주므로 리액티브 체인에 그대로 이어 붙일 수 있다.
+WebFlux 서버는 적은 수의 이벤트 루프 스레드로 수천 개의 연결을 처리한다. 이 구조에서 `RestTemplate`이나 `RestClient`로 외부 API를 호출하면 응답이 올 때까지 이벤트 루프 스레드가 묶이고, 그 스레드가 담당하던 다른 요청이 함께 멈춘다. ==WebClient는 Reactor Netty 위에서 동작하는 논블로킹 HTTP 클라이언트로, 결과를 `Mono`·`Flux`로 돌려주므로 리액티브 체인에 그대로 이어 붙일 수 있다.==
 
 ## 핵심 개념
 
-WebClient는 `spring-boot-starter-webflux`에 포함되며 인스턴스는 불변이고 스레드 안전하다. 싱글톤 Bean으로 등록해 재사용하며, 요청마다 `WebClient.create()`로 만들면 Netty 커넥션 풀이 공유되지 않는다. Spring Boot가 자동 구성한 `WebClient.Builder`를 주입받아 `baseUrl`·기본 헤더·필터를 붙여 빌드하고, 설정을 바꿔야 하면 `mutate()`로 새 인스턴스를 만든다.
+WebClient는 `spring-boot-starter-webflux`에 포함되며 인스턴스는 불변이고 스레드 안전하다. 싱글톤 Bean으로 등록해 재사용하며, ==요청마다 `WebClient.create()`로 만들면 Netty 커넥션 풀이 공유되지 않는다.== Spring Boot가 자동 구성한 `WebClient.Builder`를 주입받아 `baseUrl`·기본 헤더·필터를 붙여 빌드하고, 설정을 바꿔야 하면 `mutate()`로 새 인스턴스를 만든다.
 
 요청은 HTTP 메서드 선택, `uri()`, 본문 설정(`bodyValue()`), 응답 처리 순으로 이어진다. URI는 `uri("/products/{id}", id)`처럼 가변 인수로 바인딩하거나 `UriBuilder` 람다로 쿼리 파라미터를 조립한다. 응답 처리 진입점은 두 가지다.
 
@@ -136,7 +136,7 @@ public Mono<TradeInfo> tradeInfo(Integer customerId, String ticker) {
 ## 실무에서 걸리는 지점
 
 - **`block()` 호출.** 결과를 `block()`으로 꺼내면 블로킹 클라이언트와 다를 바 없고, Netty 이벤트 루프 스레드에서는 예외가 발생한다. 동기 호출만 필요하면 `RestClient`가 맞다.
-- **`exchangeToMono()`에서 본문 미소비.** 에러 분기에서 본문을 읽지 않고 `Mono.error()`만 반환하면 연결이 풀로 반환되지 않아 누수가 생긴다. `createError()`·`releaseBody()`·`bodyToMono()` 중 하나로 소비한다.
+- **`exchangeToMono()`에서 본문 미소비.** ==에러 분기에서 본문을 읽지 않고 `Mono.error()`만 반환하면 연결이 풀로 반환되지 않아 누수가 생긴다.== `createError()`·`releaseBody()`·`bodyToMono()` 중 하나로 소비한다.
 - **4xx 재시도.** 필터 없이 `Retry.backoff()`를 걸면 404·400도 반복 호출해 부하만 준다. 대상은 5xx·타임아웃·연결 오류로 제한하고, 멱등하지 않은 POST는 재시도 자체를 재검토한다.
 - **응답 버퍼 한도.** 코덱의 기본 인메모리 버퍼는 256KB이며 초과 시 `DataBufferLimitException`이 발생한다. `codecs(c -> c.defaultCodecs().maxInMemorySize(...))`로 조정하거나 `bodyToFlux()`로 스트리밍한다.
 - **타임아웃과 재시도 순서.** `timeout()`을 `retryWhen()` 앞에 둬야 시도마다 타임아웃이 적용된다. 뒤에 두면 전체 재시도 시간에 한 번만 걸린다.

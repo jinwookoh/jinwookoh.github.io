@@ -9,7 +9,7 @@ sources: [2026-05-03-k8s-security.md]
 updated: 2026-08-30
 ---
 
-Kubernetes는 기본 설정만으로는 안전하지 않다. Pod은 namespace와 무관하게 서로 통신하고, 컨테이너는 이미지가 지정한 대로 root로 실행되며, API 권한을 정리하지 않으면 자격 증명 하나의 유출이 클러스터 장악으로 이어진다. 이 세 축을 각각 RBAC, NetworkPolicy, SecurityContext와 Pod Security Standards가 담당한다.
+==Kubernetes는 기본 설정만으로는 안전하지 않다.== Pod은 namespace와 무관하게 서로 통신하고, 컨테이너는 이미지가 지정한 대로 root로 실행되며, API 권한을 정리하지 않으면 자격 증명 하나의 유출이 클러스터 장악으로 이어진다. 이 세 축을 각각 RBAC, NetworkPolicy, SecurityContext와 Pod Security Standards가 담당한다.
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Pod은 ServiceAccount(SA)로 API 서버에 인증하며, 지정이 없으면 nam
 
 ### NetworkPolicy
 
-`podSelector`로 대상 Pod을 고르고, `policyTypes`에 선언한 방향에 대해 허용 규칙만 나열한다. 한 방향에 정책이 하나라도 걸리면 명시된 것 외에 전부 차단된다. 한 `from` 항목 안의 podSelector와 namespaceSelector는 AND, 별도 항목은 OR다. 여러 정책은 합집합이므로 `podSelector: {}`로 default deny를 깔고 경로마다 allow를 추가한다.
+`podSelector`로 대상 Pod을 고르고, `policyTypes`에 선언한 방향에 대해 허용 규칙만 나열한다. ==한 방향에 정책이 하나라도 걸리면 명시된 것 외에 전부 차단된다.== 한 `from` 항목 안의 podSelector와 namespaceSelector는 AND, 별도 항목은 OR다. 여러 정책은 합집합이므로 `podSelector: {}`로 default deny를 깔고 경로마다 allow를 추가한다.
 
 ### SecurityContext와 Pod Security Standards
 
@@ -174,7 +174,7 @@ spec:
 ## 실무에서 걸리는 지점
 
 - **NetworkPolicy는 CNI가 구현한다.** Calico·Cilium은 지원하지만 Flannel 단독 구성은 정책 객체를 받기만 하고 아무것도 차단하지 않는다.
-- **default deny가 DNS를 끊는다.** egress deny를 걸면 CoreDNS 질의가 막혀 모든 외부 호출이 이름 해석에서 실패한다. 메트릭 수집기나 사이드카도 별도 allow가 필요하다.
+- ==**default deny가 DNS를 끊는다.**== egress deny를 걸면 CoreDNS 질의가 막혀 모든 외부 호출이 이름 해석에서 실패한다. 메트릭 수집기나 사이드카도 별도 allow가 필요하다.
 - **readOnlyRootFilesystem은 JVM에서 자주 깨진다.** 내장 Tomcat이 `java.io.tmpdir` 아래에 작업 디렉터리를 만들므로 `/tmp`에 emptyDir가 없으면 기동 직후 실패한다. root 전제 이미지는 `runAsNonRoot`와 충돌해 `CreateContainerConfigError`로 멈춘다.
 - **와일드카드 권한이 번진다.** `resources: ["*"]`는 CRD 추가 시 그 리소스까지 자동 포함한다. `secrets` 읽기와 `pods/exec`는 자격 증명 탈취와 같으므로 `kubectl auth can-i --list --as`로 SA별 권한을 주기적으로 검증한다.
 - **PSS를 enforce로 바로 켜면 기존 워크로드가 거부된다.** `warn`·`audit`으로 위반 Pod을 먼저 수집하고 고친 뒤 `enforce`로 올린다. 허용 레지스트리 제한이나 이미지 서명 검증은 Kyverno·OPA Gatekeeper로 보완한다.

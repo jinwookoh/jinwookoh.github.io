@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-whats-new-v6.md, batch/2026-05-17-batch-infrast
 updated: 2026-08-29
 ---
 
-Job 하나를 돌리려면 JobRepository·PlatformTransactionManager·JobOperator 같은 인프라 빈이 먼저 있어야 한다. 이 빈들의 출처와 기본값을 모르면 버전에 따라 의미가 뒤집힌 `@EnableBatchProcessing` 때문에 Boot 자동 구성이 꺼지거나 빌더 빈을 찾지 못하고, 메모리 전용 저장소로 운영에 나가 재시작이 불가능해진다.
+Job 하나를 돌리려면 JobRepository·PlatformTransactionManager·JobOperator 같은 인프라 빈이 먼저 있어야 한다. ==이 빈들의 출처와 기본값을 모르면 버전에 따라 의미가 뒤집힌 `@EnableBatchProcessing` 때문에 Boot 자동 구성이 꺼지거나 빌더 빈을 찾지 못하고, 메모리 전용 저장소로 운영에 나가 재시작이 불가능해진다.==
 
 ## 핵심 개념
 
@@ -24,7 +24,7 @@ Job 하나를 돌리려면 JobRepository·PlatformTransactionManager·JobOperato
 
 ### `@EnableBatchProcessing`의 버전별 의미
 
-Batch 4.x(Boot 2.x, `javax.*`)에서 이 어노테이션은 JobBuilderFactory·JobRepository를 만드는 필수 선언이었다. Batch 5.x(Boot 3.x, Java 17+, Framework 6, `jakarta.*`)부터는 Boot의 `BatchAutoConfiguration`이 그 역할을 하고, 사용자가 `@EnableBatchProcessing`이나 `DefaultBatchConfiguration`을 선언하면 Boot가 뒤로 물러난다. Boot에서는 쓰지 않는 것이 기본이며, 남겨 두면 `spring.batch.*` 프로퍼티가 무시된다. 빌더는 팩토리 대신 `new JobBuilder(name, repo)`·`new StepBuilder(name, repo)`로 직접 생성한다.
+Batch 4.x(Boot 2.x, `javax.*`)에서 이 어노테이션은 JobBuilderFactory·JobRepository를 만드는 필수 선언이었다. Batch 5.x(Boot 3.x, Java 17+, Framework 6, `jakarta.*`)부터는 Boot의 `BatchAutoConfiguration`이 그 역할을 하고, 사용자가 `@EnableBatchProcessing`이나 `DefaultBatchConfiguration`을 선언하면 Boot가 뒤로 물러난다. ==Boot에서는 쓰지 않는 것이 기본이며, 남겨 두면 `spring.batch.*` 프로퍼티가 무시된다.== 빌더는 팩토리 대신 `new JobBuilder(name, repo)`·`new StepBuilder(name, repo)`로 직접 생성한다.
 
 Batch 6.x(Boot 4.x, Framework 7)는 저장소를 선언으로 고른다. `@EnableBatchProcessing` 단독은 `ResourcelessJobRepository`(메모리 전용), `@EnableJdbcJobRepository`는 JDBC, `@EnableMongoJobRepository`는 MongoDB다. 상속 방식은 `DefaultBatchConfiguration`과 Jdbc·Mongo 변형이 대응하며 `getTablePrefix()`·`getDatabaseType()` 등을 override할 수 있다. 이 밖에 Virtual Thread 동시성, `ChunkOrientedStep`, `CommandLineJobOperator`, `recover`, graceful shutdown, JFR, JSpecify, Jackson 3이 추가됐고 Spring Retry는 Framework core retry로 대체됐다. API는 5.x와 거의 호환된다.
 
@@ -128,7 +128,7 @@ public class BatchInfraConfig extends DefaultBatchConfiguration {
 ## 실무에서 걸리는 지점
 
 - **`@EnableBatchProcessing`을 4.x 습관으로 남겨 둔다.** Boot 3.x 이상에서 자동 구성이 꺼진다. `No qualifying bean of type JobBuilderFactory`는 팩토리 제거를 놓친 신호다.
-- **Resourceless 저장소로 운영에 나간다.** v6에서 `@EnableBatchProcessing`만 쓰면 메모리 저장소가 기본이라 재시작도 중복 실행 방지도 동작하지 않는다.
+- ==**Resourceless 저장소로 운영에 나간다.** v6에서 `@EnableBatchProcessing`만 쓰면 메모리 저장소가 기본이라 재시작도 중복 실행 방지도 동작하지 않는다.==
 - **`initialize-schema: always`·`job.enabled: true`를 운영에 둔다.** 부팅마다 스키마 생성과 전체 Job 실행이 일어난다. `schema-<db>.sql`을 DBA가 적용하고 명시 실행한다.
 - **여러 배치가 같은 table prefix를 쓴다.** 메타데이터가 섞이므로 `table-prefix`로 분리한다.
 - **메타데이터 DB와 업무 DB를 한 트랜잭션으로 묶는다.** XA 없이는 원자성이 없으므로 분리한다. Boot 3.x 전환 시 `javax.*`→`jakarta.*`, `com.mysql:mysql-connector-j` 전환도 점검한다.

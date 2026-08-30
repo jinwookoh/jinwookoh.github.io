@@ -9,7 +9,7 @@ sources: [grafana/2026-05-18-grafana-alerting-slo.md]
 updated: 2026-08-30
 ---
 
-아무도 대시보드를 보지 않는 시간대에는 알림이 유일한 감지 수단인데, 알림 설계는 두 방향으로 실패한다. CPU 80% 같은 자원 임계값을 전부 page로 걸면 사용자 영향이 없는 상황에도 호출이 반복되고, 팀은 알림 채널을 무시해 실제 사고를 늦게 감지한다. 반대로 silence를 영구로 걸어 두면 장애가 조용히 지나간다. 이를 피하려면 알림을 SLO 기준으로 정의하고, 라우팅과 억제 규칙으로 통지량을 통제해야 한다.
+아무도 대시보드를 보지 않는 시간대에는 알림이 유일한 감지 수단인데, 알림 설계는 두 방향으로 실패한다. CPU 80% 같은 자원 임계값을 전부 page로 걸면 사용자 영향이 없는 상황에도 호출이 반복되고, 팀은 알림 채널을 무시해 실제 사고를 늦게 감지한다. 반대로 silence를 영구로 걸어 두면 장애가 조용히 지나간다. ==이를 피하려면 알림을 SLO 기준으로 정의하고, 라우팅과 억제 규칙으로 통지량을 통제해야 한다.==
 
 ## 핵심 개념
 
@@ -23,7 +23,7 @@ Grafana의 alert rule은 Query, Condition, Evaluation Interval, For, Labels, Ann
 | Inhibition | 상위 alert가 firing 중인지 | ClusterDown 시 같은 cluster의 warning 차단 |
 | Mute Timing | 시간대 | 주말·정기 점검 시간의 non-critical 차단 |
 
-SLO 기반 알림은 SLI(성공률, p99 latency 같은 실측 지표), SLO(지표에 대한 목표, 예: 30일 성공률 99.9%), error budget(`1 - SLO`, 허용 실패량) 위에 선다. 99.9%면 월 43.2분이 예산이다. burn rate는 예산 소진 속도로, 1x는 정확히 30일에 다 쓰는 속도이고 14.4x는 약 2일에 소진한다. 단순 임계값과 달리 burn rate alert는 "이 속도면 N일 후 SLO를 위반한다"는 근거를 가진다.
+SLO 기반 알림은 SLI(성공률, p99 latency 같은 실측 지표), SLO(지표에 대한 목표, 예: 30일 성공률 99.9%), error budget(`1 - SLO`, 허용 실패량) 위에 선다. 99.9%면 월 43.2분이 예산이다. burn rate는 예산 소진 속도로, 1x는 정확히 30일에 다 쓰는 속도이고 14.4x는 약 2일에 소진한다. ==단순 임계값과 달리 burn rate alert는 "이 속도면 N일 후 SLO를 위반한다"는 근거를 가진다.==
 
 multi-window burn rate는 긴 창과 짧은 창을 AND로 묶는다. 긴 창만 보면 감지가 늦고 짧은 창만 보면 일시 spike에 반응하므로 둘 다 높을 때만 firing한다.
 
@@ -34,7 +34,7 @@ multi-window burn rate는 긴 창과 짧은 창을 AND로 묶는다. 긴 창만 
 | Ticket | 24h | 2h | 1x | 10% |
 | Ticket | 72h | 6h | 0.5x | 30% |
 
-사용자 영향을 직접 측정하는 증상(symptom) alert만 page로 보내고, 디스크 90%처럼 영향을 예측하는 원인(cause) alert는 ticket으로 돌린다. page는 주당 5건 미만을 목표로 둔다.
+==사용자 영향을 직접 측정하는 증상(symptom) alert만 page로 보내고, 디스크 90%처럼 영향을 예측하는 원인(cause) alert는 ticket으로 돌린다.== page는 주당 5건 미만을 목표로 둔다.
 
 ## 코드
 
@@ -143,7 +143,7 @@ mute_time_intervals:
 
 ## 실무에서 걸리는 지점
 
-- `for: 0`으로 두면 일시 spike에 firing과 resolved가 반복되어 통지가 두 배로 늘어난다. 증상 alert는 2~5분, 원인 alert는 10~15분을 기본으로 잡는다.
+- ==`for: 0`으로 두면 일시 spike에 firing과 resolved가 반복되어 통지가 두 배로 늘어난다.== 증상 alert는 2~5분, 원인 alert는 10~15분을 기본으로 잡는다.
 - `group_by`에 `instance`까지 넣으면 인스턴스 100대의 같은 장애가 100건으로 쪼개진다. `alertname, cluster, service`가 출발점이다.
 - Silence에 만료 시각을 주지 않으면 점검이 끝난 뒤에도 alert가 묻힌다. 만료를 항상 명시하고 활성 silence 목록을 대시보드에 노출한다.
 - staging 메트릭에 `environment` label이 없으면 production 라우트로 흘러들어 채널 신뢰도를 떨어뜨린다.

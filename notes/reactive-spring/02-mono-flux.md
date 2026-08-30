@@ -9,7 +9,7 @@ sources: [2026-05-03-reactive-mono.md, 2026-05-03-reactive-flux.md, 2026-05-02-s
 updated: 2026-08-29
 ---
 
-Reactive Streams 명세는 네 인터페이스만 정의한다. 이것만으로 비동기 결과를 다루려면 신호 순서, `request(n)` 배압, 취소 처리를 매번 직접 구현해야 하고 변환·에러 복구 로직도 재사용되지 않는다. 단건 조회와 끝이 없는 스트림을 같은 타입으로 표현하면 호출자는 완료 시점을 예측할 수 없다. Project Reactor는 이 문제를 `Mono<T>`와 `Flux<T>` 두 타입과 연산자 체인으로 해결한다.
+Reactive Streams 명세는 네 인터페이스만 정의한다. 이것만으로 비동기 결과를 다루려면 신호 순서, `request(n)` 배압, 취소 처리를 매번 직접 구현해야 하고 변환·에러 복구 로직도 재사용되지 않는다. 단건 조회와 끝이 없는 스트림을 같은 타입으로 표현하면 호출자는 완료 시점을 예측할 수 없다. ==Project Reactor는 이 문제를 `Mono<T>`와 `Flux<T>` 두 타입과 연산자 체인으로 해결한다.==
 
 ## 핵심 개념
 
@@ -21,7 +21,7 @@ Reactive Streams 명세는 네 인터페이스만 정의한다. 이것만으로 
 | 용도 | `findById`, `save`, `deleteById` | `findAll`, 스트리밍, `interval` |
 | 완료 | 요소 하나 방출 후 | 모든 요소 방출 후 또는 cancel |
 
-두 타입 모두 `subscribe()` 전까지 아무 일도 일어나지 않는다. WebFlux 컨트롤러가 `Mono`/`Flux`를 반환하면 프레임워크가 구독하므로 애플리케이션 코드는 리액티브 타입을 그대로 반환한다.
+==두 타입 모두 `subscribe()` 전까지 아무 일도 일어나지 않는다.== WebFlux 컨트롤러가 `Mono`/`Flux`를 반환하면 프레임워크가 구독하므로 애플리케이션 코드는 리액티브 타입을 그대로 반환한다.
 
 팩토리 메서드는 평가 시점으로 갈린다. `Mono.just(expr)`는 생성 순간 `expr`을 평가하므로 상수에만 적합하다. `fromSupplier`·`fromCallable`은 구독 시점에 평가하고 후자는 체크드 예외를 `onError`로 변환한다. `defer`는 구독마다 새 Publisher를 만든다. `Mono.just(null)`은 `NullPointerException`이므로 값 없음은 `Mono.empty()`로 표현한다.
 
@@ -140,7 +140,7 @@ class ProductController {
 
 ## 실무에서 걸리는 지점
 
-- **이벤트 루프 안의 `block()`.** 핸들러나 연산자 내부에서 `block()`을 호출하면 결과를 만들 스레드가 자기 자신이라 데드락이 난다. 테스트와 main 최외곽에서만 허용하고, 블로킹 I/O는 `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`으로 격리한다.
+- **이벤트 루프 안의 `block()`.** ==핸들러나 연산자 내부에서 `block()`을 호출하면 결과를 만들 스레드가 자기 자신이라 데드락이 난다.== 테스트와 main 최외곽에서만 허용하고, 블로킹 I/O는 `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`으로 격리한다.
 - **`Mono.just`에 무거운 호출.** `Mono.just(blockingQuery())`는 생성 시점에 실행되어 재시도·조건부 실행이 동작하지 않는다. `fromSupplier`·`fromCallable`·`defer`를 기본으로 쓴다.
 - **구독되지 않은 파이프라인.** `void` 메서드에서 `repository.deleteById(id)`만 호출하면 실행되지 않는다. 리액티브 타입을 끝까지 반환한다.
 - **`interval`과 프로세스 종료.** 별도 스레드에서 돌기 때문에 main이 먼저 끝나면 출력이 없다. 테스트는 `StepVerifier` 가상 시간을 쓰고 무한 스트림에는 `take`로 상한을 둔다.

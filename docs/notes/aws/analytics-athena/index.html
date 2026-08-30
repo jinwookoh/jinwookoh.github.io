@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/analytics-athena/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,10 +24,10 @@
   <h1>분석 — Athena·Glue·Kinesis</h1>
   <p class="summary">S3에 쌓인 로그를 옮기지 않고 SQL로 분석하고, Glue로 스키마와 포맷을 정리하고, Kinesis로 실시간 수집하는 파이프라인의 구성 원칙</p>
   <div class="content">
-<p>ALB 액세스 로그, VPC Flow Logs, CloudTrail 기록은 모두 S3에 파일로 쌓인다. 이 파일을 분석하려고 매번 Redshift에 적재하면 ETL과 클러스터 비용이 먼저 발생하고, 정작 질문은 &quot;지난주 5xx가 어느 경로에서 났는가&quot; 정도로 단순한 경우가 많다. 반대로 실시간 이벤트를 S3 업로드 폴링으로 받으면 지연이 분 단위로 벌어진다. 저장된 데이터에 즉시 SQL을 던지는 계층, 스키마와 파일 포맷을 관리하는 계층, 스트림을 받아 저장소까지 넘기는 계층이 각각 필요하고, AWS에서는 그 자리에 Athena·Glue·Kinesis가 놓인다.</p>
+<p>ALB 액세스 로그, VPC Flow Logs, CloudTrail 기록은 모두 S3에 파일로 쌓인다. 이 파일을 분석하려고 매번 Redshift에 적재하면 ETL과 클러스터 비용이 먼저 발생하고, 정작 질문은 &quot;지난주 5xx가 어느 경로에서 났는가&quot; 정도로 단순한 경우가 많다. 반대로 실시간 이벤트를 S3 업로드 폴링으로 받으면 지연이 분 단위로 벌어진다. <mark>저장된 데이터에 즉시 SQL을 던지는 계층, 스키마와 파일 포맷을 관리하는 계층, 스트림을 받아 저장소까지 넘기는 계층이 각각 필요하고, AWS에서는 그 자리에 Athena·Glue·Kinesis가 놓인다.</mark></p>
 <h2>핵심 개념</h2>
 <p><strong>Athena</strong>는 S3 객체를 대상으로 표준 SQL을 실행하는 서버리스 쿼리 서비스다. 엔진은 Trino 기반(엔진 v3)이며 클러스터를 띄우지 않고 쿼리당 스캔한 바이트 양으로 과금한다. 사용 전에 쿼리 결과를 저장할 S3 위치(워크그룹 출력 위치)를 지정해야 하며, 이 설정이 없으면 쿼리가 실행되지 않는다. 테이블 DDL의 <code>LOCATION</code>은 접두사 단위로 해석되므로 반드시 <code>/</code>로 끝나야 한다.</p>
-<p>과금이 스캔량 기준이므로 비용 최적화는 곧 스캔량 축소다. 네 가지가 표준이다.</p>
+<p><mark>과금이 스캔량 기준이므로 비용 최적화는 곧 스캔량 축소다.</mark> 네 가지가 표준이다.</p>
 <table>
 <thead>
 <tr>
@@ -53,7 +53,7 @@
 </tr>
 </tbody></table>
 <p>Lambda 기반 커넥터로 DynamoDB·RDS·CloudWatch Logs·온프레미스 DB에 같은 SQL을 실행하는 페더레이션 쿼리도 지원한다. 비슷한 위치의 <strong>Redshift Spectrum</strong>은 Redshift 클러스터에서 S3를 직접 읽는 기능으로, 실행 중인 클러스터가 전제된다. 클러스터 없이 즉시 SQL이면 Athena, 웨어하우스 테이블과 S3를 조인해야 하면 Spectrum이다.</p>
-<p><strong>Glue</strong>는 서버리스 ETL과 메타데이터 카탈로그를 담당한다. Crawler가 S3·JDBC 소스를 훑어 테이블·컬럼·파티션을 <strong>Data Catalog</strong>에 기록하고, Athena·Redshift Spectrum·EMR이 이 카탈로그를 공유 메타스토어로 사용한다. Athena에서 <code>CREATE TABLE</code>을 실행하면 실제로는 Glue Data Catalog에 테이블이 생성된다. ETL Job은 Spark 기반으로 CSV를 Parquet으로 변환하거나 Redshift에 적재하는 데 쓰이며, Job Bookmarks를 켜면 이전 실행에서 처리한 객체를 추적해 새 데이터만 처리한다. Lake Formation은 이 카탈로그 위에서 행·열 수준 권한을 관리한다.</p>
+<p><strong>Glue</strong>는 서버리스 ETL과 메타데이터 카탈로그를 담당한다. Crawler가 S3·JDBC 소스를 훑어 테이블·컬럼·파티션을 <strong>Data Catalog</strong>에 기록하고, Athena·Redshift Spectrum·EMR이 이 카탈로그를 공유 메타스토어로 사용한다. <mark>Athena에서 <code>CREATE TABLE</code>을 실행하면 실제로는 Glue Data Catalog에 테이블이 생성된다.</mark> ETL Job은 Spark 기반으로 CSV를 Parquet으로 변환하거나 Redshift에 적재하는 데 쓰이며, Job Bookmarks를 켜면 이전 실행에서 처리한 객체를 추적해 새 데이터만 처리한다. Lake Formation은 이 카탈로그 위에서 행·열 수준 권한을 관리한다.</p>
 <p><strong>Kinesis</strong>는 실시간 수집 계층이다. Kinesis Data Streams는 샤드 단위로 처리량을 확보하는 스트림으로, 레코드 최대 1MB, 보존 기간 최대 365일, 컨슈머가 직접 읽어 처리한다. Amazon Data Firehose(구 Kinesis Data Firehose)는 스트림을 S3·Redshift·OpenSearch로 배치 전달하는 서비스로, 버퍼 크기·시간에 따라 근실시간으로 동작하며 전달 중 Lambda 변환과 Parquet 변환을 지원한다. Managed Service for Apache Flink(구 Kinesis Data Analytics)는 Data Streams와 MSK를 소스로 상태 기반 스트림 처리를 수행하며, Firehose는 소스로 쓸 수 없다. 과거 SQL 애플리케이션 옵션은 지원이 종료되어 신규 구성에서는 고려 대상이 아니다.</p>
 <p>MSK(관리형 Kafka)는 1MB를 넘는 메시지, Kafka 생태계 호환, 365일 초과 보존이 필요할 때 선택한다.</p>
 <h2>코드</h2>
@@ -141,7 +141,7 @@ TBLPROPERTIES (
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>소파일 문제.</strong> Firehose 버퍼를 60초·1MB로 잡으면 하루에 수천 개의 작은 파일이 생기고 Athena 스캔 비용과 쿼리 시간이 늘어난다. 버퍼를 최대(900초·128MB)에 가깝게 두거나, Glue Job으로 주기적으로 병합(compaction)한다.</li>
+<li><mark><strong>소파일 문제.</strong> Firehose 버퍼를 60초·1MB로 잡으면 하루에 수천 개의 작은 파일이 생기고 Athena 스캔 비용과 쿼리 시간이 늘어난다.</mark> 버퍼를 최대(900초·128MB)에 가깝게 두거나, Glue Job으로 주기적으로 병합(compaction)한다.</li>
 <li><strong>Glue Crawler 스키마 변동.</strong> 소스 파일의 컬럼이 늘거나 타입이 바뀌면 Crawler가 테이블 스키마를 덮어써 기존 쿼리가 깨진다. 스키마가 안정된 로그는 DDL을 직접 관리하고 파티션 프로젝션을 쓰는 편이 예측 가능하다.</li>
 <li><strong>Athena 결과 버킷 정리.</strong> 쿼리마다 결과 CSV와 메타데이터 파일이 출력 위치에 남는다. 라이프사이클 규칙으로 삭제하지 않으면 저장 비용이 쌓인다.</li>
 <li><strong>Kinesis 샤드 한계와 재시도.</strong> 샤드당 초당 1MB·1,000레코드 쓰기 제한을 넘으면 <code>ProvisionedThroughputExceededException</code>이 발생한다. 온디맨드 모드로 전환하거나, <code>PutRecords</code> 배치 응답의 실패 레코드만 골라 재시도하는 로직이 있어야 한다.</li>

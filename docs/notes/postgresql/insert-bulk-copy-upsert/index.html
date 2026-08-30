@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/insert-bulk-copy-upsert/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>INSERT 깊이 — Bulk·COPY·UPSERT</h1>
   <p class="summary">단건·Bulk·COPY의 비용 차이와 ON CONFLICT·MERGE 기반 UPSERT를 대량 입력 운영 관점에서 정리한다.</p>
   <div class="content">
-<p>INSERT는 DML 네 동사 중 가장 단순하다. 옛 버전 행을 남기지 않으므로 MVCC 부담도 없다. 그런데도 대량 입력에서 병목이 되는 이유는 문장마다 붙는 고정 비용 때문이다. 단건 INSERT 한 번에는 네트워크 왕복, 파싱·계획, 트랜잭션 커밋, WAL fsync, 인덱스 갱신, 트리거 실행이 따라붙고, 10만 건을 반복문으로 넣으면 이 비용이 10만 번 반복된다. 여기에 중복 키 처리 방식을 정하지 않으면 동시 요청에서 UNIQUE 위반이 발생한다. 입력 방식과 충돌 처리 전략을 함께 설계해야 하는 이유다.</p>
+<p>INSERT는 DML 네 동사 중 가장 단순하다. 옛 버전 행을 남기지 않으므로 MVCC 부담도 없다. <mark>그런데도 대량 입력에서 병목이 되는 이유는 문장마다 붙는 고정 비용 때문이다.</mark> 단건 INSERT 한 번에는 네트워크 왕복, 파싱·계획, 트랜잭션 커밋, WAL fsync, 인덱스 갱신, 트리거 실행이 따라붙고, 10만 건을 반복문으로 넣으면 이 비용이 10만 번 반복된다. 여기에 중복 키 처리 방식을 정하지 않으면 동시 요청에서 UNIQUE 위반이 발생한다. 입력 방식과 충돌 처리 전략을 함께 설계해야 하는 이유다.</p>
 <h2>핵심 개념</h2>
 <h3>세 가지 입력 방식</h3>
 <table>
@@ -61,7 +61,7 @@
 <li><code>MERGE</code> (PG 15+) — 소스와 타깃을 조인해 <code>WHEN MATCHED</code>·<code>WHEN NOT MATCHED</code> 분기별로 UPDATE·INSERT·DELETE를 지정한다. PG 17부터 <code>RETURNING merge_action()</code>으로 행별 적용 동작을 받을 수 있다.</li>
 <li><code>SELECT ... FOR UPDATE</code> 후 분기 — 락을 잡고 애플리케이션에서 판단한다. 느리지만 ON CONFLICT로 표현할 수 없는 로직의 대안이다.</li>
 </ul>
-<p>동시 INSERT 경합은 <code>SELECT</code>로 존재를 확인한 뒤 <code>INSERT</code>하는 분리 패턴에서 생긴다. <code>ON CONFLICT</code>는 확인과 입력을 한 문장에서 원자적으로 처리한다.</p>
+<p>동시 INSERT 경합은 <code>SELECT</code>로 존재를 확인한 뒤 <code>INSERT</code>하는 분리 패턴에서 생긴다. <mark><code>ON CONFLICT</code>는 확인과 입력을 한 문장에서 원자적으로 처리한다.</mark></p>
 <h3>RETURNING과 시퀀스</h3>
 <p><code>RETURNING</code>은 입력된 행의 컬럼을 결과로 돌려주므로 생성된 ID를 받기 위한 SELECT가 필요 없다. <code>WITH ... AS (INSERT ... RETURNING id)</code> 형태의 데이터 수정 CTE와 결합하면 부모·자식 행 입력을 한 문장으로 묶는다.</p>
 <p>시퀀스는 트랜잭션과 무관하다. ROLLBACK해도 배정된 번호는 되돌아오지 않으며, ID가 건너뛰는 것은 정상이다.</p>
@@ -135,7 +135,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>반복문 save()</strong> — <code>for (...) repo.save(u)</code>는 단건 INSERT를 N번 보내며, <code>saveAll()</code>로 바꿔도 <code>batch_size</code>가 없으면 같다. IDENTITY 전략은 Hibernate가 배치 INSERT를 비활성화하므로 SEQUENCE 전략과 <code>allocationSize</code>를 함께 잡는다.</li>
+<li><strong>반복문 save()</strong> — <code>for (...) repo.save(u)</code>는 단건 INSERT를 N번 보내며, <code>saveAll()</code>로 바꿔도 <code>batch_size</code>가 없으면 같다. <mark>IDENTITY 전략은 Hibernate가 배치 INSERT를 비활성화하므로 SEQUENCE 전략과 <code>allocationSize</code>를 함께 잡는다.</mark></li>
 <li><strong>트리거의 행 단위 비용</strong> — <code>FOR EACH ROW</code> 트리거는 대량 입력에서 행마다 실행된다. 적재 전 <code>ALTER TABLE ... DISABLE TRIGGER</code>로 끄고 끝난 뒤 켠다.</li>
 <li><strong>EXCLUDED 대신 상수</strong> — <code>DO UPDATE SET name = &#39;fixed&#39;</code>처럼 상수를 쓰면 충돌 행이 모두 같은 값으로 덮인다. INSERT하려던 값을 반영하려면 <code>EXCLUDED.name</code>이어야 한다.</li>
 <li><strong>UPSERT 대상 인덱스 누락</strong> — <code>ON CONFLICT (col)</code>은 col에 unique 인덱스가 있어야 실행된다. 오류가 나면 인덱스 존재 여부와, 부분 인덱스라면 WHERE 조건 일치 여부를 확인한다.</li>

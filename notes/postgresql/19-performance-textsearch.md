@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-performance-tips.md, data-infra/2026-05-17-pg
 updated: 2026-08-29
 ---
 
-PostgreSQL의 기본 설정은 메모리가 작은 호스트를 가정한다. 8GB 이상 서버에 기본값 그대로 올리면 shared_buffers가 128MB에 머물러 디스크 I/O가 잦아지고, 정렬이 디스크로 넘어가며, 연결 풀 없이 요청마다 백엔드 프로세스가 생성된다. 검색도 마찬가지다. `LIKE '%검색어%'`는 인덱스를 타지 못해 테이블 전체를 읽고, 랭킹이나 하이라이트를 제공하지 못한다. 두 문제 모두 별도 인프라 없이 설정과 내장 기능으로 해결된다.
+PostgreSQL의 기본 설정은 메모리가 작은 호스트를 가정한다. 8GB 이상 서버에 기본값 그대로 올리면 shared_buffers가 128MB에 머물러 디스크 I/O가 잦아지고, 정렬이 디스크로 넘어가며, 연결 풀 없이 요청마다 백엔드 프로세스가 생성된다. 검색도 마찬가지다. `LIKE '%검색어%'`는 인덱스를 타지 못해 테이블 전체를 읽고, 랭킹이나 하이라이트를 제공하지 못한다. ==두 문제 모두 별도 인프라 없이 설정과 내장 기능으로 해결된다.==
 
 ## 핵심 개념
 
@@ -22,7 +22,7 @@ PostgreSQL의 기본 설정은 메모리가 작은 호스트를 가정한다. 8G
 | `work_mem` | 정렬·해시 작업 하나당 메모리 | 16~64MB |
 | `maintenance_work_mem` | VACUUM·CREATE INDEX 메모리 | 512MB~2GB |
 
-`work_mem`은 쿼리당이 아니라 정렬·해시 노드당 할당되므로 동시 쿼리 수와 곱해 총량을 본다. 큰 정렬이 필요한 배치 세션에서만 `SET work_mem = '256MB'`로 올린다.
+==`work_mem`은 쿼리당이 아니라 정렬·해시 노드당 할당되므로 동시 쿼리 수와 곱해 총량을 본다.== 큰 정렬이 필요한 배치 세션에서만 `SET work_mem = '256MB'`로 올린다.
 
 ### 체크포인트와 autovacuum
 
@@ -120,7 +120,7 @@ max_client_conn = 1000
 
 ## 실무에서 걸리는 지점
 
-- **work_mem 과다 설정으로 OOM**: 100MB × 동시 쿼리 100개면 10GB까지 요구할 수 있다. 전역값은 보수적으로 두고 `EXPLAIN (ANALYZE, BUFFERS)`에서 `external merge`가 보이는 쿼리만 세션 단위로 올린다. `log_temp_files = 0`을 켜면 디스크로 넘친 정렬을 추적할 수 있다.
+- ==**work_mem 과다 설정으로 OOM**: 100MB × 동시 쿼리 100개면 10GB까지 요구할 수 있다.== 전역값은 보수적으로 두고 `EXPLAIN (ANALYZE, BUFFERS)`에서 `external merge`가 보이는 쿼리만 세션 단위로 올린다. `log_temp_files = 0`을 켜면 디스크로 넘친 정렬을 추적할 수 있다.
 - **PgBouncer transaction 모드와 세션 상태**: 서버 측 prepared statement, `SET`, advisory lock, `LISTEN`은 트랜잭션 경계를 넘어 유지되지 않는다. JDBC의 `prepareThreshold=0`과 `SET LOCAL`로 회피한다.
 - **GIN 인덱스 없는 to_tsvector 호출**: 인덱스가 없으면 모든 행에서 tsvector를 계산하므로 LIKE보다 느려질 수 있다. 생성 컬럼과 GIN은 세트로 둔다.
 - **한국어에 'english' 설정 사용**: 영어 스테머는 한글을 처리하지 못해 조사가 붙은 어절이 통째로 토큰이 된다. `simple` + `pg_trgm`으로 부분 매칭을 보완하거나 형태소 확장을 붙인다.

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/log-compaction-tiered-storage/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Log Compaction·Tiered Storage</h1>
   <p class="summary">시간 기반 retention 의 두 대안 — key 별 최신 값만 남기는 compaction 과 오래된 segment 를 객체 저장소로 내리는 tiered storage</p>
   <div class="content">
-<p>기본 정책 <code>cleanup.policy=delete</code> 는 세그먼트를 시간이나 크기 기준으로 통째로 버린다. 이 모델이 놓치는 요구가 둘 있다. 하나는 프로필·설정·CDC 처럼 각 key 의 최신 상태만 의미 있는 데이터다. 시간으로 자르면 오래 갱신되지 않은 key 가 사라지고, 자르지 않으면 낡은 이력이 디스크를 채운다. 다른 하나는 수년치 이벤트를 보존해야 하는 경우다. 읽기는 최근 데이터에 몰리는데도 오래된 데이터가 브로커 SSD 를 복제본 수만큼 차지한다. Log Compaction 은 첫 번째를, Tiered Storage 는 두 번째를 해결한다.</p>
+<p>기본 정책 <code>cleanup.policy=delete</code> 는 세그먼트를 시간이나 크기 기준으로 통째로 버린다. 이 모델이 놓치는 요구가 둘 있다. 하나는 프로필·설정·CDC 처럼 각 key 의 최신 상태만 의미 있는 데이터다. 시간으로 자르면 오래 갱신되지 않은 key 가 사라지고, 자르지 않으면 낡은 이력이 디스크를 채운다. 다른 하나는 수년치 이벤트를 보존해야 하는 경우다. 읽기는 최근 데이터에 몰리는데도 오래된 데이터가 브로커 SSD 를 복제본 수만큼 차지한다. <mark>Log Compaction 은 첫 번째를, Tiered Storage 는 두 번째를 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Log Compaction — key 별 최신 값</h3>
 <p><code>cleanup.policy=compact</code> 토픽은 같은 key 중 offset 이 가장 큰 레코드만 남기고 이전 레코드를 제거한다. 로그 크기는 key 수에 비례하므로 <code>retention.ms=-1</code> 과 조합하면 크기가 유계인 영구 저장소가 된다. 남은 레코드는 원래 offset 을 유지한다. <code>earliest</code> 부터 읽으면 모든 key 의 현재 상태가 한 번에 들어오며, Kafka Streams 의 KTable 과 <code>__consumer_offsets</code> 가 이 성질을 사용한다.</p>
@@ -91,7 +91,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>key 가 없으면 compaction 이 성립하지 않는다.</strong> compacted 토픽에 key 가 <code>null</code> 인 레코드는 브로커가 거부한다.</li>
+<li><mark><strong>key 가 없으면 compaction 이 성립하지 않는다.</strong></mark> compacted 토픽에 key 가 <code>null</code> 인 레코드는 브로커가 거부한다.</li>
 <li><strong>tombstone 을 보내지 않으면 영원히 남는다.</strong> 반대로 <code>delete.retention.ms</code> 가 너무 짧으면 느린 consumer 가 삭제를 보지 못해 로컬 캐시에 유령 데이터가 남는다.</li>
 <li><strong>log cleaner 는 CPU 와 디스크 I/O 를 소비한다.</strong> <code>log.cleaner.threads</code>, <code>log.cleaner.io.max.bytes.per.second</code> 로 조절하고, <code>uncleanable-partitions-count</code> 가 0 을 넘으면 cleaner 가 따라가지 못하는 상태다.</li>
 <li><strong>compacted 토픽은 tiered storage 를 켤 수 없다.</strong> <code>cleanup.policy</code> 에 <code>compact</code> 가 포함되면 <code>remote.storage.enable=true</code> 는 거부된다.</li>

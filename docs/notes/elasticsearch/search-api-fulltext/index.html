@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/search-api-fulltext/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,12 +24,12 @@
   <h1>Search API와 Full-text 쿼리</h1>
   <p class="summary">_search 요청의 공통 뼈대와 analyzer를 거쳐 BM25로 점수를 매기는 full-text 쿼리 패밀리를 정리한다</p>
   <div class="content">
-<p>색인과 매핑을 갖춰도 검색 요청의 구조를 모르면 기본값 10건만 돌아오는 응답, 1만 건을 넘는 페이징 에러, <code>text</code> 필드 정렬 오류가 반복된다. <code>term</code> 쿼리로 자연어 문장을 검색하면 입력이 색인 토큰과 그대로 비교되어 아무것도 맞지 않는다. 자연어 검색은 입력을 분석기에 통과시켜 토큰으로 비교하고 관련도로 정렬하는 full-text 쿼리가 맡는다.</p>
+<p>색인과 매핑을 갖춰도 검색 요청의 구조를 모르면 기본값 10건만 돌아오는 응답, 1만 건을 넘는 페이징 에러, <code>text</code> 필드 정렬 오류가 반복된다. <code>term</code> 쿼리로 자연어 문장을 검색하면 입력이 색인 토큰과 그대로 비교되어 아무것도 맞지 않는다. <mark>자연어 검색은 입력을 분석기에 통과시켜 토큰으로 비교하고 관련도로 정렬하는 full-text 쿼리가 맡는다.</mark></p>
 <h2>핵심 개념</h2>
 <h3><code>_search</code> 요청의 뼈대</h3>
 <p>검색 요청은 <code>GET|POST /&lt;index&gt;/_search</code>로 보낸다. 인덱스 자리에는 <code>logs-*</code> 같은 와일드카드도 들어간다. URI 검색(<code>?q=field:value</code>)은 디버깅 용도이고, 실제 코드는 JSON body 검색을 쓴다. GET에 body를 싣지 못하는 클라이언트가 있으므로 POST로 통일한다.</p>
 <p>body의 공통 키는 <code>query</code>(검색 조건, 기본 <code>match_all</code>), <code>size</code>/<code>from</code>(기본 10/0), <code>sort</code>(기본 <code>_score</code> 내림차순, <code>_doc</code>이 가장 싼 정렬 키), <code>_source</code>(반환 필드, <code>includes/excludes</code>·<code>false</code> 가능), <code>track_total_hits</code>(기본 10,000까지만 정확히 세며 <code>true</code>면 전체를 센다), <code>timeout</code>(초과 시 부분 결과와 <code>timed_out: true</code>)이다. 응답은 <code>took</code>, <code>hits.total</code>(<code>value</code>와 <code>eq</code>/<code>gte</code> 관계), <code>hits.max_score</code>, <code>hits.hits</code>로 구성된다.</p>
-<p><code>from + size</code>는 <code>index.max_result_window</code>(10,000)를 넘을 수 없다. 모든 샤드가 <code>from + size</code> 건을 coordinating 노드로 보내 다시 합쳐야 하므로 깊은 페이지일수록 비용이 비선형으로 는다. 깊은 페이징은 <code>search_after</code>와 PIT를 쓴다.</p>
+<p><mark><code>from + size</code>는 <code>index.max_result_window</code>(10,000)를 넘을 수 없다.</mark> 모든 샤드가 <code>from + size</code> 건을 coordinating 노드로 보내 다시 합쳐야 하므로 깊은 페이지일수록 비용이 비선형으로 는다. 깊은 페이징은 <code>search_after</code>와 PIT를 쓴다.</p>
 <h3>Full-text 쿼리와 점수</h3>
 <p>full-text 쿼리는 입력을 필드의 search analyzer로 분석한 뒤 토큰끼리 비교하므로, 같은 쿼리라도 analyzer에 따라 결과가 달라진다. 색인·검색 analyzer는 <code>search_analyzer</code>로 의도적으로 분리하지 않는 한 동일해야 한다.</p>
 <p>점수는 BM25로 계산한다. 단어 빈도(TF)가 높을수록, 희귀한 단어(IDF)일수록 점수가 오르고, 문서가 평균보다 길수록 내려간다. <code>explain: true</code>로 과정을 확인한다. 가중치는 쿼리 시점 boost(<code>title^3</code>)로만 조정하며 index-time boost는 폐기되었다.</p>
@@ -102,7 +102,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>text</code> 필드 정렬은 fielddata 오류로 실패한다.</strong> fielddata는 힙을 크게 먹어 기본으로 막혀 있다. <code>title.keyword</code> multi-field를 두고 keyword로 정렬한다.</li>
+<li><mark><strong><code>text</code> 필드 정렬은 fielddata 오류로 실패한다.</strong> fielddata는 힙을 크게 먹어 기본으로 막혀 있다.</mark> <code>title.keyword</code> multi-field를 두고 keyword로 정렬한다.</li>
 <li><strong><code>_source</code> 전체 반환은 대역폭을 잠식한다.</strong> 목록용과 상세용 검색을 분리해 목록은 필요한 필드만 받는다.</li>
 <li><strong><code>operator</code> 기본값 <code>or</code>는 정밀도를 떨어뜨린다.</strong> 카테고리 내 검색은 <code>and</code>, 전체 검색은 <code>minimum_should_match</code> 75~80%처럼 화면별로 정한다.</li>
 <li><strong><code>fuzziness</code>와 prefix 매칭은 비싸다.</strong> 후보 토큰을 확장하므로 대형 인덱스에서 응답이 수십 배 느려진다. fuzziness는 자유 입력에만 쓰고, 짧은 prefix 자동완성은 completion suggester로 옮긴다.</li>

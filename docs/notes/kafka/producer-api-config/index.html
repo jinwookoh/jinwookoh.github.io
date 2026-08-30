@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/producer-api-config/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Producer API와 설정</h1>
   <p class="summary">send() 세 가지 패턴과 Serializer·Interceptor, acks·idempotence·batch·timeout 설정의 상호작용을 정리한다</p>
   <div class="content">
-<p><code>producer.send(record)</code> 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. 설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.</p>
+<p><code>producer.send(record)</code> 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. <mark>설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>생성과 send() 패턴</h3>
 <p>필수 설정은 <code>bootstrap.servers</code>, <code>key.serializer</code>, <code>value.serializer</code> 세 가지다. broker를 여러 개 적어야 하나가 내려가도 fallback된다. <code>KafkaProducer</code>는 thread-safe하므로 애플리케이션 전체에서 인스턴스 하나를 공유한다.</p>
@@ -154,7 +154,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><code>close()</code>나 <code>flush()</code> 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다. try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.</li>
+<li><mark><code>close()</code>나 <code>flush()</code> 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다.</mark> try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.</li>
 <li><code>delivery.timeout.ms</code>가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다. timeout 값들을 함께 설계한다.</li>
 <li><code>max.request.size</code>(1MB)를 넘는 메시지는 <code>RecordTooLargeException</code>으로 즉시 실패하며 재시도되지 않는다. 대용량은 외부 저장소에 두고 키만 보낸다.</li>
 <li><code>buffer.memory</code>가 작으면 <code>send()</code>가 블로킹되어 애플리케이션 스레드가 묶인다. <code>buffer-available-bytes</code> 메트릭을 JMX로 확인한다.</li>

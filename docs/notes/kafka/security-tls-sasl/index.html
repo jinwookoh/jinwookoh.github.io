@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/security-tls-sasl/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>인증 — TLS·SASL</h1>
   <p class="summary">운영 표준은 SASL_SSL + SCRAM-SHA-512이며, TLS는 전송 보호와 브로커 신원, SASL은 클라이언트 신원을 맡는다.</p>
   <div class="content">
-<p>Kafka의 기본 리스너는 PLAINTEXT다. 네트워크에 닿는 누구든 아무 토픽이나 읽고 쓸 수 있고, 브로커 사이를 오가는 레코드가 그대로 노출된다. &quot;누가 붙었는가&quot;는 SASL 또는 클라이언트 인증서가, &quot;전송 구간이 안전한가&quot;는 TLS가 맡는다. 인가(ACL)는 이 둘이 확정한 principal 위에서 동작하므로 인증이 흔들리면 ACL도 의미를 잃는다.</p>
+<p>Kafka의 기본 리스너는 PLAINTEXT다. 네트워크에 닿는 누구든 아무 토픽이나 읽고 쓸 수 있고, 브로커 사이를 오가는 레코드가 그대로 노출된다. &quot;누가 붙었는가&quot;는 SASL 또는 클라이언트 인증서가, &quot;전송 구간이 안전한가&quot;는 TLS가 맡는다. <mark>인가(ACL)는 이 둘이 확정한 principal 위에서 동작하므로 인증이 흔들리면 ACL도 의미를 잃는다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>security.protocol 네 가지</h3>
 <table>
@@ -113,7 +113,7 @@
       <span class="hljs-attr">ssl.endpoint.identification.algorithm:</span> <span class="hljs-string">https</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>인증서 만료.</strong> 브로커 인증서가 만료되면 클라이언트와 인터브로커 연결이 한꺼번에 거부된다. 만료 30~60일 전 알림을 걸고 Vault PKI·ACME 같은 자동 발급 경로를 둔다. keystore·truststore 경로를 유지한 채 파일을 교체하거나 <code>kafka-configs.sh --alter</code>로 갱신하면 재시작 없이 반영된다.</li>
+<li><mark><strong>인증서 만료.</strong> 브로커 인증서가 만료되면 클라이언트와 인터브로커 연결이 한꺼번에 거부된다.</mark> 만료 30~60일 전 알림을 걸고 Vault PKI·ACME 같은 자동 발급 경로를 둔다. keystore·truststore 경로를 유지한 채 파일을 교체하거나 <code>kafka-configs.sh --alter</code>로 갱신하면 재시작 없이 반영된다.</li>
 <li><strong>PLAINTEXT 리스너 혼재.</strong> <code>listeners=PLAINTEXT://9092,SSL://9093</code>처럼 두 리스너를 열어두면 9092가 우회로가 된다. 마이그레이션이 끝나면 PLAINTEXT 리스너를 제거한다.</li>
 <li><strong>hostname 검증 비활성.</strong> <code>ssl.endpoint.identification.algorithm=</code>으로 비워두면 SAN 오류는 사라지지만 중간자 공격에 노출된다. 인증서 SAN을 고친다.</li>
 <li><strong>TLS 처리량 비용.</strong> TLS를 켜면 sendfile 기반 zero-copy가 무력화되고 처리량이 15~30% 떨어진다. TLSv1.3과 AES-NI 가속이 되는 GCM cipher로 부담을 줄인다.</li>

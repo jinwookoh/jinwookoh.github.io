@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/schedulers-context/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Schedulers·스레딩·Context</h1>
   <p class="summary">Reactor는 기본이 동기 실행이다. 스레드는 Schedulers로 옮기고, 요청 범위 데이터는 ThreadLocal 대신 Context로 전파한다.</p>
   <div class="content">
-<p>Project Reactor는 <code>subscribeOn</code>이나 <code>publishOn</code>을 명시하지 않으면 소스부터 <code>subscribe</code> 콜백까지 호출자 스레드에서 동기적으로 실행한다. 비동기는 기본값이 아니라 개발자가 켜는 옵션이다. 파이프라인에 JDBC 조회를 넣으면 이벤트 루프 스레드가 응답을 기다리며 멈춘다. 반대로 스레드를 옮기면 요청 범위 데이터를 전파하던 <code>ThreadLocal</code>이 값을 잃는다. 전자는 Schedulers가, 후자는 Reactor Context가 담당한다.</p>
+<p>Project Reactor는 <code>subscribeOn</code>이나 <code>publishOn</code>을 명시하지 않으면 소스부터 <code>subscribe</code> 콜백까지 호출자 스레드에서 동기적으로 실행한다. <mark>비동기는 기본값이 아니라 개발자가 켜는 옵션이다.</mark> 파이프라인에 JDBC 조회를 넣으면 이벤트 루프 스레드가 응답을 기다리며 멈춘다. 반대로 스레드를 옮기면 요청 범위 데이터를 전파하던 <code>ThreadLocal</code>이 값을 잃는다. 전자는 Schedulers가, 후자는 Reactor Context가 담당한다.</p>
 <h2>핵심 개념</h2>
 <h3>Scheduler 종류</h3>
 <p>선택 기준은 작업이 블로킹인지, CPU를 쓰는지, 순서를 보장해야 하는지다.</p>
@@ -93,7 +93,7 @@
 <p><code>subscribeOn</code>은 구독 신호가 upstream으로 올라가며 처음 만나는 것이 소스의 실행 스레드를 결정하므로 체인 어디에 두어도 같다. <code>publishOn</code>은 데이터가 내려오다가 그 지점에서 스레드를 바꾸므로 그 위의 연산자는 영향을 받지 않고, 두 번 쓰면 두 번 전환된다.</p>
 <p><code>parallel()</code> 연산자는 Flux를 여러 rail로 분기할 뿐 스레드 풀인 <code>Schedulers.parallel()</code>과 다르다. <code>parallel().runOn(scheduler)</code>로 함께 써야 rail이 다른 스레드에서 돈다.</p>
 <h3>Reactor Context</h3>
-<p>Context는 스레드가 아니라 구독에 붙는 불변 키-값 저장소라 스레드가 바뀌어도 유지된다. <code>contextWrite</code>로 쓰고 <code>deferContextual</code>로 읽는다. 전파 방향은 데이터와 반대인 downstream에서 upstream, 즉 구독 신호와 같은 방향이다. 따라서 <code>contextWrite</code>는 읽는 연산자보다 코드상 아래에 있어야 하며, 여러 개면 아래 것이 먼저 적용된다.</p>
+<p><mark>Context는 스레드가 아니라 구독에 붙는 불변 키-값 저장소라 스레드가 바뀌어도 유지된다.</mark> <code>contextWrite</code>로 쓰고 <code>deferContextual</code>로 읽는다. 전파 방향은 데이터와 반대인 downstream에서 upstream, 즉 구독 신호와 같은 방향이다. 따라서 <code>contextWrite</code>는 읽는 연산자보다 코드상 아래에 있어야 하며, 여러 개면 아래 것이 먼저 적용된다.</p>
 <p><code>ctx.put(k, v)</code>는 새 인스턴스를 반환하므로 반환값을 버리면 아무 변화가 없다. <code>ctx.get(k)</code>는 키가 없으면 <code>NoSuchElementException</code>을 던지므로 <code>getOrDefault</code>로 방어한다.</p>
 <h2>코드</h2>
 <p>블로킹 소스는 <code>boundedElastic</code>에서 읽고, CPU 가공은 <code>publishOn</code>으로 <code>parallel</code>에 넘기는 조합이다. <code>subscribeOn</code>은 소스에, <code>publishOn</code>은 전환 지점에 둔다.</p>
@@ -143,7 +143,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>parallel</code>에서 블로킹.</strong> JDBC나 파일 I/O를 <code>Schedulers.parallel()</code>이나 Netty 이벤트 루프에서 호출하면 코어 수만큼의 요청이 동시에 들어올 때 서버 전체가 멈춘다. 블로킹은 <code>boundedElastic</code>으로 보내고, BlockHound를 테스트에 붙여 검출한다.</li>
+<li><strong><code>parallel</code>에서 블로킹.</strong> <mark>JDBC나 파일 I/O를 <code>Schedulers.parallel()</code>이나 Netty 이벤트 루프에서 호출하면 코어 수만큼의 요청이 동시에 들어올 때 서버 전체가 멈춘다.</mark> 블로킹은 <code>boundedElastic</code>으로 보내고, BlockHound를 테스트에 붙여 검출한다.</li>
 <li><strong>체인 내부 <code>block()</code>.</strong> <code>flatMap</code> 안에서 다른 Mono를 <code>block()</code>하면 같은 풀을 기다리는 데드락이 생길 수 있고, <code>parallel</code> 스레드에서는 <code>IllegalStateException</code>이 난다. 내부 Publisher는 <code>flatMap</code>으로 연결한다.</li>
 <li><strong><code>subscribeOn</code> 중복.</strong> 라이브러리가 반환한 Mono에 이미 <code>subscribeOn</code>이 걸려 있으면 호출 측에서 다시 걸어도 무시된다.</li>
 <li><strong><code>boundedElastic</code> 큐 적체.</strong> 상한을 넘는 작업은 큐에 쌓이고 <code>queuedTaskCap</code>을 초과하면 <code>RejectedExecutionException</code>이 난다. <code>flatMap</code>의 동시성 인자로 유입을 제한한다.</li>

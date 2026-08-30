@@ -9,13 +9,13 @@ sources: [2026-05-04-javaex-sns-kafka-outbox.md, 2026-05-04-javaex-sns-redis-pat
 updated: 2026-08-29
 ---
 
-게시글 저장 뒤 `kafkaTemplate.send()`를 호출하면 커밋은 됐는데 발행이 실패해 알림이 사라지거나, 발행은 됐는데 롤백돼 없는 게시글의 알림이 나간다. 또 캐시·랭킹·로그아웃 토큰·중복 요청 차단까지 PostgreSQL에 맡기면 응답이 수백 ms로 늘어난다. 앞의 문제는 Outbox Pattern과 Debezium CDC로, 뒤의 문제는 Redis 역할 분담으로 푼다.
+게시글 저장 뒤 `kafkaTemplate.send()`를 호출하면 커밋은 됐는데 발행이 실패해 알림이 사라지거나, 발행은 됐는데 롤백돼 없는 게시글의 알림이 나간다. 또 캐시·랭킹·로그아웃 토큰·중복 요청 차단까지 PostgreSQL에 맡기면 응답이 수백 ms로 늘어난다. ==앞의 문제는 Outbox Pattern과 Debezium CDC로, 뒤의 문제는 Redis 역할 분담으로 푼다.==
 
 ## 핵심 개념
 
 ### Outbox Pattern + Debezium CDC
 
-이벤트를 브로커에 직접 보내는 대신 같은 트랜잭션 안에서 `outbox_events` 테이블에 INSERT한다. 게시글과 outbox 행이 함께 커밋되거나 롤백되므로 원자성이 DB 수준에서 보장된다. PostgreSQL을 `wal_level=logical`로 두면 Debezium(Kafka Connect)이 WAL에서 outbox 행 커밋을 감지하고, `EventRouter` SMT가 `aggregate_type` 값을 토픽명으로 써서 발행한다. 읽힌 outbox 행은 쓸모가 없으므로 `created_at` RANGE 파티션을 pg_partman으로 월별 생성하고 지난 파티션을 DROP해 디스크를 회수한다.
+이벤트를 브로커에 직접 보내는 대신 같은 트랜잭션 안에서 `outbox_events` 테이블에 INSERT한다. ==게시글과 outbox 행이 함께 커밋되거나 롤백되므로 원자성이 DB 수준에서 보장된다.== PostgreSQL을 `wal_level=logical`로 두면 Debezium(Kafka Connect)이 WAL에서 outbox 행 커밋을 감지하고, `EventRouter` SMT가 `aggregate_type` 값을 토픽명으로 써서 발행한다. 읽힌 outbox 행은 쓸모가 없으므로 `created_at` RANGE 파티션을 pg_partman으로 월별 생성하고 지난 파티션을 DROP해 디스크를 회수한다.
 
 ### 알림 파이프라인의 두 단계 분리
 
@@ -43,7 +43,7 @@ notification-service는 `Post` 토픽을 소비해 작성자와 구독자를 use
 
 JWT 블랙리스트는 로그아웃 시 `jti`를 키로 저장하되 TTL을 토큰의 남은 만료 시간과 맞춘다. 만료된 토큰은 서명 검증에서 걸러지므로 저장소가 커지지 않는다.
 
-분산 락은 Redisson `RLock`을 `tryLock(0, -1, SECONDS)`로 잡는다. `waitTime=0`은 즉시 실패, `leaseTime=-1`은 Watchdog 활성화다. Watchdog은 30초 TTL을 10초마다 갱신하므로 긴 작업에도 락이 유지되고, 서버가 죽으면 30초 뒤 해제된다. 락은 `@Transactional` 바깥에서 잡아야 커밋 이후에 해제된다.
+분산 락은 Redisson `RLock`을 `tryLock(0, -1, SECONDS)`로 잡는다. `waitTime=0`은 즉시 실패, `leaseTime=-1`은 Watchdog 활성화다. Watchdog은 30초 TTL을 10초마다 갱신하므로 긴 작업에도 락이 유지되고, 서버가 죽으면 30초 뒤 해제된다. ==락은 `@Transactional` 바깥에서 잡아야 커밋 이후에 해제된다.==
 
 ## 코드
 
@@ -161,7 +161,7 @@ public class PostService {
 ## 실무에서 걸리는 지점
 
 - **`max.block.ms` 기본값 60초.** 브로커에 연결되지 않으면 `send()`가 최대 60초 블로킹되므로 직접 발행하는 notification-service는 5초 안팎으로 줄인다.
-- **Debezium은 at-least-once다.** 커넥터 재시작으로 같은 outbox 행이 두 번 발행될 수 있으므로 컨슈머는 outbox `id` 처리 이력이나 유니크 제약으로 멱등하게 만든다.
+- ==**Debezium은 at-least-once다.**== 커넥터 재시작으로 같은 outbox 행이 두 번 발행될 수 있으므로 컨슈머는 outbox `id` 처리 이력이나 유니크 제약으로 멱등하게 만든다.
 - **랭킹 Sorted Set은 어긋난다.** Redis 재시작이나 `afterCommit` 예외로 점수가 DB와 달라지므로 Spring Batch Job이 `executePipelined()`로 ZADD를 묶어 주기적으로 재계산한다.
 - **캐시 SET 타이밍.** 트랜잭션 안에서 SET하면 롤백된 값이 캐시에 남으므로 SET은 `afterCommit`에서 한다.
 - **Redis 단일 장애점.** 블랙리스트 조회 실패 시 거부할지 통과시킬지 정책을 코드에 명시하고, 운영에서는 Sentinel 또는 Cluster로 가용성을 확보한다.

@@ -9,7 +9,7 @@ sources: [2026-05-03-graphql-basics.md, 2026-05-03-graphql-queries-mutations.md,
 updated: 2026-08-29
 ---
 
-REST는 응답 형태를 서버가 결정한다. 이름 하나만 필요해도 `GET /users/123`의 전체 필드를 받아야 하고(over-fetching), 사용자·게시물·댓글을 한 화면에 그리려면 엔드포인트 세 개를 순서대로 호출해야 한다(under-fetching). GraphQL은 타입 스키마를 계약으로 고정하고 클라이언트가 그 안에서 필요한 필드를 직접 명시하도록 해 이 문제를 푼다.
+REST는 응답 형태를 서버가 결정한다. 이름 하나만 필요해도 `GET /users/123`의 전체 필드를 받아야 하고(over-fetching), 사용자·게시물·댓글을 한 화면에 그리려면 엔드포인트 세 개를 순서대로 호출해야 한다(under-fetching). ==GraphQL은 타입 스키마를 계약으로 고정하고 클라이언트가 그 안에서 필요한 필드를 직접 명시하도록 해 이 문제를 푼다.==
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ Spring for GraphQL은 graphql-java 위에 컨트롤러 모델을 얹는다. 스�
 | `@SchemaMapping` | `Type.field` | 부모 객체가 첫 인자 |
 | `@BatchMapping` | `Type.field` | 부모 목록 배치 처리 |
 
-메서드 이름이 스키마 필드와 같으면 자동 매핑되고 다르면 `name`으로 지정한다. 인자는 `@Argument`로 바인딩하며 `Mono`·`Flux` 반환이 그대로 인식된다. 리졸버는 필드 단위로 호출되므로 `users { posts }` 같은 중첩 조회는 사용자 수만큼 `posts` 리졸버가 실행되는 N+1 구조가 된다. `@BatchMapping`은 부모 목록을 한 번 받아 `Map<Parent, Result>`를 돌려주며 내부적으로 DataLoader를 등록해 배치 조회로 바꾼다.
+메서드 이름이 스키마 필드와 같으면 자동 매핑되고 다르면 `name`으로 지정한다. 인자는 `@Argument`로 바인딩하며 `Mono`·`Flux` 반환이 그대로 인식된다. ==리졸버는 필드 단위로 호출되므로 `users { posts }` 같은 중첩 조회는 사용자 수만큼 `posts` 리졸버가 실행되는 N+1 구조가 된다.== `@BatchMapping`은 부모 목록을 한 번 받아 `Map<Parent, Result>`를 돌려주며 내부적으로 DataLoader를 등록해 배치 조회로 바꾼다.
 
 ## 코드
 
@@ -164,7 +164,7 @@ class GraphQlExceptionAdvice {
 ## 실무에서 걸리는 지점
 
 - 응답이 항상 200이라 상태 코드 기반 알람은 동작하지 않으며 `errors` 배열을 별도로 집계해야 한다.
-- 목록 응답의 하위 필드에 `@SchemaMapping`을 쓰면 부모 수만큼 DB 호출이 발생한다. `@BatchMapping`을 기본으로 하고, 반환 `Map`의 키는 전달받은 부모 인스턴스 그대로여야 매칭된다.
+- ==목록 응답의 하위 필드에 `@SchemaMapping`을 쓰면 부모 수만큼 DB 호출이 발생한다.== `@BatchMapping`을 기본으로 하고, 반환 `Map`의 키는 전달받은 부모 인스턴스 그대로여야 매칭된다.
 - 조회 깊이를 클라이언트가 정하므로 재귀 타입은 서버 부하를 키운다. `MaxQueryDepthInstrumentation`을 등록하고 목록 필드에 `first` 상한을 둔다.
 - Introspection과 GraphiQL은 스키마를 노출한다. 운영 프로파일에서 `spring.graphql.graphiql.enabled=false`, `spring.graphql.schema.introspection.enabled=false`로 끈다.
 - 단일 엔드포인트 POST라 HTTP 캐시와 CDN이 응답을 캐시하지 못한다. 캐시가 중요한 조회는 persisted query와 GET을 쓴다.

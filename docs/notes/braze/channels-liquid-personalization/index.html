@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/braze/channels-liquid-personalization/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>메시지 채널과 Liquid 개인화</h1>
   <p class="summary">Push·In-app·Content Card·Feature Flag의 역할 분담과 Liquid·Connected Content로 발송 시점에 메시지를 개인화하는 구조</p>
   <div class="content">
-<p>채널을 구분하지 않고 메시지를 보내면 두 가지 문제가 생긴다. 하나는 전달 실패다. 앱을 열지 않은 사용자에게 In-app 메시지를 걸어 두거나 Web Push 인증을 빼먹는 식이다. 다른 하나는 피로다. 같은 사용자에게 Push·In-app·Email이 동시에 도착하면 옵트아웃으로 이어진다. 개인화가 없으면 클릭률이 낮고, 속성을 그대로 끼워 넣으면 이름이 빈 사용자에게 &quot;안녕하세요, 님&quot;이 나간다. 채널 특성과 템플릿 안전선을 함께 잡아야 한다.</p>
+<p>채널을 구분하지 않고 메시지를 보내면 두 가지 문제가 생긴다. 하나는 전달 실패다. 앱을 열지 않은 사용자에게 In-app 메시지를 걸어 두거나 Web Push 인증을 빼먹는 식이다. 다른 하나는 피로다. 같은 사용자에게 Push·In-app·Email이 동시에 도착하면 옵트아웃으로 이어진다. 개인화가 없으면 클릭률이 낮고, 속성을 그대로 끼워 넣으면 이름이 빈 사용자에게 &quot;안녕하세요, 님&quot;이 나간다. <mark>채널 특성과 템플릿 안전선을 함께 잡아야 한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>네 가지 전달 기능의 역할</h3>
 <p>개발자가 직접 통합하는 기능은 Push, In-app Message, Content Card, Feature Flag 네 가지이며, 사용자가 어디에 있을 때 닿는지가 다르다.</p>
@@ -68,7 +68,7 @@
 <h3>개인화의 세 층</h3>
 <p>개인화는 Static(하드코딩), Dynamic(Liquid, Braze 내부 데이터), Connected(외부 API)의 세 층으로 나뉘고 한 메시지 안에서 섞여 동작한다.</p>
 <p>Liquid는 Shopify가 공개한 템플릿 언어로 Variable <code>{{ }}</code>, Tag <code>{% %}</code>, Filter <code>| name</code> 세 요소로 구성된다. Braze는 사용자 속성을 <code>${attr}</code>, 트리거 이벤트 속성을 <code>event_properties.${prop}</code>, Canvas 진입 속성을 <code>canvas_entry_properties.${prop}</code>로 노출하고, <code>catalog_items</code>(Catalog 조회)·<code>connected_content</code>(외부 API)·<code>abort_message</code>(해당 사용자만 발송 중단) 확장 태그를 더했다. Email·Push·SMS·In-app·Content Card 본문과 Deep link URL, Webhook body까지 거의 모든 필드에 들어간다.</p>
-<p>Connected Content는 발송 직전에 외부 API를 호출해 응답을 변수로 저장한다. <code>:cache_max_age</code>(초)로 응답을 캐싱하고, <code>:timeout</code>으로 한도를 두며, <code>:rescue</code>로 실패 시 플래그 변수를 세운다. 호출이 실패해도 발송은 진행되고 해당 구간만 fallback으로 대체된다.</p>
+<p>Connected Content는 발송 직전에 외부 API를 호출해 응답을 변수로 저장한다. <code>:cache_max_age</code>(초)로 응답을 캐싱하고, <code>:timeout</code>으로 한도를 두며, <code>:rescue</code>로 실패 시 플래그 변수를 세운다. <mark>호출이 실패해도 발송은 진행되고 해당 구간만 fallback으로 대체된다.</mark></p>
 <h2>코드</h2>
 <p>Liquid 템플릿. 변수마다 <code>default</code>를 걸고 Connected Content 실패와 빈 결과를 가드한다.</p>
 <pre><code class="hljs language-plaintext">{% assign safe_name = ${first_name} | default: &#x27;회원님&#x27; | strip %}
@@ -149,7 +149,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Connected Content timeout이 곧 발송 지연이다.</strong> 수십만 명 캠페인이면 호출도 수십만 번 나간다. 자체 API는 500ms 이내 응답을 목표로 하고 <code>cache_max_age</code>·CDN·발송 직전 pre-warming으로 rate limit을 피한다.</li>
+<li><mark><strong>Connected Content timeout이 곧 발송 지연이다.</strong></mark> 수십만 명 캠페인이면 호출도 수십만 번 나간다. 자체 API는 500ms 이내 응답을 목표로 하고 <code>cache_max_age</code>·CDN·발송 직전 pre-warming으로 rate limit을 피한다.</li>
 <li><strong>외부 API 응답의 PII가 메시지에 그대로 박힌다.</strong> 발송 전용 응답 스키마를 분리하고 전화번호·이메일은 제외한다. URL에 들어가는 <code>${attr}</code>도 자체 API에서 검증한다.</li>
 <li><strong>LLM 호출은 prompt injection과 비결정성을 함께 안고 있다.</strong> 사용자 속성을 정제해서 넣고, system prompt에 금지 사항을 고정하며, 응답에 길이·키워드 필터를 건다. temperature를 낮추고 캐시를 병행한다.</li>
 <li><strong>Liquid 문법 오류와 Push 인증 만료는 조용히 실패한다.</strong> <code>endif</code>·<code>default</code> 누락은 콘솔 preview와 테스트 세그먼트 발송으로 걸러내고, .p12 만료와 앱 재설치 후 토큰 미갱신은 Auth Key 사용과 세션마다 토큰 등록으로 막는다.</li>

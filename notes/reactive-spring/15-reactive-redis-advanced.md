@@ -9,7 +9,7 @@ sources: [2026-05-03-reactive-redis-caching.md, 2026-05-03-reactive-redis-pubsub
 updated: 2026-08-29
 ---
 
-개별 명령을 호출할 수 있게 된 다음 단계는 Redis를 구조 안에 어떻게 배치하느냐다. 캐시로 쓰려면 미스·갱신·무효화 규칙이 필요하고, 서버 여러 대가 WebSocket 세션을 나눠 들고 있으면 서버 사이 전달 경로가 필요하며, 잔액 차감처럼 끼어들기가 없어야 하는 연산도 있다. 동기 시절 습관대로 짜면 Mono 반환 메서드에 `@Cacheable`을 붙여 두 번째 호출부터 빈 값을 받거나, 갱신을 set으로 처리해 옛 값이 새 값을 덮어쓰거나, MULTI/EXEC에 롤백을 기대하게 된다. 성능도 직렬화·왕복·O(N) 명령 중 하나만 어긋나면 병목이 된다.
+개별 명령을 호출할 수 있게 된 다음 단계는 Redis를 구조 안에 어떻게 배치하느냐다. 캐시로 쓰려면 미스·갱신·무효화 규칙이 필요하고, 서버 여러 대가 WebSocket 세션을 나눠 들고 있으면 서버 사이 전달 경로가 필요하며, 잔액 차감처럼 끼어들기가 없어야 하는 연산도 있다. ==동기 시절 습관대로 짜면 Mono 반환 메서드에 `@Cacheable`을 붙여 두 번째 호출부터 빈 값을 받거나, 갱신을 set으로 처리해 옛 값이 새 값을 덮어쓰거나, MULTI/EXEC에 롤백을 기대하게 된다.== 성능도 직렬화·왕복·O(N) 명령 중 하나만 어긋나면 병목이 된다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 Spring Cache 추상화는 메서드 반환값을 그대로 저장한다. 반환 타입이 `Mono<User>`면 값이 아니라 Publisher가 저장되고, cold publisher는 구독 시점에 실행되므로 캐시에서 꺼낸 Mono는 기대한 값을 주지 않는다. Spring Framework 6.1부터 `@Cacheable`이 Mono·Flux 반환을 인식해 `Cache.retrieve()`로 비동기 조회하며 Spring Data Redis 3.2 이상의 RedisCache가 이를 지원하지만, TTL·미스 처리를 코드로 제어하려면 ReactiveRedisTemplate으로 직접 짜는 Cache-Aside가 가장 명확하다. reactor-extra의 `CacheMono`는 deprecated 상태다.
 
-갱신 시점에는 set이 아니라 delete를 쓴다. 두 요청의 DB 저장 순서와 캐시 set 순서가 엇갈리면 옛 값이 남지만, delete는 다음 조회가 DB를 다시 읽으므로 경합이 없다. TTL은 변경 빈도에 따라 가격은 수 분, 프로필은 30분 안팎, 카탈로그는 하루 정도로 차등한다.
+==갱신 시점에는 set이 아니라 delete를 쓴다.== 두 요청의 DB 저장 순서와 캐시 set 순서가 엇갈리면 옛 값이 남지만, delete는 다음 조회가 DB를 다시 읽으므로 경합이 없다. TTL은 변경 빈도에 따라 가격은 수 분, 프로필은 30분 안팎, 카탈로그는 하루 정도로 차등한다.
 
 ### Pub/Sub과 Streams
 
@@ -139,7 +139,7 @@ public class BalanceService {
 
 ## 실무에서 걸리는 지점
 
-- **캐시 스탬피드.** 인기 키가 만료되는 순간 미스가 동시에 터지면 요청 수만큼 DB 조회가 나간다. `setIfAbsent`로 짧은 락을 잡아 한 요청만 DB를 읽게 하거나, soft TTL과 hard TTL을 나눠 만료 직전에 갱신한다.
+- **캐시 스탬피드.** ==인기 키가 만료되는 순간 미스가 동시에 터지면 요청 수만큼 DB 조회가 나간다.== `setIfAbsent`로 짧은 락을 잡아 한 요청만 DB를 읽게 하거나, soft TTL과 hard TTL을 나눠 만료 직전에 갱신한다.
 - **패턴 구독과 Cluster.** `listenToPattern`은 모든 PUBLISH마다 패턴 매칭이 돌고, Cluster 모드에서는 메시지가 전 노드로 브로드캐스트된다. 규모가 커지면 Streams로 옮긴다.
 - **블로킹 명령.** Lettuce는 연결 하나를 공유하므로 BLPOP이 점유하면 뒤에 쌓인 명령이 모두 기다린다. 전용 연결로 분리한다.
 - **O(N) 명령.** `KEYS *`, 큰 Set의 SMEMBERS, 큰 Hash의 HGETALL은 단일 스레드인 Redis 전체를 멈춘다. SCAN 계열로 바꾸고, FLUSHALL·CONFIG·DEBUG는 `rename-command`로 막는다.

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/rsocket-security-lb-testing/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,13 +24,13 @@
   <h1>RSocket — 보안·로드 밸런싱·테스트</h1>
   <p class="summary">영구 연결 프로토콜인 RSocket을 SETUP 인증·TLS·클라이언트 사이드 LB·StepVerifier로 운영 수준까지 끌어올리는 방법</p>
   <div class="content">
-<p>RSocket 서버와 클라이언트를 라우팅까지 붙이고 나면 세 가지 문제가 남는다. 인증 없이 열린 포트는 누구나 아무 라우트를 호출할 수 있고, TLS가 없으면 메타데이터의 토큰과 페이로드가 평문으로 흐른다. 서버를 늘려도 RSocket은 단일 영구 연결을 유지하므로 L4 로드 밸런서 뒤에 두면 처음 붙은 서버에 트래픽이 고정된다. 그리고 <code>subscribe()</code>만 호출한 테스트는 비동기 실행이 끝나기 전에 종료되어 아무것도 검증하지 못한다. 이 셋을 Spring Security RSocket, <code>LoadbalanceRSocketClient</code>, StepVerifier로 각각 해결한다.</p>
+<p>RSocket 서버와 클라이언트를 라우팅까지 붙이고 나면 세 가지 문제가 남는다. 인증 없이 열린 포트는 누구나 아무 라우트를 호출할 수 있고, TLS가 없으면 메타데이터의 토큰과 페이로드가 평문으로 흐른다. 서버를 늘려도 RSocket은 단일 영구 연결을 유지하므로 L4 로드 밸런서 뒤에 두면 처음 붙은 서버에 트래픽이 고정된다. 그리고 <code>subscribe()</code>만 호출한 테스트는 비동기 실행이 끝나기 전에 종료되어 아무것도 검증하지 못한다. <mark>이 셋을 Spring Security RSocket, <code>LoadbalanceRSocketClient</code>, StepVerifier로 각각 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>인증 시점 — SETUP과 Per-request</h3>
 <p>HTTP와 다른 점은 인증 시점이 둘이라는 것이다. SETUP 인증은 연결을 맺는 SETUP 프레임의 메타데이터에 자격 증명을 한 번 실어 보내고, 이후 그 연결의 모든 요청이 같은 주체로 취급된다. Per-request 인증은 요청 프레임마다 토큰을 실어 매번 검증한다. 전자가 기본이고, 후자는 민감한 라우트에 추가 검증이 필요할 때 결합해 쓴다.</p>
 <p>자격 증명은 Basic(<code>UsernamePasswordMetadata</code>)과 Bearer(<code>BearerTokenMetadata</code>) 두 형식을 지원하며 각각 전용 MIME 타입으로 보낸다. JWT는 서버가 토큰 자체를 검증하므로 세션 저장소 없이 stateless로 동작하고, <code>ReactiveJwtDecoders.fromIssuerLocation</code>으로 OAuth2/OIDC 발급자와 연결하면 Resource Server와 같은 방식이 된다. 암호화는 <code>spring.rsocket.server.ssl</code> 속성으로 TLS를 켜고, 서비스 간 통신은 truststore와 <code>client-auth: need</code>를 추가해 mTLS로 양쪽 인증서를 검증한다. CORS는 WebSocket 전송에만 해당한다.</p>
 <h3>클라이언트 사이드 로드 밸런싱</h3>
-<p>HTTP는 요청마다 다른 서버로 보낼 수 있지만 RSocket은 연결이 곧 세션이라 L4 LB가 개입할 지점이 연결 시점 한 번뿐이다. 그래서 클라이언트가 서버 목록을 직접 들고 서버마다 연결 하나씩을 유지하며 요청마다 대상을 고르는 클라이언트 사이드 LB가 표준이다. rsocket-java의 <code>LoadbalanceRSocketClient</code>가 이를 구현하며, 서버 목록을 <code>Flux&lt;List&lt;LoadbalanceTarget&gt;&gt;</code>로 받으므로 Consul·Eureka·Kubernetes에서 갱신한 목록을 그대로 흘려 넣는다. 끊어진 서버는 후보에서 자동으로 빠진다.</p>
+<p><mark>HTTP는 요청마다 다른 서버로 보낼 수 있지만 RSocket은 연결이 곧 세션이라 L4 LB가 개입할 지점이 연결 시점 한 번뿐이다.</mark> 그래서 클라이언트가 서버 목록을 직접 들고 서버마다 연결 하나씩을 유지하며 요청마다 대상을 고르는 클라이언트 사이드 LB가 표준이다. rsocket-java의 <code>LoadbalanceRSocketClient</code>가 이를 구현하며, 서버 목록을 <code>Flux&lt;List&lt;LoadbalanceTarget&gt;&gt;</code>로 받으므로 Consul·Eureka·Kubernetes에서 갱신한 목록을 그대로 흘려 넣는다. 끊어진 서버는 후보에서 자동으로 빠진다.</p>
 <table>
 <thead>
 <tr>
@@ -155,7 +155,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>SETUP 인증과 토큰 만료.</strong> SETUP에서 검증한 JWT는 연결이 살아 있는 동안 다시 검사되지 않는다. 장시간 유지되는 연결에서는 만료된 토큰으로도 요청이 통과하므로, 민감 라우트에 Per-request 검증을 두거나 서버가 주기적으로 연결을 끊어 재인증을 강제한다.</li>
+<li><strong>SETUP 인증과 토큰 만료.</strong> <mark>SETUP에서 검증한 JWT는 연결이 살아 있는 동안 다시 검사되지 않는다.</mark> 장시간 유지되는 연결에서는 만료된 토큰으로도 요청이 통과하므로, 민감 라우트에 Per-request 검증을 두거나 서버가 주기적으로 연결을 끊어 재인증을 강제한다.</li>
 <li><strong>Resume과 LB는 양립하지 않는다.</strong> Resume 토큰은 원래 연결을 받았던 서버에서만 유효하다. 페일오버로 다른 서버에 붙으면 새 연결이 되므로 둘 중 하나를 고른다.</li>
 <li><strong>목록 갱신 지연.</strong> Service Discovery 폴링 간격이 길면 내려간 서버가 목록에 남아 재시도 비용이 든다. 5~30초가 일반적이며, 재시도와 타임아웃을 반드시 같이 건다.</li>
 <li><strong>Sticky 라우팅의 비용.</strong> 세션 상태를 서버 메모리에 두면 사용자별로 같은 서버에 붙여야 하고 그 서버 장애가 해당 사용자에게 전가된다. 상태를 외부 저장소로 빼고 stateless로 간다.</li>

@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-connect-overview.md, data-infra/2026-05-17
 updated: 2026-08-29
 ---
 
-DB 변경분을 Kafka로 들여오고 Kafka를 S3나 Elasticsearch로 내보내는 작업은 거의 모든 조직이 같은 형태로 반복한다. 이를 Producer·Consumer 코드로 직접 구현하면 오프셋 추적, 장애 재시작, 병렬화, 배포·모니터링을 파이프라인마다 다시 만들어야 한다. Kafka Connect는 이 두 패턴을 설정 기반 프레임워크로 표준화하고, 분산 실행·오프셋 관리·failover·REST 관리 인터페이스를 프레임워크가 제공한다.
+DB 변경분을 Kafka로 들여오고 Kafka를 S3나 Elasticsearch로 내보내는 작업은 거의 모든 조직이 같은 형태로 반복한다. 이를 Producer·Consumer 코드로 직접 구현하면 오프셋 추적, 장애 재시작, 병렬화, 배포·모니터링을 파이프라인마다 다시 만들어야 한다. ==Kafka Connect는 이 두 패턴을 설정 기반 프레임워크로 표준화하고, 분산 실행·오프셋 관리·failover·REST 관리 인터페이스를 프레임워크가 제공한다.==
 
 ## 핵심 개념
 
@@ -131,7 +131,7 @@ connectAdminClient.deploy("s3-sink-events", s3Sink);
 
 ## 실무에서 걸리는 지점
 
-- **Worker 수와 tasks.max.** Worker 1~2대는 Standalone과 다를 게 없으므로 최소 3대로 시작한다. Sink의 `tasks.max`가 토픽 파티션 수를 넘으면 초과 Task는 놀기만 하므로 Sink는 파티션 수, Source는 테이블·샤드 같은 소스의 병렬 단위에 맞춘다.
+- **Worker 수와 tasks.max.** Worker 1~2대는 Standalone과 다를 게 없으므로 최소 3대로 시작한다. ==Sink의 `tasks.max`가 토픽 파티션 수를 넘으면 초과 Task는 놀기만 하므로 Sink는 파티션 수, Source는 테이블·샤드 같은 소스의 병렬 단위에 맞춘다.==
 - **내부 토픽 replication factor.** 단일 브로커 개발 환경에서 3으로 두면 토픽 생성이 실패하고, 운영에서 1로 두면 브로커 하나 장애에 클러스터 상태를 잃는다.
 - **`group.id` 불일치.** 일부 Worker만 `group.id`가 다르면 두 클러스터로 갈라진다. 일반 Consumer Group ID와 겹쳐도 안 된다.
 - **restart로 풀리지 않는 FAILED.** 설정 오류나 외부 시스템 장애는 재시작해도 같은 자리에서 죽으므로 `trace`를 먼저 읽는다.

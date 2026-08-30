@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-java-collections.md, spring/2026-05-17-java-generics
 updated: 2026-08-29
 ---
 
-백엔드 코드의 대부분은 객체 여러 개를 모아서 조회하고, 걸러내고, 키로 찾는 일이다. 배열만으로는 크기 조절·중복 제거·키 조회를 직접 구현해야 하고, 제네릭이 없던 자바 1.4 시절처럼 컬렉션에 아무 타입이나 들어가면 꺼낼 때마다 캐스팅이 필요하며 잘못된 타입은 런타임 `ClassCastException`으로 드러난다. 값의 부재를 `null`로만 표현하면 검사를 빠뜨리는 순간 `NullPointerException`이 발생한다. 컬렉션, 제네릭, Optional은 이 세 문제를 각각 해결한다.
+백엔드 코드의 대부분은 객체 여러 개를 모아서 조회하고, 걸러내고, 키로 찾는 일이다. 배열만으로는 크기 조절·중복 제거·키 조회를 직접 구현해야 하고, 제네릭이 없던 자바 1.4 시절처럼 컬렉션에 아무 타입이나 들어가면 꺼낼 때마다 캐스팅이 필요하며 잘못된 타입은 런타임 `ClassCastException`으로 드러난다. 값의 부재를 `null`로만 표현하면 검사를 빠뜨리는 순간 `NullPointerException`이 발생한다. ==컬렉션, 제네릭, Optional은 이 세 문제를 각각 해결한다.==
 
 ## 핵심 개념
 
@@ -160,9 +160,9 @@ public class UserService {
 
 ## 실무에서 걸리는 지점
 
-- **`HashMap`을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.** 공유 상태에는 `ConcurrentHashMap`을 쓴다.
+- ==**`HashMap`을 여러 스레드가 동시에 수정하면 예외 없이 데이터가 손상될 수 있다.**== 공유 상태에는 `ConcurrentHashMap`을 쓴다.
 - **`orElse`의 인자는 값이 있어도 평가된다.** DB 조회처럼 비용이 있는 기본값은 `orElseGet`으로 지연시킨다.
-- **`Optional`은 반환 타입 전용이다.** 필드에 두면 직렬화와 JPA 매핑이 깨지고, 빈 컬렉션이 부재를 표현하므로 `Optional<List<T>>`로 감싸지 않는다.
+- ==**`Optional`은 반환 타입 전용이다.**== 필드에 두면 직렬화와 JPA 매핑이 깨지고, 빈 컬렉션이 부재를 표현하므로 `Optional<List<T>>`로 감싸지 않는다.
 - **타입 소거 때문에 제네릭 타입 역직렬화는 힌트가 필요하다.** `RestClient`에서 `.body(List.class)`로 받으면 `List<LinkedHashMap>`이 되므로 `ParameterizedTypeReference<List<User>>`를 넘긴다.
 
 ## 관련 글

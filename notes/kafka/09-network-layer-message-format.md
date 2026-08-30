@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-implementation-network-layer.md, data-infr
 updated: 2026-08-29
 ---
 
-브로커 한 대에는 수만 개의 TCP 연결이 동시에 맺힌다. 연결마다 스레드를 배정하면 OS 한계에 닿고 컨텍스트 스위칭만으로 CPU가 소진된다. 또한 수신 바이트를 변환해 저장하면 쓰기와 전송마다 직렬화 비용이 붙고 커널 zero-copy가 불가능해진다. Kafka는 Java NIO 기반 3단 스레드 풀과 wire·디스크 공용 바이너리 포맷으로 두 문제를 해결한다.
+브로커 한 대에는 수만 개의 TCP 연결이 동시에 맺힌다. 연결마다 스레드를 배정하면 OS 한계에 닿고 컨텍스트 스위칭만으로 CPU가 소진된다. 또한 수신 바이트를 변환해 저장하면 쓰기와 전송마다 직렬화 비용이 붙고 커널 zero-copy가 불가능해진다. ==Kafka는 Java NIO 기반 3단 스레드 풀과 wire·디스크 공용 바이너리 포맷으로 두 문제를 해결한다.==
 
 ## 핵심 개념
 
@@ -134,7 +134,7 @@ public class OrderEventPublisher {
 ## 실무에서 걸리는 지점
 
 - **스레드 증설 기준은 idle percent다.** `NetworkProcessorAvgIdlePercent`가 0.3 아래로 지속되면 `num.network.threads`를, `RequestHandlerAvgIdlePercent`가 0.3 아래면 `num.io.threads`를 늘린다. io 스레드 부족은 디스크 포화의 결과인 경우가 많다.
-- **`RemoteTimeMs`는 스레드 문제가 아니다.** `acks=all` Produce가 팔로워 복제 완료를 기다리는 시간이며, 팔로워 fetch 지연과 ISR 축소를 봐야 한다.
+- ==**`RemoteTimeMs`는 스레드 문제가 아니다.**== `acks=all` Produce가 팔로워 복제 완료를 기다리는 시간이며, 팔로워 fetch 지연과 ISR 축소를 봐야 한다.
 - **SSL 리스너는 zero-copy를 잃는다.** TLS는 유저 공간에서 수행되므로 `sendfile()`을 쓸 수 없고 Fetch마다 CPU 비용이 든다.
 - **`compression.type`을 프로듀서와 브로커에서 맞춘다.** 토픽 설정이 `producer`가 아니고 코덱이 다르면 브로커가 매 배치를 재압축하며 그 비용이 RequestHandler 풀에 얹힌다.
 - **`max.connections.per.ip`는 기본값이 사실상 무제한이다.** 커넥션을 반환하지 않는 클라이언트 버그가 Selector를 채우므로 상한을 둔다. `connections.max.idle.ms`(기본 10분)와 로드밸런서 idle timeout이 어긋나면 끊긴 연결에 대한 재시도가 폭증한다.

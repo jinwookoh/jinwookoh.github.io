@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/lambda-functional-stream/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>람다·함수형 인터페이스·Stream</h1>
   <p class="summary">람다는 함수형 인터페이스의 인스턴스이고, Stream은 그 람다를 받아 컬렉션을 선언적으로 처리하는 일회용 지연 파이프라인이다.</p>
   <div class="content">
-<p>자바 8 이전에는 동작을 인자로 넘기려면 익명 내부 클래스가 필요했다. 정렬 기준 한 줄을 위해 <code>Comparator</code> 구현 6줄을 감싸야 했고, 필터 조건이 늘 때마다 메서드가 하나씩 늘어났다. 컬렉션 처리도 <code>for</code>와 <code>if</code>를 중첩해 순회 방법을 직접 적어야 했으므로 의도가 보일러플레이트에 묻혔다. 람다는 함수를 값으로 다루게 하고, 함수형 인터페이스는 그 값의 표준 타입을 제공하며, Stream은 둘을 받아 컬렉션 처리를 선언형 파이프라인으로 바꾼다.</p>
+<p>자바 8 이전에는 동작을 인자로 넘기려면 익명 내부 클래스가 필요했다. 정렬 기준 한 줄을 위해 <code>Comparator</code> 구현 6줄을 감싸야 했고, 필터 조건이 늘 때마다 메서드가 하나씩 늘어났다. 컬렉션 처리도 <code>for</code>와 <code>if</code>를 중첩해 순회 방법을 직접 적어야 했으므로 의도가 보일러플레이트에 묻혔다. <mark>람다는 함수를 값으로 다루게 하고, 함수형 인터페이스는 그 값의 표준 타입을 제공하며, Stream은 둘을 받아 컬렉션 처리를 선언형 파이프라인으로 바꾼다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>람다는 함수형 인터페이스의 인스턴스다</h3>
 <p>람다의 타입은 추상 메서드가 정확히 하나인 인터페이스이며 default·static 메서드는 몇 개든 무방하다. <code>@FunctionalInterface</code>는 이 조건을 컴파일 타임에 검증하므로 붙이는 것이 표준이다.</p>
@@ -116,9 +116,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>parallelStream</code>은 기본 선택지가 아니다.</strong> 공용 <code>ForkJoinPool.commonPool</code>을 다른 작업과 나눠 쓰고, 데이터가 수만 건 미만이면 분할·병합 오버헤드가 이득을 상회하며, I/O가 섞인 람다는 공용 풀을 블로킹한다. CPU 집약적이고 순서 무관하며 부작용 없는 작업에 한해 측정 후 적용한다.</li>
+<li><mark><strong><code>parallelStream</code>은 기본 선택지가 아니다.</strong></mark> 공용 <code>ForkJoinPool.commonPool</code>을 다른 작업과 나눠 쓰고, 데이터가 수만 건 미만이면 분할·병합 오버헤드가 이득을 상회하며, I/O가 섞인 람다는 공용 풀을 블로킹한다. CPU 집약적이고 순서 무관하며 부작용 없는 작업에 한해 측정 후 적용한다.</li>
 <li><strong><code>forEach</code> 안에서 외부 컬렉션을 수정하지 않는다.</strong> <code>ArrayList</code>에 <code>add</code>하는 부작용은 병렬 전환 시 race condition이 된다. 결과는 <code>toList</code>나 <code>collect</code>로 수집한다. 단순 순회만 있다면 for-each가 더 읽기 쉽다.</li>
-<li><strong><code>Collectors.toMap</code>은 키 중복 시 <code>IllegalStateException</code>을 던진다.</strong> 중복 가능한 키에는 세 번째 인자로 병합 함수를 넘긴다.</li>
+<li><mark><strong><code>Collectors.toMap</code>은 키 중복 시 <code>IllegalStateException</code>을 던진다.</strong></mark> 중복 가능한 키에는 세 번째 인자로 병합 함수를 넘긴다.</li>
 <li><strong>박싱 비용과 <code>Optional</code> 위치.</strong> 합계·평균은 <code>mapToInt</code>로 원시 스트림에서 계산한다. <code>Optional</code>은 반환 타입에서만 쓰고 필드나 파라미터에는 쓰지 않으며, 기본값이 비싼 계산이면 <code>orElse</code> 대신 <code>orElseGet</code>을 쓴다.</li>
 </ul>
 <h2>관련 글</h2>

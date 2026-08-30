@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/step-listeners/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Step Listener</h1>
   <p class="summary">Step 실행 사이클에 끼어드는 Listener 6종의 호출 시점과 트랜잭션 커밋 전후 위치를 정리한다</p>
   <div class="content">
-<p>Chunk 지향 Step은 시작·Chunk 시작·read·process·write·Chunk 종료·Step 종료로 이어지는 사이클로 돈다. 이 사이클의 특정 지점에서 메트릭을 찍거나, 실패 항목을 별도 테이블에 기록하거나, ExitStatus를 조건에 따라 바꾸는 요구는 거의 모든 배치에 있다. 이런 코드를 Reader·Writer 안에 섞으면 컴포넌트가 부수 작업으로 오염되고, &quot;실제로 skip된 항목&quot;처럼 프레임워크 내부 상태에 의존하는 정보는 컴포넌트 수준에서 알 수 없다. Spring Batch는 이 지점들을 <code>StepListener</code> 계열 인터페이스 6종으로 열어 둔다.</p>
+<p>Chunk 지향 Step은 시작·Chunk 시작·read·process·write·Chunk 종료·Step 종료로 이어지는 사이클로 돈다. 이 사이클의 특정 지점에서 메트릭을 찍거나, 실패 항목을 별도 테이블에 기록하거나, ExitStatus를 조건에 따라 바꾸는 요구는 거의 모든 배치에 있다. 이런 코드를 Reader·Writer 안에 섞으면 컴포넌트가 부수 작업으로 오염되고, &quot;실제로 skip된 항목&quot;처럼 프레임워크 내부 상태에 의존하는 정보는 컴포넌트 수준에서 알 수 없다. <mark>Spring Batch는 이 지점들을 <code>StepListener</code> 계열 인터페이스 6종으로 열어 둔다.</mark></p>
 <h2>핵심 개념</h2>
 <p><code>StepListener</code>는 비어 있는 marker 인터페이스이고, 실제 후크는 하위 인터페이스 6개가 제공한다. 모든 메서드가 default이므로 필요한 것만 오버라이드한다.</p>
 <table>
@@ -68,7 +68,7 @@
 </tbody></table>
 <p>한 Chunk 안의 순서는 <code>beforeChunk</code> → (read·process 항목 단위 반복) → <code>beforeWrite</code> → <code>write()</code> → <code>afterWrite</code> → <code>SkipListener</code> → 커밋 → <code>afterChunk</code>다. <code>afterWrite</code>와 <code>afterChunk</code>는 커밋 경계를 사이에 두고 갈린다.</p>
 <p><code>afterStep</code>의 반환값이 Step의 최종 <code>ExitStatus</code>가 되며, Flow의 조건부 transition이 이 값을 본다. <code>afterProcess</code>의 <code>result</code>가 null이면 Processor가 필터링한 것이다.</p>
-<p><code>onXxxError</code> 후크는 예외가 날 때마다, 재시도 끝에 성공해도 시도마다 불리므로 최종 skip 여부는 알 수 없다. 그것은 <code>SkipListener</code>만 알려 주며, 프레임워크는 항목당 한 번만, 항상 커밋 직전에 호출됨을 보증한다. 롤백과 재스캔이 반복되는 fault-tolerant Step에서도 유지된다.</p>
+<p><code>onXxxError</code> 후크는 예외가 날 때마다, 재시도 끝에 성공해도 시도마다 불리므로 최종 skip 여부는 알 수 없다. <mark>그것은 <code>SkipListener</code>만 알려 주며, 프레임워크는 항목당 한 번만, 항상 커밋 직전에 호출됨을 보증한다.</mark> 롤백과 재스캔이 반복되는 fault-tolerant Step에서도 유지된다.</p>
 <p>각 후크는 <code>org.springframework.batch.core.annotation</code> 패키지의 어노테이션(<code>@BeforeStep</code>, <code>@AfterChunk</code>, <code>@OnSkipInWrite</code> 등 메서드명과 1:1 대응)으로도 붙일 수 있다. 후크 하나만 필요하면 어노테이션, 여러 후크의 시그니처를 컴파일 타임에 강제하려면 인터페이스가 맞다.</p>
 <p>등록은 <code>StepBuilder.listener()</code>에 넘기면 되고, 빌더가 구현체와 어노테이션 POJO를 모두 인식한다. Reader·Writer 자체가 Listener를 구현하면 자동 등록되지만 빌더에 직접 전달된 객체에만 적용되며, delegate 안쪽 컴포넌트는 <code>.listener()</code>로 따로 등록해야 한다.</p>
 <h2>코드</h2>
@@ -193,7 +193,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>afterWrite</code> 안의 외부 호출은 롤백에 묶인다.</strong> 커밋 이전에 불리므로 여기서 발행한 메시지나 외부 API 호출은 이후 커밋이 실패해도 되돌릴 수 없다. 커밋 이후가 필요하면 <code>afterChunk</code>, 같은 트랜잭션에 묶여야 하는 기록이면 <code>SkipListener</code>를 쓴다.</li>
+<li><mark><strong><code>afterWrite</code> 안의 외부 호출은 롤백에 묶인다.</strong></mark> 커밋 이전에 불리므로 여기서 발행한 메시지나 외부 API 호출은 이후 커밋이 실패해도 되돌릴 수 없다. 커밋 이후가 필요하면 <code>afterChunk</code>, 같은 트랜잭션에 묶여야 하는 기록이면 <code>SkipListener</code>를 쓴다.</li>
 <li><strong>Multi-threaded Step에서는 <code>ChunkListener</code>가 보장되지 않는다.</strong> 공식 문서가 concurrent step에서의 호출을 보장하지 않는다고 명시한다. Tasklet Step에는 Chunk가 없어 의미가 없다.</li>
 <li><strong><code>ChunkListener</code>에서 예외를 던지면 Step이 실패한다.</strong> 내부 외부 호출은 try-catch로 감싸고 실패는 로그로만 남긴다.</li>
 <li><strong><code>onXxxError</code>로 skip 통계를 내면 숫자가 부풀려진다.</strong> skip 집계는 <code>SkipListener</code>에서 하고, 같은 항목에 <code>onSkipInXxx</code>가 두 번 불리면 Listener 중복 등록을 의심한다.</li>

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/registry-backends-actuator/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Registry·push vs pull·Actuator 연동</h1>
   <p class="summary">MeterRegistry 구현체가 pull과 push로 어떻게 갈리는지, Actuator가 그 위에 무엇을 자동으로 얹는지 정리한다.</p>
   <div class="content">
-<p>계측 코드가 한 줄이어도 그 값이 어디로 어떻게 나가는지는 MeterRegistry 구현체가 결정한다. 이 구조를 모르면 의존성은 넣었는데 <code>enabled</code>나 API 키가 빠져 메트릭이 어느 백엔드로도 나가지 않는 상태를 로그 없이 겪고, pull과 push의 카운터 의미 차이 때문에 같은 Counter가 두 백엔드에서 다른 숫자로 보이며, <code>@Timed</code>를 붙이고도 데이터가 없는 상황이 생긴다.</p>
+<p><mark>계측 코드가 한 줄이어도 그 값이 어디로 어떻게 나가는지는 MeterRegistry 구현체가 결정한다.</mark> 이 구조를 모르면 의존성은 넣었는데 <code>enabled</code>나 API 키가 빠져 메트릭이 어느 백엔드로도 나가지 않는 상태를 로그 없이 겪고, pull과 push의 카운터 의미 차이 때문에 같은 Counter가 두 백엔드에서 다른 숫자로 보이며, <code>@Timed</code>를 붙이고도 데이터가 없는 상황이 생긴다.</p>
 <h2>핵심 개념</h2>
 <p>MeterRegistry는 추상 클래스이고 실제 동작은 백엔드별 구현체가 한다. Spring Boot는 클래스패스의 레지스트리 의존성을 보고 구현체 빈을 만들고, 둘 이상이면 CompositeMeterRegistry로 묶어 주입한다. Composite는 한 호출을 모든 child에 전달할 뿐 이중 집계하지 않으므로 백엔드 이전 검증 기간에 적합하다.</p>
 <table>
@@ -52,7 +52,7 @@
 </tr>
 </tbody></table>
 <p>StepMeterRegistry는 step 구간 단위로 집계해 전송하므로 step 도중 프로세스가 사라지면 그 구간은 어디에도 남지 않는다. scrape 시점에 이미 종료된 배치 잡은 PushGateway에 push해 두고 Prometheus가 PushGateway를 scrape하게 한다. <code>shutdown-operation: push</code>로 정상 종료 시 마지막 push를 보장하되, 오래 사는 서비스에 쓰면 stale 메트릭이 남으므로 단명 작업 전용이다.</p>
-<p>Actuator 연동은 auto-configuration이 맡는다. <code>spring-boot-starter-actuator</code>와 레지스트리 의존성이 있으면 레지스트리 빈과 <code>/actuator/prometheus</code>가 등록되고, 내장 MeterBinder가 JVM·HikariCP·Tomcat·HTTP 서버(<code>http.server.requests</code>, uri·method·status·outcome 태그)·HTTP 클라이언트·Logback·캐시·Kafka 메트릭을 자동 등록한다. 노출은 자동이 아니라 <code>management.endpoints.web.exposure.include</code>에 <code>prometheus</code>를 명시해야 하고, <code>/actuator/metrics</code>는 JSON 탐색용이라 scrape target이 될 수 없다.</p>
+<p>Actuator 연동은 auto-configuration이 맡는다. <code>spring-boot-starter-actuator</code>와 레지스트리 의존성이 있으면 레지스트리 빈과 <code>/actuator/prometheus</code>가 등록되고, 내장 MeterBinder가 JVM·HikariCP·Tomcat·HTTP 서버(<code>http.server.requests</code>, uri·method·status·outcome 태그)·HTTP 클라이언트·Logback·캐시·Kafka 메트릭을 자동 등록한다. <mark>노출은 자동이 아니라 <code>management.endpoints.web.exposure.include</code>에 <code>prometheus</code>를 명시해야 하고, <code>/actuator/metrics</code>는 JSON 탐색용이라 scrape target이 될 수 없다.</mark></p>
 <p>직접 얹는 수단은 세 가지다. <code>@Timed</code>·<code>@Counted</code>는 TimedAspect·CountedAspect 빈이 있어야 동작한다. MeterRegistryCustomizer는 common tag와 MeterFilter를 주입하며, 타입 파라미터가 <code>MeterRegistry</code>면 모든 child에 적용된다. Observation API는 하나의 Observation으로 Timer와 Span을 동시에 만들고, <code>lowCardinalityKeyValue</code>는 메트릭 태그와 trace 양쪽에, <code>highCardinalityKeyValue</code>는 trace에만 기록된다. <code>@Observed</code>에는 ObservedAspect와 <code>micrometer-tracing-bridge-otel</code> 의존성이 필요하다.</p>
 <h2>코드</h2>
 <p>프로파일별로 레지스트리를 명시적으로 켜고 운영에서는 Prometheus와 Datadog을 동시에 활성화하는 설정이다.</p>
@@ -200,7 +200,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>child 없는 Composite.</strong> <code>enabled: false</code>이거나 API 키가 비면 빈 Composite가 주입돼 메트릭이 조용히 사라진다. 기동 시 <code>getRegistries()</code>를 로그로 남긴다.</li>
+<li><mark><strong>child 없는 Composite.</strong> <code>enabled: false</code>이거나 API 키가 비면 빈 Composite가 주입돼 메트릭이 조용히 사라진다.</mark> 기동 시 <code>getRegistries()</code>를 로그로 남긴다.</li>
 <li><strong>step·scrape 주기와 강제 종료.</strong> scrape 주기는 push step 이하로 맞추고, graceful shutdown 대기 시간을 step보다 길게 잡아야 마지막 구간이 전송된다. SIGKILL은 shutdown hook을 건너뛰므로 <code>terminationGracePeriodSeconds</code>도 늘린다.</li>
 <li><strong>PushGateway 레이블.</strong> scrape 설정에 <code>honor_labels: true</code>가 없으면 잡별 <code>job</code>·<code>instance</code> 레이블이 덮어써진다.</li>
 <li><strong>Aspect·클라이언트 빈 누락.</strong> HTTP 메트릭은 잡히는데 서비스 메서드 메트릭만 없다면 Aspect 빈 미등록을 의심한다. HTTP 클라이언트는 <code>RestClient.Builder</code>·<code>WebClient.Builder</code> 빈으로 만들어야 계측된다.</li>

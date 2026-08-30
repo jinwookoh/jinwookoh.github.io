@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/grpc-concepts-protobuf/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,12 +24,12 @@
   <h1>gRPC — 개념·HTTP/2·Protobuf</h1>
   <p class="summary">gRPC는 Protobuf 스키마와 HTTP/2 전송을 결합한 RPC이며, 필드 번호가 와이어 호환성을 결정한다.</p>
   <div class="content">
-<p>마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.</p>
+<p>마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. <mark>gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>gRPC는 Google 내부 RPC(Stubby)를 2015년 오픈소스화한 CNCF 프로젝트다. Protobuf가 스키마를 정의하고 바이너리로 직렬화하며, HTTP/2가 그 바이트를 나르고, gRPC가 둘을 결합해 언어별 스텁을 생성한다. Kubernetes·Envoy·Istio가 기본 지원하므로 외부 API는 REST, 내부 통신은 gRPC로 두는 구성이 일반적이다.</p>
 <p>HTTP/2는 한 TCP 연결 위에 여러 스트림을 다중화하고, HPACK으로 헤더를 압축하며, 바이너리 프레임을 쓰고, 스트림 단위 양방향 전송을 지원한다. gRPC는 RPC 호출 하나를 HTTP/2 스트림 하나에 대응시켜 연결 하나로 수많은 호출을 병렬 처리한다.</p>
 <p>RPC 모드는 요청·응답이 단일 메시지인지 스트림인지에 따라 Unary(1:1), Server Streaming(1:N), Client Streaming(N:1), Bidirectional Streaming(N:N)으로 나뉘며, <code>rpc</code> 선언의 <code>stream</code> 키워드 위치가 결정한다. RSocket의 Interaction Model과 거의 대응하지만, gRPC는 Protobuf를 전제로 하고 백프레셔는 HTTP/2 흐름 제어에 의존한다.</p>
-<p>Protobuf 와이어 형식에는 필드 이름이 없다. 필드 번호와 와이어 타입을 합친 태그, 길이, 값만 직렬화되므로 번호가 와이어 식별자이고 이름은 코드 생성용이다. 이름 변경은 호환되지만 번호를 바꾸면 기존 데이터가 다른 필드로 해석된다. 1<del>15는 태그가 1바이트라 자주 쓰는 필드에 배정하고, 19000</del>19999는 내부 예약 범위다.</p>
+<p>Protobuf 와이어 형식에는 필드 이름이 없다. 필드 번호와 와이어 타입을 합친 태그, 길이, 값만 직렬화되므로 번호가 와이어 식별자이고 이름은 코드 생성용이다. <mark>이름 변경은 호환되지만 번호를 바꾸면 기존 데이터가 다른 필드로 해석된다.</mark> 1<del>15는 태그가 1바이트라 자주 쓰는 필드에 배정하고, 19000</del>19999는 내부 예약 범위다.</p>
 <p><code>int32</code>/<code>int64</code>는 varint라 작은 양수에 유리하지만 음수는 10바이트를 차지하므로, 음수가 잦으면 zigzag 인코딩의 <code>sint32</code>/<code>sint64</code>, 항상 큰 값이면 <code>fixed32</code>/<code>fixed64</code>를 쓴다. proto3 스칼라 기본값은 null이 아니라 <code>&quot;&quot;</code>, 0, false이며, 미설정과 구분하려면 <code>optional</code>이나 Wrapper 타입을 쓴다. proto2의 <code>required</code>는 제거되었다.</p>
 <p>복합 구조로는 <code>repeated</code>, <code>map&lt;K, V&gt;</code>(키는 정수·string·bool만), 중첩 메시지, <code>enum</code>(첫 값은 반드시 0), <code>oneof</code>(하나만 설정, 다른 필드 설정 시 기존 값 해제)가 있고, Well-Known Types로 <code>Timestamp</code>·<code>Duration</code>·<code>Empty</code>·<code>Any</code>가 제공된다.</p>
 <p>스키마 진화 규칙은 번호 중심이다. 새 필드 추가는 안전하다. 구버전은 모르는 필드를 무시하고 신버전은 없는 필드를 기본값으로 읽는다. 필드 삭제 시 번호와 이름을 <code>reserved</code>로 남기면 재사용이 컴파일 단계에서 차단된다. 번호 변경, <code>repeated</code>와 단일 필드 간 변경은 파괴적이다. <code>int32</code>↔<code>int64</code>↔<code>uint32</code>↔<code>bool</code>, UTF-8 유효 데이터에 한한 <code>string</code>↔<code>bytes</code>는 와이어 호환된다.</p>
@@ -164,7 +164,7 @@ protobuf {
       <span class="hljs-attr">negotiation-type:</span> <span class="hljs-string">plaintext</span></code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>스텁 종류와 모드 불일치.</strong> <code>BlockingStub</code>은 Unary와 Server Streaming만, <code>FutureStub</code>은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 <code>Stub</code>으로만 호출한다. WebFlux 이벤트 루프에서 <code>BlockingStub</code>을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.</li>
+<li><strong>스텁 종류와 모드 불일치.</strong> <code>BlockingStub</code>은 Unary와 Server Streaming만, <code>FutureStub</code>은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 <code>Stub</code>으로만 호출한다. <mark>WebFlux 이벤트 루프에서 <code>BlockingStub</code>을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.</mark></li>
 <li><strong>필드 번호 재사용.</strong> <code>reserved</code> 없이 필드를 지우면 같은 번호가 다른 타입에 배정될 수 있다. 구버전 데이터가 새 필드로 잘못 해석되지만 컴파일 경고는 없다.</li>
 <li><strong>기본값과 미설정의 구분.</strong> <code>int32 age = 0</code>은 0인지 값 없음인지 구분되지 않아, 부분 업데이트 API에서 0으로 덮어쓰는 버그가 생긴다. <code>optional</code>이나 Wrapper 타입을 쓰고 <code>hasXxx()</code>로 검사한다.</li>
 <li><strong>단일 장수 연결의 쏠림.</strong> L4 로드 밸런서 뒤에서는 HTTP/2 연결 하나가 특정 인스턴스에 고정된다. 클라이언트 측 로드 밸런싱이나 L7 프록시를 두고 <code>max-connection-age</code>로 연결을 주기적으로 재수립한다.</li>

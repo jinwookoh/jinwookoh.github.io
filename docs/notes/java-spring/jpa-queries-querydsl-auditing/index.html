@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jpa-queries-querydsl-auditing/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>쿼리 — 메서드 이름·@Query·QueryDSL·Auditing</h1>
   <p class="summary">단순 조건은 메서드 이름, 조인은 @Query, 동적 조건은 QueryDSL로 나누고 생성·수정 이력은 Auditing에 맡긴다</p>
   <div class="content">
-<p><code>JpaRepository</code>의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 <code>(:status IS NULL OR o.status = :status)</code> 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. <code>created_at</code>·<code>updated_at</code>을 서비스 코드에서 손으로 채우면 누락이 생긴다. 쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.</p>
+<p><code>JpaRepository</code>의 기본 CRUD만으로는 상태별·기간별·조인 조회를 처리할 수 없다. JPQL 문자열로만 해결하면 조건이 늘수록 <code>(:status IS NULL OR o.status = :status)</code> 분기가 쌓이고, 필드 이름을 바꿔도 컴파일은 통과해 런타임에 깨진다. <code>created_at</code>·<code>updated_at</code>을 서비스 코드에서 손으로 채우면 누락이 생긴다. <mark>쿼리 작성 방식 세 가지와 Auditing이 이를 나누어 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>메서드 이름 쿼리</h3>
 <p><code>findByStatusAndAmountGreaterThan(String, int)</code> 같은 메서드를 선언하면 Spring Data JPA가 시작 시 이름을 파싱해 JPQL을 생성한다. 접두어는 <code>find</code>·<code>count</code>·<code>exists</code>·<code>delete</code>, 조건은 <code>LessThan</code>·<code>GreaterThan</code>·<code>Between</code>·<code>Like</code>·<code>Containing</code>·<code>In</code>·<code>IsNull</code>, 결합은 <code>And</code>·<code>Or</code>, 정렬·제한은 <code>OrderBy…Desc</code>·<code>Top&lt;N&gt;</code>이다. 조건이 서너 개를 넘으면 <code>@Query</code>로 넘긴다.</p>
@@ -187,9 +187,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>@Modifying</code> 벌크 쿼리와 1차 캐시 불일치.</strong> 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다. <code>clearAutomatically = true</code>를 준다. Auditing도 타지 않는다.</li>
+<li><mark><strong><code>@Modifying</code> 벌크 쿼리와 1차 캐시 불일치.</strong> 벌크 UPDATE는 DB에 직접 반영되고 영속성 컨텍스트는 갱신되지 않는다.</mark> <code>clearAutomatically = true</code>를 준다. Auditing도 타지 않는다.</li>
 <li><strong>count 쿼리 비용.</strong> <code>Page&lt;T&gt;</code>는 매 요청마다 count 쿼리를 실행한다. count 쿼리에서는 fetch join을 빼고, 전체 개수가 필요 없으면 <code>Slice&lt;T&gt;</code>로 대체한다.</li>
-<li><strong>컬렉션 fetch join과 페이징.</strong> <code>@OneToMany</code>를 fetch join한 채 <code>limit</code>을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(<code>HHH90003004</code> 경고). 컬렉션은 <code>default_batch_fetch_size</code>로 푼다.</li>
+<li><mark><strong>컬렉션 fetch join과 페이징.</strong> <code>@OneToMany</code>를 fetch join한 채 <code>limit</code>을 걸면 Hibernate가 전체 행을 메모리에 올린 뒤 잘라낸다(<code>HHH90003004</code> 경고).</mark> 컬렉션은 <code>default_batch_fetch_size</code>로 푼다.</li>
 <li><strong>Q 클래스 생성 실패.</strong> <code>QOrder cannot be resolved</code>는 어노테이션 프로세서 누락이거나 컴파일 전 상태다. Spring Boot 3에서는 <code>querydsl-jpa</code>·<code>querydsl-apt</code>에 <code>jakarta</code> classifier가 필요하다.</li>
 <li><strong>Auditing이 비는 경우.</strong> <code>@EnableJpaAuditing</code>이나 부모 클래스의 <code>@EntityListeners</code>가 빠지면 null이 들어간다. <code>AuditorAware</code>가 익명 인증을 거르지 않으면 <code>createdBy</code>에 <code>anonymousUser</code>가 기록된다.</li>
 </ul>

@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/react/forms-validation/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>폼 — 제어/비제어 컴포넌트와 검증</h1>
   <p class="summary">입력값의 소유자를 React 상태로 둘지 DOM에 둘지 정하는 기준과, React 19 form action·useActionState로 검증·제출을 처리하는 방법</p>
   <div class="content">
-<p><code>&lt;input&gt;</code>은 브라우저가 자체적으로 값을 들고 있는 요소이고, React 컴포넌트도 상태를 갖는다. 누가 값의 주인인지 정하지 않으면 타이핑해도 글자가 안 바뀌는 입력창, 초기값이 나중에 덮어써지는 버그가 생긴다. 제출 처리도 <code>preventDefault</code>·로딩 플래그·에러 상태·초기화 코드를 폼마다 반복하게 된다. React 19는 폼 제출을 프레임워크 차원의 개념으로 끌어올려 이 반복을 줄였다.</p>
+<p><code>&lt;input&gt;</code>은 브라우저가 자체적으로 값을 들고 있는 요소이고, React 컴포넌트도 상태를 갖는다. 누가 값의 주인인지 정하지 않으면 타이핑해도 글자가 안 바뀌는 입력창, 초기값이 나중에 덮어써지는 버그가 생긴다. 제출 처리도 <code>preventDefault</code>·로딩 플래그·에러 상태·초기화 코드를 폼마다 반복하게 된다. <mark>React 19는 폼 제출을 프레임워크 차원의 개념으로 끌어올려 이 반복을 줄였다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>제어 컴포넌트와 비제어 컴포넌트</h3>
 <p>React는 <code>&lt;input&gt;</code>에 값을 넘기는 방식에 따라 두 모드를 구분한다.</p>
@@ -57,14 +57,14 @@
 <td>단순 제출 폼, 파일 입력, 대형 폼</td>
 </tr>
 </tbody></table>
-<p><code>value</code>를 넘기는 순간 그 입력은 제어 컴포넌트가 된다. <code>onChange</code>로 상태를 갱신하지 않으면 React가 같은 값을 다시 밀어 넣으므로 화면이 고정된다. <code>value</code>가 <code>undefined</code>였다가 문자열이 되면 비제어에서 제어로 바뀌는 셈이라 경고가 난다. <code>checkbox</code>·<code>radio</code>는 <code>checked</code>/<code>defaultChecked</code>로 같은 규칙을 따르고, <code>&lt;input type=&quot;file&quot;&gt;</code>은 값을 프로그램이 설정할 수 없으므로 항상 비제어다.</p>
+<p><mark><code>value</code>를 넘기는 순간 그 입력은 제어 컴포넌트가 된다.</mark> <code>onChange</code>로 상태를 갱신하지 않으면 React가 같은 값을 다시 밀어 넣으므로 화면이 고정된다. <code>value</code>가 <code>undefined</code>였다가 문자열이 되면 비제어에서 제어로 바뀌는 셈이라 경고가 난다. <code>checkbox</code>·<code>radio</code>는 <code>checked</code>/<code>defaultChecked</code>로 같은 규칙을 따르고, <code>&lt;input type=&quot;file&quot;&gt;</code>은 값을 프로그램이 설정할 수 없으므로 항상 비제어다.</p>
 <p>Spring MVC로 치면 제어 컴포넌트는 <code>@ModelAttribute</code> 바인딩 객체를 매 요청마다 뷰에 되돌리는 방식, 비제어 컴포넌트는 <code>getParameter</code>로 제출 시점에만 꺼내 쓰는 방식에 가깝다.</p>
 <h3><code>&lt;form action&gt;</code>과 Actions</h3>
 <p>React 19부터 <code>&lt;form&gt;</code>의 <code>action</code> prop에 URL 대신 함수를 넘길 수 있다. 제출 시 React가 기본 네비게이션을 막고 <code>FormData</code>를 그 함수에 전달하며, 완료되면 비제어 필드를 초기화한다. 이 함수가 Action이며 비동기여도 된다. <code>&lt;button formAction={fn}&gt;</code>으로 버튼마다 다른 Action을 붙일 수 있고, Server Components 환경에서는 <code>&#39;use server&#39;</code> 함수를 바로 넘긴다.</p>
 <h3><code>useActionState</code></h3>
 <p>Action의 결과(검증 에러, 성공 메시지)를 보여 주려면 상태가 필요하다. <code>useActionState(action, initialState)</code>는 <code>[state, formAction, isPending]</code>을 돌려준다. 감싸진 <code>action</code>은 <code>(prevState, formData)</code>로 호출되고 반환값이 다음 <code>state</code>가 된다. <code>isPending</code>이 실행 중 여부를 알려 주므로 로딩 플래그가 따로 필요 없다. 하위 컴포넌트에서 제출 상태만 필요하면 <code>react-dom</code>의 <code>useFormStatus</code>를 쓴다. Spring의 <code>BindingResult</code>가 검증 결과를 뷰로 되돌리는 흐름과 대응된다.</p>
 <h3>검증의 층위</h3>
-<p>검증은 HTML 속성(<code>required</code>, <code>pattern</code>, <code>minLength</code>)으로 브라우저가 막는 층, 클라이언트 코드 층, 서버 층으로 나뉜다. 첫째는 UI 통제가 어렵고, 둘째는 UX용이지 보안이 아니며, 셋째는 생략할 수 없다. Action 안에서 검증하면 둘째·셋째 층이 코드 경로를 공유해 규칙이 갈라지는 문제가 줄어든다.</p>
+<p>검증은 HTML 속성(<code>required</code>, <code>pattern</code>, <code>minLength</code>)으로 브라우저가 막는 층, 클라이언트 코드 층, 서버 층으로 나뉜다. <mark>첫째는 UI 통제가 어렵고, 둘째는 UX용이지 보안이 아니며, 셋째는 생략할 수 없다.</mark> Action 안에서 검증하면 둘째·셋째 층이 코드 경로를 공유해 규칙이 갈라지는 문제가 줄어든다.</p>
 <h2>코드</h2>
 <p>제어 컴포넌트로 입력 즉시 포맷을 강제하는 예다. 숫자 외 문자를 걸러내는 로직이 <code>onChange</code>에 있어 상태와 화면이 항상 일치한다.</p>
 <pre><code class="hljs language-tsx"><span class="hljs-keyword">import</span> { useState } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;react&#x27;</span>;
@@ -132,7 +132,7 @@
 <ul>
 <li><strong>제어 컴포넌트의 리렌더 비용.</strong> 필드 30개가 하나의 객체 상태에 묶여 있으면 한 글자마다 폼 전체가 다시 그려진다. 필드별로 쪼개거나 즉시 반응이 필요 없는 필드는 비제어로 돌린다. React Hook Form이 기본을 비제어로 잡는 이유다.</li>
 <li><strong>제어와 비제어의 전환 경고.</strong> 서버 데이터로 초기화할 때 <code>value={user?.name}</code>이 <code>undefined</code>가 되는 경우가 흔하다. <code>?? &#39;&#39;</code>로 막거나 데이터가 준비된 뒤 <code>key</code>로 폼을 다시 생성한다.</li>
-<li><strong>Action 실패 후 값 손실.</strong> <code>&lt;form action&gt;</code>은 결과와 무관하게 제출이 끝나면 비제어 필드를 초기화한다. 입력값을 유지하려면 반환 상태에 실어 <code>defaultValue</code>로 되돌리거나 해당 필드만 제어 컴포넌트로 둔다.</li>
+<li><mark><strong>Action 실패 후 값 손실.</strong> <code>&lt;form action&gt;</code>은 결과와 무관하게 제출이 끝나면 비제어 필드를 초기화한다.</mark> 입력값을 유지하려면 반환 상태에 실어 <code>defaultValue</code>로 되돌리거나 해당 필드만 제어 컴포넌트로 둔다.</li>
 <li><strong>중복 제출.</strong> <code>isPending</code> 동안 버튼을 비활성화해도 Enter 연타나 네트워크 재시도는 막지 못한다. 서버에서 멱등 키를 받는 편이 안전하다.</li>
 <li><strong>에러 표시 시점.</strong> 타이핑 중 즉시 에러를 띄우면 화면 낭독기가 매 글자마다 알림을 읽는다. 검증은 <code>blur</code>나 제출 시점에 하고, 에러 문구는 <code>aria-describedby</code>로 입력과 연결한다.</li>
 </ul>

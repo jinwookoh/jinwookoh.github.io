@@ -9,7 +9,7 @@ sources: [2026-05-03-vt-concurrency-basics.md, 2026-05-03-vt-virtual-thread.md, 
 updated: 2026-08-29
 ---
 
-전통적인 Java 스레드(Platform Thread)는 OS 커널 스레드와 1:1로 대응한다. 스레드마다 1~2MB의 스택을 고정 예약하고 컨텍스트 스위칭 비용이 크므로 동시 요청 1만 개를 스레드 1만 개로 받는 설계는 성립하지 않았다. 고정 크기 스레드 풀이 표준이 됐지만 처리량이 풀 크기에 묶이고, 요청 시간의 대부분인 I/O 대기 동안 스레드는 놀면서 슬롯을 점유한다. 이를 피하려면 CompletableFuture나 Reactor 같은 논블로킹 모델로 옮겨야 했는데, 코드가 콜백 체인으로 바뀌고 JDBC 같은 블로킹 라이브러리를 그대로 쓸 수 없었다. Java 21에서 정식화된 Virtual Thread(JEP 444)는 블로킹 코드를 그대로 두고 논블로킹 수준의 처리량을 얻기 위한 답이다.
+전통적인 Java 스레드(Platform Thread)는 OS 커널 스레드와 1:1로 대응한다. 스레드마다 1~2MB의 스택을 고정 예약하고 컨텍스트 스위칭 비용이 크므로 동시 요청 1만 개를 스레드 1만 개로 받는 설계는 성립하지 않았다. 고정 크기 스레드 풀이 표준이 됐지만 처리량이 풀 크기에 묶이고, 요청 시간의 대부분인 I/O 대기 동안 스레드는 놀면서 슬롯을 점유한다. 이를 피하려면 CompletableFuture나 Reactor 같은 논블로킹 모델로 옮겨야 했는데, 코드가 콜백 체인으로 바뀌고 JDBC 같은 블로킹 라이브러리를 그대로 쓸 수 없었다. ==Java 21에서 정식화된 Virtual Thread(JEP 444)는 블로킹 코드를 그대로 두고 논블로킹 수준의 처리량을 얻기 위한 답이다.==
 
 ## 핵심 개념
 
@@ -68,7 +68,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 
 ## 실무에서 걸리는 지점
 
-**Pinning — `synchronized` 안에서의 블로킹.** Java 21~23에서 `synchronized` 블록·메서드 안에서 I/O나 `Object.wait()`를 만나면 unmount되지 못하고 Carrier에 고정된다. 이 상태가 동시에 여러 건 발생하면 Carrier 수만큼만 처리되어 Platform Thread 풀과 같아진다. 블로킹 호출을 감싸는 락은 `ReentrantLock` + try-finally로, `wait/notify`는 `Condition`으로 바꾼다. Java 24(JEP 491)부터 `synchronized` 안에서도 unmount되므로 업그레이드가 근본 해결책이다.
+==**Pinning — `synchronized` 안에서의 블로킹.** Java 21~23에서 `synchronized` 블록·메서드 안에서 I/O나 `Object.wait()`를 만나면 unmount되지 못하고 Carrier에 고정된다.== 이 상태가 동시에 여러 건 발생하면 Carrier 수만큼만 처리되어 Platform Thread 풀과 같아진다. 블로킹 호출을 감싸는 락은 `ReentrantLock` + try-finally로, `wait/notify`는 `Condition`으로 바꾼다. Java 24(JEP 491)부터 `synchronized` 안에서도 unmount되므로 업그레이드가 근본 해결책이다.
 
 **JNI와 CPU 집약 코드.** 네이티브 프레임이 스택에 있으면 unmount할 수 없다. 네이티브 대기가 길거나 CPU 연산이 긴 작업은 Platform Thread 풀로 분리한다.
 

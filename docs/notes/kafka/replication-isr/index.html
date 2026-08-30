@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/replication-isr/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Replication — ISR·리더 선출·Unclean</h1>
   <p class="summary">ISR 전원 복제가 committed의 기준이며, RF=3·min.insync.replicas=2·acks=all 조합이 손실 없는 failover를 만든다.</p>
   <div class="content">
-<p>Replication Factor가 1이면 브로커 한 대가 내려가는 순간 파티션은 오프라인이 되고 소비되지 않은 메시지는 복구할 수 없다. 복제본을 여럿 두더라도 어떤 복제본이 최신인지, 어느 시점을 &quot;저장됨&quot;으로 볼지, 누가 승격될지에 대한 규칙이 없으면 오래된 복제본이 리더가 되어 확인 응답까지 나간 메시지가 사라진다. ISR, High Watermark, <code>min.insync.replicas</code>, Unclean Leader Election이 이 규칙을 이룬다.</p>
+<p>Replication Factor가 1이면 브로커 한 대가 내려가는 순간 파티션은 오프라인이 되고 소비되지 않은 메시지는 복구할 수 없다. 복제본을 여럿 두더라도 어떤 복제본이 최신인지, 어느 시점을 &quot;저장됨&quot;으로 볼지, 누가 승격될지에 대한 규칙이 없으면 오래된 복제본이 리더가 되어 확인 응답까지 나간 메시지가 사라진다. <mark>ISR, High Watermark, <code>min.insync.replicas</code>, Unclean Leader Election이 이 규칙을 이룬다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Leader·Follower와 복제 흐름</h3>
 <p>각 파티션은 리더 1개와 팔로워 N개로 구성되며, RF는 리더를 포함한 복제본 수다. 운영 표준은 3이고, 복제본은 서로 다른 브로커에 놓이므로 RF는 브로커 수를 넘을 수 없다. 쓰기는 항상 리더로 가고 읽기도 기본은 리더다(KIP-392로 팔로워 읽기 가능). 팔로워는 리더에서 pull로 가져온다.</p>
@@ -148,7 +148,7 @@ HW = 130</code></pre>
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><code>acks=all</code>만 켜고 <code>min.insync.replicas</code>를 기본값 1로 두면 ISR이 리더만 남은 순간부터 리더 단독 기록으로 응답이 나간다. 두 설정은 세트로 본다.</li>
+<li><mark><code>acks=all</code>만 켜고 <code>min.insync.replicas</code>를 기본값 1로 두면 ISR이 리더만 남은 순간부터 리더 단독 기록으로 응답이 나간다.</mark> 두 설정은 세트로 본다.</li>
 <li><code>min.insync.replicas</code>를 RF와 같게 두면 팔로워 하나만 느려져도 쓰기가 멈춘다. RF=3에는 2가 적정하다.</li>
 <li><code>replica.lag.time.max.ms</code>를 줄이면 짧은 GC 정지에도 ISR이 흔들려 <code>NotEnoughReplicas</code>가 산발한다.</li>
 <li><code>UnderReplicatedPartitions</code>가 0을 넘는 상태는 아직 손실이 아니지만 지속되면 위험하다. <code>UnderMinIsrPartitions</code>와 <code>OfflinePartitionsCount</code>는 즉시 대응 대상이다.</li>

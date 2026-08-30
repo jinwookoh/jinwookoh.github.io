@@ -9,7 +9,7 @@ sources: [2026-05-03-consul-service-mesh.md, 2026-05-03-consul-security.md, 2026
 updated: 2026-08-30
 ---
 
-Consul을 설치한 직후에는 모든 통신이 평문이고 인증도 없다. 누가 누구를 호출할 수 있는지 통제하는 장치가 없고, API·KV·카탈로그는 토큰 없이 누구나 읽고 쓴다. 손상된 노드 하나가 클러스터 상태를 통째로 복제해 갈 수도 있다. 백업이 없으면 잘못된 KV 삭제에서 돌아올 방법도 없다. 이 공백을 Connect, TLS·ACL·Gossip 암호화, 스냅샷이 각각 메운다.
+==Consul을 설치한 직후에는 모든 통신이 평문이고 인증도 없다.== 누가 누구를 호출할 수 있는지 통제하는 장치가 없고, API·KV·카탈로그는 토큰 없이 누구나 읽고 쓴다. 손상된 노드 하나가 클러스터 상태를 통째로 복제해 갈 수도 있다. 백업이 없으면 잘못된 KV 삭제에서 돌아올 방법도 없다. 이 공백을 Connect, TLS·ACL·Gossip 암호화, 스냅샷이 각각 메운다.
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Intentions는 source가 destination에 접속할 수 있는지 정의한다. des
 
 보안은 Gossip 암호화(에이전트 간 멤버십), TLS(RPC·HTTPS API), mTLS(서비스 간 트래픽), ACL(API·KV·카탈로그 접근)의 네 계층으로 나뉜다.
 
-TLS 검증 파라미터 세 개는 모두 기본 false다. `verify_incoming`은 수신 연결에 클라이언트 인증서를 요구하고, `verify_outgoing`은 발신에 TLS를 강제하며, `verify_server_hostname`은 서버 인증서에 `server.<dc>.<domain>` SAN을 요구한다. 마지막이 없으면 손상된 클라이언트가 `server = true`로 재시작해 Raft에 합류하고 상태 전체를 복제하는 권한 상승이 가능하다. 모든 인증서는 같은 CA로 서명하며 `auto_encrypt`로 클라이언트 인증서 배포를 자동화한다.
+TLS 검증 파라미터 세 개는 모두 기본 false다. `verify_incoming`은 수신 연결에 클라이언트 인증서를 요구하고, `verify_outgoing`은 발신에 TLS를 강제하며, `verify_server_hostname`은 서버 인증서에 `server.<dc>.<domain>` SAN을 요구한다. ==마지막이 없으면 손상된 클라이언트가 `server = true`로 재시작해 Raft에 합류하고 상태 전체를 복제하는 권한 상승이 가능하다.== 모든 인증서는 같은 CA로 서명하며 `auto_encrypt`로 클라이언트 인증서 배포를 자동화한다.
 
 ACL은 Policy, Token, Role, Service Identity로 구성되며 규칙은 `key_prefix`·`service_prefix`·`node_prefix` 등에 `read`/`write`/`deny`를 부여한다. `default_policy`는 deny가 기준이고 `down_policy`는 리더 장애 시 캐시 토큰으로 운영을 잇는 `extend-cache`가 권장값이다. 활성화는 allow로 시작해 `consul acl bootstrap`으로 관리 토큰을 만들고, 정책·토큰을 배포해 모든 에이전트에 agent 토큰을 설정한 뒤 deny로 전환한다. bootstrap은 한 번만 가능하다.
 
@@ -108,7 +108,7 @@ spring:
 ## 실무에서 걸리는 지점
 
 - 등록은 됐는데 upstream 연결이 안 되면 프록시 프로세스부터 확인한다.
-- ACL을 처음부터 deny로 켜면 agent 토큰이 없는 노드가 서로 통신하지 못해 클러스터가 멈춘다. allow로 시작해 토큰을 배포한 뒤 전환한다.
+- ==ACL을 처음부터 deny로 켜면 agent 토큰이 없는 노드가 서로 통신하지 못해 클러스터가 멈춘다.== allow로 시작해 토큰을 배포한 뒤 전환한다.
 - Gossip 키 로테이션에서 `-use`를 `-install`보다 먼저 실행하면 새 키를 못 받은 노드가 멤버십에서 떨어진다. 단계마다 `keyring -list`로 전 노드 반영을 확인한다.
 - 스냅샷은 리더에서 생성하고 `inspect`로 검증한 뒤 외부 저장소로 옮기며, 정기적으로 별도 환경에 복원해 본다.
 - `data_dir`를 OS 레벨로 복원할 때는 클러스터 전체를 동시에 처리한다. 한 노드만 되돌리면 Raft가 깨진다.

@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-mapstruct.md]
 updated: 2026-08-29
 ---
 
-Entity를 API 응답으로 그대로 노출하지 않으려면 DTO로 변환하는 코드가 필요하다. 이 변환을 손으로 작성하면 Entity 하나당 정적 팩토리 메서드 하나, 필드 20개면 20줄이 붙는다. 문제는 분량보다 유지보수다. Entity에 필드가 추가됐을 때 변환 메서드를 갱신하지 않으면 응답에서 값이 조용히 빠지고, `getAmount()`를 `setAmount()`가 아닌 다른 setter에 넣는 실수는 컴파일러가 잡아 주지 않는다. 런타임 리플렉션 기반 매퍼(ModelMapper 등)는 코드를 줄여 주지만 필드 이름이 어긋나도 실행 전까지 알 수 없고, 매 호출마다 리플렉션 비용이 든다. MapStruct는 이 두 문제를 컴파일 시점 코드 생성으로 해결한다.
+Entity를 API 응답으로 그대로 노출하지 않으려면 DTO로 변환하는 코드가 필요하다. 이 변환을 손으로 작성하면 Entity 하나당 정적 팩토리 메서드 하나, 필드 20개면 20줄이 붙는다. 문제는 분량보다 유지보수다. Entity에 필드가 추가됐을 때 변환 메서드를 갱신하지 않으면 응답에서 값이 조용히 빠지고, `getAmount()`를 `setAmount()`가 아닌 다른 setter에 넣는 실수는 컴파일러가 잡아 주지 않는다. 런타임 리플렉션 기반 매퍼(ModelMapper 등)는 코드를 줄여 주지만 필드 이름이 어긋나도 실행 전까지 알 수 없고, 매 호출마다 리플렉션 비용이 든다. ==MapStruct는 이 두 문제를 컴파일 시점 코드 생성으로 해결한다.==
 
 ## 핵심 개념
 
@@ -110,10 +110,10 @@ public class OrderService {
 
 ## 실무에서 걸리는 지점
 
-- **Lombok 어노테이션 프로세서 순서.** `lombok-mapstruct-binding` 없이 빌드하면 "Unknown property" 또는 setter를 찾지 못한다는 오류가 난다. Gradle의 `annotationProcessor` 선언만으로는 순서가 보장되지 않으므로 바인딩 아티팩트를 반드시 넣는다.
+- ==**Lombok 어노테이션 프로세서 순서.** `lombok-mapstruct-binding` 없이 빌드하면 "Unknown property" 또는 setter를 찾지 못한다는 오류가 난다.== Gradle의 `annotationProcessor` 선언만으로는 순서가 보장되지 않으므로 바인딩 아티팩트를 반드시 넣는다.
 - **`expression = "java(...)"` 남용.** 문자열 안의 자바 코드는 IDE 리팩터링과 컴파일 검증에서 빠진다. 복잡한 변환은 인터페이스에 `default` 메서드를 두거나 별도 클래스를 `uses`로 등록해 타입이 검증되는 경로로 처리한다.
 - **연관 Entity와 지연 로딩.** `user.name`처럼 연관 객체를 매핑하면 트랜잭션 밖에서 `LazyInitializationException`이 나거나 컬렉션 매핑에서 N+1이 발생한다. 매핑은 트랜잭션 안에서 수행하고, 목록 조회는 fetch join으로 미리 로딩한다.
-- **업데이트 매핑의 null 처리.** 부분 수정 API에서 요청 필드가 null이면 기본 전략은 대상 필드를 null로 덮어쓴다. `NullValuePropertyMappingStrategy.IGNORE`를 명시하지 않으면 의도치 않은 값 삭제가 DB에 반영된다.
+- ==**업데이트 매핑의 null 처리.** 부분 수정 API에서 요청 필드가 null이면 기본 전략은 대상 필드를 null로 덮어쓴다.== `NullValuePropertyMappingStrategy.IGNORE`를 명시하지 않으면 의도치 않은 값 삭제가 DB에 반영된다.
 - **생성 코드 확인 습관.** 매핑 결과가 이상하면 `build/generated/sources/annotationProcessor` 아래 `OrderMapperImpl`을 직접 연다. 어떤 필드가 어떤 getter에서 왔는지 그대로 적혀 있으므로 추측할 이유가 없다.
 
 ## 관련 글

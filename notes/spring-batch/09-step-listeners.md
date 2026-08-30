@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-step-listeners.md]
 updated: 2026-08-29
 ---
 
-Chunk 지향 Step은 시작·Chunk 시작·read·process·write·Chunk 종료·Step 종료로 이어지는 사이클로 돈다. 이 사이클의 특정 지점에서 메트릭을 찍거나, 실패 항목을 별도 테이블에 기록하거나, ExitStatus를 조건에 따라 바꾸는 요구는 거의 모든 배치에 있다. 이런 코드를 Reader·Writer 안에 섞으면 컴포넌트가 부수 작업으로 오염되고, "실제로 skip된 항목"처럼 프레임워크 내부 상태에 의존하는 정보는 컴포넌트 수준에서 알 수 없다. Spring Batch는 이 지점들을 `StepListener` 계열 인터페이스 6종으로 열어 둔다.
+Chunk 지향 Step은 시작·Chunk 시작·read·process·write·Chunk 종료·Step 종료로 이어지는 사이클로 돈다. 이 사이클의 특정 지점에서 메트릭을 찍거나, 실패 항목을 별도 테이블에 기록하거나, ExitStatus를 조건에 따라 바꾸는 요구는 거의 모든 배치에 있다. 이런 코드를 Reader·Writer 안에 섞으면 컴포넌트가 부수 작업으로 오염되고, "실제로 skip된 항목"처럼 프레임워크 내부 상태에 의존하는 정보는 컴포넌트 수준에서 알 수 없다. ==Spring Batch는 이 지점들을 `StepListener` 계열 인터페이스 6종으로 열어 둔다.==
 
 ## 핵심 개념
 
@@ -28,7 +28,7 @@ Chunk 지향 Step은 시작·Chunk 시작·read·process·write·Chunk 종료·S
 
 `afterStep`의 반환값이 Step의 최종 `ExitStatus`가 되며, Flow의 조건부 transition이 이 값을 본다. `afterProcess`의 `result`가 null이면 Processor가 필터링한 것이다.
 
-`onXxxError` 후크는 예외가 날 때마다, 재시도 끝에 성공해도 시도마다 불리므로 최종 skip 여부는 알 수 없다. 그것은 `SkipListener`만 알려 주며, 프레임워크는 항목당 한 번만, 항상 커밋 직전에 호출됨을 보증한다. 롤백과 재스캔이 반복되는 fault-tolerant Step에서도 유지된다.
+`onXxxError` 후크는 예외가 날 때마다, 재시도 끝에 성공해도 시도마다 불리므로 최종 skip 여부는 알 수 없다. ==그것은 `SkipListener`만 알려 주며, 프레임워크는 항목당 한 번만, 항상 커밋 직전에 호출됨을 보증한다.== 롤백과 재스캔이 반복되는 fault-tolerant Step에서도 유지된다.
 
 각 후크는 `org.springframework.batch.core.annotation` 패키지의 어노테이션(`@BeforeStep`, `@AfterChunk`, `@OnSkipInWrite` 등 메서드명과 1:1 대응)으로도 붙일 수 있다. 후크 하나만 필요하면 어노테이션, 여러 후크의 시그니처를 컴파일 타임에 강제하려면 인터페이스가 맞다.
 
@@ -169,7 +169,7 @@ Step orderStep(JobRepository repo, PlatformTransactionManager tx,
 
 ## 실무에서 걸리는 지점
 
-- **`afterWrite` 안의 외부 호출은 롤백에 묶인다.** 커밋 이전에 불리므로 여기서 발행한 메시지나 외부 API 호출은 이후 커밋이 실패해도 되돌릴 수 없다. 커밋 이후가 필요하면 `afterChunk`, 같은 트랜잭션에 묶여야 하는 기록이면 `SkipListener`를 쓴다.
+- ==**`afterWrite` 안의 외부 호출은 롤백에 묶인다.**== 커밋 이전에 불리므로 여기서 발행한 메시지나 외부 API 호출은 이후 커밋이 실패해도 되돌릴 수 없다. 커밋 이후가 필요하면 `afterChunk`, 같은 트랜잭션에 묶여야 하는 기록이면 `SkipListener`를 쓴다.
 - **Multi-threaded Step에서는 `ChunkListener`가 보장되지 않는다.** 공식 문서가 concurrent step에서의 호출을 보장하지 않는다고 명시한다. Tasklet Step에는 Chunk가 없어 의미가 없다.
 - **`ChunkListener`에서 예외를 던지면 Step이 실패한다.** 내부 외부 호출은 try-catch로 감싸고 실패는 로그로만 남긴다.
 - **`onXxxError`로 skip 통계를 내면 숫자가 부풀려진다.** skip 집계는 `SkipListener`에서 하고, 같은 항목에 `onSkipInXxx`가 두 번 불리면 Listener 중복 등록을 의심한다.

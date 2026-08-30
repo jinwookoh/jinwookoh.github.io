@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/data-types-overview/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>데이터 타입 개관</h1>
   <p class="summary">Redis 데이터 타입 13종의 용도를 매핑하고, 읽기·쓰기 패턴에 따라 어떤 타입을 골라야 하는지 정리한다.</p>
   <div class="content">
-<p>Redis를 단순 키-값 캐시로만 쓰면 모든 데이터를 JSON 문자열로 직렬화해 String에 넣게 된다. 이 방식은 객체의 필드 하나를 바꾸려 해도 전체를 읽어 역직렬화하고 다시 쓰는 왕복이 필요하고, 랭킹이나 중복 제거처럼 서버 쪽 연산이 필요한 작업은 애플리케이션이 전부 떠안는다. Redis가 제공하는 자료구조를 용도에 맞게 고르면 이 연산을 서버 안에서 원자적으로 끝낼 수 있다.</p>
+<p>Redis를 단순 키-값 캐시로만 쓰면 모든 데이터를 JSON 문자열로 직렬화해 String에 넣게 된다. 이 방식은 객체의 필드 하나를 바꾸려 해도 전체를 읽어 역직렬화하고 다시 쓰는 왕복이 필요하고, 랭킹이나 중복 제거처럼 서버 쪽 연산이 필요한 작업은 애플리케이션이 전부 떠안는다. <mark>Redis가 제공하는 자료구조를 용도에 맞게 고르면 이 연산을 서버 안에서 원자적으로 끝낼 수 있다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Redis의 모든 데이터는 키 하나에 값 하나가 대응하는 구조이고, 데이터 타입은 그 값 자리에 들어가는 자료구조의 종류다. 현재 공식적으로 분류되는 타입은 13종이며, 실무에서 대부분의 작업은 앞의 6종 안에서 끝난다.</p>
 <table>
@@ -80,7 +80,7 @@ Set은 순서 없는 고유 문자열 집합이다. <code>SISMEMBER</code>가 O(
 <p>Sorted Set은 Set의 각 멤버에 부동소수점 점수를 붙여 점수 순으로 유지하는 구조다. 추가·순위 조회·범위 조회가 O(log N)이며, <code>ZRANGE key 0 9 REV WITHSCORES</code> 한 번으로 상위 10개가 나온다. Redis 6.2부터 <code>ZADD</code>에 <code>GT</code>·<code>LT</code> 옵션이 있어 최고점만 갱신하는 조건부 쓰기가 가능하다.</p>
 <p>Stream은 타임스탬프 기반 ID(<code>1640000000000-0</code> 형식)를 가진 엔트리를 시간순으로 추가만 하는 로그다. 읽어도 엔트리가 삭제되지 않고, 컨슈머마다 자기 오프셋을 관리하며, Consumer Group으로 여러 소비자가 메시지를 분할 처리한다. Pub/Sub은 구독 중인 클라이언트에게만 전달하고 과거 메시지를 남기지 않으므로 재처리가 필요하면 Stream, 놓쳐도 되는 실시간 알림이면 Pub/Sub을 쓴다.</p>
 <p>나머지 7종은 특정 문제에서만 등장한다. Bitmap은 String 위의 비트 연산으로 사용자 1억 명의 일별 접속 여부를 12.5MB에 담고, Bitfield는 작은 정수 여러 개를 비트 단위로 묶어 저장하며, Geospatial은 위경도 기반 반경 검색을 처리한다. HyperLogLog·Bloom Filter 같은 Probabilistic 타입은 정확도를 일부 포기하고 메모리를 극단적으로 줄이는 구조로, HyperLogLog는 최대 12KB로 수백만 개의 고유 원소 수를 약 0.81% 표준 오차로 추정한다. JSON·Time Series·Vector Set은 Redis 8부터 기본 배포판에 포함된다.</p>
-<p>타입 선택은 값이 하나인지 컬렉션인지, 컬렉션이면 중복 허용과 순서 의미가 있는지, 여러 필드를 가진 객체인지 시간순 이벤트인지 순서로 좁힌다. 같은 카운터를 <code>INCR</code>·<code>HINCRBY</code>·<code>ZINCRBY</code>로 모두 만들 수 있으므로 최종 기준은 그 값을 어떤 패턴으로 읽고 쓰는가다.</p>
+<p>타입 선택은 값이 하나인지 컬렉션인지, 컬렉션이면 중복 허용과 순서 의미가 있는지, 여러 필드를 가진 객체인지 시간순 이벤트인지 순서로 좁힌다. <mark>같은 카운터를 <code>INCR</code>·<code>HINCRBY</code>·<code>ZINCRBY</code>로 모두 만들 수 있으므로 최종 기준은 그 값을 어떤 패턴으로 읽고 쓰는가다.</mark></p>
 <h2>코드</h2>
 <p>Spring Boot 3.x의 <code>StringRedisTemplate</code>으로 String 카운터, Hash 객체 저장, Sorted Set 랭킹을 한 서비스에서 사용하는 예제다.</p>
 <pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.Map;
@@ -152,7 +152,7 @@ Set은 순서 없는 고유 문자열 집합이다. <code>SISMEMBER</code>가 O(
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><code>HGETALL</code>은 키가 없을 때 null이 아니라 빈 컬렉션을 반환한다. null 검사만으로는 &quot;존재하지 않는 객체&quot;를 구분할 수 없으므로 반드시 <code>isEmpty()</code>로 확인해야 한다.</li>
+<li><mark><code>HGETALL</code>은 키가 없을 때 null이 아니라 빈 컬렉션을 반환한다.</mark> null 검사만으로는 &quot;존재하지 않는 객체&quot;를 구분할 수 없으므로 반드시 <code>isEmpty()</code>로 확인해야 한다.</li>
 <li><code>LTRIM</code>은 지정 범위 밖의 요소를 즉시 영구 삭제한다. 최근 N개만 유지하는 캡 리스트에는 유용하지만 범위를 잘못 주면 복구할 수 없으므로 <code>LLEN</code>으로 길이를 확인한 뒤 적용한다.</li>
 <li>Sorted Set의 점수는 배정밀도 부동소수점이다. 2^53을 넘는 정수 ID를 점수로 쓰면 정밀도가 손실되어 복원이 어긋난다. 큰 ID는 멤버 쪽에 두거나 별도 Hash로 매핑한다.</li>
 <li>HyperLogLog는 추정값이다. 결제 건수나 재고처럼 정확성이 요구되는 값에는 쓰지 않고, UV·DAU 같은 통계 지표에 한정한다.</li>

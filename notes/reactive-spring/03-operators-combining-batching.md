@@ -9,7 +9,7 @@ sources: [2026-05-03-reactive-operators.md, 2026-05-03-reactive-combining-publis
 updated: 2026-08-29
 ---
 
-Mono와 Flux는 데이터가 흐르는 통로일 뿐이고, 비즈니스 로직은 그 사이에 끼우는 연산자로 표현한다. 연산자 없이 `subscribe` 콜백 안에서 변환·분기·집계를 처리하면 콜백 중첩이 다시 생기고, 여러 소스의 결합이나 N건 단위 일괄 처리를 매번 직접 구현해야 한다. 문제는 연산자 이름이 비슷하다는 점이다. `flatMap`·`concatMap`·`switchMap`, `merge`·`concat`·`zip`, `buffer`·`window`·`groupBy`는 순서·동시성·완료 조건이 각각 다르며, 이 축을 모르고 고르면 순서가 뒤섞이거나 데이터가 조용히 버려지거나 메모리가 누수된다.
+Mono와 Flux는 데이터가 흐르는 통로일 뿐이고, 비즈니스 로직은 그 사이에 끼우는 연산자로 표현한다. 연산자 없이 `subscribe` 콜백 안에서 변환·분기·집계를 처리하면 콜백 중첩이 다시 생기고, 여러 소스의 결합이나 N건 단위 일괄 처리를 매번 직접 구현해야 한다. 문제는 연산자 이름이 비슷하다는 점이다. ==`flatMap`·`concatMap`·`switchMap`, `merge`·`concat`·`zip`, `buffer`·`window`·`groupBy`는 순서·동시성·완료 조건이 각각 다르며, 이 축을 모르고 고르면 순서가 뒤섞이거나 데이터가 조용히 버려지거나 메모리가 누수된다.==
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Mono와 Flux는 데이터가 흐르는 통로일 뿐이고, 비즈니스 로직�
 | `concatMap` | 하나 완료 후 다음 | 보장 | 유지 |
 | `switchMap` | 최신 하나만 | 최신만 | 취소 |
 
-**N→1 결합.** `concat`은 앞 소스가 완료된 뒤 다음 소스를 구독해 순서를 보장하고, `merge`는 모든 소스를 동시에 구독해 도착 순서대로 내보낸다. `zip`은 각 소스의 같은 인덱스 아이템을 묶으며 가장 짧은 소스가 끝나면 완료된다. `combineLatest`는 어느 소스든 새 값이 오면 모든 소스의 최신 값을 조합하되, 모든 소스에 최초 값이 생기기 전까지는 방출하지 않는다. `startWith`는 앞에 prefix를 붙이고, `firstWithSignal`·`firstWithValue`는 가장 먼저 신호를 낸 소스만 남기고 나머지를 취소한다.
+**N→1 결합.** `concat`은 앞 소스가 완료된 뒤 다음 소스를 구독해 순서를 보장하고, `merge`는 모든 소스를 동시에 구독해 도착 순서대로 내보낸다. ==`zip`은 각 소스의 같은 인덱스 아이템을 묶으며 가장 짧은 소스가 끝나면 완료된다.== `combineLatest`는 어느 소스든 새 값이 오면 모든 소스의 최신 값을 조합하되, 모든 소스에 최초 값이 생기기 전까지는 방출하지 않는다. `startWith`는 앞에 prefix를 붙이고, `firstWithSignal`·`firstWithValue`는 가장 먼저 신호를 낸 소스만 남기고 나머지를 취소한다.
 
 **배칭.** `buffer`는 `Flux<List<T>>`, `window`는 `Flux<Flux<T>>`, `groupBy`는 `Flux<GroupedFlux<K,T>>`를 반환한다. buffer는 리스트가 완성된 뒤에야 원소에 접근할 수 있고 그만큼 메모리를 쓴다. window와 groupBy는 내부 스트림이 열리는 순간부터 원소를 흘려보내지만, 내부 Flux를 `flatMap` 등으로 구독하지 않으면 데이터가 흐르지 않는다. 배치 경계는 개수(`buffer(n)`), 시간(`buffer(Duration)`), 둘 중 먼저 충족되는 쪽(`bufferTimeout`), 겹치는 구간(`buffer(n, skip)`)으로 잡는다.
 
@@ -96,7 +96,7 @@ public Flux<Long> batchSave(Flux<Order> orders) {
 
 ## 실무에서 걸리는 지점
 
-**flatMap의 순서 뒤섞임과 동시성 폭주.** 결제·이벤트 적재처럼 순서가 의미 있는 처리에 `flatMap`을 쓰면 결과가 뒤섞인다. 순서가 필요하면 `concatMap`, 순서는 지키되 내부 구독은 동시에 하려면 `flatMapSequential`을 쓴다. 기본 동시성 256을 외부 API 호출에 그대로 두면 연결이 폭주하므로 `flatMap(fn, concurrency)`로 상한을 명시한다.
+**flatMap의 순서 뒤섞임과 동시성 폭주.** ==결제·이벤트 적재처럼 순서가 의미 있는 처리에 `flatMap`을 쓰면 결과가 뒤섞인다.== 순서가 필요하면 `concatMap`, 순서는 지키되 내부 구독은 동시에 하려면 `flatMapSequential`을 쓴다. 기본 동시성 256을 외부 API 호출에 그대로 두면 연결이 폭주하므로 `flatMap(fn, concurrency)`로 상한을 명시한다.
 
 **zip의 조용한 유실.** `zip`은 가장 짧은 소스가 끝나는 순간 완료되어 남은 아이템은 버려진다. `Mono.zip`은 하나라도 empty이면 결과 전체가 empty가 되므로 선택적 데이터에는 `defaultIfEmpty`를 먼저 붙인다.
 

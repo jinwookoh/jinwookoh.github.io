@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/topic-partition-offset-segment/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Topic·Partition·Offset·Segment</h1>
   <p class="summary">Kafka 데이터 구조 4계층이 어떻게 순서 보장·병렬 처리·보존 정책을 결정하는지 정리한다</p>
   <div class="content">
-<p>메시지를 하나의 큐에 쌓는 구조는 처리량이 큐 하나의 쓰기 속도에 묶이고, 큐를 여러 개로 쪼개면 같은 사용자의 이벤트가 흩어져 순서가 깨진다. 메시지를 하나씩 삭제하면 랜덤 I/O가 발생하고, 서버가 소비자별 읽기 위치를 메시지마다 추적하면 상태가 소비자 수에 비례해 늘어난다. Kafka는 이 문제를 Topic·Partition·Offset·Segment 4계층으로 푼다. 순서는 파티션 단위로만 보장하고, 읽기 위치는 오프셋 하나로 관리하며, 삭제는 세그먼트 파일 단위로 수행한다.</p>
+<p>메시지를 하나의 큐에 쌓는 구조는 처리량이 큐 하나의 쓰기 속도에 묶이고, 큐를 여러 개로 쪼개면 같은 사용자의 이벤트가 흩어져 순서가 깨진다. 메시지를 하나씩 삭제하면 랜덤 I/O가 발생하고, 서버가 소비자별 읽기 위치를 메시지마다 추적하면 상태가 소비자 수에 비례해 늘어난다. Kafka는 이 문제를 Topic·Partition·Offset·Segment 4계층으로 푼다. <mark>순서는 파티션 단위로만 보장하고, 읽기 위치는 오프셋 하나로 관리하며, 삭제는 세그먼트 파일 단위로 수행한다.</mark></p>
 <h2>핵심 개념</h2>
 <p><strong>Topic</strong>은 이벤트 스트림에 붙인 이름이자 분산 영속 로그다. 테이블과 달리 쿼리를 던질 수 없고, 한 번 기록된 메시지는 수정·삭제되지 않는다(append-only). 토픽명은 영문·숫자·<code>.</code>·<code>_</code>·<code>-</code>를 쓰며 249자 이하다. <code>.</code>과 <code>_</code>는 내부 메트릭 이름에서 충돌하므로 한 토픽명 안에서 섞지 않는다.</p>
 <p><strong>Partition</strong>은 토픽의 실제 저장 단위다. 하나의 토픽은 1개 이상의 파티션으로 나뉘어 서로 다른 브로커에 분산 배치된다. 파티션 하나는 순서가 있는 불변 로그이며, 순서 보장은 파티션 내부에서만 성립한다. 파티션 0의 첫 메시지와 파티션 1의 첫 메시지 중 어느 쪽이 먼저인지는 정의되지 않는다. 파티션 수는 컨슈머 그룹 병렬도의 상한이다. 파티션 3개에 컨슈머 4개를 붙이면 1개는 유휴 상태가 된다.</p>
@@ -130,7 +130,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>파티션 수는 늘릴 수만 있고 줄일 수 없다.</strong> 늘리는 순간 키 해시 매핑이 바뀌어 같은 키의 메시지가 다른 파티션으로 가기 시작하므로, 순서에 의존하는 컨슈머는 경계 시점에 순서 역전을 겪는다. 처리량 목표를 파티션 수 × 단일 파티션 처리량으로 계산해 초기에 여유 있게 잡는다.</li>
+<li><mark><strong>파티션 수는 늘릴 수만 있고 줄일 수 없다.</strong></mark> 늘리는 순간 키 해시 매핑이 바뀌어 같은 키의 메시지가 다른 파티션으로 가기 시작하므로, 순서에 의존하는 컨슈머는 경계 시점에 순서 역전을 겪는다. 처리량 목표를 파티션 수 × 단일 파티션 처리량으로 계산해 초기에 여유 있게 잡는다.</li>
 <li><strong>파티션이 많을수록 좋은 것은 아니다.</strong> 파티션마다 파일 핸들과 리더 선출 비용이 붙는다. 브로커당 수천 개를 경험적 상한으로 두고, KRaft에서 메타데이터 한도가 풀렸다고 무작정 늘리지 않는다.</li>
 <li><strong><code>auto.offset.reset</code> 기본값은 <code>latest</code>다.</strong> 새 컨슈머 그룹이 과거 데이터를 못 읽는 원인 대부분이 이 설정이다. 커밋 오프셋이 보존 만료로 삭제된 범위를 가리켜도 같은 설정으로 복구 위치가 정해진다.</li>
 <li><strong>세그먼트가 너무 작으면 파일이 폭증한다.</strong> <code>segment.bytes</code>를 수백 KB로 두면 파티션당 수만 개의 파일이 생겨 file descriptor와 메모리가 부담을 받는다. 최소 100MB 이상으로 유지하고, <code>segment.index.bytes</code>(기본 10MB) 한도에 걸려 조기 roll이 일어나는지도 본다.</li>

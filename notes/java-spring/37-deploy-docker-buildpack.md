@@ -9,7 +9,7 @@ sources: [2026-05-02-spring-containers-deployment.md, 2026-05-02-spring-cloud-ga
 updated: 2026-08-29
 ---
 
-JAR 파일을 서버에 복사해 `java -jar`로 띄우는 방식은 실행 환경을 서버마다 손으로 맞춰야 한다. JDK 버전, OS 라이브러리, 환경 변수, 포트 설정이 한 곳이라도 다르면 로컬에서 통과한 코드가 서버에서 실패하고, 원인을 찾으려면 두 환경의 차이를 하나씩 대조해야 한다. 인스턴스를 여러 개 띄우거나 새 버전으로 교체할 때도 같은 작업이 반복된다. 컨테이너는 애플리케이션과 실행 환경을 하나의 불변 이미지로 묶어 이 차이를 없애고, Spring Boot는 빌드 플러그인만으로 그 이미지를 만드는 경로를 제공한다.
+JAR 파일을 서버에 복사해 `java -jar`로 띄우는 방식은 실행 환경을 서버마다 손으로 맞춰야 한다. JDK 버전, OS 라이브러리, 환경 변수, 포트 설정이 한 곳이라도 다르면 로컬에서 통과한 코드가 서버에서 실패하고, 원인을 찾으려면 두 환경의 차이를 하나씩 대조해야 한다. 인스턴스를 여러 개 띄우거나 새 버전으로 교체할 때도 같은 작업이 반복된다. ==컨테이너는 애플리케이션과 실행 환경을 하나의 불변 이미지로 묶어 이 차이를 없애고, Spring Boot는 빌드 플러그인만으로 그 이미지를 만드는 경로를 제공한다.==
 
 ## 핵심 개념
 
@@ -111,8 +111,8 @@ volumes:
 
 ## 실무에서 걸리는 지점
 
-- **컨테이너 안의 `localhost`는 자기 자신이다.** 같은 네트워크의 다른 컨테이너는 서비스 이름으로 접근해야 한다. `jdbc:mysql://localhost:3306`을 이미지에 넣고 Compose로 띄우면 연결이 거부된다.
-- **`depends_on`은 시작 순서만 보장한다.** DB 프로세스가 떴어도 연결을 받을 준비는 안 됐을 수 있으므로 `condition: service_healthy`와 healthcheck를 함께 둔다. `docker compose stop`은 중지만, `down`은 삭제, `down -v`는 볼륨까지 삭제라는 차이도 실수가 잦다.
+- ==**컨테이너 안의 `localhost`는 자기 자신이다.**== 같은 네트워크의 다른 컨테이너는 서비스 이름으로 접근해야 한다. `jdbc:mysql://localhost:3306`을 이미지에 넣고 Compose로 띄우면 연결이 거부된다.
+- ==**`depends_on`은 시작 순서만 보장한다.**== DB 프로세스가 떴어도 연결을 받을 준비는 안 됐을 수 있으므로 `condition: service_healthy`와 healthcheck를 함께 둔다. `docker compose stop`은 중지만, `down`은 삭제, `down -v`는 볼륨까지 삭제라는 차이도 실수가 잦다.
 - **Buildpack 빌드는 Docker 데몬이 떠 있어야 한다.** CI 러너에 Docker가 없으면 `build-image`가 실패하고, 첫 빌드는 빌더 이미지 다운로드로 수 분이 걸린다. Apple Silicon에서 amd64로 배포한다면 `imagePlatform`을 명시한다.
 - **Probe의 `initialDelaySeconds`가 짧으면 기동 중인 Pod가 재시작된다.** liveness 실패는 재시작, readiness 실패는 트래픽 차단이므로 JVM 기동 시간에 맞춰 liveness를 더 길게 잡거나 `startupProbe`를 둔다.
 - **비밀 값을 Dockerfile `ENV`나 ConfigMap에 넣지 않는다.** 둘 다 암호화되지 않는다. 런타임 환경 변수나 Secret으로 주입하고, Pod에는 `requests`·`limits`를 지정해 한 컨테이너의 자원 독점을 막는다.

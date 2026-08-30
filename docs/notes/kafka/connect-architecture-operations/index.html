@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/connect-architecture-operations/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Connect — 아키텍처·Distributed Mode·운영</h1>
   <p class="summary">Worker·Connector·Task 3계층과 내부 토픽 3개가 Connect 클러스터를 이루며, 운영은 REST API와 DLQ로 수렴한다</p>
   <div class="content">
-<p>DB 변경분을 Kafka로 들여오고 Kafka를 S3나 Elasticsearch로 내보내는 작업은 거의 모든 조직이 같은 형태로 반복한다. 이를 Producer·Consumer 코드로 직접 구현하면 오프셋 추적, 장애 재시작, 병렬화, 배포·모니터링을 파이프라인마다 다시 만들어야 한다. Kafka Connect는 이 두 패턴을 설정 기반 프레임워크로 표준화하고, 분산 실행·오프셋 관리·failover·REST 관리 인터페이스를 프레임워크가 제공한다.</p>
+<p>DB 변경분을 Kafka로 들여오고 Kafka를 S3나 Elasticsearch로 내보내는 작업은 거의 모든 조직이 같은 형태로 반복한다. 이를 Producer·Consumer 코드로 직접 구현하면 오프셋 추적, 장애 재시작, 병렬화, 배포·모니터링을 파이프라인마다 다시 만들어야 한다. <mark>Kafka Connect는 이 두 패턴을 설정 기반 프레임워크로 표준화하고, 분산 실행·오프셋 관리·failover·REST 관리 인터페이스를 프레임워크가 제공한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Connect는 ETL 중 Extract와 Load만 담당한다. Source Connector는 외부 시스템을 읽어 토픽에 쓰고(Debezium CDC, JDBC), Sink Connector는 토픽을 구독해 외부에 쓴다(JDBC, S3, Elasticsearch). 한 클러스터가 둘을 동시에 실행한다.</p>
 <p>실행 구조는 3계층이다. Worker는 실제 실행 서버인 JVM 프로세스, Connector는 JAR과 설정으로 이루어진 논리 단위, Task는 Connector가 <code>tasks.max</code> 이하로 만들어 Worker들에 분산하는 실제 데이터 이동 단위다.</p>
@@ -124,7 +124,7 @@
 connectAdminClient.deploy(<span class="hljs-string">&quot;s3-sink-events&quot;</span>, s3Sink);</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Worker 수와 tasks.max.</strong> Worker 1~2대는 Standalone과 다를 게 없으므로 최소 3대로 시작한다. Sink의 <code>tasks.max</code>가 토픽 파티션 수를 넘으면 초과 Task는 놀기만 하므로 Sink는 파티션 수, Source는 테이블·샤드 같은 소스의 병렬 단위에 맞춘다.</li>
+<li><strong>Worker 수와 tasks.max.</strong> Worker 1~2대는 Standalone과 다를 게 없으므로 최소 3대로 시작한다. <mark>Sink의 <code>tasks.max</code>가 토픽 파티션 수를 넘으면 초과 Task는 놀기만 하므로 Sink는 파티션 수, Source는 테이블·샤드 같은 소스의 병렬 단위에 맞춘다.</mark></li>
 <li><strong>내부 토픽 replication factor.</strong> 단일 브로커 개발 환경에서 3으로 두면 토픽 생성이 실패하고, 운영에서 1로 두면 브로커 하나 장애에 클러스터 상태를 잃는다.</li>
 <li><strong><code>group.id</code> 불일치.</strong> 일부 Worker만 <code>group.id</code>가 다르면 두 클러스터로 갈라진다. 일반 Consumer Group ID와 겹쳐도 안 된다.</li>
 <li><strong>restart로 풀리지 않는 FAILED.</strong> 설정 오류나 외부 시스템 장애는 재시작해도 같은 자리에서 죽으므로 <code>trace</code>를 먼저 읽는다.</li>

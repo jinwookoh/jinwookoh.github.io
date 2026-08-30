@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/streams-intro-concepts/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Streams — 입문과 핵심 개념</h1>
   <p class="summary">Kafka Streams는 별도 클러스터 없는 클라이언트 라이브러리이며, Topology·Task·State Store·EOS가 파티션 위에서 맞물리는 구조를 정리한다.</p>
   <div class="content">
-<p>Kafka 토픽의 이벤트를 필터링·집계·조인해 다른 토픽으로 내보내야 할 때, Consumer API로 직접 구현하면 파티션 재분배·상태 복구·정확히 한 번 처리를 손으로 짜야 하고, Spark Streaming·Flink를 쓰면 별도 클러스터 운영과 잡 제출이라는 인프라 부담이 따라온다. Kafka Streams는 이 사이를 메운다. Kafka 클러스터만 있으면 되는 클라이언트 라이브러리로, 의존성 하나로 분산·내결함성·exactly-once를 갖춘 스트림 처리를 얻는다.</p>
+<p>Kafka 토픽의 이벤트를 필터링·집계·조인해 다른 토픽으로 내보내야 할 때, Consumer API로 직접 구현하면 파티션 재분배·상태 복구·정확히 한 번 처리를 손으로 짜야 하고, Spark Streaming·Flink를 쓰면 별도 클러스터 운영과 잡 제출이라는 인프라 부담이 따라온다. Kafka Streams는 이 사이를 메운다. <mark>Kafka 클러스터만 있으면 되는 클라이언트 라이브러리로, 의존성 하나로 분산·내결함성·exactly-once를 갖춘 스트림 처리를 얻는다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>라이브러리 모델</h3>
 <p>애플리케이션 프로세스 안에서 동작하며, 입력과 출력이 모두 Kafka 토픽이라는 전제 위에서 파티션 분산과 consumer group 재분배를 그대로 활용한다. Kafka 밖의 DB·HTTP는 Connect와 결합해야 하고, 수천 노드 규모의 배치·ML 워크로드는 Spark·Flink 영역이다.</p>
@@ -101,7 +101,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>파티션 수가 스케일 상한이다.</strong> 입력 파티션 수를 넘는 인스턴스는 유휴 상태로 남는다. 예상 인스턴스 수의 4~8배로 파티션을 잡는다.</li>
+<li><mark><strong>파티션 수가 스케일 상한이다.</strong></mark> 입력 파티션 수를 넘는 인스턴스는 유휴 상태로 남는다. 예상 인스턴스 수의 4~8배로 파티션을 잡는다.</li>
 <li><strong><code>application.id</code> 변경은 state 재빌드다.</strong> 내부 토픽·state 디렉토리 이름이 바뀌어 처음부터 다시 쌓는다.</li>
 <li><strong>changelog RF와 standby 기본값은 복구를 길게 만든다.</strong> RF 1은 브로커 한 대 손실로 state를 잃을 수 있고, standby 0이면 인스턴스 교체마다 changelog 전체를 다시 읽는다. 운영은 RF 3, standby 1 이상으로 둔다.</li>
 <li><strong>Serde 누락은 런타임에야 드러난다.</strong> <code>count()</code> 결과를 <code>Produced.with</code> 없이 내보내면 기본 String Serde가 <code>ClassCastException</code>을 던진다.</li>

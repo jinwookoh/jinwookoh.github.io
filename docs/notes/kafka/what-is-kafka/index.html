@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/what-is-kafka/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Kafka란 — 이벤트 스트리밍과 활용 영역</h1>
   <p class="summary">Kafka는 소비 후에도 보존되는 분산 커밋 로그이며, 시스템 간 데이터 통합과 이벤트 스트리밍의 허브 역할을 한다</p>
   <div class="content">
-<p>소스 시스템 4개가 타겟 시스템 6개에 데이터를 보내려면 24개의 통합 코드가 필요하고, 연결마다 프로토콜과 포맷이 다르며, 한쪽의 스키마 변경이 모든 곳을 깨뜨린다. 동기 REST 호출로 마이크로서비스를 엮으면 한 서비스의 장애가 전체를 멈춘다. 중앙 허브를 두어 N×M 연결을 N+M으로 줄이고, 호출 대신 이벤트를 발행해 관심 있는 쪽이 각자 반응하게 만드는 것이 해법이며, Kafka는 그 허브의 사실상 표준이다.</p>
+<p>소스 시스템 4개가 타겟 시스템 6개에 데이터를 보내려면 24개의 통합 코드가 필요하고, 연결마다 프로토콜과 포맷이 다르며, 한쪽의 스키마 변경이 모든 곳을 깨뜨린다. 동기 REST 호출로 마이크로서비스를 엮으면 한 서비스의 장애가 전체를 멈춘다. <mark>중앙 허브를 두어 N×M 연결을 N+M으로 줄이고, 호출 대신 이벤트를 발행해 관심 있는 쪽이 각자 반응하게 만드는 것이 해법이며, Kafka는 그 허브의 사실상 표준이다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Apache Kafka는 분산 이벤트 스트리밍 플랫폼이다. 이벤트 스트림을 발행·구독하고, 디스크에 내구성 있게 저장하며, 실시간 또는 사후에 처리한다. LinkedIn이 사용자 활동 로그를 초당 수십만 건 수집하기 위해 커밋 로그 개념을 분산 환경에 적용해 만들었고, 2011년 Apache License 2.0으로 공개됐다.</p>
 <p>Kafka는 메시지 큐의 빠른 버전이 아니라 append-only 분산 로그다. 전통 브로커와의 차이가 여기서 갈린다.</p>
@@ -148,7 +148,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>순서 보장 범위</strong>: partition 안에서만 유지된다. key 없이 보내면 흩어지고, partition 수를 나중에 늘리면 같은 key의 해시 결과가 바뀌어 다른 partition으로 간다.</li>
+<li><mark><strong>순서 보장 범위</strong>: partition 안에서만 유지된다.</mark> key 없이 보내면 흩어지고, partition 수를 나중에 늘리면 같은 key의 해시 결과가 바뀌어 다른 partition으로 간다.</li>
 <li><strong>운반 계층이지 처리 계층이 아니다</strong>: Kafka는 바이트 스트림을 저장·전달할 뿐 해석하거나 조회하지 않는다. 필터·집계는 Kafka Streams나 consumer 코드가, 쿼리는 데이터베이스나 ksqlDB가 맡는다.</li>
 <li><strong>도입 기준</strong>: 초당 100건 미만의 단순 작업 큐라면 Redis Stream이나 SQS가 충분하다. 초당 1만 건 이상, 재처리, 다중 소비자, 영구 보존 중 둘 이상이 해당할 때 가치가 있다. 운영 인력이 부족하면 AWS MSK·Confluent Cloud로 시작한다.</li>
 <li><strong>스키마 없는 JSON</strong>: Schema Registry 없이도 동작하지만 필드가 바뀌면 consumer가 깨진다. 여러 팀이 topic을 공유하면 Registry로 호환성을 강제한다.</li>

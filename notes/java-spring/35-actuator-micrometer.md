@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-spring-actuator.md, 2026-05-02-spring-observability.
 updated: 2026-08-29
 ---
 
-컨테이너로 띄운 애플리케이션이 멈추면 콘솔 로그만으로는 원인을 찾기 어렵다. Kubernetes는 인스턴스가 살아 있는지, 트래픽을 받을 준비가 됐는지 판단할 신호가 필요하고, 운영자는 힙 사용량·커넥션 풀 대기·응답 시간 분포를 시계열로 봐야 장애 전조를 잡는다. Actuator는 이 운영 기능을 HTTP 엔드포인트로 제공하고, Micrometer는 메트릭을 수집해 Prometheus 같은 백엔드로 내보내는 추상화 계층을 맡는다.
+컨테이너로 띄운 애플리케이션이 멈추면 콘솔 로그만으로는 원인을 찾기 어렵다. Kubernetes는 인스턴스가 살아 있는지, 트래픽을 받을 준비가 됐는지 판단할 신호가 필요하고, 운영자는 힙 사용량·커넥션 풀 대기·응답 시간 분포를 시계열로 봐야 장애 전조를 잡는다. ==Actuator는 이 운영 기능을 HTTP 엔드포인트로 제공하고, Micrometer는 메트릭을 수집해 Prometheus 같은 백엔드로 내보내는 추상화 계층을 맡는다.==
 
 ## 핵심 개념
 
@@ -140,9 +140,9 @@ public class OrderService {
 
 ## 실무에서 걸리는 지점
 
-- **`include: "*"`를 운영에 두는 것.** `/env`는 시크릿을, `/heapdump`는 메모리 전체를 노출한다. `health,info,prometheus`로 제한하고 관리 포트를 분리한다.
+- ==**`include: "*"`를 운영에 두는 것.** `/env`는 시크릿을, `/heapdump`는 메모리 전체를 노출한다.== `health,info,prometheus`로 제한하고 관리 포트를 분리한다.
 - **`@Timed`·`@Observed`를 붙였는데 메트릭이 없다.** `TimedAspect`·`ObservedAspect` 빈이 없으면 AOP가 연결되지 않고 컴파일 오류도 없다. `http.server.requests`만 잡히는 증상이면 Aspect 빈부터 확인한다.
-- **`initialDelaySeconds`가 짧으면 재시작 루프에 빠진다.** 기동이 60초 넘게 걸리면 Liveness가 먼저 실패해 컨테이너가 계속 죽는다. `startupProbe`를 두거나 지연을 기동 시간에 맞춘다.
+- ==**`initialDelaySeconds`가 짧으면 재시작 루프에 빠진다.**== 기동이 60초 넘게 걸리면 Liveness가 먼저 실패해 컨테이너가 계속 죽는다. `startupProbe`를 두거나 지연을 기동 시간에 맞춘다.
 - **히스토그램을 모든 Timer에 켜면 Prometheus 메모리가 급증한다.** `histogram_quantile()`을 실제로 쓰는 메트릭에만 켜고 `uri` 태그 카디널리티를 `MeterFilter`로 제한한다.
 - **SecurityFilterChain에 `@Order`가 없으면 Actuator 요청이 401을 받는다.** API 체인이 먼저 매칭될 수 있다. `/actuator/loggers` POST는 반드시 인증 뒤에 둔다.
 

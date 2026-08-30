@@ -9,7 +9,7 @@ sources: [micrometer/2026-05-25-micrometer-timer-percentile.md]
 updated: 2026-08-29
 ---
 
-요청 100개 중 99개가 10ms에 끝나고 1개가 9,910ms 걸리면 평균은 108ms다. 대시보드에는 정상으로 보이지만 한 사용자는 10초를 기다렸다. latency는 비대칭 분포라 DB 락·GC·재시도로 튀는 소수의 값은 평균에 희석되고, "평균 응답 200ms 이내" 같은 SLO는 사용자 경험과 무관한 숫자가 된다. 반대로 인스턴스마다 p99를 따로 계산하면 전체 시스템의 p99를 합쳐 구할 방법이 없다. 어디서 percentile을 계산하고 무엇을 노출할지가 이 글의 주제다.
+요청 100개 중 99개가 10ms에 끝나고 1개가 9,910ms 걸리면 평균은 108ms다. 대시보드에는 정상으로 보이지만 한 사용자는 10초를 기다렸다. ==latency는 비대칭 분포라 DB 락·GC·재시도로 튀는 소수의 값은 평균에 희석되고, "평균 응답 200ms 이내" 같은 SLO는 사용자 경험과 무관한 숫자가 된다.== 반대로 인스턴스마다 p99를 따로 계산하면 전체 시스템의 p99를 합쳐 구할 방법이 없다. 어디서 percentile을 계산하고 무엇을 노출할지가 이 글의 주제다.
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ percentile은 특정 비율의 요청이 그 값 이하로 끝났음을 뜻하�
 | 시계열 수 | percentile 개수만큼 | 버킷 개수만큼(수십 개) |
 | 적합한 환경 | 단일 인스턴스·로컬 확인 | 다중 인스턴스 프로덕션 |
 
-`publishPercentiles`는 이미 요약된 수치라 다른 인스턴스의 값과 합칠 수 없다. 인스턴스 3대의 p99가 100ms·200ms·900ms일 때 산술평균 400ms는 아무 분포의 p99도 아니다. 각 인스턴스가 "99번째 하나"만 남기면 전체 분포 정보가 사라지기 때문이다.
+==`publishPercentiles`는 이미 요약된 수치라 다른 인스턴스의 값과 합칠 수 없다.== 인스턴스 3대의 p99가 100ms·200ms·900ms일 때 산술평균 400ms는 아무 분포의 p99도 아니다. 각 인스턴스가 "99번째 하나"만 남기면 전체 분포 정보가 사라지기 때문이다.
 
 histogram은 이 문제를 버킷 카운트로 푼다. `le="0.01"` 버킷 값이 3841이면 10ms 이하 요청이 3841개라는 뜻이고, 이 카운트는 인스턴스 간에 더할 수 있다. Prometheus가 `le`별로 합산한 뒤 `histogram_quantile()`로 역산하면 전체 시스템의 p99가 나온다.
 
@@ -106,7 +106,7 @@ histogram_quantile(0.99,
 
 ## 실무에서 걸리는 지점
 
-- **quantile 시계열을 `avg()`로 합산.** `{quantile="0.99"}` 값을 Grafana에서 인스턴스 평균으로 묶는 사례가 가장 흔하다. 의미 없는 수치이므로 `publishPercentileHistogram()`으로 바꾸고 `histogram_quantile`로 계산한다.
+- ==**quantile 시계열을 `avg()`로 합산.** `{quantile="0.99"}` 값을 Grafana에서 인스턴스 평균으로 묶는 사례가 가장 흔하다.== 의미 없는 수치이므로 `publishPercentileHistogram()`으로 바꾸고 `histogram_quantile`로 계산한다.
 - **`_bucket` 없이 `histogram_quantile` 쿼리.** `publishPercentiles`만 켜면 `quantile` 레이블 시계열만 생기고 `_bucket`은 없다. 쿼리 결과가 비어 있으면 `/actuator/prometheus` 응답에서 `_bucket` 존재부터 확인한다.
 - **버킷 수 폭증.** Timer 하나가 수십 개의 `_bucket` 시계열을 만들고 태그 조합 수와 곱으로 늘어난다. `minimumExpectedValue`·`maximumExpectedValue`로 실제 latency 범위에 맞게 자동 버킷을 줄인다.
 - **`max`를 최악 latency로 해석.** `_max`는 회전 시간 창의 최댓값이라 창이 넘어가면 떨어진다. 꼬리 추적은 p99·p99.9로 하고, 최근 구간 변화는 `rate()`를 씌운 histogram으로 본다.

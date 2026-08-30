@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/xml-json-multifile/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>XML·JSON·Multi-file 입출력</h1>
   <p class="summary">XML·JSON도 fragment·object 단위로 스트리밍하고, 여러 파일은 delegate 하나로 묶어 재시작 위치까지 추적한다</p>
   <div class="content">
-<p>수 GB짜리 XML이나 JSON을 DOM 파서나 <code>ObjectMapper.readValue(file, List.class)</code>로 읽으면 파일 크기에 비례하는 힙이 필요하고, 중간에 실패하면 처음부터 다시 돌려야 한다. 일자별로 쪼개 들어오는 파일을 파일마다 Step으로 만들면 Step 수가 파일 수만큼 는다. Spring Batch는 XML·JSON을 record 단위로 스트리밍하는 Reader/Writer와, 여러 파일을 하나의 stream으로 합치는 <code>MultiResourceItemReader</code>로 이 문제를 처리한다.</p>
+<p>수 GB짜리 XML이나 JSON을 DOM 파서나 <code>ObjectMapper.readValue(file, List.class)</code>로 읽으면 파일 크기에 비례하는 힙이 필요하고, 중간에 실패하면 처음부터 다시 돌려야 한다. 일자별로 쪼개 들어오는 파일을 파일마다 Step으로 만들면 Step 수가 파일 수만큼 는다. <mark>Spring Batch는 XML·JSON을 record 단위로 스트리밍하는 Reader/Writer와, 여러 파일을 하나의 stream으로 합치는 <code>MultiResourceItemReader</code>로 이 문제를 처리한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>XML — fragment 단위 StAX 스트리밍</h3>
 <p>DOM은 전체 트리를 메모리에 올리고 SAX는 push 방식이라 제어권이 파서에 있다. StAX는 pull 파서라 <code>ItemReader.read()</code> 계약과 맞물린다.</p>
@@ -35,7 +35,7 @@
 <p><code>JsonFileItemWriter</code>는 <code>JsonObjectMarshaller&lt;T&gt;</code>로 직렬화한 item을 <code>[</code>와 <code>]</code> 사이에 comma로 구분해 쓴다. NDJSON은 지원하지 않으므로 <code>FlatFileItemReader</code>에 Jackson <code>LineMapper</code>를 끼워 읽는다.</p>
 <h3>여러 파일 — MultiResourceItemReader</h3>
 <p><code>Resource[]</code>와 delegate Reader 하나를 받아, 첫 resource를 delegate에 주입해 읽다가 <code>read()</code>가 null이면 다음 resource로 전환하고 마지막까지 끝나면 null을 돌려준다. delegate는 <code>ResourceAwareItemReaderItemStream</code> 구현체여야 하며 빈에 <code>resource</code>를 지정하지 않는다.</p>
-<p>ExecutionContext에는 현재 resource index와 delegate 위치가 함께 저장돼 재시작 시 같은 파일의 같은 위치부터 이어간다. resource 순서가 실행 간에 같아야 성립하므로 <code>Comparator</code>로 순서를 고정한다. 포맷이 다른 Reader의 순차 연결은 Spring Batch 6의 <code>CompositeItemReader</code>가 맡는다.</p>
+<p>ExecutionContext에는 현재 resource index와 delegate 위치가 함께 저장돼 재시작 시 같은 파일의 같은 위치부터 이어간다. <mark>resource 순서가 실행 간에 같아야 성립하므로 <code>Comparator</code>로 순서를 고정한다.</mark> 포맷이 다른 Reader의 순차 연결은 Spring Batch 6의 <code>CompositeItemReader</code>가 맡는다.</p>
 <h2>코드</h2>
 <p>JAXB 기반 XML Reader/Writer. <code>jakarta.xml.bind-api</code>와 <code>jaxb-runtime</code> 의존성이 필요하다.</p>
 <pre><code class="hljs language-java"><span class="hljs-meta">@XmlRootElement(name = &quot;trade&quot;)</span>
@@ -191,7 +191,7 @@
 <li><strong>fragment 이름 불일치.</strong> <code>addFragmentRootElements(&quot;trade&quot;)</code>인데 실제 element가 <code>trades</code>이면 한 건도 읽지 못한 채 정상 종료된다.</li>
 <li><strong>InputStreamResource는 재시작이 안 된다.</strong> 위치 복구는 seek 가능한 resource를 전제하므로 <code>FileSystemResource</code>를 쓴다.</li>
 <li><strong>JSON Writer의 append.</strong> <code>append(true)</code>로 두 번 실행하면 <code>][</code>가 중간에 생겨 유효한 JSON이 아니다. 누적이 필요하면 NDJSON으로 바꾼다.</li>
-<li><strong>Comparator 없는 MultiResourceItemReader.</strong> 파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다. 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.</li>
+<li><mark><strong>Comparator 없는 MultiResourceItemReader.</strong> 파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다.</mark> 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.</li>
 <li><strong>delegate 공유와 파일 수.</strong> singleton delegate를 두 Reader가 공유하면 상태가 섞이므로 <code>@StepScope</code>로 분리한다. wildcard가 수만 파일에 매칭되면 <code>MultiResourcePartitioner</code>로 partition을 나눈다.</li>
 </ul>
 <h2>관련 글</h2>

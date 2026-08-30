@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-kibana-elk-stack.md, elasticsea
 updated: 2026-08-29
 ---
 
-Elasticsearch에는 사람이 보는 화면이 없어 데이터 확인마다 JSON 요청이 필요하다. 클러스터를 직접 운영하면 패치·백업·노드 교체가 전부 팀 몫이고, 매니지드도 Elastic Cloud와 AWS OpenSearch Service는 엔진 자체가 다르다. 콘솔 클릭으로 만든 클러스터는 옵션 추적이 안 되고, dev·prod 사이 analyzer나 ILM 정책이 어긋나 prod에서만 검색이 깨진다.
+Elasticsearch에는 사람이 보는 화면이 없어 데이터 확인마다 JSON 요청이 필요하다. 클러스터를 직접 운영하면 패치·백업·노드 교체가 전부 팀 몫이고, 매니지드도 Elastic Cloud와 AWS OpenSearch Service는 엔진 자체가 다르다. ==콘솔 클릭으로 만든 클러스터는 옵션 추적이 안 되고, dev·prod 사이 analyzer나 ILM 정책이 어긋나 prod에서만 검색이 깨진다.==
 
 ## 핵심 개념
 
@@ -40,7 +40,7 @@ Elastic이 AWS·GCP·Azure 위에서 직접 운영한다.
 
 ### IaC
 
-클러스터·인덱스·ILM·alias를 코드로 선언하고 git을 단일 진실 원천으로 둔다. `plan`으로 drift를 잡고, 같은 모듈에 다른 변수로 환경을 복제한다. Terraform은 `hashicorp/aws`와 `elastic/ec`·`elastic/elasticstack` provider로 멀티 클라우드를 한 코드베이스에서 다루며 state는 원격 백엔드에 둔다. AWS CDK는 CloudFormation으로 컴파일되어 AWS 외 자원은 못 다룬다. ECK는 CRD를 ArgoCD·Flux로 동기화하며 `selfHeal: true`가 콘솔 수작업을 git 상태로 되돌린다.
+==클러스터·인덱스·ILM·alias를 코드로 선언하고 git을 단일 진실 원천으로 둔다.== `plan`으로 drift를 잡고, 같은 모듈에 다른 변수로 환경을 복제한다. Terraform은 `hashicorp/aws`와 `elastic/ec`·`elastic/elasticstack` provider로 멀티 클라우드를 한 코드베이스에서 다루며 state는 원격 백엔드에 둔다. AWS CDK는 CloudFormation으로 컴파일되어 AWS 외 자원은 못 다룬다. ECK는 CRD를 ArgoCD·Flux로 동기화하며 `selfHeal: true`가 콘솔 수작업을 git 상태로 되돌린다.
 
 ## 코드
 
@@ -161,7 +161,7 @@ public class ElasticCloudConfig {
 - **Saved Object 백업.** 대시보드는 `.kibana` 시스템 인덱스에 있으므로 export ndjson을 git에 커밋하고 정기 스냅샷에 포함한다.
 - **UltraWarm 응답.** 캐시 미스 시 수십 초까지 느려져 사용자 대면 인덱스는 Hot에 둔다.
 - **매니지드 스냅샷 보존.** AWS는 14일, Elastic Cloud Hosted는 직전 24시간만 보관한다. 그 이전 복구는 자체 리포지토리와 SLM 정책이 필요하다.
-- **인덱스 매핑 immutability.** `elasticstack_elasticsearch_index`의 mappings를 바꾸면 인덱스 replace로 데이터가 사라진다. Terraform은 index template·alias를 관리하고 새 매핑은 새 인덱스로 만든다. 비밀은 Secrets Manager·Vault로 분리한다.
+- ==**인덱스 매핑 immutability.** `elasticstack_elasticsearch_index`의 mappings를 바꾸면 인덱스 replace로 데이터가 사라진다.== Terraform은 index template·alias를 관리하고 새 매핑은 새 인덱스로 만든다. 비밀은 Secrets Manager·Vault로 분리한다.
 
 ## 관련 글
 

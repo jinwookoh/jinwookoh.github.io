@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ga4-data-model/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>GA4 데이터 모델 — 이벤트·세션·사용자</h1>
   <p class="summary">GA4는 모든 상호작용을 이벤트로 기록하고, Client ID·User ID·세션 규칙으로 사용자와 방문을 묶는다.</p>
   <div class="content">
-<p>Universal Analytics(UA)는 2023년 7월에 종료됐지만 남은 자료 대부분은 UA 기준이다. UA의 히트·목표 개념으로 GA4를 보면 세션 수와 이탈률 정의가 어긋나고 사용자는 브라우저마다 따로 잡힌다. 데이터 모델을 먼저 잡지 않으면 되돌릴 수 없는 스코프의 맞춤 측정기준을 만들거나, 로그아웃 처리를 빠뜨려 익명 사용자 전체가 한 명으로 합쳐진다.</p>
+<p>Universal Analytics(UA)는 2023년 7월에 종료됐지만 남은 자료 대부분은 UA 기준이다. UA의 히트·목표 개념으로 GA4를 보면 세션 수와 이탈률 정의가 어긋나고 사용자는 브라우저마다 따로 잡힌다. <mark>데이터 모델을 먼저 잡지 않으면 되돌릴 수 없는 스코프의 맞춤 측정기준을 만들거나, 로그아웃 처리를 빠뜨려 익명 사용자 전체가 한 명으로 합쳐진다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>계층 — Account · Property · Data Stream</h3>
 <p>계정(조직, 권한) → 속성(분석 단위, 서비스 하나) → 데이터 스트림(Web·iOS·Android 수집 진입점) 3단이다. UA는 앱과 웹이 별도 속성이었지만 GA4는 한 속성 아래 여러 스트림을 두어 크로스 플랫폼 사용자를 한 뷰로 본다. 스트림마다 Measurement ID(<code>G-XXXXXXXXXX</code>)가 발급되며 gtag·GTM 설치 시 이 값을 쓴다. 속성은 서비스 단위로 하나만 두고 페이지·기능은 파라미터로 구분한다.</p>
@@ -67,7 +67,7 @@
 <p>세션은 <code>session_start</code>로 시작하고 30분(스트림 설정에서 5분~7시간) 동안 활동이 없으면 끝난다. UA와 달리 자정에 끊기지 않고 캠페인 소스가 바뀌어도 새 세션이 생기지 않으므로 UA와 GA4의 세션 수는 추세만 비교한다.</p>
 <p>참여 세션은 10초 이상 지속, page_view 2회 이상, 키 이벤트 발생 중 하나를 만족한 세션이다. GA4 이탈률은 1 − 참여율이라 UA 이탈률(1페이지 세션 비율)과 수치가 대응하지 않는다. 도메인 간 이동을 한 세션으로 유지하려면 웹 스트림에 cross-domain 도메인을 등록한다.</p>
 <h3>맞춤 측정기준 — 3개 스코프</h3>
-<p>파라미터와 사용자 속성은 맞춤 측정기준(문자)·측정항목(숫자)으로 등록해야 보고서에 나타나며 스코프는 등록 후 바꿀 수 없다.</p>
+<p><mark>파라미터와 사용자 속성은 맞춤 측정기준(문자)·측정항목(숫자)으로 등록해야 보고서에 나타나며 스코프는 등록 후 바꿀 수 없다.</mark></p>
 <table>
 <thead>
 <tr>
@@ -179,7 +179,7 @@
 <ul>
 <li><strong>User ID를 맞춤 측정기준으로 등록.</strong> 고유값이 사용자 수만큼 늘어 <code>(other)</code>로 뭉개진다. 사용자 단위 분석은 BigQuery에서 한다.</li>
 <li><strong>스코프 선택 실수.</strong> user_tier를 Event 스코프로 만들면 파라미터가 없는 이벤트에서 빈 값이 잡힌다. 사용자 상태는 User, 이벤트마다 다른 값은 Event, items 안의 값은 Item으로 정한다.</li>
-<li><strong>PII 전송.</strong> 이메일·전화번호·실명을 보내면 정책 위반으로 속성이 정지될 수 있다. 해시 값도 고유 식별이 가능하면 PII로 취급되므로 내부 ID만 보낸다.</li>
+<li><mark><strong>PII 전송.</strong> 이메일·전화번호·실명을 보내면 정책 위반으로 속성이 정지될 수 있다.</mark> 해시 값도 고유 식별이 가능하면 PII로 취급되므로 내부 ID만 보낸다.</li>
 <li><strong>환경별 속성 미분리.</strong> dev·staging이 production Measurement ID를 쓰면 테스트 이벤트가 실데이터에 섞인다. 환경별로 속성을 나눈다.</li>
 <li><strong>보존 기간과 샘플링.</strong> 이벤트 보존은 기본 2개월, 최대 14개월이고 트래픽이 많으면 탐색 보고서가 샘플링된다. BigQuery Export로 raw 이벤트를 직접 보관한다.</li>
 </ul>

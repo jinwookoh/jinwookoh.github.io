@@ -9,11 +9,11 @@ sources: [data-infra/2026-05-17-redis-sorted-sets.md]
 updated: 2026-08-29
 ---
 
-점수 순으로 정렬된 목록에서 "내 순위"를 구하려면 관계형 DB에서는 `SELECT COUNT(*) WHERE score > :my_score` 같은 쿼리를 매번 실행해야 한다. 인덱스가 있어도 ms 단위이고, 점수가 초당 수천 번 갱신되는 리더보드나 인기 검색어라면 쓰기와 읽기가 서로를 잠그며 병목이 된다. "최근 60초 동안 몇 번 호출했는가"를 판정하는 rate limiter도 시간 범위 기준의 개수 세기와 오래된 기록 삭제를 원자적으로 처리할 저장소가 필요하다. Redis Sorted Set은 멤버마다 score를 붙여 항상 정렬 상태를 유지하는 자료구조로, 이 두 문제를 O(log N) 연산으로 해결한다.
+점수 순으로 정렬된 목록에서 "내 순위"를 구하려면 관계형 DB에서는 `SELECT COUNT(*) WHERE score > :my_score` 같은 쿼리를 매번 실행해야 한다. 인덱스가 있어도 ms 단위이고, 점수가 초당 수천 번 갱신되는 리더보드나 인기 검색어라면 쓰기와 읽기가 서로를 잠그며 병목이 된다. "최근 60초 동안 몇 번 호출했는가"를 판정하는 rate limiter도 시간 범위 기준의 개수 세기와 오래된 기록 삭제를 원자적으로 처리할 저장소가 필요하다. ==Redis Sorted Set은 멤버마다 score를 붙여 항상 정렬 상태를 유지하는 자료구조로, 이 두 문제를 O(log N) 연산으로 해결한다.==
 
 ## 핵심 개념
 
-Sorted Set은 Set의 정렬판이 아니라 `(member, score)` 쌍의 컬렉션이다. member는 중복이 없고, score는 double 값으로 갱신할 수 있다. 조회는 순위(rank)·점수 범위(score)·사전순(lex) 세 축으로 가능하며, score가 같은 멤버는 사전순으로 정렬된다.
+==Sorted Set은 Set의 정렬판이 아니라 `(member, score)` 쌍의 컬렉션이다.== member는 중복이 없고, score는 double 값으로 갱신할 수 있다. 조회는 순위(rank)·점수 범위(score)·사전순(lex) 세 축으로 가능하며, score가 같은 멤버는 사전순으로 정렬된다.
 
 내부 구조는 크기에 따라 자동 전환된다. 작은 집합은 listpack으로 저장하고, `zset-max-listpack-entries`(기본 128)·`zset-max-listpack-value`(기본 64)를 넘으면 skiplist와 hashtable을 결합한 구조로 바뀐다. hashtable이 member→score 조회를 O(1)로, skiplist가 순위·범위 조회를 O(log N)으로 담당한다.
 
@@ -171,7 +171,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
 ## 실무에서 걸리는 지점
 
-- **Rate limiter의 member 충돌.** `ZADD key now now`처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다. 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 `TIME` 명령으로 Redis 시각을 쓴다.
+- **Rate limiter의 member 충돌.** ==`ZADD key now now`처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다.== 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 `TIME` 명령으로 Redis 시각을 쓴다.
 - **Rate limiter 메모리.** 윈도우 안 요청 수만큼 member가 쌓인다. 분당 1만 회 같은 큰 한도라면 키 하나가 수 MB가 되므로, 정확도가 덜 중요하면 String 카운터 기반 sliding window counter나 token bucket을 고려한다.
 - **동점 처리.** score가 같으면 사전순이므로 "먼저 도달한 사람이 상위"는 자동으로 충족되지 않는다. `score = 점수 × 2^20 + (MAX_TS - timestamp)` 식으로 합성하되, double의 정수 정밀도 한계인 2^53을 넘지 않아야 한다.
 - **범위 연산의 M.** `LIMIT` 없이 넓은 범위를 조회하면 반환 개수가 그대로 지연이 되고, 큰 범위 삭제는 단일 스레드를 점유한다. 페이징과 `LIMIT`을 기본으로 둔다.

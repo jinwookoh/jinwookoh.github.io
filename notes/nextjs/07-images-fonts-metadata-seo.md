@@ -9,13 +9,13 @@ sources: [https://nextjs.org/docs/app/building-your-application/optimizing/image
 updated: 2026-08-30
 ---
 
-`<img>` 태그에 원본 이미지를 그대로 걸면 모바일에서도 데스크톱용 파일을 받고, 크기를 미리 알 수 없어 로딩 중 레이아웃이 밀린다. 폰트를 외부 CDN에서 가져오면 추가 네트워크 왕복이 생기고 폴백 폰트가 웹폰트로 바뀌는 순간 글자가 흔들린다. `<head>`의 title·OG 태그를 페이지마다 손으로 쓰면 누락과 중복이 쌓인다. Next.js는 이 세 가지를 각각 `next/image`, `next/font`, Metadata API로 빌드 또는 서버 렌더링 시점에 해결한다.
+`<img>` 태그에 원본 이미지를 그대로 걸면 모바일에서도 데스크톱용 파일을 받고, 크기를 미리 알 수 없어 로딩 중 레이아웃이 밀린다. 폰트를 외부 CDN에서 가져오면 추가 네트워크 왕복이 생기고 폴백 폰트가 웹폰트로 바뀌는 순간 글자가 흔들린다. `<head>`의 title·OG 태그를 페이지마다 손으로 쓰면 누락과 중복이 쌓인다. ==Next.js는 이 세 가지를 각각 `next/image`, `next/font`, Metadata API로 빌드 또는 서버 렌더링 시점에 해결한다.==
 
 ## 핵심 개념
 
 ### next/image
 
-`<Image>`는 HTML `<img>`를 감싸는 컴포넌트다. 기기 폭에 맞춰 리사이즈하고 WebP로 변환해 서빙하며, `width`·`height`(또는 `fill`)를 강제해 CLS를 막는다. 뷰포트 밖 이미지는 기본적으로 지연 로딩된다.
+`<Image>`는 HTML `<img>`를 감싸는 컴포넌트다. ==기기 폭에 맞춰 리사이즈하고 WebP로 변환해 서빙하며, `width`·`height`(또는 `fill`)를 강제해 CLS를 막는다.== 뷰포트 밖 이미지는 기본적으로 지연 로딩된다.
 
 프로젝트 안의 파일을 `import`하면 빌드 시점에 크기와 `blurDataURL`이 자동으로 채워진다. 원격 URL은 빌드 시 접근할 수 없으므로 `width`·`height`를 직접 넘기고, `next.config.ts`의 `images.remotePatterns`에 허용 호스트를 등록해야 한다. 파일명이 런타임에 정해지면 Server Component에서 `await import()`로 불러와 같은 메타데이터를 얻을 수 있다.
 
@@ -164,7 +164,7 @@ export default function robots(): MetadataRoute.Robots {
 
 ## 실무에서 걸리는 지점
 
-- **`sizes`를 빼먹으면 최적화 효과가 반감된다.** `fill`이나 반응형 이미지에 `sizes`가 없으면 브라우저는 100vw 기준으로 후보를 고르므로 작은 썸네일에도 큰 파일이 내려온다. 실제 렌더링 폭에 맞춰 적어야 srcset이 의미를 가진다.
+- ==**`sizes`를 빼먹으면 최적화 효과가 반감된다.** `fill`이나 반응형 이미지에 `sizes`가 없으면 브라우저는 100vw 기준으로 후보를 고르므로 작은 썸네일에도 큰 파일이 내려온다.== 실제 렌더링 폭에 맞춰 적어야 srcset이 의미를 가진다.
 - **LCP 이미지에는 `priority`를 붙인다.** 기본값이 지연 로딩이라 첫 화면 히어로 이미지도 늦게 요청된다. `priority`는 preload 힌트를 넣으므로 화면당 한두 장에만 쓴다.
 - **셀프 호스팅에서는 이미지 최적화가 서버 CPU를 쓴다.** `sharp`가 요청 시점에 리사이즈하고 캐시한다. 트래픽이 크면 `images.loader`로 외부 CDN에 위임하는 편이 안전하다. `remotePatterns`를 와일드카드로 열어 두면 최적화 엔드포인트가 임의 URL 프록시로 악용될 수 있다.
 - **`next/font` 호출은 모듈 최상위여야 한다.** 컴포넌트 함수 안에서 호출하면 빌드 에러가 나고, 여러 파일에서 같은 폰트를 각각 호출하면 인스턴스가 중복 생성된다. 한 모듈에서 export해 재사용한다.

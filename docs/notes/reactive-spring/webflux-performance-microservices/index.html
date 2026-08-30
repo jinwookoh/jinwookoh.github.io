@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/webflux-performance-microservices/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,9 +24,9 @@
   <h1>WebFlux 성능과 마이크로서비스</h1>
   <p class="summary">이벤트 루프를 막지 않는 설정과 서비스 조합 패턴을 갖춰야 WebFlux의 처리량이 실제로 나온다.</p>
   <div class="content">
-<p>WebFlux를 도입했다는 사실만으로 처리량이 오르지는 않는다. 이벤트 루프 스레드는 CPU 코어 수만큼만 있고, 그중 하나가 JPA 호출이나 파일 I/O에 붙잡히면 그 스레드가 담당하던 모든 요청이 함께 멈춘다. 연결 풀 없이 외부 서비스를 호출하면 요청마다 TCP 핸드셰이크가 반복되고, <code>flatMap</code>의 기본 동시성 256은 하위 서비스에 조용히 과부하를 건다. Aggregator에서 호출을 순차로 엮으면 지연이 합산되고, 하위 서비스 하나의 장애가 상위까지 전파된다.</p>
+<p><mark>WebFlux를 도입했다는 사실만으로 처리량이 오르지는 않는다.</mark> 이벤트 루프 스레드는 CPU 코어 수만큼만 있고, 그중 하나가 JPA 호출이나 파일 I/O에 붙잡히면 그 스레드가 담당하던 모든 요청이 함께 멈춘다. 연결 풀 없이 외부 서비스를 호출하면 요청마다 TCP 핸드셰이크가 반복되고, <code>flatMap</code>의 기본 동시성 256은 하위 서비스에 조용히 과부하를 건다. Aggregator에서 호출을 순차로 엮으면 지연이 합산되고, 하위 서비스 하나의 장애가 상위까지 전파된다.</p>
 <h2>핵심 개념</h2>
-<p>최적화 순서는 블로킹 코드 제거, 연결 풀, 응답 압축, <code>flatMap</code> 동시성 제한, 캐싱이며 서버 증설은 마지막이다. 병목이 코드 안에 있으면 인스턴스를 늘려도 해결되지 않는다.</p>
+<p>최적화 순서는 블로킹 코드 제거, 연결 풀, 응답 압축, <code>flatMap</code> 동시성 제한, 캐싱이며 서버 증설은 마지막이다. <mark>병목이 코드 안에 있으면 인스턴스를 늘려도 해결되지 않는다.</mark></p>
 <p><strong>블로킹 격리.</strong> 블로킹 호출은 <code>Mono.fromCallable</code>로 감싸고 <code>subscribeOn(Schedulers.boundedElastic())</code>으로 별도 풀에 보낸다. 기본 최대 스레드는 CPU 코어 × 10(최소 10), 대기 큐는 100,000개이며 큐가 차면 <code>RejectedExecutionException</code>이 발생한다. CPU 집약 작업은 <code>parallel()</code>을 쓰고, 개발 환경에서는 BlockHound로 블로킹 호출을 잡아낸다.</p>
 <p><strong>연결 풀.</strong> Reactor Netty의 <code>ConnectionProvider</code>로 <code>maxConnections</code>, <code>maxIdleTime</code>, <code>maxLifeTime</code>, <code>pendingAcquireTimeout</code>을 지정한다. <code>maxConnections</code>는 초당 최대 요청 수 × 평균 응답 시간(초)에 여유를 더해 잡는다.</p>
 <p><strong>압축.</strong> 서버는 <code>server.compression.enabled=true</code>에 더해 <code>min-response-size</code>와 <code>mime-types</code>를 명시하고, 클라이언트는 <code>HttpClient.create().compress(true)</code>로 <code>Accept-Encoding</code> 헤더를 보내야 압축 응답을 받는다.</p>
@@ -122,7 +122,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><code>Mono.cache()</code>를 <code>ConcurrentHashMap</code>에 넣는 방식은 값의 TTL만 있고 맵 엔트리는 제거되지 않는다. 키 공간이 크거나 인스턴스가 여러 개면 Reactive Redis로 옮긴다.</li>
-<li><code>pendingAcquireTimeout</code>이 없으면 풀 고갈 시 요청이 무한 대기한다. Gzip 효과는 localhost에서 측정되지 않으므로 네트워크 구간이 있는 환경에서 부하 도구로 확인한다.</li>
+<li><mark><code>pendingAcquireTimeout</code>이 없으면 풀 고갈 시 요청이 무한 대기한다.</mark> Gzip 효과는 localhost에서 측정되지 않으므로 네트워크 구간이 있는 환경에서 부하 도구로 확인한다.</li>
 <li><code>onStatus</code> 조건에 <code>HttpStatus.NOT_FOUND::equals</code>처럼 enum 동일성을 쓰면 <code>HttpStatusCode</code> 구현체에 따라 매칭이 빗나갈 수 있다. <code>status -&gt; status.value() == 404</code>로 비교한다.</li>
 <li>SSE를 릴레이하는 엔드포인트에 <code>produces = TEXT_EVENT_STREAM_VALUE</code>가 없으면 Flux가 JSON 배열로 수집돼 스트림이 끊긴다. 클라이언트 쪽도 <code>accept(MediaType.TEXT_EVENT_STREAM)</code>과 <code>bodyToFlux</code>로 받아야 한다.</li>
 <li>Resilience4j 애노테이션은 <code>resilience4j-reactor</code> 어댑터가 있어야 Mono/Flux를 인식한다. 코어 모듈만 추가하면 리액티브 파이프라인에서 동작하지 않는다.</li>

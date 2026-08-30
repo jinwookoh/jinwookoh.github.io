@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/what-is-redis/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,11 +24,11 @@
   <h1>Redis란 — 역할 분담과 CLI 첫걸음</h1>
   <p class="summary">Redis는 PostgreSQL을 대체하지 않는 인메모리 키-값 계층이며, 단일 스레드 atomic 명령이 핵심 가치다.</p>
   <div class="content">
-<p>디스크 기반 관계형 DB 하나로 서비스를 운영하면 세 가지 문제가 반복된다. 같은 SELECT 결과를 매 요청마다 다시 읽어 DB 커넥션과 CPU를 소모하고, 로그인 세션을 서버 로컬 메모리에 두면 서버가 늘어날 때 sticky session 없이는 세션이 유지되지 않으며, 조회수·좋아요 같은 카운터를 read-modify-write로 갱신하면 동시 요청 사이에 갱신이 유실된다. PostgreSQL의 응답 시간은 ms 단위이므로 이런 작업을 모두 DB에 맡기면 지연과 부하가 함께 커진다. Redis는 이 세 문제를 RAM 상의 자료구조와 atomic 명령으로 해결하는 계층이다.</p>
+<p>디스크 기반 관계형 DB 하나로 서비스를 운영하면 세 가지 문제가 반복된다. 같은 SELECT 결과를 매 요청마다 다시 읽어 DB 커넥션과 CPU를 소모하고, 로그인 세션을 서버 로컬 메모리에 두면 서버가 늘어날 때 sticky session 없이는 세션이 유지되지 않으며, 조회수·좋아요 같은 카운터를 read-modify-write로 갱신하면 동시 요청 사이에 갱신이 유실된다. PostgreSQL의 응답 시간은 ms 단위이므로 이런 작업을 모두 DB에 맡기면 지연과 부하가 함께 커진다. <mark>Redis는 이 세 문제를 RAM 상의 자료구조와 atomic 명령으로 해결하는 계층이다.</mark></p>
 <h2>핵심 개념</h2>
 <p>Redis(REmote DIctionary Server)는 모든 데이터를 RAM에 두고 키로 값을 찾는 키-값 저장소다. RAM 접근은 수십 ns, 디스크 임의 접근은 수 ms 단위이므로 디스크 I/O를 경로에서 제거하는 것만으로 지연 시간이 μs 영역으로 내려간다. 여기에 값 자리에 String뿐 아니라 Hash·List·Set·Sorted Set·Stream 같은 자료구조가 들어간다는 점이 Memcached와의 차이다. 카운터 증가를 클라이언트가 읽고 더하고 쓰는 대신 <code>INCR</code> 한 명령으로 끝내고, Top N 랭킹을 <code>ZADD</code>와 <code>ZREVRANGE</code> 두 명령으로 처리한다.</p>
 <p>명령 실행은 단일 스레드다. 네트워크 I/O는 별도 스레드가 처리하므로 병목이 되지 않으면서, 모든 명령이 서버 안에서 쪼개지지 않고 실행되어 atomic이 기본으로 보장된다. 분산 환경에서 락 없이 동시성 문제를 피할 수 있는 근거가 이 구조다. 반대로 한 명령이 오래 걸리면 전체가 멈춘다는 제약도 같은 구조에서 나온다.</p>
-<p>PostgreSQL과의 관계는 대체가 아니라 보완이다.</p>
+<p><mark>PostgreSQL과의 관계는 대체가 아니라 보완이다.</mark></p>
 <table>
 <thead>
 <tr>
@@ -68,7 +68,7 @@
 <td align="left">캐시·세션·실시간 가공물</td>
 </tr>
 </tbody></table>
-<p>Redis도 RDB 스냅샷과 AOF 로그로 디스크에 기록하지만, 이는 재시작 시 대부분을 복구하기 위한 장치이지 커밋 즉시 영속을 보장하는 설계가 아니다. 따라서 진실은 PostgreSQL에 두고 Redis에는 언제든 사라져도 재생성 가능한 데이터만 둔다는 원칙이 성립한다.</p>
+<p>Redis도 RDB 스냅샷과 AOF 로그로 디스크에 기록하지만, 이는 재시작 시 대부분을 복구하기 위한 장치이지 커밋 즉시 영속을 보장하는 설계가 아니다. <mark>따라서 진실은 PostgreSQL에 두고 Redis에는 언제든 사라져도 재생성 가능한 데이터만 둔다는 원칙이 성립한다.</mark></p>
 <p>키는 항상 문자열이며 <code>user:1000</code>, <code>items:views:a1</code>처럼 콜론으로 계층을 표현하는 관습을 따른다. 운영 중인 시스템에서 키 패턴을 바꾸면 전체 데이터 마이그레이션이 따라오므로 키 생성은 처음부터 헬퍼 함수 한 곳에 모은다.</p>
 <p>클라이언트 라이브러리는 ORM이 아니라 명령어를 그대로 매핑하는 얇은 래퍼다. Java에서는 Jedis와 Lettuce가 있고 Spring Boot는 Lettuce를 기본으로 채택한다. 어느 쪽을 쓰든 메서드 호출이 곧 Redis 명령이므로 명령어 자체를 알아야 라이브러리를 쓸 수 있다.</p>
 <h2>코드</h2>
@@ -122,7 +122,7 @@ OK
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><code>KEYS *</code>는 단일 스레드를 키 개수만큼 점유해 그 동안 모든 요청이 멈춘다. 운영에서는 <code>SCAN 0 MATCH user:* COUNT 100</code>처럼 커서 기반으로 나눠 조회한다.</li>
+<li><mark><code>KEYS *</code>는 단일 스레드를 키 개수만큼 점유해 그 동안 모든 요청이 멈춘다.</mark> 운영에서는 <code>SCAN 0 MATCH user:* COUNT 100</code>처럼 커서 기반으로 나눠 조회한다.</li>
 <li>TTL 없는 키가 쌓이면 RAM 상한에 도달해 eviction이 발동하거나 쓰기가 실패한다. 임시 데이터는 저장 시점에 <code>EX</code>나 <code>Duration</code>으로 만료를 지정한다.</li>
 <li>Redis 값은 바이트열이다. 객체를 직렬화 없이 넣으면 <code>toString()</code> 결과가 저장되므로 JSON 직렬화를 명시하고, <code>RedisTemplate</code>의 기본 JDK 직렬화는 다른 언어 클라이언트와 호환되지 않는다.</li>
 <li>캐시는 재시작·eviction·장애로 언제든 비어 있을 수 있다. miss 시 DB에서 읽어 다시 채우는 cache-aside를 기본으로 두고, Redis에만 존재하는 데이터를 만들지 않는다.</li>

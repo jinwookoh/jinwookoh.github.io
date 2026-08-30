@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/document-modeling-reindex/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>검색 문서 모델링과 무중단 재색인</h1>
   <p class="summary">필드 타입은 용도에서 결정하고, 매핑 변경은 alias 전환과 증분 색인으로 다운타임 없이 반영한다</p>
   <div class="content">
-<p>Elasticsearch는 한 번 색인된 필드의 타입과 분석기를 나중에 바꿀 수 없다. 역색인이 이미 그 설정으로 만들어졌기 때문이다. 매핑을 대충 잡고 운영에 올리면 정렬이 필요한 필드가 <code>text</code>로 잡혀 집계가 막히거나, 동적 매핑이 문자열마다 멀티필드를 만들어 필드 수가 폭발한다. 이를 고치려면 새 인덱스를 만들어 전체 데이터를 다시 색인해야 하는데, 애플리케이션이 실제 인덱스 이름을 직접 부르고 있으면 코드 배포와 데이터 이관이 엮여 검색 중단이 불가피해진다. 처음부터 요구사항에서 타입을 정하고, 인덱스 이름을 alias로 감싸 두는 설계가 필요한 이유다.</p>
+<p>Elasticsearch는 한 번 색인된 필드의 타입과 분석기를 나중에 바꿀 수 없다. 역색인이 이미 그 설정으로 만들어졌기 때문이다. 매핑을 대충 잡고 운영에 올리면 정렬이 필요한 필드가 <code>text</code>로 잡혀 집계가 막히거나, 동적 매핑이 문자열마다 멀티필드를 만들어 필드 수가 폭발한다. 이를 고치려면 새 인덱스를 만들어 전체 데이터를 다시 색인해야 하는데, 애플리케이션이 실제 인덱스 이름을 직접 부르고 있으면 코드 배포와 데이터 이관이 엮여 검색 중단이 불가피해진다. <mark>처음부터 요구사항에서 타입을 정하고, 인덱스 이름을 alias로 감싸 두는 설계가 필요한 이유다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>요구사항에서 타입을 결정한다</h3>
 <p>타입 선택은 문법이 아니라 용도의 문제다. 같은 상품명이라도 전문 검색이면 <code>text</code>, 정렬·집계·정확 일치 필터면 <code>keyword</code>가 맞다.</p>
@@ -66,7 +66,7 @@
 <p>여러 필드를 검색창 하나로 묶는 경우 <code>copy_to</code>로 <code>title</code>·<code>body</code>·<code>tags</code> 값을 <code>search_all</code> 필드에 모아 두면 쿼리가 단일 필드 질의로 단순해진다. <code>copy_to</code> 대상 필드는 <code>_source</code>에 저장되지 않고 색인에만 존재한다.</p>
 <p>운영 인덱스는 <code>dynamic: &quot;strict&quot;</code>로 두고 필드를 명시 선언한다. 동적 매핑은 문자열마다 <code>text</code>+<code>keyword</code> 멀티필드를 만들고, <code>&quot;123&quot;</code>처럼 숫자로 보이는 값이 먼저 들어오면 타입을 잘못 추론해 이후 문서에서 충돌을 일으킨다. strict는 매핑에 없는 필드를 에러로 거절해 의도치 않은 증식을 막는다. <code>_source</code>에서 큰 필드를 제외하는 최적화는 reindex와 update를 제한하므로 표시용으로 반환할 일이 없는 필드에만 적용한다.</p>
 <h3>alias 뒤에 버전 인덱스를 둔다</h3>
-<p>애플리케이션은 <code>products</code>라는 alias만 바라보고, 실제 인덱스는 <code>products-v1</code>, <code>products-v2</code>처럼 버전을 붙인다. <code>_aliases</code> API의 <code>actions</code> 배열에 remove와 add를 함께 넣으면 전환이 원자적으로 일어나 다운타임이 없고, 문제가 생기면 같은 방법으로 즉시 되돌린다. 재색인 중에는 <code>is_write_index</code>로 쓰기 대상을 새 인덱스로 고정하는 write alias와, 읽기용 read alias를 나눠 점진 전환하는 구성도 가능하다.</p>
+<p>애플리케이션은 <code>products</code>라는 alias만 바라보고, 실제 인덱스는 <code>products-v1</code>, <code>products-v2</code>처럼 버전을 붙인다. <mark><code>_aliases</code> API의 <code>actions</code> 배열에 remove와 add를 함께 넣으면 전환이 원자적으로 일어나 다운타임이 없고, 문제가 생기면 같은 방법으로 즉시 되돌린다.</mark> 재색인 중에는 <code>is_write_index</code>로 쓰기 대상을 새 인덱스로 고정하는 write alias와, 읽기용 read alias를 나눠 점진 전환하는 구성도 가능하다.</p>
 <h3>무중단 재색인 파이프라인</h3>
 <p>DB를 단일 진실로 두고 ES는 검색 최적화 사본으로 취급한다. 재색인은 다음 순서로 진행한다.</p>
 <pre><code class="hljs language-text">1. 바뀐 매핑·분석기로 products-v2 생성
@@ -149,7 +149,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>replicas·refresh_interval 복원 누락.</strong> 복원을 잊으면 복제본 0개에 검색 결과가 갱신되지 않는 인덱스가 서비스에 올라간다. 복원은 별도 단계가 아니라 풀색인 절차의 마지막에 묶어 둔다.</li>
-<li><strong>alias 없이 시작한 서비스.</strong> 실제 인덱스 이름이 코드에 박혀 있으면 첫 재색인이 코드 배포와 묶여 무중단 전환이 불가능하다. 인덱스를 처음 만드는 날부터 alias로 감싼다.</li>
+<li><mark><strong>alias 없이 시작한 서비스.</strong> 실제 인덱스 이름이 코드에 박혀 있으면 첫 재색인이 코드 배포와 묶여 무중단 전환이 불가능하다.</mark> 인덱스를 처음 만드는 날부터 alias로 감싼다.</li>
 <li><strong>재색인 중 신규 데이터.</strong> 풀색인과 전환 사이의 변경분이 가장 자주 빠지는 지점이다. 시작 시각을 먼저 기록하고 증분 색인을 최소 한 번, 전환 뒤 한 번 더 돌린다. CDC를 쓰면 새 인덱스를 sink 대상에 추가하는 것으로 대체된다.</li>
 <li><strong>동적 매핑 방치.</strong> 로그처럼 스키마가 자유로운 데이터가 아니라면 dynamic은 필드 폭발과 타입 충돌의 원인이 된다. strict로 막고 필드 추가는 매핑 변경 PR로 관리한다.</li>
 <li><strong><code>_source</code> 제외의 대가.</strong> 저장 공간을 줄이려고 <code>_source</code>에서 필드를 빼면 <code>_reindex</code> API와 부분 update, highlight가 그 필드에 대해 동작하지 않는다. 용량 이득보다 재색인 불가가 더 큰 비용이 되는 경우가 많다.</li>

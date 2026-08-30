@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-vector-search-knn.md]
 updated: 2026-08-29
 ---
 
-BM25 풀텍스트 검색은 질의어와 문서의 토큰이 겹칠 때만 점수를 낸다. "환불 절차"로 검색하면 "반품 방법"을 다룬 문서는 잡히지 않는다. RAG처럼 질문과 의미적으로 가까운 문서 k개를 LLM 프롬프트에 넣어야 하는 구조에서는 이 한계가 치명적이다. 벡터 전용 DB를 따로 두면 도구가 둘로 나뉘고 키워드 검색과 벡터 검색을 한 쿼리로 묶기 어렵다. Elasticsearch 8.x는 dense_vector 필드, kNN 절, HNSW 인덱스로 벡터 검색을 자체 처리하고 BM25와 결합하는 hybrid retrieval까지 한 요청에서 지원한다.
+BM25 풀텍스트 검색은 질의어와 문서의 토큰이 겹칠 때만 점수를 낸다. "환불 절차"로 검색하면 "반품 방법"을 다룬 문서는 잡히지 않는다. RAG처럼 질문과 의미적으로 가까운 문서 k개를 LLM 프롬프트에 넣어야 하는 구조에서는 이 한계가 치명적이다. 벡터 전용 DB를 따로 두면 도구가 둘로 나뉘고 키워드 검색과 벡터 검색을 한 쿼리로 묶기 어렵다. ==Elasticsearch 8.x는 dense_vector 필드, kNN 절, HNSW 인덱스로 벡터 검색을 자체 처리하고 BM25와 결합하는 hybrid retrieval까지 한 요청에서 지원한다.==
 
 ## 핵심 개념
 
@@ -35,7 +35,7 @@ BM25 풀텍스트 검색은 질의어와 문서의 토큰이 겹칠 때만 점�
 
 ### kNN 절
 
-`_search`의 `knn` 절이 벡터 검색의 진입점이다. `k`는 최종 반환 수, `num_candidates`는 샤드별로 HNSW가 추릴 후보 수이며 k보다 충분히 커야 근사 오차가 줄어든다. `filter`는 벡터 탐색 전에 후보를 좁히는 pre-filter로, post-filter 방식의 벡터 DB와 달리 정확히 k개를 보장한다.
+`_search`의 `knn` 절이 벡터 검색의 진입점이다. `k`는 최종 반환 수, `num_candidates`는 샤드별로 HNSW가 추릴 후보 수이며 k보다 충분히 커야 근사 오차가 줄어든다. ==`filter`는 벡터 탐색 전에 후보를 좁히는 pre-filter로, post-filter 방식의 벡터 DB와 달리 정확히 k개를 보장한다.==
 
 ### Hybrid Retrieval과 RRF
 
@@ -144,7 +144,7 @@ public class ArticleVectorSearchService {
 - **dims 불일치** — 매핑을 1,536으로 잡고 768차원 모델 출력을 색인하면 모든 문서가 실패한다. 임베딩 모델 교체는 새 인덱스에 reindex하고 alias를 전환하는 절차로만 가능하다.
 - **num_candidates 부족** — k와 같은 값이면 탐색 폭이 좁아 같은 질의의 결과가 요청마다 달라진다. k의 10~20배 또는 최소 100 이상으로 둔다.
 - **메모리 폭증** — 1억 건 × 1,536차원 × 4byte는 벡터만 약 614GB다. 처음부터 `int8_hnsw`를 적용하면 recall 손실 2~3%p로 메모리를 4배 줄인다.
-- **filter 위치 오류** — `query` 절에 필터를 넣고 `knn`을 분리하면 벡터 검색이 전체 인덱스에서 k개를 뽑은 뒤 필터가 적용되어 결과가 k보다 훨씬 적거나 0건이 된다. 필터는 `knn.filter`에 둔다.
+- ==**filter 위치 오류** — `query` 절에 필터를 넣고 `knn`을 분리하면 벡터 검색이 전체 인덱스에서 k개를 뽑은 뒤 필터가 적용되어 결과가 k보다 훨씬 적거나 0건이 된다.== 필터는 `knn.filter`에 둔다.
 - **Inference API rate limit** — ingest pipeline이 문서마다 외부 API를 호출하면 bulk 색인이 rate limit에 걸려 정지한다. 클라이언트에서 배치 임베딩 후 벡터를 포함해 색인한다.
 
 ## 관련 글

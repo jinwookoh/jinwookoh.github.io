@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/vector-search-knn/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Vector Search·kNN</h1>
   <p class="summary">dense_vector·HNSW·kNN 절로 별도 벡터 DB 없이 의미 검색을 구성하고 RRF로 BM25와 결합한다</p>
   <div class="content">
-<p>BM25 풀텍스트 검색은 질의어와 문서의 토큰이 겹칠 때만 점수를 낸다. &quot;환불 절차&quot;로 검색하면 &quot;반품 방법&quot;을 다룬 문서는 잡히지 않는다. RAG처럼 질문과 의미적으로 가까운 문서 k개를 LLM 프롬프트에 넣어야 하는 구조에서는 이 한계가 치명적이다. 벡터 전용 DB를 따로 두면 도구가 둘로 나뉘고 키워드 검색과 벡터 검색을 한 쿼리로 묶기 어렵다. Elasticsearch 8.x는 dense_vector 필드, kNN 절, HNSW 인덱스로 벡터 검색을 자체 처리하고 BM25와 결합하는 hybrid retrieval까지 한 요청에서 지원한다.</p>
+<p>BM25 풀텍스트 검색은 질의어와 문서의 토큰이 겹칠 때만 점수를 낸다. &quot;환불 절차&quot;로 검색하면 &quot;반품 방법&quot;을 다룬 문서는 잡히지 않는다. RAG처럼 질문과 의미적으로 가까운 문서 k개를 LLM 프롬프트에 넣어야 하는 구조에서는 이 한계가 치명적이다. 벡터 전용 DB를 따로 두면 도구가 둘로 나뉘고 키워드 검색과 벡터 검색을 한 쿼리로 묶기 어렵다. <mark>Elasticsearch 8.x는 dense_vector 필드, kNN 절, HNSW 인덱스로 벡터 검색을 자체 처리하고 BM25와 결합하는 hybrid retrieval까지 한 요청에서 지원한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>dense_vector 필드</h3>
 <p>임베딩 모델이 출력한 고정 차원 부동소수점 배열을 저장하는 필드 타입이다. 매핑 파라미터 네 개가 동작을 결정한다.</p>
@@ -60,7 +60,7 @@
 </tbody></table>
 <p>두 값 모두 색인 후 변경할 수 없다. 검색 시점의 탐색 폭은 쿼리의 <code>num_candidates</code>가 담당한다. <code>type</code>에는 <code>hnsw</code> 외에 <code>int8_hnsw</code>(스칼라 양자화), <code>flat</code>, <code>int8_flat</code>이 있으며 대규모 인덱스에는 <code>int8_hnsw</code>가 권장된다.</p>
 <h3>kNN 절</h3>
-<p><code>_search</code>의 <code>knn</code> 절이 벡터 검색의 진입점이다. <code>k</code>는 최종 반환 수, <code>num_candidates</code>는 샤드별로 HNSW가 추릴 후보 수이며 k보다 충분히 커야 근사 오차가 줄어든다. <code>filter</code>는 벡터 탐색 전에 후보를 좁히는 pre-filter로, post-filter 방식의 벡터 DB와 달리 정확히 k개를 보장한다.</p>
+<p><code>_search</code>의 <code>knn</code> 절이 벡터 검색의 진입점이다. <code>k</code>는 최종 반환 수, <code>num_candidates</code>는 샤드별로 HNSW가 추릴 후보 수이며 k보다 충분히 커야 근사 오차가 줄어든다. <mark><code>filter</code>는 벡터 탐색 전에 후보를 좁히는 pre-filter로, post-filter 방식의 벡터 DB와 달리 정확히 k개를 보장한다.</mark></p>
 <h3>Hybrid Retrieval과 RRF</h3>
 <p>정확한 키워드·고유명사는 BM25가, 의미 유사성은 벡터가 잘 잡는다. <code>query</code>와 <code>knn</code>을 함께 보내면 두 점수가 <code>boost</code>로 합산되지만 BM25(0<del>∞)와 cosine(-1</del>1)의 스케일이 달라 튜닝이 불안정하다. 8.8부터 지원하는 RRF(Reciprocal Rank Fusion)는 점수 대신 순위를 합친다. 각 검색기에서 문서가 r위이면 <code>1 / (rank_constant + r)</code>을 부여해 합산하며 <code>rank_constant</code> 기본값 60은 거의 조정하지 않는다.</p>
 <h3>Inference API</h3>
@@ -151,7 +151,7 @@
 <li><strong>dims 불일치</strong> — 매핑을 1,536으로 잡고 768차원 모델 출력을 색인하면 모든 문서가 실패한다. 임베딩 모델 교체는 새 인덱스에 reindex하고 alias를 전환하는 절차로만 가능하다.</li>
 <li><strong>num_candidates 부족</strong> — k와 같은 값이면 탐색 폭이 좁아 같은 질의의 결과가 요청마다 달라진다. k의 10~20배 또는 최소 100 이상으로 둔다.</li>
 <li><strong>메모리 폭증</strong> — 1억 건 × 1,536차원 × 4byte는 벡터만 약 614GB다. 처음부터 <code>int8_hnsw</code>를 적용하면 recall 손실 2~3%p로 메모리를 4배 줄인다.</li>
-<li><strong>filter 위치 오류</strong> — <code>query</code> 절에 필터를 넣고 <code>knn</code>을 분리하면 벡터 검색이 전체 인덱스에서 k개를 뽑은 뒤 필터가 적용되어 결과가 k보다 훨씬 적거나 0건이 된다. 필터는 <code>knn.filter</code>에 둔다.</li>
+<li><mark><strong>filter 위치 오류</strong> — <code>query</code> 절에 필터를 넣고 <code>knn</code>을 분리하면 벡터 검색이 전체 인덱스에서 k개를 뽑은 뒤 필터가 적용되어 결과가 k보다 훨씬 적거나 0건이 된다.</mark> 필터는 <code>knn.filter</code>에 둔다.</li>
 <li><strong>Inference API rate limit</strong> — ingest pipeline이 문서마다 외부 API를 호출하면 bulk 색인이 rate limit에 걸려 정지한다. 클라이언트에서 배치 임베딩 후 벡터를 포함해 색인한다.</li>
 </ul>
 <h2>관련 글</h2>

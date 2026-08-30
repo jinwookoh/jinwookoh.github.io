@@ -9,7 +9,7 @@ sources: [2026-05-03-reactive-basics.md, 2026-05-03-webflux-reactive-vs-traditio
 updated: 2026-08-29
 ---
 
-자바 플랫폼 스레드는 OS 커널 스레드를 1:1로 감싸며 스레드마다 약 1MB의 스택을 예약한다. Spring MVC는 요청 하나에 스레드 하나를 배정하는 Thread-per-Request 모델이고 Tomcat의 기본 워커는 200개다. 외부 API 응답에 10초가 걸리면 동시 접속 200건만으로 모든 워커가 I/O 대기에 묶이고 새 요청은 큐에 쌓인다. 스레드를 1만 개로 늘리면 스택만으로 10GB 가까운 메모리를 잡는다. 리액티브 프로그래밍은 I/O 대기 중 스레드를 반납하고 데이터가 도착했을 때 이어서 처리하는 비동기 논블로킹 모델을 선언적으로 작성하게 해, 적은 스레드로 많은 동시 요청을 처리한다.
+자바 플랫폼 스레드는 OS 커널 스레드를 1:1로 감싸며 스레드마다 약 1MB의 스택을 예약한다. Spring MVC는 요청 하나에 스레드 하나를 배정하는 Thread-per-Request 모델이고 Tomcat의 기본 워커는 200개다. 외부 API 응답에 10초가 걸리면 동시 접속 200건만으로 모든 워커가 I/O 대기에 묶이고 새 요청은 큐에 쌓인다. 스레드를 1만 개로 늘리면 스택만으로 10GB 가까운 메모리를 잡는다. ==리액티브 프로그래밍은 I/O 대기 중 스레드를 반납하고 데이터가 도착했을 때 이어서 처리하는 비동기 논블로킹 모델을 선언적으로 작성하게 해, 적은 스레드로 많은 동시 요청을 처리한다.==
 
 ## 핵심 개념
 
@@ -24,7 +24,7 @@ Reactive Streams는 라이브러리가 아니라 2014년에 정립된 명세다.
 | `Subscription` | `request(n)`으로 요청 개수를 알리고 `cancel()`로 끊는다 |
 | `Processor<T,R>` | Subscriber이면서 Publisher인 중간 단계 |
 
-통신 순서는 `subscribe` → `onSubscribe` → `request(n)` → `onNext` 최대 n번 → `onComplete` 또는 `onError` 중 하나다. Publisher는 요청받은 개수를 초과해 보낼 수 없고, 데이터가 부족하면 적게 보내고 완료할 수 있다. 이 `request(n)` 계약이 배압의 실체다.
+통신 순서는 `subscribe` → `onSubscribe` → `request(n)` → `onNext` 최대 n번 → `onComplete` 또는 `onError` 중 하나다. Publisher는 요청받은 개수를 초과해 보낼 수 없고, 데이터가 부족하면 적게 보내고 완료할 수 있다. ==이 `request(n)` 계약이 배압의 실체다.==
 
 Project Reactor는 Spring 팀이 만든 구현체이자 WebFlux의 기반이다. 핵심 타입은 0~1개를 내는 `Mono<T>`와 0~N개(무한 포함)를 내는 `Flux<T>`이며, ID 단건 조회처럼 결과가 없을 수 있는 경우도 `Mono`다. 파이프라인은 `subscribe()` 전까지 실행되지 않고(Lazy), 별도 지정이 없으면 구독을 호출한 스레드에서 실행되며, 각 연산자는 기존 스트림을 바꾸지 않고 새 Publisher를 반환한다.
 
@@ -192,7 +192,7 @@ class ReactiveProductController {
 
 ## 실무에서 걸리는 지점
 
-- **이벤트 루프 위의 블로킹 호출.** JDBC, `Thread.sleep`, `RestTemplate`, `.block()`은 이벤트 루프 스레드를 점유해 서버 전체를 멈춘다. Netty는 코어 수만큼의 스레드가 전부다. 피할 수 없는 블로킹은 `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`으로 격리한다.
+- **이벤트 루프 위의 블로킹 호출.** ==JDBC, `Thread.sleep`, `RestTemplate`, `.block()`은 이벤트 루프 스레드를 점유해 서버 전체를 멈춘다.== Netty는 코어 수만큼의 스레드가 전부다. 피할 수 없는 블로킹은 `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`으로 격리한다.
 - **컨트롤러 안에서의 `subscribe()`.** 프레임워크가 반환값을 구독하므로 직접 구독하면 외부 호출이 두 번 나간다. `doOnNext` 안의 중첩 구독도 오류 전파와 취소가 끊기므로 `flatMap`으로 체인에 편입한다.
 - **`map`과 `flatMap`의 혼동.** 람다가 값을 반환하면 `map`, Publisher를 반환하면 `flatMap`이다. DB 조회를 `map`에 넣으면 `Mono<Mono<T>>`가 되어 안쪽 파이프라인이 구독되지 않는다.
 - **"무조건 빠르다"는 오해.** 단일 요청 처리 시간은 MVC와 비슷하거나 약간 느리다. 이점은 동시 요청이 많고 I/O 대기 비중이 클 때 나타나며, CPU 집약 작업이나 단순 CRUD에는 없다. Java 21 가상 스레드는 요청-응답 패턴의 스레드 비용을 크게 줄이지만, 스트리밍과 배압이 필요한 경우는 여전히 리액티브가 적합하다.

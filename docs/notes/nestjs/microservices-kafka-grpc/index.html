@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/microservices-kafka-grpc/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>마이크로서비스 — Kafka·gRPC</h1>
   <p class="summary">NestJS 마이크로서비스 추상화 위에서 Kafka 이벤트와 gRPC 호출을 어떻게 나눠 쓰고 어디서 걸리는지 정리한다</p>
   <div class="content">
-<p>서비스를 여러 개로 쪼개면 HTTP만으로 연결하기 어려운 지점이 생긴다. 주문 생성 뒤 재고·알림·정산이 각각 반응해야 하는데 REST로 순차 호출하면 한 서비스 장애가 전체 요청을 끌어내리고, 내부 동기 호출을 JSON으로 처리하면 직렬화 비용과 스키마 불일치가 누적된다. <code>@nestjs/microservices</code>는 이런 통신을 전송 계층과 분리된 하나의 모델로 묶는다.</p>
+<p>서비스를 여러 개로 쪼개면 HTTP만으로 연결하기 어려운 지점이 생긴다. 주문 생성 뒤 재고·알림·정산이 각각 반응해야 하는데 REST로 순차 호출하면 한 서비스 장애가 전체 요청을 끌어내리고, 내부 동기 호출을 JSON으로 처리하면 직렬화 비용과 스키마 불일치가 누적된다. <mark><code>@nestjs/microservices</code>는 이런 통신을 전송 계층과 분리된 하나의 모델로 묶는다.</mark></p>
 <h2>핵심 개념</h2>
 <p>마이크로서비스는 <code>NestFactory.createMicroservice()</code>로 독립 실행하거나, HTTP 앱에 <code>app.connectMicroservice()</code>로 붙여 하이브리드로 운영한다. 전송 방식은 <code>Transport</code> 열거형으로 고르며 핸들러 코드는 전송 방식에 거의 의존하지 않는다.</p>
 <p>메시지 스타일은 두 가지다. <code>@MessagePattern()</code>은 요청-응답으로 핸들러 반환값이 호출자에게 돌아간다. <code>@EventPattern()</code>은 발행-구독으로 응답 없이 같은 이벤트의 핸들러가 병렬 실행된다. 클라이언트는 <code>ClientProxy</code>가 담당한다. <code>send()</code>는 구독 시점에 요청을 보내는 cold Observable, <code>emit()</code>은 즉시 발행하는 hot Observable을 반환한다. <code>ClientsModule.register()</code>로 등록해 토큰으로 주입하고, <code>@Payload()</code>와 <code>@Ctx()</code>로 본문과 전송 계층별 컨텍스트(파티션·오프셋·메타데이터)를 꺼낸다.</p>
@@ -53,7 +53,7 @@
 <td>서비스 간 조회·명령</td>
 </tr>
 </tbody></table>
-<p>Kafka 트랜스포터는 <code>options.client.brokers</code>와 <code>options.consumer.groupId</code>로 브로커·컨슈머 그룹을 지정한다. 요청-응답을 쓰려면 클라이언트가 <code>onModuleInit()</code>에서 <code>subscribeToResponseOf(pattern)</code>을 호출해 응답 토픽을 미리 구독해야 한다. 발행만 하는 서비스는 <code>producerOnlyMode: true</code>로 컨슈머 등록을 건너뛴다. 핸들러 반환값을 <code>{ key, value, headers }</code> 형태로 주면 파티션 키와 헤더를 제어한다.</p>
+<p>Kafka 트랜스포터는 <code>options.client.brokers</code>와 <code>options.consumer.groupId</code>로 브로커·컨슈머 그룹을 지정한다. <mark>요청-응답을 쓰려면 클라이언트가 <code>onModuleInit()</code>에서 <code>subscribeToResponseOf(pattern)</code>을 호출해 응답 토픽을 미리 구독해야 한다.</mark> 발행만 하는 서비스는 <code>producerOnlyMode: true</code>로 컨슈머 등록을 건너뛴다. 핸들러 반환값을 <code>{ key, value, headers }</code> 형태로 주면 파티션 키와 헤더를 제어한다.</p>
 <p>gRPC 트랜스포터는 <code>package</code>와 <code>protoPath</code>가 필수다. 서버는 <code>@GrpcMethod(service, method)</code>로 단항 호출을, <code>@GrpcStreamMethod()</code>로 Observable 스트리밍을, <code>@GrpcStreamCall()</code>로 Node 스트림을 직접 다룬다. 클라이언트는 <code>ClientGrpc.getService&lt;T&gt;(name)</code>로 proto 서비스 인터페이스를 얻고 각 메서드는 Observable을 반환한다. 예외는 <code>GrpcNotFoundException</code>처럼 상태 코드별 클래스가 있고 <code>GrpcExceptionFilter</code>를 전역 등록해 gRPC 상태로 변환한다.</p>
 <h2>코드</h2>
 <p>Kafka 하이브리드 앱을 구성하고 이벤트를 수신하는 예제다. 오프셋을 수동 커밋하도록 <code>run.autoCommit</code>을 끈다.</p>
@@ -190,11 +190,11 @@ syntax = <span class="hljs-string">&quot;proto3&quot;</span>;
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.</strong> <code>subscribeToResponseOf()</code>를 빠뜨리면 <code>send()</code>가 응답을 영원히 기다린다. 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.</li>
+<li><strong><mark>Kafka 요청-응답은 구독 누락으로 조용히 멈춘다.</mark></strong> <code>subscribeToResponseOf()</code>를 빠뜨리면 <code>send()</code>가 응답을 영원히 기다린다. 응답 토픽 관리 비용도 크므로 조회는 gRPC, 상태 변화 전파는 Kafka 이벤트로 나누는 편이 단순하다.</li>
 <li><strong>오프셋 커밋과 재시도 의미를 정해야 한다.</strong> 자동 커밋에서 핸들러가 실패하면 메시지가 유실될 수 있고, 수동 커밋에서 커밋을 빠뜨리면 반복 소비한다. 이벤트 핸들러의 미처리 예외는 기본 재시도 대상이므로 핸들러를 멱등하게 쓰고, 영구 실패는 일반 예외로 구분해 DLQ로 보낸다.</li>
 <li><strong>긴 작업은 세션 타임아웃을 넘긴다.</strong> <code>sessionTimeout</code> 안에 하트비트가 없으면 리밸런싱으로 파티션이 다른 인스턴스로 넘어간다. <code>ctx.getHeartbeat()</code>를 중간에 호출하거나 작업을 큐로 넘긴다.</li>
 <li><strong>proto 계약 관리가 서비스 경계를 결정한다.</strong> proto 파일을 저장소마다 복사하면 버전이 어긋난다. 별도 패키지로 배포하고 <code>protoPath</code>에 배열을 넘겨 함께 로드한다. 기본 4MB 메시지 제한은 <code>maxReceiveMessageLength</code>로 조정한다.</li>
-<li><strong>하이브리드 앱은 가드·파이프 적용 범위가 다르다.</strong> HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다. <code>connectMicroservice()</code>에 <code>inheritAppConfig: true</code>를 명시하거나 따로 등록한다. 예외는 <code>RpcException</code> 계열을 던져야 필터가 응답 형식을 맞춘다.</li>
+<li><strong>하이브리드 앱은 가드·파이프 적용 범위가 다르다.</strong> <mark>HTTP 쪽 전역 가드·인터셉터는 마이크로서비스 핸들러에 상속되지 않는다.</mark> <code>connectMicroservice()</code>에 <code>inheritAppConfig: true</code>를 명시하거나 따로 등록한다. 예외는 <code>RpcException</code> 계열을 던져야 필터가 응답 형식을 맞춘다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

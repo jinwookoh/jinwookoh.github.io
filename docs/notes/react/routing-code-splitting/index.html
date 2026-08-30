@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/react/routing-code-splitting/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>라우팅(React Router)과 코드 분할</h1>
   <p class="summary">React Router로 URL과 컴포넌트 트리를 대응시키고, lazy·Suspense·route.lazy로 번들을 라우트 단위로 쪼개는 방법을 정리한다</p>
   <div class="content">
-<p>SPA는 HTML 한 장을 받아 화면 전환을 브라우저 안에서 처리한다. 라우터가 없으면 URL과 화면이 분리되어 새로고침·뒤로가기·링크 공유가 깨진다. 조건문으로 흉내내다 보면 중첩 레이아웃·경로 파라미터·404까지 라우터를 재구현하게 된다. 한편 화면이 늘어나면 모든 페이지 코드가 하나의 번들에 묶여 첫 로딩이 느려진다. 라우팅과 코드 분할은 이 두 문제를 라우트라는 같은 단위로 해결한다.</p>
+<p>SPA는 HTML 한 장을 받아 화면 전환을 브라우저 안에서 처리한다. 라우터가 없으면 URL과 화면이 분리되어 새로고침·뒤로가기·링크 공유가 깨진다. 조건문으로 흉내내다 보면 중첩 레이아웃·경로 파라미터·404까지 라우터를 재구현하게 된다. 한편 화면이 늘어나면 모든 페이지 코드가 하나의 번들에 묶여 첫 로딩이 느려진다. <mark>라우팅과 코드 분할은 이 두 문제를 라우트라는 같은 단위로 해결한다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>라우트 트리와 Outlet</h3>
 <p>React Router 7은 <code>react-router</code> 패키지 하나에서 <code>BrowserRouter</code>, <code>Routes</code>, <code>Route</code>, <code>Outlet</code>, <code>Link</code>, <code>useParams</code>를 제공한다. 라우트는 트리로 선언하고, 부모 컴포넌트가 <code>&lt;Outlet /&gt;</code>을 그리는 자리에 매칭된 자식 라우트가 들어간다. 경로는 자동으로 합쳐져 <code>dashboard</code> 아래 <code>settings</code>는 <code>/dashboard/settings</code>가 된다.</p>
@@ -66,7 +66,7 @@
 <h3>Declarative 모드와 Data 모드</h3>
 <p><code>BrowserRouter</code>·<code>Routes</code>·<code>Route</code> 조합은 JSX로 라우트를 선언하는 declarative 모드다. 별개로 <code>createBrowserRouter</code>에 라우트 객체 배열을 넘기고 <code>RouterProvider</code>로 렌더링하는 data 모드가 있다. 라우트 객체에는 <code>Component</code> 외에 <code>loader</code>(렌더링 전 데이터 준비), <code>action</code>(폼 제출 등 변경 처리), <code>ErrorBoundary</code>, <code>shouldRevalidate</code>, <code>middleware</code>, 코드 분할용 <code>lazy</code>를 붙일 수 있다. action이 정상 종료되면 loader가 자동으로 재실행되어 화면이 동기화된다. <code>middleware</code>는 Spring의 HandlerInterceptor와 같은 자리다.</p>
 <h3>lazy와 Suspense</h3>
-<p><code>React.lazy(load)</code>는 <code>import()</code>를 감싼 함수를 받아 처음 렌더링될 때까지 모듈 로딩을 미루는 컴포넌트를 반환한다. 로딩 중에는 suspend되어 가장 가까운 <code>&lt;Suspense fallback&gt;</code>이 대신 그려진다. 번들러는 동적 <code>import()</code>를 별도 청크로 분리하므로 라우트 컴포넌트를 <code>lazy</code>로 감싸는 것만으로 라우트 단위 코드 분할이 된다.</p>
+<p><code>React.lazy(load)</code>는 <code>import()</code>를 감싼 함수를 받아 처음 렌더링될 때까지 모듈 로딩을 미루는 컴포넌트를 반환한다. 로딩 중에는 suspend되어 가장 가까운 <code>&lt;Suspense fallback&gt;</code>이 대신 그려진다. <mark>번들러는 동적 <code>import()</code>를 별도 청크로 분리하므로 라우트 컴포넌트를 <code>lazy</code>로 감싸는 것만으로 라우트 단위 코드 분할이 된다.</mark></p>
 <p>Suspense는 경계 안의 자식들을 한 번에 드러내며, 경계를 중첩하면 점진적 로딩이 된다. 이미 보이는 화면을 fallback으로 덮지 않으려면 <code>startTransition</code> 안에서 상태를 바꾼다.</p>
 <p>Data 모드의 <code>route.lazy</code>는 컴포넌트와 loader·action을 한 청크로 묶어 라우트가 매칭될 때 가져온다. 렌더링 시점이 아니라 매칭 시점에 로딩을 시작하므로 폭포수(waterfall)가 줄어든다.</p>
 <h2>코드</h2>
@@ -156,7 +156,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>서버 fallback 설정.</strong> <code>BrowserRouter</code>는 History API를 쓰므로 <code>/teams/42</code>를 새로고침하면 서버가 그 경로를 받는다. Nginx·S3·Spring 정적 핸들러가 없는 경로를 <code>index.html</code>로 돌려주지 않으면 배포 후 404가 난다.</li>
+<li><mark><strong>서버 fallback 설정.</strong> <code>BrowserRouter</code>는 History API를 쓰므로 <code>/teams/42</code>를 새로고침하면 서버가 그 경로를 받는다.</mark> Nginx·S3·Spring 정적 핸들러가 없는 경로를 <code>index.html</code>로 돌려주지 않으면 배포 후 404가 난다.</li>
 <li><strong>lazy를 컴포넌트 안에서 선언.</strong> 렌더링마다 새 lazy 컴포넌트가 만들어져 재마운트되고 상태가 초기화된다. 모듈 최상위에서 한 번만 호출한다.</li>
 <li><strong>Suspense 경계 위치.</strong> 최상위에 경계 하나만 두면 라우트 전환 때 화면 전체가 스피너로 바뀐다. 레이아웃 아래 <code>Outlet</code> 주변에 경계를 두어 내비게이션은 유지하고 콘텐츠 영역만 교체되게 한다.- <strong>suspend된 트리의 상태 손실.</strong> 처음 마운트되기 전에 suspend된 컴포넌트는 그동안의 상태 변경이 버려지고 데이터 도착 후 처음부터 다시 렌더링된다. 로딩 중 입력을 받는 UI는 경계 바깥에 둔다.</li>
 <li><strong>배포 후 청크 로딩 실패.</strong> 새 버전을 배포하면 이전 해시의 청크가 사라져 열어둔 탭에서 라우트 이동 시 <code>import()</code>가 실패한다. 이 오류는 가장 가까운 Error Boundary로 전달되므로 청크 오류를 감지하면 전체 새로고침을 유도한다.</li>

@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-streams-write-run-app.md, data-infra/2026-
 updated: 2026-08-29
 ---
 
-Kafka Streams는 JVM 프로세스 안의 라이브러리이므로 테스트와 운영의 책임이 애플리케이션에 남는다. 실제 클러스터에 붙여야만 토폴로지를 검증할 수 있으면 피드백 루프가 늘어지고, 예외 핸들러를 지정하지 않으면 잘못된 메시지 하나에 스트림 스레드가 죽은 채 복구되지 않는다. 상태 저장소 위치와 standby를 정해 두지 않으면 배포와 장애 때마다 상태 재구축에 시간을 쓴다.
+==Kafka Streams는 JVM 프로세스 안의 라이브러리이므로 테스트와 운영의 책임이 애플리케이션에 남는다.== 실제 클러스터에 붙여야만 토폴로지를 검증할 수 있으면 피드백 루프가 늘어지고, 예외 핸들러를 지정하지 않으면 잘못된 메시지 하나에 스트림 스레드가 죽은 채 복구되지 않는다. 상태 저장소 위치와 standby를 정해 두지 않으면 배포와 장애 때마다 상태 재구축에 시간을 쓴다.
 
 ## 핵심 개념
 
@@ -162,7 +162,7 @@ spring:
 
 - **TopologyTestDriver가 통과해도 운영에서 어긋나는 영역이 있다.** 파티션 간 순서, 리밸런스 중 재처리, RocksDB 동작은 검증되지 않는다. 운영과 같은 Serializer를 써야 바이트 호환성도 검증된다.
 - **`advanceWallClockTime`은 Punctuator에만 영향을 준다.** 이벤트 시간 윈도는 `pipeInput`의 타임스탬프로 진행시키고, 닫으려면 grace period를 넘기는 후속 레코드를 넣는다.
-- **`state.dir` 기본값은 `/tmp` 아래다.** 재시작 시 상태가 사라져 changelog 전체를 다시 읽는다. 영구 볼륨과 standby 1 이상이 없으면 복구가 수 시간 걸릴 수 있다.
+- ==**`state.dir` 기본값은 `/tmp` 아래다.** 재시작 시 상태가 사라져 changelog 전체를 다시 읽는다.== 영구 볼륨과 standby 1 이상이 없으면 복구가 수 시간 걸릴 수 있다.
 - **EOS에서는 커밋 주기가 곧 트랜잭션 주기다.** `commit.interval.ms`를 지나치게 낮추면 처리량이 떨어진다. `exactly_once`(v1)는 deprecated이므로 `exactly_once_v2`를 쓴다.
 - **`application.id`가 겹치면 컨슈머 그룹과 내부 토픽이 섞인다.** 접두사로 환경을 분리한다. 메이저 업그레이드는 `upgrade.from`을 적고 rolling restart, 안정화 후 제거하고 다시 rolling restart한다.
 

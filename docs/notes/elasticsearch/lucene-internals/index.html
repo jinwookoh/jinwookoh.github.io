@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/lucene-internals/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,11 +24,11 @@
   <h1>Lucene 내부 — Segment·역색인·Posting List</h1>
   <p class="summary">샤드 안의 Lucene이 Segment·역색인·Posting List·Doc Values를 어떻게 쌓고 읽는지, refresh·flush·merge가 왜 갈리는지 정리한다.</p>
   <div class="content">
-<p>색인한 문서가 곧바로 검색에 잡히지 않는 이유, refresh 간격을 줄였더니 디스크 IO가 치솟는 이유, text 필드 정렬이 heap을 터뜨리는 이유는 모두 Elasticsearch 아래의 Apache Lucene 저장 구조에서 나온다. 샤드 하나는 Lucene 인덱스 하나이며, 그 저장 구조를 모르면 위 증상을 설정값 조정으로만 돌려막게 된다.</p>
+<p>색인한 문서가 곧바로 검색에 잡히지 않는 이유, refresh 간격을 줄였더니 디스크 IO가 치솟는 이유, text 필드 정렬이 heap을 터뜨리는 이유는 모두 Elasticsearch 아래의 Apache Lucene 저장 구조에서 나온다. <mark>샤드 하나는 Lucene 인덱스 하나이며, 그 저장 구조를 모르면 위 증상을 설정값 조정으로만 돌려막게 된다.</mark></p>
 <h2>핵심 개념</h2>
 <h3>Segment — 불변 단위</h3>
 <p>Lucene이 디스크에 쓰는 기본 단위는 Segment로, 역색인·Doc Values·stored fields를 한 세트로 갖는 독립된 작은 인덱스다. 한 번 쓰인 Segment는 수정되지 않고, 새 문서는 새 Segment에 들어가며, 기존 문서 수정은 삭제 표시 후 새 버전을 쓰는 append-only 방식이다. 덕분에 검색은 잠금 없이 진행된다.</p>
-<p>색인 요청은 먼저 메모리 버퍼에 쌓인다. 기본 1초 간격의 <strong>refresh</strong>가 버퍼를 새 Segment로 닫으면 검색 가능해진다. 이것이 near real-time 검색의 실체다. <strong>flush</strong>는 별개로, Segment를 fsync로 영구화하고 translog를 비운다. refresh는 가시성, flush는 내구성을 담당한다.</p>
+<p>색인 요청은 먼저 메모리 버퍼에 쌓인다. 기본 1초 간격의 <strong>refresh</strong>가 버퍼를 새 Segment로 닫으면 검색 가능해진다. 이것이 near real-time 검색의 실체다. <strong>flush</strong>는 별개로, Segment를 fsync로 영구화하고 translog를 비운다. <mark>refresh는 가시성, flush는 내구성을 담당한다.</mark></p>
 <p>모든 쿼리가 Segment 수만큼 순회하므로 Lucene은 백그라운드 <strong>merge</strong>로 작은 Segment를 합치고, 이때 삭제 문서가 실제로 제거된다. <code>_forcemerge</code>는 이를 수동으로 강제하며 쓰기가 끝난 인덱스에서만 의미가 있다.</p>
 <h3>역색인 — Term Dictionary와 Posting List</h3>
 <p>역색인은 &quot;term → 등장 문서 ID 목록&quot; 매핑이다. <strong>Term Dictionary</strong>는 고유 term의 정렬 사전으로 FST로 압축되고, <strong>Posting List</strong>는 각 term에 매달린 정렬된 문서 ID 목록이다. AND 쿼리는 교집합, OR 쿼리는 합집합으로 풀린다. Posting List에 frequency·position·offset을 어디까지 기록할지는 <code>index_options</code>가 정한다.</p>
@@ -129,7 +129,7 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>refresh_interval 단축.</strong> 100ms 단위로 내리면 작은 Segment가 폭증해 merge 부하와 검색 지연이 함께 오른다. 로그성 인덱스는 30s~60s가 표준이고, 대량 bulk 중에는 <code>-1</code>로 껐다가 복원한다.</li>
-<li><strong>쓰기가 살아 있는 인덱스에 force merge.</strong> 대용량 IO가 노드를 장시간 점유하고, 합쳐진 거대 Segment는 자동 merge 후보에서 빠져 삭제 문서가 회수되지 않는다. ILM warm 단계처럼 읽기 전용이 보장된 시점에 자동화한다.</li>
+<li><mark><strong>쓰기가 살아 있는 인덱스에 force merge.</strong> 대용량 IO가 노드를 장시간 점유하고, 합쳐진 거대 Segment는 자동 merge 후보에서 빠져 삭제 문서가 회수되지 않는다.</mark> ILM warm 단계처럼 읽기 전용이 보장된 시점에 자동화한다.</li>
 <li><strong>Segment 수천 개 누적.</strong> <code>ulimit -n</code> 한도에 걸리거나 P99 지연이 급등한다. 시간 데이터는 인덱스를 기간별로 나눈다.</li>
 <li><strong>text 필드 정렬·집계.</strong> <code>title.raw</code> 같은 keyword sub-field로 보낸다. <code>doc_values: false</code>는 정렬·집계가 없다고 확신하는 필드에만 적용하며, 되돌리려면 재색인이 필요하다.</li>
 <li><strong>색인·검색 analyzer 불일치.</strong> 색인에만 lowercase가 있으면 결과가 0건이 된다. 매핑에 <code>analyzer</code> 하나만 지정해 통일한다.</li>

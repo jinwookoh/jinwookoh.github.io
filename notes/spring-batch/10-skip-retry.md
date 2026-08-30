@@ -9,11 +9,11 @@ sources: [batch/2026-05-17-batch-skip-logic.md, batch/2026-05-17-batch-retry-log
 updated: 2026-08-29
 ---
 
-수백만 건을 처리하는 Step은 예외 한 건으로 전체가 FAILED 되는 것도, 모든 예외를 삼키고 COMPLETED 되는 것도 곤란하다. 전자는 CSV 한 줄의 포맷 오류가 야간 배치를 멈추고, 후자는 중요한 데이터가 소리 없이 사라진다. Spring Batch는 이 사이를 두 정책으로 메운다. 재시도해도 결과가 같은 영구적 오류(파싱·검증 실패)는 해당 아이템만 건너뛰는 **Skip**, 잠시 뒤 성공할 수 있는 일시적 오류(Deadlock, 타임아웃)는 다시 시도하는 **Retry**다. 금융 거래처럼 정확성이 전제인 데이터는 Skip 대상이 아니며, 어느 쪽을 쓸지는 데이터의 의미가 결정한다.
+수백만 건을 처리하는 Step은 예외 한 건으로 전체가 FAILED 되는 것도, 모든 예외를 삼키고 COMPLETED 되는 것도 곤란하다. 전자는 CSV 한 줄의 포맷 오류가 야간 배치를 멈추고, 후자는 중요한 데이터가 소리 없이 사라진다. Spring Batch는 이 사이를 두 정책으로 메운다. 재시도해도 결과가 같은 영구적 오류(파싱·검증 실패)는 해당 아이템만 건너뛰는 **Skip**, 잠시 뒤 성공할 수 있는 일시적 오류(Deadlock, 타임아웃)는 다시 시도하는 **Retry**다. ==금융 거래처럼 정확성이 전제인 데이터는 Skip 대상이 아니며, 어느 쪽을 쓸지는 데이터의 의미가 결정한다.==
 
 ## 핵심 개념
 
-두 정책 모두 `StepBuilder`에서 `faultTolerant()`를 호출한 뒤에만 유효하다. 이 호출이 `FaultTolerantStepBuilder`로 전환하는 관문이고, 빠뜨리면 이후의 `skip()`·`retry()` 설정이 무시된다.
+두 정책 모두 `StepBuilder`에서 `faultTolerant()`를 호출한 뒤에만 유효하다. ==이 호출이 `FaultTolerantStepBuilder`로 전환하는 관문이고, 빠뜨리면 이후의 `skip()`·`retry()` 설정이 무시된다.==
 
 Skip은 `skip(Class)`로 대상 예외를, `skipLimit(N)`으로 Step 전체의 누적 허용 횟수를 정한다. N+1번째 skip에서 `SkipLimitExceededException`으로 Step이 FAILED 된다. 하위 예외 클래스는 자동 포함되며 `noSkip(Class)`으로 특정 하위 예외만 제외한다. 빌더 방식은 내부적으로 `LimitCheckingExceptionHierarchySkipPolicy`를 만드는 것이고, `skipPolicy()`로 정책을 직접 넣으면 `skip()`·`skipLimit()`은 무시된다.
 
@@ -27,7 +27,7 @@ Skip 동작은 단계마다 다르다.
 
 Write에서는 원인 아이템을 알 수 없으므로 chunk를 되돌리고 하나씩 다시 쓴다. Skip 카운트는 `StepExecution`에 read·process·write 별로 저장되고, 재시작 시 이전 실행의 카운트에서 이어서 센다. 재시작으로 한계를 우회할 수 없다.
 
-Retry는 `retry(Class)`와 `retryLimit(N)`으로 설정한다. N은 첫 시도를 포함한 총 시도 횟수다. 재시도 단위는 아이템이 아니라 **chunk**다. Process나 Write에서 대상 예외가 나면 트랜잭션을 롤백하고 새 트랜잭션에서 chunk를 처음부터 다시 처리한다. Reader 예외는 Retry 대상이 아니므로 Read 단계의 일시적 오류는 Reader 내부에서 재연결하거나 Skip으로 처리한다.
+Retry는 `retry(Class)`와 `retryLimit(N)`으로 설정한다. N은 첫 시도를 포함한 총 시도 횟수다. ==재시도 단위는 아이템이 아니라 **chunk**다.== Process나 Write에서 대상 예외가 나면 트랜잭션을 롤백하고 새 트랜잭션에서 chunk를 처음부터 다시 처리한다. Reader 예외는 Retry 대상이 아니므로 Read 단계의 일시적 오류는 Reader 내부에서 재연결하거나 Skip으로 처리한다.
 
 재시도 사이의 대기는 `backOffPolicy()`로 정한다. 기본은 `NoBackOffPolicy`(즉시 재시도)이며, 외부 API에는 지수 증가에 jitter를 더한 `ExponentialRandomBackOffPolicy`가, DB Deadlock에는 재시도 시점을 흩어 주는 `UniformRandomBackOffPolicy`가 맞는다. Spring Batch 6부터는 `spring-retry`에 의존하지 않고 재시도 클래스가 `org.springframework.batch.infrastructure.retry` 패키지로 옮겨졌다.
 
@@ -148,7 +148,7 @@ public class FieldCountSkipPolicy implements SkipPolicy {
 
 - **Write skip의 비용.** chunk 롤백 후 1건씩 재기록하므로 chunk 크기만큼 트랜잭션이 늘어난다. Writer에서 잡히는 제약 위반은 Processor 단계의 검증으로 앞당겨 Process skip으로 바꾼다.
 - **광범위한 skip·retry.** `skip(Exception.class)`은 코드 버그를 데이터 오류로 위장시키고, `retry(Exception.class)`는 성공할 수 없는 호출을 반복한다. 예상 가능한 예외만 명시한다.
-- **Retry는 read()도 다시 호출한다.** 외부 API를 부르거나 상태를 바꾸는 Reader는 중복 호출된다. Writer가 멱등하지 않은 외부 시스템을 부른다면 idempotency key 없이 Retry를 걸지 않는다.
+- ==**Retry는 read()도 다시 호출한다.**== 외부 API를 부르거나 상태를 바꾸는 Reader는 중복 호출된다. Writer가 멱등하지 않은 외부 시스템을 부른다면 idempotency key 없이 Retry를 걸지 않는다.
 - **BackOff 없는 재시도.** 기본이 즉시 재시도라 상대 시스템에 부하가 몰리고, 재시도 동안 chunk 트랜잭션이 커넥션을 붙들고 있어 풀이 고갈된다. 3~5회에 최대 대기 수 초 안쪽이 무난하다.
 - **Step retry와 `@Retryable`의 중첩.** Processor 메서드와 Step에 같은 예외를 걸면 총 시도 횟수가 곱으로 늘어난다. API 호출은 메서드 단위, DB Deadlock은 chunk 단위로 책임을 나눈다.
 

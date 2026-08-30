@@ -9,13 +9,13 @@ sources: [data-infra/2026-05-17-redis-streams.md, data-infra/2026-05-17-redis-pu
 updated: 2026-08-29
 ---
 
-서버 인스턴스가 여러 대로 늘어나면 캐시 무효화, 사용자 알림, 주문 이벤트 후속 처리를 인스턴스 간에 전달해야 한다. List를 큐로 쓰면 한 메시지가 한 워커에게만 가고, LPOP 직후 워커가 죽으면 메시지가 사라지며, 여러 서비스가 같은 이벤트를 각자 받는 구조도 만들 수 없다. Redis는 이 자리에 두 도구를 둔다. Pub/Sub는 저장 없이 즉시 전파하고, Stream은 추가 전용 로그에 쌓아 Consumer Group으로 나눠 처리한다.
+서버 인스턴스가 여러 대로 늘어나면 캐시 무효화, 사용자 알림, 주문 이벤트 후속 처리를 인스턴스 간에 전달해야 한다. List를 큐로 쓰면 한 메시지가 한 워커에게만 가고, LPOP 직후 워커가 죽으면 메시지가 사라지며, 여러 서비스가 같은 이벤트를 각자 받는 구조도 만들 수 없다. Redis는 이 자리에 두 도구를 둔다. ==Pub/Sub는 저장 없이 즉시 전파하고, Stream은 추가 전용 로그에 쌓아 Consumer Group으로 나눠 처리한다.==
 
 ## 핵심 개념
 
 ### Pub/Sub — 저장하지 않는 전파
 
-`PUBLISH channel message`는 그 순간 해당 채널을 `SUBSCRIBE`하고 있는 클라이언트에게만 메시지를 보낸다. 반환값은 받은 구독자 수이며 0이면 아무도 받지 못한 채 사라진 것이다. 서버가 메시지를 저장하지 않으므로 재처리·ACK·과거 조회가 불가능하다. `PSUBSCRIBE news.*`처럼 와일드카드 패턴 구독이 가능하고, `PUBSUB CHANNELS`·`NUMSUB`로 상태를 확인한다. 구독 모드 연결은 구독 관련 명령과 PING·QUIT 외의 일반 명령을 거부하므로 발행용 연결과 분리한다.
+`PUBLISH channel message`는 그 순간 해당 채널을 `SUBSCRIBE`하고 있는 클라이언트에게만 메시지를 보낸다. 반환값은 받은 구독자 수이며 0이면 아무도 받지 못한 채 사라진 것이다. ==서버가 메시지를 저장하지 않으므로 재처리·ACK·과거 조회가 불가능하다.== `PSUBSCRIBE news.*`처럼 와일드카드 패턴 구독이 가능하고, `PUBSUB CHANNELS`·`NUMSUB`로 상태를 확인한다. 구독 모드 연결은 구독 관련 명령과 PING·QUIT 외의 일반 명령을 거부하므로 발행용 연결과 분리한다.
 
 Cluster에서는 전통 Pub/Sub가 어느 노드에 구독자가 있는지 모르기 때문에 모든 노드로 broadcast하며, 노드 수에 비례해 비용이 커진다. Redis 7의 Sharded Pub/Sub(`SPUBLISH`·`SSUBSCRIBE`)는 채널 이름의 슬롯을 계산해 해당 shard 안에서만 메시지를 흘린다. 비용이 일정해지는 대신 구독자가 같은 shard에 연결되어야 하고 패턴 구독은 지원하지 않는다.
 
@@ -30,7 +30,7 @@ Cluster에서는 전통 Pub/Sub가 어느 노드에 구독자가 있는지 모�
 3. `XACK key group id` — 처리 완료를 알리고 PEL에서 제거한다.
 4. `XPENDING key group` — 미ACK 항목을 확인한다. `XAUTOCLAIM key group consumer 30000 0-0`은 30초 이상 ACK되지 않은 항목을 다른 소비자로 넘긴다.
 
-죽은 워커의 항목을 회수해 다시 처리하므로 at-least-once가 성립한다. 그룹이 여러 개면 각 그룹이 같은 메시지를 독립적으로 받는다.
+==죽은 워커의 항목을 회수해 다시 처리하므로 at-least-once가 성립한다.== 그룹이 여러 개면 각 그룹이 같은 메시지를 독립적으로 받는다.
 
 ### 세 도구의 보장 수준
 
@@ -206,7 +206,7 @@ public class LocalCacheInvalidator {
 ## 실무에서 걸리는 지점
 
 - ACK 누락은 PEL을 키운다. `XPENDING` 개수를 지표로 내보내고, 반복 실패 항목은 delivery count를 보고 dead letter 스트림으로 옮긴다.
-- Stream은 자동으로 줄지 않는다. `XADD`마다 `MAXLEN ~ N`을 붙이거나 `MINID`로 시간 기반 보존을 건다. `~` 없는 정확한 트림은 매 호출마다 비용이 붙는다.
+- ==Stream은 자동으로 줄지 않는다.== `XADD`마다 `MAXLEN ~ N`을 붙이거나 `MINID`로 시간 기반 보존을 건다. `~` 없는 정확한 트림은 매 호출마다 비용이 붙는다.
 - 그룹을 만든 스트림에 `XREAD`를 섞으면 그 항목은 PEL에 기록되지 않아 중복 처리가 난다. `XREADGROUP`만 쓴다.
 - Pub/Sub 구독자가 느리면 출력 버퍼가 `client-output-buffer-limit pubsub`(기본 32mb hard, 8mb soft, 60초)를 넘는 순간 연결이 끊기고 그 사이 발행분은 복구되지 않는다.
 - Cluster에서 대량 발행이면 Sharded Pub/Sub로 옮기되, Keyspace Notification은 전통 Pub/Sub만 지원하고 클라이언트의 `SSUBSCRIBE` 지원 여부를 확인한다.

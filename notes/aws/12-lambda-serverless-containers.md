@@ -9,13 +9,13 @@ sources: [2026-05-01-aws-saa-containers-serverless.md, 2026-05-03-aws-dva-server
 updated: 2026-08-30
 ---
 
-EC2에 애플리케이션을 직접 올리면 패치·용량 산정·스케일 판단이 운영자의 몫이 되고, 하루 몇 시간만 트래픽이 몰려도 인스턴스는 24시간 과금된다. 이 문제는 두 갈래로 푼다. 짧고 이벤트 기반인 작업은 Lambda에 함수 단위로 올리고, 장시간 실행되거나 메모리·패키지 크기가 Lambda 한도를 넘는 작업은 ECS·Fargate에 컨테이너로 올린다. 여러 함수를 엮는 흐름은 Step Functions가, 자원 정의는 SAM이 맡는다.
+EC2에 애플리케이션을 직접 올리면 패치·용량 산정·스케일 판단이 운영자의 몫이 되고, 하루 몇 시간만 트래픽이 몰려도 인스턴스는 24시간 과금된다. 이 문제는 두 갈래로 푼다. ==짧고 이벤트 기반인 작업은 Lambda에 함수 단위로 올리고, 장시간 실행되거나 메모리·패키지 크기가 Lambda 한도를 넘는 작업은 ECS·Fargate에 컨테이너로 올린다.== 여러 함수를 엮는 흐름은 Step Functions가, 자원 정의는 SAM이 맡는다.
 
 ## 핵심 개념
 
 ### Lambda의 한도와 동시성
 
-Lambda는 이벤트가 들어올 때만 실행되고 호출 횟수와 실행 시간으로 과금한다. 한도는 메모리 128MB~10GB, 실행 시간 최대 900초, 배포 패키지 압축 해제 250MB(컨테이너 이미지 10GB), 환경 변수 4KB, 리전당 기본 동시 실행 1,000이다. CPU는 메모리에 비례해 배정되므로 성능 조정 수단은 메모리 증설이다. 이 한도를 넘는 작업은 Fargate로 옮긴다.
+Lambda는 이벤트가 들어올 때만 실행되고 호출 횟수와 실행 시간으로 과금한다. 한도는 메모리 128MB~10GB, 실행 시간 최대 900초, 배포 패키지 압축 해제 250MB(컨테이너 이미지 10GB), 환경 변수 4KB, 리전당 기본 동시 실행 1,000이다. ==CPU는 메모리에 비례해 배정되므로 성능 조정 수단은 메모리 증설이다.== 이 한도를 넘는 작업은 Fargate로 옮긴다.
 
 Reserved Concurrency는 리전 풀에서 특정 함수의 몫을 떼어 두면서 상한으로도 작동하고, 0이면 호출이 전부 스로틀된다. Provisioned Concurrency는 실행 환경을 미리 초기화해 콜드 스타트를 없애지만 유지 시간만큼 과금되고, `$LATEST`가 아닌 게시된 버전이나 별칭에만 붙는다. Java는 SnapStart로 초기화 완료 상태를 스냅샷에 담아 추가 비용 없이 콜드 스타트를 줄인다. 스로틀 시 동기 호출은 즉시 429, 비동기 호출은 최대 6시간 재시도 후 DLQ로 간다.
 
@@ -23,7 +23,7 @@ Lambda가 프라이빗 RDS·ElastiCache에 닿으려면 서브넷과 보안 그�
 
 ### ECS와 Fargate
 
-ECS는 Cluster, Service, Task Definition, Task 계층이다. Task Definition은 이미지·CPU·메모리·IAM Role을 적은 JSON으로 수정마다 새 리비전이 생기고, Service는 Desired Count만큼 Task를 유지하며 ALB 등록을 처리한다. `essential: true` 컨테이너가 종료되면 Task 전체가 내려가므로 사이드카는 `essential: false`로 둔다.
+ECS는 Cluster, Service, Task Definition, Task 계층이다. Task Definition은 이미지·CPU·메모리·IAM Role을 적은 JSON으로 수정마다 새 리비전이 생기고, Service는 Desired Count만큼 Task를 유지하며 ALB 등록을 처리한다. ==`essential: true` 컨테이너가 종료되면 Task 전체가 내려가므로 사이드카는 `essential: false`로 둔다.==
 
 EC2 Launch Type은 인스턴스와 ECS Agent를 직접 관리하고, Fargate는 Task 단위 vCPU·메모리로 과금하며 awsvpc 모드로 Task마다 ENI와 보안 그룹을 갖는다. Fargate의 영구 스토리지는 EFS만 붙는다.
 
@@ -174,7 +174,7 @@ Resources:
 
 ## 실무에서 걸리는 지점
 
-- **API Gateway 29초와 Lambda 15분의 불일치.** 함수 Timeout을 길게 잡아도 API Gateway가 29초에 504를 먼저 반환한다. 오래 걸리는 작업은 SQS나 Step Functions로 넘기고 즉시 202를 돌려준다.
+- ==**API Gateway 29초와 Lambda 15분의 불일치.** 함수 Timeout을 길게 잡아도 API Gateway가 29초에 504를 먼저 반환한다.== 오래 걸리는 작업은 SQS나 Step Functions로 넘기고 즉시 202를 돌려준다.
 - **Java 콜드 스타트.** JVM 기동과 Spring 컨텍스트 로딩으로 첫 호출이 수 초 걸린다. SnapStart로 줄지만 지연이 일정해야 하면 Provisioned Concurrency 비용을 감수하고, Spring Boot 전체보다 얇은 핸들러가 유리하다.
 - **Task Role과 Execution Role 혼동.** `secrets` 필드로 값을 주입하는 권한은 Execution Role, 런타임에 SDK로 같은 시크릿을 읽는 권한은 Task Role에 있다.
 - **Express 워크플로의 at-least-once.** 같은 상태가 두 번 실행될 수 있으므로 호출되는 함수는 멱등해야 한다. 결제·재고처럼 중복이 치명적인 흐름은 Standard를 쓰거나 DynamoDB 조건부 쓰기로 방어한다.

@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-java-annotation.md, spring/2026-05-16-component-auto
 updated: 2026-08-29
 ---
 
-컨테이너가 객체를 만들고 조립하려면 어떤 클래스를 Bean으로 만들고 어디에 무엇을 끼울지 알아야 한다. 이 정보를 XML에 따로 적던 시절에는 클래스를 추가할 때마다 설정 파일을 같이 고쳐야 했고, 둘이 어긋나면 런타임에야 실패가 드러났다. 어노테이션은 등록·주입 정보를 클래스·메서드·매개변수 옆에 붙이는 메타데이터이고, Spring은 이를 읽어 Bean 등록과 주입을 수행한다.
+컨테이너가 객체를 만들고 조립하려면 어떤 클래스를 Bean으로 만들고 어디에 무엇을 끼울지 알아야 한다. 이 정보를 XML에 따로 적던 시절에는 클래스를 추가할 때마다 설정 파일을 같이 고쳐야 했고, 둘이 어긋나면 런타임에야 실패가 드러났다. ==어노테이션은 등록·주입 정보를 클래스·메서드·매개변수 옆에 붙이는 메타데이터이고, Spring은 이를 읽어 Bean 등록과 주입을 수행한다.==
 
 ## 핵심 개념
 
@@ -122,9 +122,9 @@ public @interface LogExecutionTime {
 
 ## 실무에서 걸리는 지점
 
-- 스캔 범위 밖의 클래스는 등록되지 않는다. 메인 클래스가 `com.example.shop`에 있으면 `com.example.common`의 `@Service`는 발견되지 않고 주입 지점에서 `NoSuchBeanDefinitionException`이 난다. 메인 클래스를 루트 패키지에 두거나 `scanBasePackages`를 명시한다.
+- ==스캔 범위 밖의 클래스는 등록되지 않는다.== 메인 클래스가 `com.example.shop`에 있으면 `com.example.common`의 `@Service`는 발견되지 않고 주입 지점에서 `NoSuchBeanDefinitionException`이 난다. 메인 클래스를 루트 패키지에 두거나 `scanBasePackages`를 명시한다.
 - `@Configuration` 클래스는 CGLIB 서브클래스로 감싸이므로 내부에서 `@Bean` 메서드를 직접 호출해도 싱글턴이 반환된다. `@Component`에 `@Bean`을 두거나 `proxyBeanMethods = false`면 호출마다 새 객체가 생긴다. 다른 Bean은 매개변수로 받는 편이 두 모드 모두 안전하다.
-- 필드 주입은 `final`을 쓸 수 없고 순환 참조를 숨긴다. 생성자 주입은 순환이 있으면 기동 단계에서 실패하므로 설계 문제가 일찍 드러난다. Spring Boot 2.6부터 순환 참조는 기본 금지다.
+- ==필드 주입은 `final`을 쓸 수 없고 순환 참조를 숨긴다.== 생성자 주입은 순환이 있으면 기동 단계에서 실패하므로 설계 문제가 일찍 드러난다. Spring Boot 2.6부터 순환 참조는 기본 금지다.
 - 구현체를 하나 추가한 순간 잘 돌던 주입이 `NoUniqueBeanDefinitionException`으로 깨진다. `@Qualifier` 이름은 문자열이라 리네임에 취약하므로 커스텀 qualifier 어노테이션으로 감싸는 방법도 있다.
 - `AutoCloseable` 구현체는 `destroyMethod`를 생략해도 `close()`가 추론되지만, 커넥션 풀처럼 종료 순서가 중요한 객체는 명시해 의도를 드러낸다.
 

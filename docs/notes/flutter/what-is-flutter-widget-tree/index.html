@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/flutter/what-is-flutter-widget-tree/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Flutter란 — 위젯 트리와 렌더링</h1>
   <p class="summary">Flutter가 플랫폼 UI 컴포넌트 대신 자체 렌더러와 위젯·엘리먼트·렌더 세 트리로 화면을 그리는 구조를 정리한다</p>
   <div class="content">
-<p>iOS와 Android에 같은 화면을 내려면 두 벌의 UI 코드를 유지하거나, 네이티브 컴포넌트를 브리지로 감싸야 한다. 전자는 비용이 두 배로 들고, 후자는 브리지 직렬화 비용과 플랫폼별 동작 차이가 남는다. Flutter는 플랫폼의 UI 컴포넌트를 아예 쓰지 않고, 자체 렌더링 엔진이 픽셀 단위로 화면을 그리는 쪽을 선택했다. 동일한 Dart 코드가 모바일·웹·데스크톱에서 같은 모양으로 동작하고, UI 코드와 엔진 사이에 브리지가 없다.</p>
+<p>iOS와 Android에 같은 화면을 내려면 두 벌의 UI 코드를 유지하거나, 네이티브 컴포넌트를 브리지로 감싸야 한다. 전자는 비용이 두 배로 들고, 후자는 브리지 직렬화 비용과 플랫폼별 동작 차이가 남는다. <mark>Flutter는 플랫폼의 UI 컴포넌트를 아예 쓰지 않고, 자체 렌더링 엔진이 픽셀 단위로 화면을 그리는 쪽을 선택했다.</mark> 동일한 Dart 코드가 모바일·웹·데스크톱에서 같은 모양으로 동작하고, UI 코드와 엔진 사이에 브리지가 없다.</p>
 <h2>핵심 개념</h2>
 <h3>계층 구조</h3>
 <p>Flutter는 세 계층으로 나뉜다. Embedder는 플랫폼별 진입점으로 렌더 서피스·입력 이벤트·스레드를 OS에서 받아 엔진에 넘긴다. Engine은 C++로 작성됐고 래스터화, 텍스트 레이아웃, 플랫폼 채널, Dart 런타임을 포함하며, 렌더러는 셰이더를 빌드 시점에 미리 컴파일하는 Impeller가 기본이다. Framework는 Dart 라이브러리 묶음으로 foundation·rendering·widgets 계층 위에 Material·Cupertino가 올라간다. 애플리케이션 코드는 대부분 widgets 계층 이상만 만진다.</p>
@@ -58,9 +58,9 @@
 <td>Element와 동일</td>
 </tr>
 </tbody></table>
-<p><code>build()</code>가 새 위젯을 반환하면 프레임워크는 기존 Element의 위젯과 새 위젯을 <code>runtimeType</code>과 <code>key</code>로 비교한다. 같으면 Element를 재사용하고 RenderObject의 속성만 갱신하며, 다르면 Element를 버리고 새로 만든다. 상태와 렌더 객체는 Element에 매달려 있으므로 위젯이 매 프레임 다시 만들어져도 보존된다. 비교는 부모·자식 한 단계씩만 수행하므로 O(N)에 끝난다.</p>
+<p><code>build()</code>가 새 위젯을 반환하면 프레임워크는 기존 Element의 위젯과 새 위젯을 <code>runtimeType</code>과 <code>key</code>로 비교한다. 같으면 Element를 재사용하고 RenderObject의 속성만 갱신하며, 다르면 Element를 버리고 새로 만든다. <mark>상태와 렌더 객체는 Element에 매달려 있으므로 위젯이 매 프레임 다시 만들어져도 보존된다.</mark> 비교는 부모·자식 한 단계씩만 수행하므로 O(N)에 끝난다.</p>
 <h3>레이아웃 프로토콜</h3>
-<p>레이아웃은 한 번의 트리 순회로 끝난다. 부모가 자식에게 최소·최대 크기 제약(<code>BoxConstraints</code>)을 내려보내고, 자식은 그 범위 안에서 크기를 정해 돌려주며, 부모가 위치를 결정한다. 제약은 아래로, 크기는 위로 흐르므로 위젯은 자기 크기를 단독으로 정할 수 없다. <code>Container</code>에 <code>width: 200</code>을 줘도 부모가 강제 제약을 걸면 무시된다.</p>
+<p>레이아웃은 한 번의 트리 순회로 끝난다. 부모가 자식에게 최소·최대 크기 제약(<code>BoxConstraints</code>)을 내려보내고, 자식은 그 범위 안에서 크기를 정해 돌려주며, 부모가 위치를 결정한다. <mark>제약은 아래로, 크기는 위로 흐르므로 위젯은 자기 크기를 단독으로 정할 수 없다.</mark> <code>Container</code>에 <code>width: 200</code>을 줘도 부모가 강제 제약을 걸면 무시된다.</p>
 <h2>코드</h2>
 <p>가장 작은 Flutter 앱. <code>runApp()</code>이 루트 위젯을 받아 위젯 트리를 붙이고, <code>MaterialApp</code>이 내비게이션·테마·로컬라이제이션 인프라를 제공한다.</p>
 <pre><code class="hljs language-dart"><span class="hljs-keyword">import</span> <span class="hljs-string">&#x27;package:flutter/material.dart&#x27;</span>;
@@ -117,7 +117,7 @@
 )</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>build()</code>는 언제든 여러 번 호출된다.</strong> 네트워크 요청이나 컨트롤러 생성처럼 부수효과가 있는 코드를 <code>build()</code>에 두면 리빌드마다 반복된다. 초기화는 <code>initState()</code>, 해제는 <code>dispose()</code>에 둔다.</li>
+<li><mark><strong><code>build()</code>는 언제든 여러 번 호출된다.</strong></mark> 네트워크 요청이나 컨트롤러 생성처럼 부수효과가 있는 코드를 <code>build()</code>에 두면 리빌드마다 반복된다. 초기화는 <code>initState()</code>, 해제는 <code>dispose()</code>에 둔다.</li>
 <li><strong>리스트 항목에 <code>key</code>가 없으면 상태가 엇갈린다.</strong> 같은 타입의 <code>StatefulWidget</code>을 순서만 바꾸면 프레임워크는 위치 기준으로 Element를 재사용하므로, 첫 번째 항목의 상태가 두 번째 항목에 붙는다. 데이터 식별자를 <code>ValueKey</code>로 넘긴다.</li>
 <li><strong><code>setState()</code>의 범위가 넓으면 불필요한 리빌드가 늘어난다.</strong> 화면 최상위 <code>State</code>에서 호출하면 하위 트리 전체가 다시 <code>build()</code>된다. 변하는 부분을 작은 <code>StatefulWidget</code>으로 분리하고, 고정 서브트리는 <code>const</code> 생성자로 만든다.</li>
 <li><strong>레이아웃 오류는 RenderObject 단계에서 난다.</strong> &quot;RenderFlex overflowed&quot; 같은 오류는 어떤 부모가 어떤 제약을 내렸는지 DevTools의 Layout Explorer로 추적한다.</li>

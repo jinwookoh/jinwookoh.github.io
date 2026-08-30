@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-select.md, data-infra/2026-05-17-pg-join.md]
 updated: 2026-08-29
 ---
 
-관계형 데이터베이스는 한 사실을 한 테이블에만 저장한다. 사용자는 users, 주문은 orders에 나뉘어 있으므로 "누가 무엇을 주문했는가"를 알려면 두 테이블을 합쳐야 한다. SELECT의 절 순서와 JOIN 종류를 정확히 모르면 어떤 10건인지 알 수 없는 목록 API, 깊은 OFFSET으로 느려지는 페이지네이션, 조건 한 줄 때문에 LEFT JOIN이 INNER JOIN으로 바뀌는 조회 결과가 만들어진다.
+관계형 데이터베이스는 한 사실을 한 테이블에만 저장한다. 사용자는 users, 주문은 orders에 나뉘어 있으므로 "누가 무엇을 주문했는가"를 알려면 두 테이블을 합쳐야 한다. ==SELECT의 절 순서와 JOIN 종류를 정확히 모르면 어떤 10건인지 알 수 없는 목록 API, 깊은 OFFSET으로 느려지는 페이지네이션, 조건 한 줄 때문에 LEFT JOIN이 INNER JOIN으로 바뀌는 조회 결과가 만들어진다.==
 
 ## 핵심 개념
 
@@ -40,7 +40,7 @@ ORDER BY의 기본은 ASC이고, `NULLS FIRST`·`NULLS LAST`로 NULL 위치를 �
 
 ### ON과 WHERE의 차이
 
-ON 조건은 매칭 규칙에만 영향을 주고, WHERE는 JOIN이 끝난 뒤 결과를 필터링한다. LEFT JOIN에서 오른쪽 컬럼 조건을 WHERE에 두면 NULL로 채워진 행이 제거되어 INNER JOIN과 같은 결과가 된다.
+ON 조건은 매칭 규칙에만 영향을 주고, WHERE는 JOIN이 끝난 뒤 결과를 필터링한다. ==LEFT JOIN에서 오른쪽 컬럼 조건을 WHERE에 두면 NULL로 채워진 행이 제거되어 INNER JOIN과 같은 결과가 된다.==
 
 ### JOIN 실행 방식
 
@@ -117,7 +117,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
 ## 실무에서 걸리는 지점
 
-- **LEFT JOIN이 INNER JOIN으로 바뀌는 문제.** 오른쪽 테이블 컬럼 조건을 WHERE에 두면 NULL 행이 걸러진다. 왼쪽을 보존해야 하는 조건은 ON 절에 두거나 `OR o.id IS NULL`로 NULL을 명시적으로 허용한다.
+- ==**LEFT JOIN이 INNER JOIN으로 바뀌는 문제.**== 오른쪽 테이블 컬럼 조건을 WHERE에 두면 NULL 행이 걸러진다. 왼쪽을 보존해야 하는 조건은 ON 절에 두거나 `OR o.id IS NULL`로 NULL을 명시적으로 허용한다.
 - **선행 와일드카드 LIKE.** `LIKE '%alice'`는 B-Tree 인덱스를 쓰지 못해 전체 스캔이 된다. 접두 검색으로 바꾸거나 pg_trgm 기반 GIN 인덱스를 검토한다.
 - **깊은 OFFSET.** `LIMIT 10 OFFSET 1000000`은 백만 행을 읽고 버린다. 커서 방식으로 바꾸고, ORDER BY 키에 유일 컬럼을 덧붙여 페이지 경계에서 행이 중복·누락되지 않게 한다.
 - **JOIN 조건 누락과 컬럼 모호성.** 쉼표 구분(`FROM users, orders`)에 WHERE를 빠뜨리면 데카르트 곱이 그대로 실행된다. 같은 이름의 컬럼은 `column reference "id" is ambiguous` 오류가 나므로 항상 별칭으로 한정한다.

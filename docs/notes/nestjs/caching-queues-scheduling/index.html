@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/caching-queues-scheduling/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,9 +24,9 @@
   <h1>캐싱·큐(BullMQ)·스케줄링</h1>
   <p class="summary">요청 경로에서 빼야 할 세 가지 일 — 반복 조회는 캐시로, 느린 작업은 큐로, 주기 작업은 스케줄러로 옮기는 방법</p>
   <div class="content">
-<p>HTTP 요청 핸들러 안에서 모든 일을 끝내려 하면 세 가지 문제가 나타난다. 같은 결과를 돌려주는 조회가 매번 DB를 때리고, 메일 발송처럼 수 초 걸리는 작업이 요청을 붙잡아 타임아웃을 만들며, 정산처럼 정해진 시각에 돌아야 하는 작업을 넣을 자리가 없다. Node는 단일 이벤트 루프라 긴 작업 하나가 다른 요청까지 느리게 만든다. NestJS는 이 세 문제를 각각 <code>@nestjs/cache-manager</code>, <code>@nestjs/bullmq</code>, <code>@nestjs/schedule</code>로 분리한다.</p>
+<p>HTTP 요청 핸들러 안에서 모든 일을 끝내려 하면 세 가지 문제가 나타난다. 같은 결과를 돌려주는 조회가 매번 DB를 때리고, 메일 발송처럼 수 초 걸리는 작업이 요청을 붙잡아 타임아웃을 만들며, 정산처럼 정해진 시각에 돌아야 하는 작업을 넣을 자리가 없다. Node는 단일 이벤트 루프라 긴 작업 하나가 다른 요청까지 느리게 만든다. <mark>NestJS는 이 세 문제를 각각 <code>@nestjs/cache-manager</code>, <code>@nestjs/bullmq</code>, <code>@nestjs/schedule</code>로 분리한다.</mark></p>
 <h2>핵심 개념</h2>
-<p><strong>캐싱.</strong> <code>CacheModule</code>은 <code>cache-manager</code> 라이브러리를 감싼 모듈이다. <code>cache-manager</code> 5.x부터 스토어가 Keyv 기반이라 Redis는 <code>@keyv/redis</code> 어댑터를 <code>stores</code> 배열에 넣어 붙이고, 여러 개를 넣으면 앞쪽부터 조회하며 뒤쪽을 폴백으로 쓴다. TTL 단위는 밀리초, 기본값 0은 만료 없음이다. 사용 방식은 두 갈래다. <code>CACHE_MANAGER</code> 토큰으로 <code>Cache</code> 인스턴스를 주입받아 <code>get</code>·<code>set</code>·<code>del</code>을 직접 호출하는 방식과, 컨트롤러에 <code>CacheInterceptor</code>를 걸어 GET 응답을 URL 기준으로 자동 캐시하는 방식이다. 후자는 <code>@CacheKey()</code>·<code>@CacheTTL()</code>로 메서드별 키와 만료를 덮어쓴다. Spring의 <code>CacheManager</code> 빈 직접 호출과 GET 전용 <code>@Cacheable</code>에 각각 대응한다.</p>
+<p><strong>캐싱.</strong> <code>CacheModule</code>은 <code>cache-manager</code> 라이브러리를 감싼 모듈이다. <code>cache-manager</code> 5.x부터 스토어가 Keyv 기반이라 Redis는 <code>@keyv/redis</code> 어댑터를 <code>stores</code> 배열에 넣어 붙이고, 여러 개를 넣으면 앞쪽부터 조회하며 뒤쪽을 폴백으로 쓴다. <mark>TTL 단위는 밀리초, 기본값 0은 만료 없음이다.</mark> 사용 방식은 두 갈래다. <code>CACHE_MANAGER</code> 토큰으로 <code>Cache</code> 인스턴스를 주입받아 <code>get</code>·<code>set</code>·<code>del</code>을 직접 호출하는 방식과, 컨트롤러에 <code>CacheInterceptor</code>를 걸어 GET 응답을 URL 기준으로 자동 캐시하는 방식이다. 후자는 <code>@CacheKey()</code>·<code>@CacheTTL()</code>로 메서드별 키와 만료를 덮어쓴다. Spring의 <code>CacheManager</code> 빈 직접 호출과 GET 전용 <code>@Cacheable</code>에 각각 대응한다.</p>
 <p><strong>큐.</strong> <code>@nestjs/bullmq</code>는 Redis 기반 잡 큐 BullMQ를 모듈화한 것이다. <code>BullModule.forRoot()</code>로 Redis 연결을 잡고, <code>registerQueue({ name })</code>으로 큐를 선언하면 <code>@InjectQueue(&#39;name&#39;)</code>으로 <code>Queue</code> 인스턴스를 받아 <code>add(jobName, data, opts)</code>로 잡을 넣는다. 소비자는 <code>@Processor(&#39;name&#39;)</code>을 붙인 클래스가 <code>WorkerHost</code>를 상속하고 <code>process(job)</code> 하나를 구현한다. 예전 Bull과 달리 잡 이름별 데코레이터 없이 <code>job.name</code>으로 분기한다. 잡 옵션으로 <code>attempts</code>·<code>backoff</code>·<code>delay</code>·<code>priority</code>·<code>removeOnComplete</code>·<code>repeat</code>를 지정하고, 워커 이벤트는 <code>@OnWorkerEvent</code>로 받는다. 부모-자식 잡을 묶는 <code>registerFlowProducer()</code>와 핸들러를 별도 프로세스로 띄우는 <code>processors</code> 옵션도 있다. Spring의 <code>@JmsListener</code> 컨슈머에 재시도 정책이 내장된 형태로 보면 되고, 브로커가 Redis라는 점이 다르다.</p>
 <p><strong>스케줄링.</strong> <code>ScheduleModule.forRoot()</code>를 올리면 <code>@Cron</code>·<code>@Interval</code>·<code>@Timeout</code>이 붙은 프로바이더 메서드를 부트스트랩 시점(<code>onApplicationBootstrap</code>)에 수집해 등록한다. <code>@Cron</code>은 초 단위까지 포함한 6필드 표현식을 받고, 옵션으로 <code>name</code>, <code>timeZone</code>, 이전 실행이 끝날 때까지 다음 실행을 미루는 <code>waitForCompletion</code>, <code>disabled</code>가 있다. 런타임에 잡을 추가·삭제하려면 <code>SchedulerRegistry</code>를 주입해 <code>addCronJob</code>·<code>deleteCronJob</code>을 쓴다. Spring의 <code>@Scheduled(cron=...)</code>과 <code>TaskScheduler</code>에 대응한다.</p>
 <h2>코드</h2>
@@ -154,10 +154,10 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>TTL 단위와 스토어 버전.</strong> <code>cache-manager</code> 4.x까지는 초, 5.x부터는 밀리초다. 옛 예제의 <code>ttl: 60</code>을 그대로 쓰면 60ms 만에 사라진다. <code>cache-manager-redis-store</code> 같은 구 어댑터는 <code>@keyv/redis</code>로 바꿔야 한다.</li>
-<li><strong><code>CacheInterceptor</code>의 키 범위.</strong> 기본 키는 요청 URL이라 사용자별로 다른 응답을 내는 GET에 그대로 걸면 다른 사용자의 데이터가 섞인다. 사용자 ID를 키에 넣으려면 <code>trackBy()</code>를 오버라이드한 인터셉터를 만든다. GET 외 메서드와 <code>@Res()</code>를 주입한 핸들러는 캐시되지 않는다.</li>
+<li><strong><code>CacheInterceptor</code>의 키 범위.</strong> <mark>기본 키는 요청 URL이라 사용자별로 다른 응답을 내는 GET에 그대로 걸면 다른 사용자의 데이터가 섞인다.</mark> 사용자 ID를 키에 넣으려면 <code>trackBy()</code>를 오버라이드한 인터셉터를 만든다. GET 외 메서드와 <code>@Res()</code>를 주입한 핸들러는 캐시되지 않는다.</li>
 <li><strong>큐 워커와 웹 프로세스의 분리.</strong> 컨슈머를 API 서버와 같은 프로세스에 두면 무거운 잡이 이벤트 루프를 점유한다. CPU 작업은 <code>processors</code>로 별도 프로세스에 두거나 워커 앱을 따로 띄우고, <code>concurrency</code>는 DB 커넥션 수에 맞춘다.</li>
 <li><strong>잡 데이터와 정리 정책.</strong> 잡 데이터는 JSON으로 직렬화되므로 엔티티 대신 ID만 넣는다. <code>removeOnComplete</code>·<code>removeOnFail</code>을 지정하지 않으면 완료 잡이 Redis에 무한 누적되고, 멱등성 없는 작업에 재시도를 걸면 중복 실행이 생긴다.</li>
-<li><strong>스케줄러의 다중 인스턴스 문제.</strong> <code>@Cron</code>은 프로세스 내부 타이머라 인스턴스를 3대 띄우면 같은 잡이 3번 돈다. 단일 실행이 필요하면 Redis 락을 잡거나, 스케줄러는 큐에 잡을 넣기만 하고 실행은 워커나 BullMQ <code>repeat</code>에 맡긴다. 긴 잡은 <code>waitForCompletion</code> 없이는 이전 실행과 겹친다.</li>
+<li><strong>스케줄러의 다중 인스턴스 문제.</strong> <mark><code>@Cron</code>은 프로세스 내부 타이머라 인스턴스를 3대 띄우면 같은 잡이 3번 돈다.</mark> 단일 실행이 필요하면 Redis 락을 잡거나, 스케줄러는 큐에 잡을 넣기만 하고 실행은 워커나 BullMQ <code>repeat</code>에 맡긴다. 긴 잡은 <code>waitForCompletion</code> 없이는 이전 실행과 겹친다.</li>
 </ul>
 <h2>관련 글</h2>
 <ul>

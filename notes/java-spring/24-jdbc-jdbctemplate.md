@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-jdbc-datasource.md, spring/2026-05-16-jdbc-template.
 updated: 2026-08-29
 ---
 
-자바 코드가 DB 벤더의 프로토콜에 직접 의존하면 DB를 바꿀 때 데이터 접근 코드를 전부 다시 써야 한다. 매 요청마다 새 물리 커넥션을 열면 TCP 연결과 인증 비용(수십~수백 ms)이 응답 시간에 그대로 더해진다. 여기에 `Connection`·`PreparedStatement`·`ResultSet` 정리와 체크드 예외 `SQLException` 처리가 쿼리마다 반복되면 SQL 한 줄보다 부수 코드가 훨씬 많아진다. JDBC 표준, DataSource 기반 커넥션 풀, JdbcTemplate은 이 세 문제를 각각 담당하는 계층이다.
+자바 코드가 DB 벤더의 프로토콜에 직접 의존하면 DB를 바꿀 때 데이터 접근 코드를 전부 다시 써야 한다. 매 요청마다 새 물리 커넥션을 열면 TCP 연결과 인증 비용(수십~수백 ms)이 응답 시간에 그대로 더해진다. 여기에 `Connection`·`PreparedStatement`·`ResultSet` 정리와 체크드 예외 `SQLException` 처리가 쿼리마다 반복되면 SQL 한 줄보다 부수 코드가 훨씬 많아진다. ==JDBC 표준, DataSource 기반 커넥션 풀, JdbcTemplate은 이 세 문제를 각각 담당하는 계층이다.==
 
 ## 핵심 개념
 
@@ -137,10 +137,10 @@ public class OrderWriter {
 
 ## 실무에서 걸리는 지점
 
-- **풀 크기는 크게 잡을수록 손해다.** DB가 동시에 실행할 수 있는 쿼리 수는 코어 수에 묶이므로 커넥션을 늘리면 경합만 늘어난다. 10개 전후에서 시작해 `hikaricp.connections.pending` 메트릭을 보며 조정하고, 인스턴스 수 × 풀 크기가 DB `max_connections` 를 넘지 않게 한다.
+- ==**풀 크기는 크게 잡을수록 손해다.** DB가 동시에 실행할 수 있는 쿼리 수는 코어 수에 묶이므로 커넥션을 늘리면 경합만 늘어난다.== 10개 전후에서 시작해 `hikaricp.connections.pending` 메트릭을 보며 조정하고, 인스턴스 수 × 풀 크기가 DB `max_connections` 를 넘지 않게 한다.
 - **커넥션 누수는 풀 고갈로 나타난다.** 직접 얻은 커넥션의 반납을 빠뜨리면 `connection-timeout` 이후 `SQLTransientConnectionException` 이 발생한다. `leak-detection-threshold` 를 켜면 임계 시간을 넘긴 대여의 스택 트레이스가 로그에 남는다.
 - **`max-lifetime` 은 DB·프록시의 유휴 종료 시간보다 짧아야 한다.** 그렇지 않으면 이미 끊긴 커넥션을 빌려 첫 쿼리에서 실패한다.
-- **`queryForObject` 의 0건은 null이 아니라 예외다.** `Optional` 로 감싸려면 `EmptyResultDataAccessException` 을 잡거나 `query()` 로 리스트를 받아 첫 요소를 취한다.
+- ==**`queryForObject` 의 0건은 null이 아니라 예외다.**== `Optional` 로 감싸려면 `EmptyResultDataAccessException` 을 잡거나 `query()` 로 리스트를 받아 첫 요소를 취한다.
 - **JPA와의 역할 분담.** 단순 CRUD는 JPA, 통계·복잡한 조인·대량 배치는 JdbcTemplate이 맞다. 한 트랜잭션에서 섞어 쓸 수 있지만 영속성 컨텍스트의 미반영 변경이 JdbcTemplate 쿼리에 보이지 않는 점은 주의한다.
 
 ## 관련 글

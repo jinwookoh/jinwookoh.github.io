@@ -9,7 +9,7 @@ sources: [micrometer/2026-05-25-micrometer-welcome.md, grafana/2026-05-18-grafan
 updated: 2026-08-29
 ---
 
-서비스가 느려졌다는 신고가 들어왔을 때 로그만 있는 시스템은 "어느 시각에 어떤 에러가 찍혔는가"까지만 답한다. 어느 엔드포인트의 p99가 언제부터 튀었는지는 로그 텍스트로는 나오지 않는다. 앱이 자기 상태를 수치·이벤트·요청 흐름의 세 형태로 내보내고 그 셋을 한 화면에서 엮을 수 있어야 "왜, 어디서"에 답할 수 있다. 이 능력이 관측성이고, Java·Spring 진영에서 그 시작점이 Micrometer, 저장과 시각화의 끝점이 Grafana Labs의 LGTM 스택이다.
+서비스가 느려졌다는 신고가 들어왔을 때 로그만 있는 시스템은 "어느 시각에 어떤 에러가 찍혔는가"까지만 답한다. 어느 엔드포인트의 p99가 언제부터 튀었는지는 로그 텍스트로는 나오지 않는다. ==앱이 자기 상태를 수치·이벤트·요청 흐름의 세 형태로 내보내고 그 셋을 한 화면에서 엮을 수 있어야 "왜, 어디서"에 답할 수 있다.== 이 능력이 관측성이고, Java·Spring 진영에서 그 시작점이 Micrometer, 저장과 시각화의 끝점이 Grafana Labs의 LGTM 스택이다.
 
 ## 핵심 개념
 
@@ -23,7 +23,7 @@ updated: 2026-08-29
 
 메트릭에서 p99가 5초로 뛴 구간을 찾고, 같은 시간대 로그에서 "connection pool exhausted"를 확인하고, 그 시각의 trace에서 DB 쿼리 span이 4.8초를 차지한 것을 보면 원인이 커넥션 풀 고갈이라는 결론에 도달한다.
 
-파이프라인은 생산·저장·시각화의 세 계층으로 나뉜다. Micrometer는 생산 계층이다. 코드는 `MeterRegistry`라는 벤더 중립 API만 호출하고, 어느 백엔드로 나갈지는 클래스패스의 `micrometer-registry-*` 의존성이 결정한다. SLF4J가 Logback을 숨기는 것과 같은 구조다.
+파이프라인은 생산·저장·시각화의 세 계층으로 나뉜다. Micrometer는 생산 계층이다. ==코드는 `MeterRegistry`라는 벤더 중립 API만 호출하고, 어느 백엔드로 나갈지는 클래스패스의 `micrometer-registry-*` 의존성이 결정한다.== SLF4J가 Logback을 숨기는 것과 같은 구조다.
 
 Meter는 이름과 태그(key=value) 조합으로 식별된다. `http.server.requests{uri="/api/orders", status="500"}`처럼 태그가 차원이 되어 에러율을 계산하게 하는 것이 dimensional metrics다. 백엔드 전달은 Prometheus가 `/actuator/prometheus`를 주기적으로 긁어 가는 pull과, Datadog·CloudWatch·OTLP처럼 앱이 일정 step마다 밀어내는 push로 나뉜다. Observation API는 한 번의 계측으로 Timer(메트릭)와 Span(트레이스)을 동시에 만들며, Spring Cloud Sleuth를 대체한 Micrometer Tracing이 Brave 또는 OpenTelemetry bridge로 span을 내보낸다.
 
@@ -110,7 +110,7 @@ public Order createObserved(ObservationRegistry registry, CreateOrderRequest req
 
 ## 실무에서 걸리는 지점
 
-- 태그 값에 `userId`·`requestId` 같은 동적 식별자를 넣으면 시계열이 사용자 수만큼 늘어나 Prometheus·Mimir 메모리가 고갈된다. 태그 값은 유한 집합이어야 하며 식별자는 로그나 trace의 속성으로 보낸다.
+- 태그 값에 `userId`·`requestId` 같은 동적 식별자를 넣으면 시계열이 사용자 수만큼 늘어나 Prometheus·Mimir 메모리가 고갈된다. ==태그 값은 유한 집합이어야 하며 식별자는 로그나 trace의 속성으로 보낸다.==
 - "지금까지 몇 번"은 단조 증가 Counter, "지금 몇 개"는 Gauge다. 시간이 아닌 크기(페이로드 바이트·배치 건수)는 Timer가 아니라 DistributionSummary로 잰다.
 - 커스텀 Meter 이름이 Actuator 자동 계측 prefix(`http.`, `jvm.`, `tomcat.`)와 겹치면 충돌하므로 도메인 prefix(`orders.`)를 붙인다.
 - Push 백엔드는 기본 step이 1분이라 짧은 스파이크를 놓친다. `management.<backend>.metrics.export.step`으로 줄이면 API 호출 비용이 비례해 늘어난다. Micrometer Tracing은 bridge 의존성이 없으면 span이 나가지 않는다.

@@ -9,7 +9,7 @@ sources: [grafana/2026-05-18-grafana-dashboards-panels.md]
 updated: 2026-08-30
 ---
 
-메트릭·로그·트레이스를 수집해 두어도 PromQL을 직접 작성하는 사람만 볼 수 있다면 관측 데이터는 팀 자산이 되지 못한다. 장애 때마다 쿼리를 새로 짜고, 지표가 튄 시각과 배포 시각을 대조하려고 CI 로그를 따로 뒤지게 된다. 같은 데이터라도 어떤 panel과 변수로 보여주느냐에 따라 사용성과 신뢰도가 갈린다. Grafana의 Dashboard·Panel·Variable은 이 표현 계층을 담당한다.
+메트릭·로그·트레이스를 수집해 두어도 PromQL을 직접 작성하는 사람만 볼 수 있다면 관측 데이터는 팀 자산이 되지 못한다. 장애 때마다 쿼리를 새로 짜고, 지표가 튄 시각과 배포 시각을 대조하려고 CI 로그를 따로 뒤지게 된다. ==같은 데이터라도 어떤 panel과 변수로 보여주느냐에 따라 사용성과 신뢰도가 갈린다.== Grafana의 Dashboard·Panel·Variable은 이 표현 계층을 담당한다.
 
 ## 핵심 개념
 
@@ -29,7 +29,7 @@ Variable은 드롭다운으로 고른 값을 모든 panel의 쿼리에 주입한
 
 ### Annotation
 
-Time series 위에 세로선으로 이벤트를 표시한다. built-in은 alert 상태 변화를 표시하고, annotation query는 datasource 쿼리 결과를 그리며(Loki의 `{app="ci-deploy"} | json | event="deploy_completed"`), manual은 UI에서 입력한다. CI가 배포 직후 `/api/annotations`에 POST하면 지표 급등이 배포 때문인지 즉시 확인된다.
+Time series 위에 세로선으로 이벤트를 표시한다. built-in은 alert 상태 변화를 표시하고, annotation query는 datasource 쿼리 결과를 그리며(Loki의 `{app="ci-deploy"} | json | event="deploy_completed"`), manual은 UI에서 입력한다. ==CI가 배포 직후 `/api/annotations`에 POST하면 지표 급등이 배포 때문인지 즉시 확인된다.==
 
 ### Library Panel, Dashboard JSON, 권한
 
@@ -107,7 +107,7 @@ sum(rate(http_server_requests_seconds_count{env="$environment", service=~"${serv
 ## 실무에서 걸리는 지점
 
 - **panel 과다.** 30개 넘는 panel은 로딩이 느리고 읽히지 않는다. Overview·Service·Cluster·Business로 독자별 분리한다.
-- **기본 시간 범위.** last 30 days로 저장하면 열 때마다 모든 panel이 30일을 스캔한다. 기본은 last 1 hour로 두고, chain 없이 전체 service를 조회하는 쿼리도 피한다.
+- ==**기본 시간 범위.** last 30 days로 저장하면 열 때마다 모든 panel이 30일을 스캔한다.== 기본은 last 1 hour로 두고, chain 없이 전체 service를 조회하는 쿼리도 피한다.
 - **공개 대시보드 무수정 사용.** Node Exporter Full(1860) 같은 대시보드는 metric 이름이 달라 panel이 비기 쉽다. Spring Boot용 대시보드도 Boot 2 이름을 쓰는 경우가 있어 Boot 3의 `http_server_requests_seconds_*`에 맞춰 고친다.
 - **Public dashboard 정보 유출.** 링크를 아는 누구나 접근한다. 개인정보 label이나 내부 지표 panel은 분리한 뒤 공개한다.
 - **복사·붙여넣기와 JSON 손편집.** panel 복사는 drift를, JSON 직접 수정은 import 실패를 만든다. 표준 panel은 Library panel로, 정의는 Grafonnet·Terraform으로 관리한다. Annotation은 배포·incident·feature flag만 남긴다.

@@ -9,7 +9,7 @@ sources: [https://dart.dev/language, https://dart.dev/null-safety, https://dart.
 updated: 2026-08-30
 ---
 
-Flutter 코드는 위젯 트리를 만드는 Dart 표현식과 비동기 데이터 처리로 이루어진다. Dart를 Java와 비슷하다고 넘기면 `?`·`!`·`late`가 붙은 타입, `async*` 함수, 컬렉션 리터럴 안의 `if`와 `for`를 읽지 못해 위젯 코드가 막힌다. null safety를 모른 채 `!`를 남발하면 컴파일은 통과하지만 런타임에 `Null check operator used on a null value`로 앱이 죽는다.
+Flutter 코드는 위젯 트리를 만드는 Dart 표현식과 비동기 데이터 처리로 이루어진다. Dart를 Java와 비슷하다고 넘기면 `?`·`!`·`late`가 붙은 타입, `async*` 함수, 컬렉션 리터럴 안의 `if`와 `for`를 읽지 못해 위젯 코드가 막힌다. ==null safety를 모른 채 `!`를 남발하면 컴파일은 통과하지만 런타임에 `Null check operator used on a null value`로 앱이 죽는다.==
 
 ## 핵심 개념
 
@@ -27,7 +27,7 @@ Dart는 단일 스레드 이벤트 루프 위에서 동작한다. 하나의 값�
 
 `Stream`은 `await for`로 순회하거나 `listen`으로 구독한다. `async*` 함수는 `yield`로 값을 하나씩 내보내는 Stream 생성기이며, 구독자가 없으면 실행되지 않는다. 예외는 `try/catch`로 동기 코드와 같게 잡는다.
 
-Java 대응은 `Future` ≈ `CompletableFuture`, `Stream` ≈ Reactor의 `Flux`다. 단, Dart의 Future는 별도 스레드가 아니라 같은 isolate의 이벤트 큐에서 처리되므로 CPU 집약 작업은 `Isolate.run`으로 다른 isolate에 넘겨야 UI가 멈추지 않는다.
+Java 대응은 `Future` ≈ `CompletableFuture`, `Stream` ≈ Reactor의 `Flux`다. ==단, Dart의 Future는 별도 스레드가 아니라 같은 isolate의 이벤트 큐에서 처리되므로 CPU 집약 작업은 `Isolate.run`으로 다른 isolate에 넘겨야 UI가 멈추지 않는다.==
 
 ### 컬렉션
 
@@ -131,7 +131,7 @@ void main() {
 
 ## 실무에서 걸리는 지점
 
-- **`!` 남용.** 분석기 경고를 없애려고 `!`를 붙이면 null safety의 이점이 런타임 크래시로 바뀐다. `?.`·`??`·지역 변수 승격으로 풀리지 않을 때만 쓰고, 왜 null이 아닌지 주석으로 근거를 남긴다.
+- ==**`!` 남용.** 분석기 경고를 없애려고 `!`를 붙이면 null safety의 이점이 런타임 크래시로 바뀐다.== `?.`·`??`·지역 변수 승격으로 풀리지 않을 때만 쓰고, 왜 null이 아닌지 주석으로 근거를 남긴다.
 - **`late` 초기화 누락.** 초기화 전에 읽으면 `LateInitializationError`가 난다. `initState`의 조건 분기에서 초기화가 빠지기 쉬우므로 가능하면 nullable로 선언한다.
 - **await 누락.** `Future`를 `await` 없이 호출하면 예외가 잡히지 않고 unhandled error로 흘러간다. 린트 `unawaited_futures`를 켜고, 의도적으로 기다리지 않을 때는 `unawaited()`로 감싼다.
 - **Stream 구독 해제.** `listen`으로 만든 `StreamSubscription`을 `dispose`에서 `cancel`하지 않으면 위젯이 사라진 뒤에도 콜백이 실행되어 누수와 `setState() called after dispose()`가 발생한다. `StreamBuilder`는 구독을 자동 관리한다.

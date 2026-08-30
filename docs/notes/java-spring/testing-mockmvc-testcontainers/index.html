@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/testing-mockmvc-testcontainers/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>테스트 — MockMvc·@SpringBootTest·Testcontainers·Flyway</h1>
   <p class="summary">슬라이스·통합·실제 DB 테스트를 어떤 기준으로 나누고, Testcontainers와 Flyway로 운영과 같은 환경을 재현하는가</p>
   <div class="content">
-<p>자동 테스트가 없으면 변경의 영향을 매번 손으로 확인해야 하고, 누락된 경로에서 장애가 난다. 테스트가 있어도 구성이 잘못되면 다른 문제가 생긴다. 모든 테스트를 <code>@SpringBootTest</code>로 작성하면 컨텍스트 기동 비용 때문에 스위트가 수십 분으로 늘어나 실행하지 않게 되고, H2에만 의존하면 PostgreSQL·MySQL 고유 문법 차이 때문에 테스트는 통과하는데 운영에서 SQL이 깨진다.</p>
+<p>자동 테스트가 없으면 변경의 영향을 매번 손으로 확인해야 하고, 누락된 경로에서 장애가 난다. 테스트가 있어도 구성이 잘못되면 다른 문제가 생긴다. <mark>모든 테스트를 <code>@SpringBootTest</code>로 작성하면 컨텍스트 기동 비용 때문에 스위트가 수십 분으로 늘어나 실행하지 않게 되고, H2에만 의존하면 PostgreSQL·MySQL 고유 문법 차이 때문에 테스트는 통과하는데 운영에서 SQL이 깨진다.</mark></p>
 <h2>핵심 개념</h2>
 <p><code>spring-boot-starter-test</code> 하나에 JUnit 5, AssertJ, Mockito, Spring Test가 포함된다. 테스트는 Given·When·Then으로 나누고 검증은 AssertJ <code>assertThat</code> 체이닝을 쓴다.</p>
 <p>테스트는 띄우는 컨텍스트 범위에 따라 세 층으로 나뉜다. Mockito만으로 서비스 로직을 검증하는 단위 테스트가 가장 빠르고, 웹 계층만 올리는 <code>@WebMvcTest</code>나 JPA 계층만 올리는 <code>@DataJpaTest</code> 같은 슬라이스 테스트가 그 다음이며, 전체 컨텍스트를 올리는 <code>@SpringBootTest</code>가 가장 무겁다. 무거운 테스트는 전체 흐름을 검증하는 소수에 한정한다.</p>
@@ -129,8 +129,8 @@
 <h2>실무에서 걸리는 지점</h2>
 <ul>
 <li><strong>컨텍스트 캐시가 깨지는 구성.</strong> Spring Test는 같은 설정의 컨텍스트를 캐시해 재사용하는데, 클래스마다 <code>@MockitoBean</code> 조합이나 프로퍼티가 다르면 다시 띄운다. 통합 테스트는 공통 추상 클래스에 구성을 모아 캐시 히트를 높인다.</li>
-<li><strong>컨테이너 기동 비용.</strong> <code>@Container</code>를 인스턴스 필드에 두면 메서드마다 기동된다. static 필드나 수동 <code>start()</code>한 싱글턴 컨테이너를 공유하면 스위트 전체에서 한 번만 기동된다. <code>.withReuse(true)</code>는 <code>~/.testcontainers.properties</code>에 <code>testcontainers.reuse.enable=true</code>가 있어야 동작하고 JVM 종료 후에도 컨테이너가 남으므로 로컬 개발용으로만 쓴다.</li>
-<li><strong><code>@Transactional</code> 롤백이 가리는 결함.</strong> <code>REQUIRES_NEW</code>로 분리된 트랜잭션, <code>AFTER_COMMIT</code> 이벤트 리스너, 비동기 스레드의 DB 접근은 롤백 환경에서 실제와 다르게 동작한다. 이런 경로는 롤백 없이 실행하고 <code>@Sql</code>로 정리한다.</li>
+<li><mark><strong>컨테이너 기동 비용.</strong> <code>@Container</code>를 인스턴스 필드에 두면 메서드마다 기동된다.</mark> static 필드나 수동 <code>start()</code>한 싱글턴 컨테이너를 공유하면 스위트 전체에서 한 번만 기동된다. <code>.withReuse(true)</code>는 <code>~/.testcontainers.properties</code>에 <code>testcontainers.reuse.enable=true</code>가 있어야 동작하고 JVM 종료 후에도 컨테이너가 남으므로 로컬 개발용으로만 쓴다.</li>
+<li><mark><strong><code>@Transactional</code> 롤백이 가리는 결함.</strong> <code>REQUIRES_NEW</code>로 분리된 트랜잭션, <code>AFTER_COMMIT</code> 이벤트 리스너, 비동기 스레드의 DB 접근은 롤백 환경에서 실제와 다르게 동작한다.</mark> 이런 경로는 롤백 없이 실행하고 <code>@Sql</code>로 정리한다.</li>
 <li><strong>Flyway 버전 충돌과 큰 DML.</strong> 브랜치마다 마이그레이션을 만들면 같은 V 번호가 두 개 생겨 병합 후 기동이 실패한다. 병합 시점에 번호를 확정하는 규칙이 안전하다. 대량 UPDATE는 락으로 배포가 멎으므로 단계를 나눈다.</li>
 <li><strong>Docker 없는 CI.</strong> Testcontainers는 Docker 데몬이 필수다. 컨테이너 안에서 빌드하는 러너는 소켓 마운트나 Testcontainers Cloud 설정이 없으면 시작 단계에서 실패한다.</li>
 </ul>

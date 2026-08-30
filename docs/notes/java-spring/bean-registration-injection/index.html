@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/bean-registration-injection/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>Bean 등록과 주입 — 어노테이션·@Component·@Configuration</h1>
   <p class="summary">어노테이션이 리플렉션으로 읽히는 원리부터 @Component 스캔·@Bean 팩토리·생성자 주입·@Primary/@Qualifier 분기까지 정리한다</p>
   <div class="content">
-<p>컨테이너가 객체를 만들고 조립하려면 어떤 클래스를 Bean으로 만들고 어디에 무엇을 끼울지 알아야 한다. 이 정보를 XML에 따로 적던 시절에는 클래스를 추가할 때마다 설정 파일을 같이 고쳐야 했고, 둘이 어긋나면 런타임에야 실패가 드러났다. 어노테이션은 등록·주입 정보를 클래스·메서드·매개변수 옆에 붙이는 메타데이터이고, Spring은 이를 읽어 Bean 등록과 주입을 수행한다.</p>
+<p>컨테이너가 객체를 만들고 조립하려면 어떤 클래스를 Bean으로 만들고 어디에 무엇을 끼울지 알아야 한다. 이 정보를 XML에 따로 적던 시절에는 클래스를 추가할 때마다 설정 파일을 같이 고쳐야 했고, 둘이 어긋나면 런타임에야 실패가 드러났다. <mark>어노테이션은 등록·주입 정보를 클래스·메서드·매개변수 옆에 붙이는 메타데이터이고, Spring은 이를 읽어 Bean 등록과 주입을 수행한다.</mark></p>
 <h2>핵심 개념</h2>
 <p>어노테이션은 코드의 동작을 바꾸지 않고 부가 정보만 붙이며, 누가 읽느냐에 따라 세 부류로 나뉜다. <code>@Override</code>·<code>@Deprecated</code>는 컴파일러가 읽어 검사·경고를 낸다. <code>@Component</code>·<code>@Autowired</code>·<code>@Transactional</code>은 <code>.class</code> 파일에 남아 런타임에 프레임워크가 리플렉션으로 읽는다. <code>@Target</code>·<code>@Retention</code>은 다른 어노테이션의 적용 위치와 보존 범위를 정하는 메타 어노테이션이다. Spring이 읽는 어노테이션은 모두 <code>RetentionPolicy.RUNTIME</code>이다.</p>
 <p>Bean 등록 경로는 두 가지다. 첫째는 컴포넌트 스캔이다. <code>@Component</code>가 붙은 클래스를 클래스패스에서 찾아 Bean 정의로 만든다. <code>@Service</code>·<code>@Repository</code>·<code>@Controller</code>·<code>@RestController</code>는 <code>@Component</code>를 메타 어노테이션으로 가진 스테레오타입이며 등록 동작은 같고, 계층 역할을 드러내는 용도다. 동작이 다른 것은 <code>@Repository</code>뿐으로, <code>PersistenceExceptionTranslationPostProcessor</code>가 프록시를 만들어 JDBC·JPA 예외를 <code>DataAccessException</code> 계층으로 변환한다. 스캔 범위는 <code>@SpringBootApplication</code>에 포함된 <code>@ComponentScan</code>이 정하며 기본값은 메인 클래스의 패키지와 그 하위다.</p>
@@ -118,9 +118,9 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li>스캔 범위 밖의 클래스는 등록되지 않는다. 메인 클래스가 <code>com.example.shop</code>에 있으면 <code>com.example.common</code>의 <code>@Service</code>는 발견되지 않고 주입 지점에서 <code>NoSuchBeanDefinitionException</code>이 난다. 메인 클래스를 루트 패키지에 두거나 <code>scanBasePackages</code>를 명시한다.</li>
+<li><mark>스캔 범위 밖의 클래스는 등록되지 않는다.</mark> 메인 클래스가 <code>com.example.shop</code>에 있으면 <code>com.example.common</code>의 <code>@Service</code>는 발견되지 않고 주입 지점에서 <code>NoSuchBeanDefinitionException</code>이 난다. 메인 클래스를 루트 패키지에 두거나 <code>scanBasePackages</code>를 명시한다.</li>
 <li><code>@Configuration</code> 클래스는 CGLIB 서브클래스로 감싸이므로 내부에서 <code>@Bean</code> 메서드를 직접 호출해도 싱글턴이 반환된다. <code>@Component</code>에 <code>@Bean</code>을 두거나 <code>proxyBeanMethods = false</code>면 호출마다 새 객체가 생긴다. 다른 Bean은 매개변수로 받는 편이 두 모드 모두 안전하다.</li>
-<li>필드 주입은 <code>final</code>을 쓸 수 없고 순환 참조를 숨긴다. 생성자 주입은 순환이 있으면 기동 단계에서 실패하므로 설계 문제가 일찍 드러난다. Spring Boot 2.6부터 순환 참조는 기본 금지다.</li>
+<li><mark>필드 주입은 <code>final</code>을 쓸 수 없고 순환 참조를 숨긴다.</mark> 생성자 주입은 순환이 있으면 기동 단계에서 실패하므로 설계 문제가 일찍 드러난다. Spring Boot 2.6부터 순환 참조는 기본 금지다.</li>
 <li>구현체를 하나 추가한 순간 잘 돌던 주입이 <code>NoUniqueBeanDefinitionException</code>으로 깨진다. <code>@Qualifier</code> 이름은 문자열이라 리네임에 취약하므로 커스텀 qualifier 어노테이션으로 감싸는 방법도 있다.</li>
 <li><code>AutoCloseable</code> 구현체는 <code>destroyMethod</code>를 생략해도 <code>close()</code>가 추론되지만, 커넥션 풀처럼 종료 순서가 중요한 객체는 명시해 의도를 드러낸다.</li>
 </ul>

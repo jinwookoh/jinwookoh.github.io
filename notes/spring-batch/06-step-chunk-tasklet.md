@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-step-overview.md, batch/2026-05-17-batch-chunk-
 updated: 2026-08-29
 ---
 
-수백만 건을 단일 트랜잭션으로 묶으면 전체 데이터가 메모리에 올라가 OOM이 나고, 마지막 한 건의 실패가 앞선 결과를 모두 되돌린다. 반대로 한 건마다 commit하면 트랜잭션 오버헤드가 건수만큼 늘어난다. 파일 이동이나 프로시저 호출 같은 단발 작업을 Reader·Writer로 억지로 짜면 no-op Writer 같은 코드도 생긴다. Step은 이 문제를 chunk 지향 처리와 Tasklet이라는 두 실행 모델로 나누어 해결한다.
+수백만 건을 단일 트랜잭션으로 묶으면 전체 데이터가 메모리에 올라가 OOM이 나고, 마지막 한 건의 실패가 앞선 결과를 모두 되돌린다. 반대로 한 건마다 commit하면 트랜잭션 오버헤드가 건수만큼 늘어난다. 파일 이동이나 프로시저 호출 같은 단발 작업을 Reader·Writer로 억지로 짜면 no-op Writer 같은 코드도 생긴다. ==Step은 이 문제를 chunk 지향 처리와 Tasklet이라는 두 실행 모델로 나누어 해결한다.==
 
 ## 핵심 개념
 
@@ -21,7 +21,7 @@ Reader가 chunk 크기만큼 `read()`를 반복해 아이템을 모으고, Proce
 
 `read()`의 null은 데이터 종료 신호다. 모아둔 부분 chunk를 commit하고 Step을 끝내므로 마지막 chunk가 설정 크기보다 작은 것은 정상이다. Processor의 null은 해당 아이템을 Writer에 넘기지 않는 필터링이며 `filterCount`에 기록된다. 예외 후 건너뛰는 skip은 `skipCount`로 따로 집계된다.
 
-chunk 중간에 예외가 나면 그 chunk만 rollback되고 이미 commit된 이전 chunk는 보존된다. 그래서 재시작·skip·retry의 단위가 chunk가 된다.
+==chunk 중간에 예외가 나면 그 chunk만 rollback되고 이미 commit된 이전 chunk는 보존된다.== 그래서 재시작·skip·retry의 단위가 chunk가 된다.
 
 ### Commit Interval
 
@@ -109,7 +109,7 @@ public Step cleanupStep(JobRepository jobRepository,
 
 ## 실무에서 걸리는 지점
 
-- **커스텀 Reader의 null 누락은 무한 루프다.** 직접 구현한 Reader는 종료 조건을 검증한다. `CONTINUABLE`을 반환하는 Tasklet도 같으며, 제한 없는 폴링은 스케줄러로 분리한다.
+- ==**커스텀 Reader의 null 누락은 무한 루프다.**== 직접 구현한 Reader는 종료 조건을 검증한다. `CONTINUABLE`을 반환하는 Tasklet도 같으며, 제한 없는 폴링은 스케줄러로 분리한다.
 - **chunk 크기를 10만 단위로 잡으면 OOM과 긴 rollback이 함께 온다.** 한 건의 실패가 chunk 전체를 되돌리므로 skip을 켜지 않은 환경에서 비용이 크다.
 - **Tasklet도 트랜잭션 안에서 실행된다.** 긴 작업은 timeout에 걸리고 외부 호출 실패가 곧 rollback이 된다. 긴 작업은 chunk로 쪼개거나 외부 호출을 트랜잭션 밖으로 뺀다.
 - **Tasklet 안에서 ItemReader를 직접 돌리면 ItemStream이 등록되지 않는다.** `.stream(reader)`를 명시해야 재시작 시 위치가 복원된다.

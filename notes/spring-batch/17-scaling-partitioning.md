@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-scaling-parallel.md, batch/2026-05-17-batch-asy
 updated: 2026-08-29
 ---
 
-단일 스레드·단일 JVM의 chunk 지향 Step은 수백 MB 파일을 분 단위로 처리한다. 문제는 외부 API 호출이 item당 100ms처럼 처리 시간이 배치 윈도우를 넘길 때다. 전략을 잘못 고르면 스레드 안전성 문제로 데이터가 깨지거나 처리량은 그대로가 된다. 병목이 read·process·write 중 어디인지, 단일 JVM으로 충분한지 측정한 뒤 고른다.
+단일 스레드·단일 JVM의 chunk 지향 Step은 수백 MB 파일을 분 단위로 처리한다. 문제는 외부 API 호출이 item당 100ms처럼 처리 시간이 배치 윈도우를 넘길 때다. 전략을 잘못 고르면 스레드 안전성 문제로 데이터가 깨지거나 처리량은 그대로가 된다. ==병목이 read·process·write 중 어디인지, 단일 JVM으로 충분한지 측정한 뒤 고른다.==
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ updated: 2026-08-29
 
 **AsyncItemProcessor**는 process만 TaskExecutor로 넘겨 `Future`를 반환하고, 짝인 `AsyncItemWriter`가 chunk의 Future를 전부 resolve한 뒤 delegate에 넘긴다. Reader 안전성이 필요 없고, 예외는 `Future.get()` 시점인 Writer 단계에서 드러나 skip·retry도 그때 적용된다.
 
-**Partitioning**은 `Partitioner`가 입력을 N등분한 `Map<String, ExecutionContext>`를 만들고, `PartitionHandler`가 각 컨텍스트로 worker Step 인스턴스를 실행한다. worker가 Reader·Writer·트랜잭션을 각자 가지므로 스레드 안전성 문제가 없고 실패한 partition만 재시작된다. 로컬은 `TaskExecutorPartitionHandler`, 원격은 `MessageChannelPartitionHandler`다.
+**Partitioning**은 `Partitioner`가 입력을 N등분한 `Map<String, ExecutionContext>`를 만들고, `PartitionHandler`가 각 컨텍스트로 worker Step 인스턴스를 실행한다. ==worker가 Reader·Writer·트랜잭션을 각자 가지므로 스레드 안전성 문제가 없고 실패한 partition만 재시작된다.== 로컬은 `TaskExecutorPartitionHandler`, 원격은 `MessageChannelPartitionHandler`다.
 
 **Remote Chunking**은 manager가 read만 하고 `ChunkMessageChannelItemWriter`가 chunk를 메시지로 보내며, worker의 `ChunkProcessorChunkHandler`가 process·write 후 응답한다. read보다 process가 확실히 비쌀 때만 유효하고, I/O가 병목이면 Remote Partitioning이 맞다.
 
@@ -171,7 +171,7 @@ public class RemoteChunkingConfig {
 
 ## 실무에서 걸리는 지점
 
-- **커넥션 풀이 스레드 수보다 작다.** 스레드 16개에 풀 8개면 절반이 커넥션 대기로 멈춘다.
+- ==**커넥션 풀이 스레드 수보다 작다.** 스레드 16개에 풀 8개면 절반이 커넥션 대기로 멈춘다.==
 - **Multi-threaded Step의 ChunkListener.** 다중 스레드에서 호환성이 보장되지 않으므로 `StepExecutionListener`로 옮기거나 Partitioning으로 전환한다.
 - **Async 짝 누락.** `AsyncItemProcessor`에 일반 Writer를 붙이면 Future 캐스팅에 실패하고, 일반 Processor에 `AsyncItemWriter`를 붙이면 비동기 효과가 없다. process가 수 ms면 스레드 전환 비용이 이득을 상쇄한다.
 - **Partition skew와 key 불일치.** 범위 분할이 데이터 분포와 맞지 않으면 한 partition이 대부분을 갖는다. hash 분할로 균등화한다. Partitioner의 key와 `#{stepExecutionContext['key']}`가 다르면 Reader가 null을 받는다.

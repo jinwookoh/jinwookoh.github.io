@@ -9,11 +9,11 @@ sources: [elasticsearch/2026-05-19-elasticsearch-ingest-pipeline.md, elasticsear
 updated: 2026-08-29
 ---
 
-현실의 로그는 ES가 바로 받을 수 있는 JSON으로 오지 않는다. nginx access log는 한 줄 텍스트이고 Kubernetes Pod 로그는 노드 파일 시스템에 흩어져 있다. 필드로 쪼개고 타임스탬프를 맞추고 민감 필드를 지우는 작업을 클라이언트마다 구현하면 파싱 규칙이 분산되고 규칙 변경마다 배포가 따라붙는다. 그래서 수집 경로는 서버에서 ES까지 데이터를 옮기는 외부 수집기와, 색인 직전 문서를 가공하는 ES 내장 Ingest Pipeline 두 층으로 나눈다.
+현실의 로그는 ES가 바로 받을 수 있는 JSON으로 오지 않는다. nginx access log는 한 줄 텍스트이고 Kubernetes Pod 로그는 노드 파일 시스템에 흩어져 있다. 필드로 쪼개고 타임스탬프를 맞추고 민감 필드를 지우는 작업을 클라이언트마다 구현하면 파싱 규칙이 분산되고 규칙 변경마다 배포가 따라붙는다. ==그래서 수집 경로는 서버에서 ES까지 데이터를 옮기는 외부 수집기와, 색인 직전 문서를 가공하는 ES 내장 Ingest Pipeline 두 층으로 나눈다.==
 
 ## 핵심 개념
 
-Ingest Pipeline은 색인 직전의 전처리 단계를 클러스터 단위 리소스로 정의한 것이다. `PUT _ingest/pipeline/{name}`으로 만들며 `processors` 배열이 순차 실행되고, 실패 시 `on_failure` 블록이 대신 실행된다. 8.x에서는 역할을 명시하지 않은 노드가 모두 ingest 역할을 가지며, 대규모 환경에서는 `node.roles: [ingest]` 전용 노드를 분리한다.
+==Ingest Pipeline은 색인 직전의 전처리 단계를 클러스터 단위 리소스로 정의한 것이다.== `PUT _ingest/pipeline/{name}`으로 만들며 `processors` 배열이 순차 실행되고, 실패 시 `on_failure` 블록이 대신 실행된다. 8.x에서는 역할을 명시하지 않은 노드가 모두 ingest 역할을 가지며, 대규모 환경에서는 `node.roles: [ingest]` 전용 노드를 분리한다.
 
 자주 쓰는 processor는 `grok`(alias 정규식 추출, Logstash와 문법 동일), `dissect`(구분자 기반 파서), `set`, `remove`, `rename`, `convert`(grok이 문자열로 뽑은 값의 타입 변환), `date`(여러 포맷을 순서대로 시도해 `@timestamp`로 정규화, `timezone` 필수), `script`(Painless)다. 모든 processor에 공통 `if` 옵션이 있어 Painless 표현식으로 실행 여부를 분기한다.
 
@@ -157,7 +157,7 @@ class AccessLogPipelineTest {
 
 ## 실무에서 걸리는 지점
 
-- **파이프라인 실패가 색인 거부로 번진다.** processor 실패 시 기본 동작은 색인 거부이며 Filebeat가 재시도를 반복해 큐가 부푼다. 최상위 `on_failure`에서 실패 표식을 남기고 dead-letter 인덱스로 보내는 구성을 기본으로 둔다.
+- ==**파이프라인 실패가 색인 거부로 번진다.** processor 실패 시 기본 동작은 색인 거부이며 Filebeat가 재시도를 반복해 큐가 부푼다.== 최상위 `on_failure`에서 실패 표식을 남기고 dead-letter 인덱스로 보내는 구성을 기본으로 둔다.
 - **grok backtracking으로 CPU가 잠긴다.** `GREEDYDATA`와 중첩 alternation이 섞이면 한 줄 파싱에 수 초가 걸린다. 긴 라인은 dissect로 먼저 쪼갠 뒤 작은 조각만 grok으로 파싱하고 `timeout_millis`로 상한을 둔다.
 - **script processor는 마지막 카드다.** 대량 ingest에서 Painless 한두 개가 지연을 수십 배 키운다. 치환은 `gsub`, 타입은 `convert`, 분기는 `if`로 푼다.
 - **_simulate 통과가 색인 성공을 보장하지 않는다.** 매핑 검증은 실제 색인 시점에 일어나므로 테스트 인덱스에 실제 1건 색인까지 검증한다. reindex는 파이프라인을 자동으로 타지 않으므로 `dest.pipeline`을 명시한다.

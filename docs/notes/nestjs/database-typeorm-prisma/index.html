@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/nestjs/database-typeorm-prisma/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,12 +24,12 @@
   <h1>데이터베이스 — TypeORM·Prisma·트랜잭션</h1>
   <p class="summary">NestJS에서 TypeORM과 Prisma를 DI 컨테이너에 올리는 방식과 트랜잭션 경계를 어디서 잡는지 정리한다</p>
   <div class="content">
-<p>NestJS는 데이터베이스 접근 계층을 내장하지 않는다. 서비스마다 드라이버를 직접 열면 풀 관리와 종료 시 정리가 애플리케이션 코드로 흘러 들어오고, 여러 저장소 호출을 원자 단위로 묶을 경계가 없으면 중간 실패 시 데이터가 반쯤 쓰인 채 남는다. <code>@nestjs/typeorm</code>과 Prisma 통합은 DataSource나 PrismaClient를 싱글턴 프로바이더로 올리고, 각 모듈이 필요한 리포지토리만 주입받게 하며, 트랜잭션 경계를 명시적 API로 잡는다.</p>
+<p>NestJS는 데이터베이스 접근 계층을 내장하지 않는다. 서비스마다 드라이버를 직접 열면 풀 관리와 종료 시 정리가 애플리케이션 코드로 흘러 들어오고, 여러 저장소 호출을 원자 단위로 묶을 경계가 없으면 중간 실패 시 데이터가 반쯤 쓰인 채 남는다. <mark><code>@nestjs/typeorm</code>과 Prisma 통합은 DataSource나 PrismaClient를 싱글턴 프로바이더로 올리고, 각 모듈이 필요한 리포지토리만 주입받게 하며, 트랜잭션 경계를 명시적 API로 잡는다.</mark></p>
 <h2>핵심 개념</h2>
 <p><strong>TypeORM 통합.</strong> <code>TypeOrmModule.forRoot()</code>가 루트 모듈에서 DataSource를 생성한다. 옵션은 TypeORM DataSource 설정에 <code>retryAttempts</code>(기본 10회), <code>retryDelay</code>(기본 3000ms), <code>autoLoadEntities</code>(기본 false)가 추가된 형태다. 설정이 비동기로 로드되면 <code>forRootAsync()</code>에 <code>useFactory</code>를 넘기고 <code>ConfigService</code>를 주입한다.</p>
 <p>기능 모듈은 <code>TypeOrmModule.forFeature([User])</code>로 엔티티를 등록한다. 이 호출이 모듈 스코프에 <code>Repository&lt;User&gt;</code> 프로바이더를 만들고, 서비스는 <code>@InjectRepository(User)</code>로 받는다. <code>autoLoadEntities: true</code>면 <code>forFeature</code>의 엔티티가 루트 <code>entities</code> 목록에 자동으로 합쳐진다. DataSource 자체는 <code>@InjectDataSource()</code>로 받는다.</p>
 <p>Spring으로 보면 <code>forRoot()</code>는 <code>DataSource</code> 빈을 만드는 <code>@Configuration</code>, <code>forFeature</code>는 <code>@EnableJpaRepositories</code>의 스캔, <code>Repository&lt;User&gt;</code>는 <code>JpaRepository&lt;User, Long&gt;</code>에 대응한다.</p>
-<p><strong>트랜잭션.</strong> <code>dataSource.transaction(async manager =&gt; {...})</code>는 콜백 안의 <code>manager</code>로 수행한 작업을 하나로 묶고, 정상 반환이면 커밋, 예외면 롤백한다. <code>QueryRunner</code>는 <code>startTransaction</code>·<code>commit</code>·<code>rollback</code>·<code>release</code>를 직접 호출하는 저수준 API다. 어느 쪽이든 주입받은 <code>Repository</code>는 기본 EntityManager에 묶여 있어 트랜잭션에 참여하지 않는다. Spring <code>@Transactional</code>처럼 프록시가 컨텍스트를 전파하는 구조가 아니므로 매니저를 인자로 내려보내거나 콜백 안에서 <code>manager.getRepository()</code>로 다시 꺼낸다.</p>
+<p><strong>트랜잭션.</strong> <code>dataSource.transaction(async manager =&gt; {...})</code>는 콜백 안의 <code>manager</code>로 수행한 작업을 하나로 묶고, 정상 반환이면 커밋, 예외면 롤백한다. <code>QueryRunner</code>는 <code>startTransaction</code>·<code>commit</code>·<code>rollback</code>·<code>release</code>를 직접 호출하는 저수준 API다. <mark>어느 쪽이든 주입받은 <code>Repository</code>는 기본 EntityManager에 묶여 있어 트랜잭션에 참여하지 않는다.</mark> Spring <code>@Transactional</code>처럼 프록시가 컨텍스트를 전파하는 구조가 아니므로 매니저를 인자로 내려보내거나 콜백 안에서 <code>manager.getRepository()</code>로 다시 꺼낸다.</p>
 <p><strong>Prisma 통합.</strong> Prisma는 <code>schema.prisma</code>에서 클라이언트 코드를 생성한다. <code>npx prisma init</code>으로 스키마와 <code>.env</code>를 만들고, <code>npx prisma migrate dev --name init</code>이 마이그레이션 생성·적용과 클라이언트 재생성을 한 번에 처리한다. NestJS에는 <code>PrismaClient</code>를 상속한 <code>PrismaService</code>를 프로바이더로 등록한다. Prisma 7부터는 드라이버 어댑터를 생성자에 넘기는 방식이 기본이고, 클라이언트가 ESM으로 출력되므로 NestJS의 CommonJS 빌드와 맞추려면 generator 블록에 <code>moduleFormat = &quot;cjs&quot;</code>를 지정한다. 트랜잭션은 <code>$transaction()</code>에 배열을 넘기면 배치, 콜백을 넘기면 <code>tx</code> 클라이언트로 조건 분기가 가능한 인터랙티브 트랜잭션이 된다.</p>
 <h2>코드</h2>
 <p>루트 모듈에서 환경 변수로 DataSource를 구성하고, 기능 모듈에서 리포지토리를 주입받는 기본 형태다.</p>
@@ -134,8 +134,8 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong><code>synchronize: true</code>를 운영에 남기는 실수.</strong> 엔티티 변경이 즉시 DDL로 반영되어 컬럼 삭제나 타입 변경이 데이터 손실로 이어진다. 운영은 마이그레이션 파일과 <code>migrate deploy</code> 류의 명시적 절차로 관리한다.</li>
-<li><strong>트랜잭션에 참여하지 않는 리포지토리.</strong> <code>@InjectRepository</code>로 받은 객체를 <code>transaction()</code> 콜백 안에서 호출하면 별도 커넥션으로 실행되어 롤백에서 빠진다. 서비스 간 전파가 필요하면 매니저를 인자로 넘기거나 AsyncLocalStorage 기반 전파 라이브러리를 쓴다.</li>
+<li><strong><mark><code>synchronize: true</code>를 운영에 남기는 실수.</mark></strong> 엔티티 변경이 즉시 DDL로 반영되어 컬럼 삭제나 타입 변경이 데이터 손실로 이어진다. 운영은 마이그레이션 파일과 <code>migrate deploy</code> 류의 명시적 절차로 관리한다.</li>
+<li><strong>트랜잭션에 참여하지 않는 리포지토리.</strong> <mark><code>@InjectRepository</code>로 받은 객체를 <code>transaction()</code> 콜백 안에서 호출하면 별도 커넥션으로 실행되어 롤백에서 빠진다.</mark> 서비스 간 전파가 필요하면 매니저를 인자로 넘기거나 AsyncLocalStorage 기반 전파 라이브러리를 쓴다.</li>
 <li><strong>인터랙티브 트랜잭션의 타임아웃.</strong> Prisma 콜백형 <code>$transaction</code>은 기본 5초 안에 끝나야 하고 커넥션 하나를 점유한다. 외부 API 호출을 안에 넣으면 풀이 고갈되므로 DB 작업만으로 짧게 유지한다.</li>
 <li><strong>N+1.</strong> TypeORM <code>relations</code>나 Prisma <code>include</code>를 빠뜨리면 목록 조회에서 항목마다 추가 쿼리가 나간다. 쿼리 로그를 켜고 엔드포인트 단위로 실제 쿼리 수를 확인한다.</li>
 <li><strong>기동 순서.</strong> <code>retryAttempts</code>·<code>retryDelay</code> 기본값이면 DB가 없을 때 30초 동안 기동이 막히므로 헬스체크 타임아웃과 맞춘다. Prisma는 첫 쿼리 시 연결하므로 기동 시점에 실패를 잡으려면 <code>onModuleInit</code>에서 <code>$connect()</code>를 호출한다.</li>

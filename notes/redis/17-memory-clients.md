@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-redis-memory-optimization.md, data-infra/2026-05
 updated: 2026-08-29
 ---
 
-Redis는 데이터셋 전체를 메모리에 올리므로 메모리가 가장 비싼 자원이다. 같은 데이터라도 키를 나누는 방식과 내부 인코딩에 따라 사용량이 몇 배씩 달라지고, 단편화는 모니터링하지 않으면 조용히 쌓인다. 서버를 잘 튜닝해도 클라이언트가 요청마다 TCP 연결을 새로 열거나 공유 연결에 블로킹 명령을 보내면 지연과 장애는 애플리케이션 쪽에서 발생한다.
+Redis는 데이터셋 전체를 메모리에 올리므로 메모리가 가장 비싼 자원이다. 같은 데이터라도 키를 나누는 방식과 내부 인코딩에 따라 사용량이 몇 배씩 달라지고, 단편화는 모니터링하지 않으면 조용히 쌓인다. ==서버를 잘 튜닝해도 클라이언트가 요청마다 TCP 연결을 새로 열거나 공유 연결에 블로킹 명령을 보내면 지연과 장애는 애플리케이션 쪽에서 발생한다.==
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Redis는 데이터셋 전체를 메모리에 올리므로 메모리가 가장 �
 | Set (정수만) | intset | hashtable | 512개 초과 |
 | Set (일반, 7.2+) | listpack | hashtable | 128개 또는 값 64바이트 초과 |
 
-작은 인코딩은 3~10배 적은 메모리를 쓰고, O(N)이어도 N이 작아 CPU 캐시 친화적이라 실제로는 더 빠른 경우가 많다. 임계값은 `hash-max-listpack-entries` 같은 설정으로 조정하지만 기본값이 대체로 균형점이다. 한 번 큰 인코딩으로 전환된 키는 멤버를 다시 줄여도 되돌아오지 않으며, DEL 후 재생성해야 한다.
+작은 인코딩은 3~10배 적은 메모리를 쓰고, O(N)이어도 N이 작아 CPU 캐시 친화적이라 실제로는 더 빠른 경우가 많다. 임계값은 `hash-max-listpack-entries` 같은 설정으로 조정하지만 기본값이 대체로 균형점이다. ==한 번 큰 인코딩으로 전환된 키는 멤버를 다시 줄여도 되돌아오지 않으며, DEL 후 재생성해야 한다.==
 
 ### 키 오버헤드와 Hash 묶기
 
@@ -112,9 +112,9 @@ public class JedisExample {
 
 ## 실무에서 걸리는 지점
 
-- `maxmemory`를 지정하지 않으면 eviction이 발동하지 않고 OS OOM killer가 프로세스를 죽인다. `used_memory / maxmemory` 비율과 `mem_fragmentation_ratio`를 알림 대상으로 둔다.
+- ==`maxmemory`를 지정하지 않으면 eviction이 발동하지 않고 OS OOM killer가 프로세스를 죽인다.== `used_memory / maxmemory` 비율과 `mem_fragmentation_ratio`를 알림 대상으로 둔다.
 - 장시간 운영하면 단편화가 누적된다. `activedefrag`는 CPU 부담이 약간 늘고, `mem_allocator`가 jemalloc인지 확인한다.
-- Lettuce 공유 연결에 `BLPOP 0`·`SUBSCRIBE`를 보내면 그 연결의 모든 명령이 멈춘다. 블로킹 명령과 Pub/Sub은 전용 연결을 쓴다.
+- ==Lettuce 공유 연결에 `BLPOP 0`·`SUBSCRIBE`를 보내면 그 연결의 모든 명령이 멈춘다.== 블로킹 명령과 Pub/Sub은 전용 연결을 쓴다.
 - Jedis에서 `getResource()` 후 close를 빠뜨리면 connection leak으로 pool exhaustion이 온다. 인스턴스 하나를 여러 스레드가 공유하면 응답이 뒤섞인다.
 - Cluster-aware 클라이언트라도 MGET·SINTER 같은 multi-key 명령은 슬롯이 다르면 CROSSSLOT 오류를 낸다. 구버전 Jedis 3.x는 Redis 7 신규 명령을 지원하지 않는다.
 

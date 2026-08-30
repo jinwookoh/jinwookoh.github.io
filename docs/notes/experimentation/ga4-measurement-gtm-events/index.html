@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ga4-measurement-gtm-events/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,10 +24,10 @@
   <h1>측정 구현 — gtag·GTM·이벤트·전자상거래</h1>
   <p class="summary">gtag·GTM·Measurement Protocol의 역할을 나누고, 표준 이름과 items 구조로 전자상거래 퍼널을 깨지지 않게 구현한다</p>
   <div class="content">
-<p>gtag.js를 페이지에 직접 박으면 이벤트를 추가할 때마다 배포가 필요하고, GTM에 dataLayer push만 쌓고 트리거·태그를 연결하지 않으면 보고서가 빈다. 결제 웹훅이나 환불처럼 브라우저가 없는 시점의 전환은 클라이언트 측정으로 잡히지 않는다. 전자상거래 이벤트는 items 구조가 어긋나거나 transaction_id가 빠지면 퍼널과 매출 집계가 틀어진다.</p>
+<p>gtag.js를 페이지에 직접 박으면 이벤트를 추가할 때마다 배포가 필요하고, GTM에 dataLayer push만 쌓고 트리거·태그를 연결하지 않으면 보고서가 빈다. <mark>결제 웹훅이나 환불처럼 브라우저가 없는 시점의 전환은 클라이언트 측정으로 잡히지 않는다.</mark> 전자상거래 이벤트는 items 구조가 어긋나거나 transaction_id가 빠지면 퍼널과 매출 집계가 틀어진다.</p>
 <h2>핵심 개념</h2>
 <h3>측정 경로</h3>
-<p>gtag.js는 페이지 코드에 직접 넣고, GTM은 대시보드에서 태그를 관리하며, Firebase SDK는 모바일 앱, Measurement Protocol은 서버가 직접 보낸다. 규모가 커지면 웹은 GTM, 앱은 Firebase, 서버는 Measurement Protocol이 맡고 한 속성의 서로 다른 스트림으로 모인다. gtag.js와 GTM을 한 페이지에 같이 두면 이벤트가 중복되므로 하나만 택한다. <code>gtag()</code>는 <code>dataLayer.push</code>를 감싼 함수다.</p>
+<p>gtag.js는 페이지 코드에 직접 넣고, GTM은 대시보드에서 태그를 관리하며, Firebase SDK는 모바일 앱, Measurement Protocol은 서버가 직접 보낸다. 규모가 커지면 웹은 GTM, 앱은 Firebase, 서버는 Measurement Protocol이 맡고 한 속성의 서로 다른 스트림으로 모인다. <mark>gtag.js와 GTM을 한 페이지에 같이 두면 이벤트가 중복되므로 하나만 택한다.</mark> <code>gtag()</code>는 <code>dataLayer.push</code>를 감싼 함수다.</p>
 <h3>GTM 구성</h3>
 <p>GTM 작업은 무엇을(Tag), 언제(Trigger), 어떤 값으로(Variable) 실행할지 정하는 일이다. Google Tag가 Measurement ID(<code>G-XXXX</code>)로 속성에 연결하고 All Pages 트리거로 page_view를 만들며, GA4 Event 태그는 이 Google Tag를 참조해야 전송 대상이 정해진다. 컨테이너 ID(<code>GTM-XXXX</code>)와는 다른 값이다.</p>
 <p>코드가 <code>dataLayer.push({event: &#39;add_to_cart&#39;, ...})</code>를 호출하면 같은 이름의 Custom Event 트리거가 반응하고 Data Layer Variable이 함께 push된 값을 태그 매개변수로 넘긴다. 변경은 Workspace → Preview → Submit → Publish를 거쳐야 라이브에 반영되며, Preview 상태에서만 GA4 DebugView에 이벤트가 실시간으로 보인다.</p>
@@ -138,7 +138,7 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>SPA의 page_view 누락.</strong> 라우트가 바뀌어도 페이지가 다시 로드되지 않아 자동 page_view가 한 번만 남는다. 라우터 훅에서 수동 전송하거나 GTM의 History Change 트리거를 쓴다.</li>
+<li><mark><strong>SPA의 page_view 누락.</strong> 라우트가 바뀌어도 페이지가 다시 로드되지 않아 자동 page_view가 한 번만 남는다.</mark> 라우터 훅에서 수동 전송하거나 GTM의 History Change 트리거를 쓴다.</li>
 <li><strong>폼 제출과 변수 빈 값.</strong> Form Submission 트리거는 <code>Wait for Tags</code>를 켜지 않으면 리디렉션 직전에 이벤트가 유실된다. 트리거 미발동의 대부분은 조건 값이 비어 있거나 대소문자·후행 슬래시가 다른 경우이므로 Preview의 Variables 탭에서 실제 값부터 확인한다.</li>
 <li><strong>비동기 상품 조회의 순서 역전.</strong> 상품 정보를 API로 가져와 push하면 빠른 연속 클릭에서 응답 순서가 뒤바뀐다. 요청 카운터로 최신 응답만 처리하고 같은 상품은 캐시한다.</li>
 <li><strong>비밀값과 식별자.</strong> <code>api_secret</code>은 서버 환경 변수에만 둔다. 서버 hit는 사용자 IP가 없어 지역이 서버 위치로 찍히므로 IP 오버라이드가 필요하다. User ID에는 PII 대신 해시된 식별자만 쓴다.</li>

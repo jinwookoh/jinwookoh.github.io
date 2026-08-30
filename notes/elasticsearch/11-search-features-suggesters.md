@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-search-features.md, elasticsear
 updated: 2026-08-29
 ---
 
-쿼리는 어떤 문서가 매칭됐는지까지만 답한다. 화면에는 매칭 위치를 보여주는 highlight, 순서를 정하는 sort, 몇 건씩 넘길지 정하는 pagination, 그리고 입력 순간의 자동완성과 오타 교정이 더 필요하다. 이 계층을 잘못 짜면 `from + size`가 10,000을 넘는 순간 요청이 거부되거나, scroll 컨텍스트가 힙에 남아 누수되거나, 자동완성이 한국어 입력 중간 상태에 반응하지 않는다.
+쿼리는 어떤 문서가 매칭됐는지까지만 답한다. 화면에는 매칭 위치를 보여주는 highlight, 순서를 정하는 sort, 몇 건씩 넘길지 정하는 pagination, 그리고 입력 순간의 자동완성과 오타 교정이 더 필요하다. ==이 계층을 잘못 짜면 `from + size`가 10,000을 넘는 순간 요청이 거부되거나, scroll 컨텍스트가 힙에 남아 누수되거나, 자동완성이 한국어 입력 중간 상태에 반응하지 않는다.==
 
 ## 핵심 개념
 
@@ -29,7 +29,7 @@ updated: 2026-08-29
 | PIT + `search_after` | 스냅숏 | PIT 핸들(가벼움) | 무한 스크롤, 깊은 페이지 |
 | scroll | 스냅숏 | scroll context(무거움) | 대량 전수 추출 |
 
-`search_after`는 직전 페이지 마지막 hit의 `sort` 값을 커서로 넘긴다. 깊이와 무관하게 비용이 일정하지만 페이징 도중 색인된 문서가 결과를 흔들 수 있어, PIT(Point In Time)로 스냅숏 핸들을 열고 `pit.id`를 함께 보낸다. PIT 검색은 `POST /_search`로 호출하고 tiebreaker로 `_shard_doc`을 쓴다. scroll은 전수 추출에만 남아 있다. 둘 다 끝나면 반드시 닫는다.
+==`search_after`는 직전 페이지 마지막 hit의 `sort` 값을 커서로 넘긴다.== 깊이와 무관하게 비용이 일정하지만 페이징 도중 색인된 문서가 결과를 흔들 수 있어, PIT(Point In Time)로 스냅숏 핸들을 열고 `pit.id`를 함께 보낸다. PIT 검색은 `POST /_search`로 호출하고 tiebreaker로 `_shard_doc`을 쓴다. scroll은 전수 추출에만 남아 있다. 둘 다 끝나면 반드시 닫는다.
 
 ### Suggester
 
@@ -136,7 +136,7 @@ public class SuggestController {
 
 ## 실무에서 걸리는 지점
 
-- **tiebreaker 누락.** `created_at` 하나로 `search_after`를 돌리면 같은 시각 문서가 구분되지 않아 페이지 사이에 중복·누락이 생긴다. sort 마지막에 항상 `_shard_doc`이나 unique 필드를 둔다.
+- ==**tiebreaker 누락.** `created_at` 하나로 `search_after`를 돌리면 같은 시각 문서가 구분되지 않아 페이지 사이에 중복·누락이 생긴다.== sort 마지막에 항상 `_shard_doc`이나 unique 필드를 둔다.
 - **PIT·scroll 미해제.** 예외로 끊겨도 keep_alive 만료 전까지 힙을 점유한다. try/finally로 닫고 keep_alive는 1~5분으로 짧게 잡는다.
 - **highlight 비용.** 수 MB 본문에 기본 옵션으로 걸면 전체 텍스트를 다시 분석해 응답이 수 초로 늘어난다. fragment 수와 크기를 명시하고 두 번째 페이지부터는 끈다.
 - **completion FST 힙 폭증.** 후보 수백만 건이면 FST만 수 GB가 되어 노드가 OOM에 이른다. 자동완성 인덱스를 분리하고 `completion.size_in_bytes`를 추적한다.

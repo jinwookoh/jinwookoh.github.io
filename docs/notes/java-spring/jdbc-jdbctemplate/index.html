@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://jinwookoh.github.io/notes/java-spring/jdbc-jdbctemplate/">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="/notes/notes.css?v=1">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
@@ -24,7 +24,7 @@
   <h1>JDBC·DataSource·JdbcTemplate</h1>
   <p class="summary">JDBC 표준 위에 DataSource로 커넥션을 풀링하고 JdbcTemplate으로 보일러플레이트와 예외를 제거하는 구조</p>
   <div class="content">
-<p>자바 코드가 DB 벤더의 프로토콜에 직접 의존하면 DB를 바꿀 때 데이터 접근 코드를 전부 다시 써야 한다. 매 요청마다 새 물리 커넥션을 열면 TCP 연결과 인증 비용(수십~수백 ms)이 응답 시간에 그대로 더해진다. 여기에 <code>Connection</code>·<code>PreparedStatement</code>·<code>ResultSet</code> 정리와 체크드 예외 <code>SQLException</code> 처리가 쿼리마다 반복되면 SQL 한 줄보다 부수 코드가 훨씬 많아진다. JDBC 표준, DataSource 기반 커넥션 풀, JdbcTemplate은 이 세 문제를 각각 담당하는 계층이다.</p>
+<p>자바 코드가 DB 벤더의 프로토콜에 직접 의존하면 DB를 바꿀 때 데이터 접근 코드를 전부 다시 써야 한다. 매 요청마다 새 물리 커넥션을 열면 TCP 연결과 인증 비용(수십~수백 ms)이 응답 시간에 그대로 더해진다. 여기에 <code>Connection</code>·<code>PreparedStatement</code>·<code>ResultSet</code> 정리와 체크드 예외 <code>SQLException</code> 처리가 쿼리마다 반복되면 SQL 한 줄보다 부수 코드가 훨씬 많아진다. <mark>JDBC 표준, DataSource 기반 커넥션 풀, JdbcTemplate은 이 세 문제를 각각 담당하는 계층이다.</mark></p>
 <h2>핵심 개념</h2>
 <p><strong>JDBC</strong>는 <code>java.sql</code> 패키지의 표준 API다. 애플리케이션은 <code>Connection</code>·<code>Statement</code>·<code>ResultSet</code> 인터페이스만 사용하고, 벤더별 <strong>JDBC 드라이버</strong>가 실제 통신을 맡는다. 드라이버 jar가 클래스패스에 있으면 자동 등록되며, PostgreSQL <code>org.postgresql:postgresql</code>, MySQL <code>com.mysql:mysql-connector-j</code> 등의 버전은 Spring Boot가 관리한다.</p>
 <p><strong>DriverManager</strong>는 호출마다 새 물리 커넥션을 만든다. <strong>DataSource</strong>(<code>javax.sql.DataSource</code>)는 커넥션을 얻는 방법을 구현체에 위임하는 인터페이스이고, 실무 구현체는 <strong>커넥션 풀</strong>이다. 풀은 기동 시 커넥션을 미리 만들어 <code>getConnection()</code> 에 대여하고, <code>close()</code> 는 실제로 닫지 않고 반납한다. Spring Boot는 2.0부터 <strong>HikariCP</strong>를 기본 풀로 쓰며, <code>spring.datasource.url</code>·<code>username</code>·<code>password</code> 만 있으면 자동 구성이 <code>HikariDataSource</code> 와 <code>JdbcTemplate</code>·<code>NamedParameterJdbcTemplate</code> Bean을 등록한다.</p>
@@ -154,10 +154,10 @@
 }</code></pre>
 <h2>실무에서 걸리는 지점</h2>
 <ul>
-<li><strong>풀 크기는 크게 잡을수록 손해다.</strong> DB가 동시에 실행할 수 있는 쿼리 수는 코어 수에 묶이므로 커넥션을 늘리면 경합만 늘어난다. 10개 전후에서 시작해 <code>hikaricp.connections.pending</code> 메트릭을 보며 조정하고, 인스턴스 수 × 풀 크기가 DB <code>max_connections</code> 를 넘지 않게 한다.</li>
+<li><mark><strong>풀 크기는 크게 잡을수록 손해다.</strong> DB가 동시에 실행할 수 있는 쿼리 수는 코어 수에 묶이므로 커넥션을 늘리면 경합만 늘어난다.</mark> 10개 전후에서 시작해 <code>hikaricp.connections.pending</code> 메트릭을 보며 조정하고, 인스턴스 수 × 풀 크기가 DB <code>max_connections</code> 를 넘지 않게 한다.</li>
 <li><strong>커넥션 누수는 풀 고갈로 나타난다.</strong> 직접 얻은 커넥션의 반납을 빠뜨리면 <code>connection-timeout</code> 이후 <code>SQLTransientConnectionException</code> 이 발생한다. <code>leak-detection-threshold</code> 를 켜면 임계 시간을 넘긴 대여의 스택 트레이스가 로그에 남는다.</li>
 <li><strong><code>max-lifetime</code> 은 DB·프록시의 유휴 종료 시간보다 짧아야 한다.</strong> 그렇지 않으면 이미 끊긴 커넥션을 빌려 첫 쿼리에서 실패한다.</li>
-<li><strong><code>queryForObject</code> 의 0건은 null이 아니라 예외다.</strong> <code>Optional</code> 로 감싸려면 <code>EmptyResultDataAccessException</code> 을 잡거나 <code>query()</code> 로 리스트를 받아 첫 요소를 취한다.</li>
+<li><mark><strong><code>queryForObject</code> 의 0건은 null이 아니라 예외다.</strong></mark> <code>Optional</code> 로 감싸려면 <code>EmptyResultDataAccessException</code> 을 잡거나 <code>query()</code> 로 리스트를 받아 첫 요소를 취한다.</li>
 <li><strong>JPA와의 역할 분담.</strong> 단순 CRUD는 JPA, 통계·복잡한 조인·대량 배치는 JdbcTemplate이 맞다. 한 트랜잭션에서 섞어 쓸 수 있지만 영속성 컨텍스트의 미반영 변경이 JdbcTemplate 쿼리에 보이지 않는 점은 주의한다.</li>
 </ul>
 <h2>관련 글</h2>
