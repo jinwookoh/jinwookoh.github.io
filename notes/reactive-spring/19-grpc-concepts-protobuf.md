@@ -9,7 +9,7 @@ sources: [2026-05-03-grpc-basics.md, 2026-05-03-grpc-protobuf.md]
 updated: 2026-08-29
 ---
 
-마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. ==gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.==
+마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ HTTP/2는 한 TCP 연결 위에 여러 스트림을 다중화하고, HPACK으로
 
 RPC 모드는 요청·응답이 단일 메시지인지 스트림인지에 따라 Unary(1:1), Server Streaming(1:N), Client Streaming(N:1), Bidirectional Streaming(N:N)으로 나뉘며, `rpc` 선언의 `stream` 키워드 위치가 결정한다. RSocket의 Interaction Model과 거의 대응하지만, gRPC는 Protobuf를 전제로 하고 백프레셔는 HTTP/2 흐름 제어에 의존한다.
 
-Protobuf 와이어 형식에는 필드 이름이 없다. 필드 번호와 와이어 타입을 합친 태그, 길이, 값만 직렬화되므로 번호가 와이어 식별자이고 이름은 코드 생성용이다. ==이름 변경은 호환되지만 번호를 바꾸면 기존 데이터가 다른 필드로 해석된다.== 1~15는 태그가 1바이트라 자주 쓰는 필드에 배정하고, 19000~19999는 내부 예약 범위다.
+Protobuf 와이어 형식에는 필드 이름이 없다. 필드 번호와 와이어 타입을 합친 태그, 길이, 값만 직렬화되므로 번호가 와이어 식별자이고 이름은 코드 생성용이다. 이름 변경은 호환되지만 번호를 바꾸면 기존 데이터가 다른 필드로 해석된다. 1~15는 태그가 1바이트라 자주 쓰는 필드에 배정하고, 19000~19999는 내부 예약 범위다.
 
 `int32`/`int64`는 varint라 작은 양수에 유리하지만 음수는 10바이트를 차지하므로, 음수가 잦으면 zigzag 인코딩의 `sint32`/`sint64`, 항상 큰 값이면 `fixed32`/`fixed64`를 쓴다. proto3 스칼라 기본값은 null이 아니라 `""`, 0, false이며, 미설정과 구분하려면 `optional`이나 Wrapper 타입을 쓴다. proto2의 `required`는 제거되었다.
 
@@ -175,7 +175,7 @@ grpc:
 
 ## 실무에서 걸리는 지점
 
-- **스텁 종류와 모드 불일치.** `BlockingStub`은 Unary와 Server Streaming만, `FutureStub`은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 `Stub`으로만 호출한다. ==WebFlux 이벤트 루프에서 `BlockingStub`을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.==
+- **스텁 종류와 모드 불일치.** `BlockingStub`은 Unary와 Server Streaming만, `FutureStub`은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 `Stub`으로만 호출한다. WebFlux 이벤트 루프에서 `BlockingStub`을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.
 - **필드 번호 재사용.** `reserved` 없이 필드를 지우면 같은 번호가 다른 타입에 배정될 수 있다. 구버전 데이터가 새 필드로 잘못 해석되지만 컴파일 경고는 없다.
 - **기본값과 미설정의 구분.** `int32 age = 0`은 0인지 값 없음인지 구분되지 않아, 부분 업데이트 API에서 0으로 덮어쓰는 버그가 생긴다. `optional`이나 Wrapper 타입을 쓰고 `hasXxx()`로 검사한다.
 - **단일 장수 연결의 쏠림.** L4 로드 밸런서 뒤에서는 HTTP/2 연결 하나가 특정 인스턴스에 고정된다. 클라이언트 측 로드 밸런싱이나 L7 프록시를 두고 `max-connection-age`로 연결을 주기적으로 재수립한다.

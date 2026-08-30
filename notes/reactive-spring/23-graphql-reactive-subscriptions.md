@@ -9,7 +9,7 @@ sources: [2026-05-03-graphql-reactive.md, 2026-05-03-graphql-subscriptions.md]
 updated: 2026-08-29
 ---
 
-GraphQL 리졸버가 동기 값만 반환하면 R2DBC·Reactive Redis·WebClient로 얻은 `Mono`를 매번 `block()`으로 풀어야 하고, 이벤트 루프가 막혀 WebFlux의 처리량 이점이 사라진다. 알림·채팅·시세처럼 서버가 먼저 데이터를 밀어야 하는 요구는 Query·Mutation만으로는 폴링밖에 답이 없다. ==Spring for GraphQL은 리졸버가 `Mono`·`Flux`를 반환하면 구독과 응답 조립을 대신 처리하고, `Subscription` 타입을 `Flux` 하나로 WebSocket·SSE 스트림에 연결한다.==
+GraphQL 리졸버가 동기 값만 반환하면 R2DBC·Reactive Redis·WebClient로 얻은 `Mono`를 매번 `block()`으로 풀어야 하고, 이벤트 루프가 막혀 WebFlux의 처리량 이점이 사라진다. 알림·채팅·시세처럼 서버가 먼저 데이터를 밀어야 하는 요구는 Query·Mutation만으로는 폴링밖에 답이 없다. Spring for GraphQL은 리졸버가 `Mono`·`Flux`를 반환하면 구독과 응답 조립을 대신 처리하고, `Subscription` 타입을 `Flux` 하나로 WebSocket·SSE 스트림에 연결한다.
 
 ## 핵심 개념
 
@@ -32,7 +32,7 @@ GraphQL 리졸버가 동기 값만 반환하면 R2DBC·Reactive Redis·WebClient
 
 전송은 두 가지다. WebSocket은 `spring.graphql.websocket.path`를 지정하면 활성화되고 `graphql-ws` 프로토콜(ConnectionInit → ConnectionAck → Subscribe → Next → Complete)을 따른다. 구버전 `subscriptions-transport-ws`는 deprecated다. SSE는 `spring.graphql.sse.path`로 켜며 HTTP 단방향이라 프록시 통과가 쉽지만 클라이언트가 서버로 보낼 수 없다.
 
-==인스턴스가 두 대 이상이면 메모리 Sink만으로는 다른 서버의 구독자에게 이벤트가 닿지 않는다.== Mutation이 Redis Pub/Sub 또는 Kafka에 발행하고 각 인스턴스가 이를 구독해 로컬 Flux로 흘린다. Redis는 휘발성, Kafka는 영속·재처리 가능이다.
+인스턴스가 두 대 이상이면 메모리 Sink만으로는 다른 서버의 구독자에게 이벤트가 닿지 않는다. Mutation이 Redis Pub/Sub 또는 Kafka에 발행하고 각 인스턴스가 이를 구독해 로컬 Flux로 흘린다. Redis는 휘발성, Kafka는 영속·재처리 가능이다.
 
 ## 코드
 
@@ -176,7 +176,7 @@ public class PostController {
 
 ## 실무에서 걸리는 지점
 
-- **`block()` 혼입.** ==한 곳만 `block()`을 호출해도 Netty 이벤트 루프가 멈춘다.== 블로킹 라이브러리를 피할 수 없다면 `Schedulers.boundedElastic()`으로 격리하거나 Spring MVC + Virtual Thread를 택한다.
+- **`block()` 혼입.** 한 곳만 `block()`을 호출해도 Netty 이벤트 루프가 멈춘다. 블로킹 라이브러리를 피할 수 없다면 `Schedulers.boundedElastic()`으로 격리하거나 Spring MVC + Virtual Thread를 택한다.
 - **트랜잭션 경계.** R2DBC의 `@Transactional`은 `TransactionalOperator`로 동작하지만 MongoDB·Redis·Kafka와 묶이지 않는다. DB 저장과 이벤트 발행을 한 Mutation에서 하면 롤백 후에도 이벤트가 나갈 수 있으므로 Outbox 패턴으로 분리한다.
 - **`tryEmitNext` 실패 무시.** 버퍼가 차거나 동시 emit이 겹치면 `EmitResult`가 실패로 돌아오는데, 반환값을 버리면 이벤트가 조용히 사라진다. 결과를 검사하거나 `emitNext`에 `EmitFailureHandler`를 지정한다.
 - **구독 인증.** WebSocket은 HTTP 헤더를 연결 시 한 번만 전달하므로 `ConnectionInit` 페이로드의 토큰을 `WebSocketGraphQlInterceptor`에서 검증한다. 다른 사용자의 방을 인자로 넘기는 경우는 리졸버의 `filter`나 `@PreAuthorize`로 메시지 단위 권한을 다시 확인해야 막힌다.

@@ -9,7 +9,7 @@ sources: [2026-05-03-aws-dva-cicd.md, 2026-05-03-aws-dva-developer-tools.md, 202
 updated: 2026-08-30
 ---
 
-수동 배포는 절차가 문서와 어긋나기 쉽고, 장애 시 이전 버전으로 돌아가는 경로가 명확하지 않으며, 인프라를 콘솔에서 손으로 만들면 어떤 설정이 언제 바뀌었는지 추적할 수 없다. ==AWS에서는 CodePipeline·CodeBuild·CodeDeploy가 배포 절차를, CloudFormation·CDK가 인프라 정의를 코드로 고정한다.==
+수동 배포는 절차가 문서와 어긋나기 쉽고, 장애 시 이전 버전으로 돌아가는 경로가 명확하지 않으며, 인프라를 콘솔에서 손으로 만들면 어떤 설정이 언제 바뀌었는지 추적할 수 없다. AWS에서는 CodePipeline·CodeBuild·CodeDeploy가 배포 절차를, CloudFormation·CDK가 인프라 정의를 코드로 고정한다.
 
 ## 핵심 개념
 
@@ -31,13 +31,13 @@ CodeDeploy는 `appspec.yml`에 따라 EC2·Lambda·ECS에 배포한다. EC2는 �
 | Lambda·ECS | Linear | 일정 간격으로 고정 비율씩 전환 |
 | Lambda·ECS | All-at-once | 즉시 100% 전환 |
 
-==Canary·Linear는 Lambda 별칭 가중치 또는 ALB 리스너 가중치로 구현되므로 EC2에서는 선택할 수 없다.==
+Canary·Linear는 Lambda 별칭 가중치 또는 ALB 리스너 가중치로 구현되므로 EC2에서는 선택할 수 없다.
 
 ### CloudFormation과 CDK
 
 CloudFormation은 YAML/JSON 템플릿(`Parameters`·`Resources`·`Outputs`)을 Stack 단위로 생성·갱신·삭제한다. `!Ref`·`!GetAtt`·`!Sub`·`!ImportValue`로 리소스를 연결하고, 모듈화는 Nested Stack, 다계정·다리전 배포는 StackSets를 쓴다. Change Set은 갱신 전 리소스 교체(Replacement) 여부를 보여 주고, Drift Detection은 콘솔에서 손으로 바꾼 리소스를 찾아낸다. CodePipeline의 Deploy 액션은 Stack 갱신을 직접 지원한다.
 
-CDK는 TypeScript·Python·Java로 인프라를 작성하고 `cdk synth`로 CloudFormation 템플릿을 만든다. Construct는 L1(`Cfn*`, CFN 1:1)·L2(기본값과 권한 헬퍼)·L3(다중 리소스 패턴) 세 계층이다. ==실행 엔진은 CloudFormation이므로 실패 원인은 CFN 콘솔의 Stack 이벤트에서 본다.==
+CDK는 TypeScript·Python·Java로 인프라를 작성하고 `cdk synth`로 CloudFormation 템플릿을 만든다. Construct는 L1(`Cfn*`, CFN 1:1)·L2(기본값과 권한 헬퍼)·L3(다중 리소스 패턴) 세 계층이다. 실행 엔진은 CloudFormation이므로 실패 원인은 CFN 콘솔의 Stack 이벤트에서 본다.
 
 ### 자격 증명
 
@@ -140,7 +140,7 @@ public class OrderApiStack extends Stack {
 
 - **CodeBuild 환경 변수에 비밀값 직접 기입.** 빌드 로그에 평문으로 남는다. SSM·Secrets Manager 참조로 둔다.
 - **EC2에 Canary를 기대하는 설계.** 가중치 전환은 Lambda·ECS에서만 동작한다. EC2 무중단은 Blue/Green이며 전환 기간 인스턴스 비용이 두 배다.
-- ==**Change Set 없이 update-stack 실행.** Replacement를 유발하는 속성 변경은 기존 리소스를 삭제한다.== 상태 저장 리소스에는 `DeletionPolicy: Retain`을 건다.
+- **Change Set 없이 update-stack 실행.** Replacement를 유발하는 속성 변경은 기존 리소스를 삭제한다. 상태 저장 리소스에는 `DeletionPolicy: Retain`을 건다.
 - **콘솔 수동 변경으로 인한 Drift.** 다음 Stack 갱신이 변경을 되돌리거나 실패한다. 긴급 변경도 템플릿에 반영한다.
 - **CDK 실패를 CDK 로그에서만 찾는 습관.** 실제 원인은 CFN 콘솔의 Stack 이벤트에 있다. L2가 자동 생성하는 IAM 정책 범위도 `cdk diff`로 확인한다.
 

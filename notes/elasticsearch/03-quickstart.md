@@ -9,13 +9,13 @@ sources: [elasticsearch/2026-05-19-elasticsearch-quickstart.md]
 updated: 2026-08-29
 ---
 
-Inverted Index와 Shard 구조를 글로만 이해하면 검색 DSL, Mapping, ILM 같은 뒤쪽 주제가 추상적으로 남는다. 문서 한 건을 직접 색인하고 `_search` 응답에 점수와 함께 돌아오는 것을 확인해야 개념이 API 동작과 연결된다. 문제는 그 앞의 환경 설정이다. Elasticsearch 8.x는 기본으로 보안과 HTTPS가 켜져 있고, 커널 파라미터·JVM heap·포트 충돌에서 첫 요청 전에 시간을 잃기 쉽다. ==single-node와 보안 비활성이라는 학습 전용 조합으로 마찰을 줄인 뒤 curl과 Kibana Dev Tools로 첫 사이클을 돌린다.==
+Inverted Index와 Shard 구조를 글로만 이해하면 검색 DSL, Mapping, ILM 같은 뒤쪽 주제가 추상적으로 남는다. 문서 한 건을 직접 색인하고 `_search` 응답에 점수와 함께 돌아오는 것을 확인해야 개념이 API 동작과 연결된다. 문제는 그 앞의 환경 설정이다. Elasticsearch 8.x는 기본으로 보안과 HTTPS가 켜져 있고, 커널 파라미터·JVM heap·포트 충돌에서 첫 요청 전에 시간을 잃기 쉽다. single-node와 보안 비활성이라는 학습 전용 조합으로 마찰을 줄인 뒤 curl과 Kibana Dev Tools로 첫 사이클을 돌린다.
 
 ## 핵심 개념
 
 ### 사전 조건
 
-Docker 엔진에 메모리 4GB 이상을 할당한다. 기본값 2GB에서는 컨테이너가 OOMKilled로 종료되기 쉽다. ==Linux 호스트는 `vm.max_map_count`가 262144 이상이어야 한다.== segment 파일을 mmap으로 매핑하면서 이 값을 요구하며, 기본값 65530인 배포판에서는 bootstrap check 실패로 기동하지 못한다. `sysctl -w`로 적용하고 `/etc/sysctl.conf`에 남긴다. macOS와 Windows는 Docker Desktop VM이 처리한다.
+Docker 엔진에 메모리 4GB 이상을 할당한다. 기본값 2GB에서는 컨테이너가 OOMKilled로 종료되기 쉽다. Linux 호스트는 `vm.max_map_count`가 262144 이상이어야 한다. segment 파일을 mmap으로 매핑하면서 이 값을 요구하며, 기본값 65530인 배포판에서는 bootstrap check 실패로 기동하지 못한다. `sysctl -w`로 적용하고 `/etc/sysctl.conf`에 남긴다. macOS와 Windows는 Docker Desktop VM이 처리한다.
 
 ### Compose 옵션의 의미
 
@@ -142,7 +142,7 @@ public class QuickstartService {
 - **Kibana가 `localhost:9200`을 바라보는 설정.** 컨테이너 안에서 localhost는 Kibana 자신이다. `ELASTICSEARCH_HOSTS`는 compose 서비스 이름으로 지정한다.
 - **보안 비활성 옵션 누락.** 8.x는 옵션 없이 띄우면 자체 서명 인증서로 HTTPS를 강제하고 `http://` 요청은 empty reply나 401로 실패한다. 운영은 활성 상태에서 정식 CA 인증서와 계정 비밀번호를 설정한다.
 - **포트 충돌.** 9200·5601이 점유되어 있으면 `address already in use`로 실패한다. `lsof -i :9200`으로 확인하고 호스트 포트만 `9201:9200`처럼 바꾼다.
-- ==**학습 조합을 운영에 옮기는 경우.** single-node는 quorum이 없어 split-brain을 막지 못하고, named volume 하나로는 디스크 iops를 통제할 수 없다.== 운영은 master-eligible 3대 이상, NVMe bind mount, `nofile` 65536 이상이 기본이다.
+- **학습 조합을 운영에 옮기는 경우.** single-node는 quorum이 없어 split-brain을 막지 못하고, named volume 하나로는 디스크 iops를 통제할 수 없다. 운영은 master-eligible 3대 이상, NVMe bind mount, `nofile` 65536 이상이 기본이다.
 
 ## 관련 글
 

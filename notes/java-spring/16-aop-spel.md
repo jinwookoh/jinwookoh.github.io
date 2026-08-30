@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-spring-expression-language.md, spring/2026-05-16-aop
 updated: 2026-08-29
 ---
 
-서비스 메서드를 열어 보면 비즈니스 로직은 몇 줄이고 로깅·시간 측정·권한 검증·트랜잭션 관리 같은 공통 코드가 나머지를 차지하는 경우가 많다. 이 코드가 수백 개 메서드에 반복되면 한 줄을 고치려 해도 모든 위치를 수정해야 하고, 핵심 로직이 부가 코드에 묻힌다. ==여러 모듈을 가로질러 반복되는 횡단 관심사(cross-cutting concern)를 한 곳에 정의해 컨테이너가 대상 메서드에 끼워 넣게 하는 기법이 AOP다.== `@PreAuthorize`나 `@Cacheable`처럼 AOP 기반 어노테이션이 조건이나 키를 문자열로 받을 때 그 문자열을 해석하는 것이 SpEL이다.
+서비스 메서드를 열어 보면 비즈니스 로직은 몇 줄이고 로깅·시간 측정·권한 검증·트랜잭션 관리 같은 공통 코드가 나머지를 차지하는 경우가 많다. 이 코드가 수백 개 메서드에 반복되면 한 줄을 고치려 해도 모든 위치를 수정해야 하고, 핵심 로직이 부가 코드에 묻힌다. 여러 모듈을 가로질러 반복되는 횡단 관심사(cross-cutting concern)를 한 곳에 정의해 컨테이너가 대상 메서드에 끼워 넣게 하는 기법이 AOP다. `@PreAuthorize`나 `@Cacheable`처럼 AOP 기반 어노테이션이 조건이나 키를 문자열로 받을 때 그 문자열을 해석하는 것이 SpEL이다.
 
 ## 핵심 개념
 
@@ -122,11 +122,11 @@ Boolean vip = parser.parseExpression("amount > 100000 and grade == 'GOLD'")
 
 ## 실무에서 걸리는 지점
 
-- ==**자기 호출**. 같은 클래스 안에서 `this.method()`로 부르면 프록시를 거치지 않아 `@Transactional`도 `@Cacheable`도 적용되지 않는다.== 다른 Bean으로 분리하는 것이 정석이고 `AopContext.currentProxy()`는 최후 수단이다.
+- **자기 호출**. 같은 클래스 안에서 `this.method()`로 부르면 프록시를 거치지 않아 `@Transactional`도 `@Cacheable`도 적용되지 않는다. 다른 Bean으로 분리하는 것이 정석이고 `AopContext.currentProxy()`는 최후 수단이다.
 - **프록시가 못 감싸는 메서드**. CGLIB는 서브클래스를 만들므로 `final`·`private` 메서드에는 Advice가 걸리지 않는다. 오류 없이 넘어가므로 테스트로 확인한다.
 - **Aspect 순서와 예외 전파**. 여러 Aspect가 겹치면 `@Order` 없이는 순서가 보장되지 않는다. `@Around`에서 예외를 삼키면 바깥 `@Transactional`이 롤백을 판단하지 못한다.
 - **넓은 Pointcut의 비용**. `execution(* com.example..*.*(..))`처럼 잡으면 거의 모든 Bean이 프록시가 되어 기동 시간과 호출 오버헤드가 늘어난다. 마커 어노테이션 기반 Pointcut이 범위를 명시적으로 유지한다.
-- ==**SpEL과 사용자 입력**. `T(java.lang.Runtime).getRuntime().exec(...)`이 평가되면 서버에서 명령이 실행된다.== 외부 입력을 `StandardEvaluationContext`로 평가하는 코드는 원격 코드 실행 취약점이며 실제 CVE가 반복된 경로다. 불가피하면 `SimpleEvaluationContext`로 제한한다.
+- **SpEL과 사용자 입력**. `T(java.lang.Runtime).getRuntime().exec(...)`이 평가되면 서버에서 명령이 실행된다. 외부 입력을 `StandardEvaluationContext`로 평가하는 코드는 원격 코드 실행 취약점이며 실제 CVE가 반복된 경로다. 불가피하면 `SimpleEvaluationContext`로 제한한다.
 
 ## 관련 글
 

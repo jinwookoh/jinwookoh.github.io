@@ -9,7 +9,7 @@ sources: [2026-05-03-k8s-architecture.md, 2026-05-03-k8s-pod.md]
 updated: 2026-08-30
 ---
 
-컨테이너 한두 개는 `docker run`으로 충분하다. 문제는 컨테이너가 여러 서버에 걸쳐 수십 개를 넘어갈 때 생긴다. 죽은 프로세스의 재시작, 부하에 따른 증감, 무중단 배포, IP가 바뀐 컨테이너의 탐색을 수동으로 처리하는 순간 운영은 사람의 반응 속도에 묶인다. ==Kubernetes는 "이 상태로 유지하라"는 선언을 받아 클러스터가 스스로 그 상태로 수렴하게 만드는 시스템이다.==
+컨테이너 한두 개는 `docker run`으로 충분하다. 문제는 컨테이너가 여러 서버에 걸쳐 수십 개를 넘어갈 때 생긴다. 죽은 프로세스의 재시작, 부하에 따른 증감, 무중단 배포, IP가 바뀐 컨테이너의 탐색을 수동으로 처리하는 순간 운영은 사람의 반응 속도에 묶인다. Kubernetes는 "이 상태로 유지하라"는 선언을 받아 클러스터가 스스로 그 상태로 수렴하게 만드는 시스템이다.
 
 ## 핵심 개념
 
@@ -26,7 +26,7 @@ Kubernetes의 모든 동작은 선언형이다. 사용자는 YAML로 원하는 �
 | kube-scheduler | 노드 미배정 Pod을 자원 여유·라벨·Affinity·Taint/Toleration 기준으로 배치할 노드를 결정한다. 실행은 하지 않는다. |
 | kube-controller-manager | Node·ReplicaSet·Endpoint 등 수십 개 컨트롤러를 한 프로세스로 묶은 것. 각각 Reconciliation Loop를 돈다. |
 
-==API Server는 stateless이고 etcd가 단일 진실이므로, etcd를 잃으면 클러스터 전체를 잃는다.== 운영 환경에서 etcd를 홀수 노드로 구성하고 정기 스냅샷을 남기는 이유다.
+API Server는 stateless이고 etcd가 단일 진실이므로, etcd를 잃으면 클러스터 전체를 잃는다. 운영 환경에서 etcd를 홀수 노드로 구성하고 정기 스냅샷을 남기는 이유다.
 
 ### Worker Node
 
@@ -136,7 +136,7 @@ public class WarmupGate {
 
 ## 실무에서 걸리는 지점
 
-- ==**Memory limit 초과는 OOMKilled, CPU limit 초과는 throttle이다.**== JVM은 기본으로 컨테이너 메모리의 25%만 힙으로 잡으므로 `-XX:MaxRAMPercentage`를 명시하고, limit은 메타스페이스·스레드 스택을 포함한 전체 footprint 기준으로 잡는다.
+- **Memory limit 초과는 OOMKilled, CPU limit 초과는 throttle이다.** JVM은 기본으로 컨테이너 메모리의 25%만 힙으로 잡으므로 `-XX:MaxRAMPercentage`를 명시하고, limit은 메타스페이스·스레드 스택을 포함한 전체 footprint 기준으로 잡는다.
 - **CPU limit은 JVM 시작을 늦춘다.** JIT가 throttle에 걸려 readiness까지 수십 초가 걸리고, 그 사이 liveness가 실패하면 재시작 루프에 빠진다. startupProbe로 시작 구간을 분리한다.
 - **직접 만든 Pod은 노드 장애 시 복구되지 않는다.** restartPolicy는 같은 노드 안의 컨테이너 재시작만 다루며, 노드 간 재배치는 Deployment 같은 상위 컨트롤러의 몫이다.
 - **Init Container가 멈추면 STATUS가 `Init:0/1`에 고정된다.** `kubectl logs <pod> -c <init-container>`로 원인을 본다.

@@ -9,7 +9,7 @@ sources: [2026-05-03-java-fp-modern.md, 2026-05-03-java-fp-virtual-threads.md]
 updated: 2026-08-29
 ---
 
-Java 8 문법에 머문 코드는 불변 데이터 클래스 하나에 생성자·getter·equals·hashCode·toString을 손으로 쓰고, `instanceof` 뒤에 같은 타입으로 다시 캐스팅하고, `switch`에서 `break`를 빠뜨려 fall-through 버그를 만든다. 상속 계층에 새 타입이 추가됐을 때 누락된 분기를 컴파일러가 잡지 못하는 것도 같은 문제다. ==Java 9~21의 언어 변화는 이 보일러플레이트와 런타임 실수를 컴파일 시점으로 끌어오는 방향이다.==
+Java 8 문법에 머문 코드는 불변 데이터 클래스 하나에 생성자·getter·equals·hashCode·toString을 손으로 쓰고, `instanceof` 뒤에 같은 타입으로 다시 캐스팅하고, `switch`에서 `break`를 빠뜨려 fall-through 버그를 만든다. 상속 계층에 새 타입이 추가됐을 때 누락된 분기를 컴파일러가 잡지 못하는 것도 같은 문제다. Java 9~21의 언어 변화는 이 보일러플레이트와 런타임 실수를 컴파일 시점으로 끌어오는 방향이다.
 
 ## 핵심 개념
 
@@ -99,8 +99,8 @@ String payload = """
 
 ## 실무에서 걸리는 지점
 
-- ==**불변 컬렉션과 null.** `List.of`·`Stream.toList()` 반환값에 `add`를 호출하면 런타임 예외다.== 가변 리스트가 필요하면 `Collectors.toCollection(ArrayList::new)`를 쓴다. `Stream.toList()`는 `null` 요소를 허용하지만 `List.of`는 허용하지 않는다.
-- ==**Record와 JPA.** JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다.== DTO·값 객체·프로젝션에 한정한다. 컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.
+- **불변 컬렉션과 null.** `List.of`·`Stream.toList()` 반환값에 `add`를 호출하면 런타임 예외다. 가변 리스트가 필요하면 `Collectors.toCollection(ArrayList::new)`를 쓴다. `Stream.toList()`는 `null` 요소를 허용하지만 `List.of`는 허용하지 않는다.
+- **Record와 JPA.** JPA 엔티티는 기본 생성자와 가변 필드가 필요해 Record로 만들 수 없다. DTO·값 객체·프로젝션에 한정한다. 컬렉션 컴포넌트는 컴팩트 생성자에서 방어적 복사를 하지 않으면 외부에서 변경된다.
 - **`var` 추론 함정.** `var list = new ArrayList<>();`는 `ArrayList<Object>`로 추론된다. 우변에서 타입이 드러나지 않는 메서드 호출 결과에는 쓰지 않는다.
 - **Sealed 계층의 모듈 경계.** permits의 하위 타입은 같은 모듈(무명 모듈이면 같은 패키지)에 있어야 한다. 멀티모듈로 계층을 나누면 컴파일이 실패한다.
 - **Switch 패턴의 지배(dominance)와 null.** 상위 타입 case나 가드 없는 case가 하위 타입 case·가드 case보다 앞에 오면 컴파일 오류다. `default`가 있어도 `null`은 처리되지 않으므로 `case null`을 명시한다.

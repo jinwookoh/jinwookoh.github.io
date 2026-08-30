@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-welcome.md, elasticsearch/2026-
 updated: 2026-08-29
 ---
 
-RDBMS의 `LIKE '%검색어%'`는 인덱스를 타지 못해 전체 스캔을 하고, 형태소 분석·오타 허용·관련도 정렬을 제공하지 않는다. 대량 로그를 필드 단위로 필터하거나 임베딩 벡터로 유사 문서를 찾는 요구도 RDBMS·Redis·Kafka만으로는 풀리지 않는다. ==Elasticsearch는 JSON 문서를 넣으면 자동 색인하고, 풀텍스트 검색·집계·벡터 검색을 하나의 REST API로 처리한다.==
+RDBMS의 `LIKE '%검색어%'`는 인덱스를 타지 못해 전체 스캔을 하고, 형태소 분석·오타 허용·관련도 정렬을 제공하지 않는다. 대량 로그를 필드 단위로 필터하거나 임베딩 벡터로 유사 문서를 찾는 요구도 RDBMS·Redis·Kafka만으로는 풀리지 않는다. Elasticsearch는 JSON 문서를 넣으면 자동 색인하고, 풀텍스트 검색·집계·벡터 검색을 하나의 REST API로 처리한다.
 
 ## 핵심 개념
 
@@ -22,7 +22,7 @@ Elasticsearch는 단일 머신용 자바 검색 라이브러리인 Apache Lucene
 | 관계 | JOIN·FK | 비정규화 |
 | 일관성 | ACID | Near Real-Time |
 
-==Elasticsearch는 운영 데이터의 단일 진실 원천이 아니다.== 원본은 RDBMS에 두고 검색·로그·분석용으로 병행한다. 데이터는 Cluster → Node → Index → Shard → Document 계층으로 나뉘며, 운영 환경은 master-eligible 노드를 3개 이상 두어 quorum 선출이 가능하게 한다.
+Elasticsearch는 운영 데이터의 단일 진실 원천이 아니다. 원본은 RDBMS에 두고 검색·로그·분석용으로 병행한다. 데이터는 Cluster → Node → Index → Shard → Document 계층으로 나뉘며, 운영 환경은 master-eligible 노드를 3개 이상 두어 quorum 선출이 가능하게 한다.
 
 **Index**는 같은 종류의 문서가 모이는 논리 컬렉션이다. 설정은 `_settings`(샤드·replica 수, refresh 주기)와 `_mappings`(필드 타입)로 나뉜다. `number_of_shards`는 생성 시점에만 정하는 static 설정이고 `number_of_replicas`·`refresh_interval`은 운영 중 바꿀 수 있다. 애플리케이션은 실제 인덱스 이름 대신 alias로 접근한다. 매핑 변경은 새 인덱스에 reindex한 뒤 alias를 교체하는 방식으로만 가능하기 때문이다.
 
@@ -99,7 +99,7 @@ POST /_aliases
 
 ## 실무에서 걸리는 지점
 
-- ==**Mapping Explosion.** 임의의 키가 들어오는 로그 인덱스에 `dynamic: true`가 켜져 있으면 필드 수가 수천 개로 늘어 힙이 고갈된다.== `strict`로 잠그고 `index.mapping.total_fields.limit`을 1,000 수준으로 건다.
+- **Mapping Explosion.** 임의의 키가 들어오는 로그 인덱스에 `dynamic: true`가 켜져 있으면 필드 수가 수천 개로 늘어 힙이 고갈된다. `strict`로 잠그고 `index.mapping.total_fields.limit`을 1,000 수준으로 건다.
 - **Primary Shard 수 미설계.** 너무 적으면 수평 확장이 막히고 너무 많으면 오버헤드가 커진다. 초기에 6처럼 `_split`이 유연한 값을 잡는다.
 - **Replica 0 운영.** 데이터 노드 한 대가 죽는 순간 해당 샤드를 잃고 red가 된다. replica 1과 데이터 노드 2대가 하한이다.
 - **alias 없이 인덱스 이름 직접 호출.** 매핑 변경마다 다운타임이 따라온다. 인덱스가 하나여도 alias로 노출한다.

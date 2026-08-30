@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-spring-first-bean-hello.md, spring/2026-05-16-why-de
 updated: 2026-08-29
 ---
 
-객체가 사용할 다른 객체를 직접 `new`로 만들면 세 가지 문제가 생긴다. `OrderService`가 `new KakaoPayGateway()`를 들고 있으면 결제사를 바꿀 때 `OrderService`를 고쳐야 하고, 가짜 게이트웨이를 끼울 지점이 없어 단위 테스트가 실제 API를 호출하며, 구체 타입을 알아야 하므로 변경이 전파된다. ==객체의 생성과 연결을 코드 밖으로 빼낸 것이 IoC이고, Spring에서 그 역할을 맡는 것이 ApplicationContext다.==
+객체가 사용할 다른 객체를 직접 `new`로 만들면 세 가지 문제가 생긴다. `OrderService`가 `new KakaoPayGateway()`를 들고 있으면 결제사를 바꿀 때 `OrderService`를 고쳐야 하고, 가짜 게이트웨이를 끼울 지점이 없어 단위 테스트가 실제 API를 호출하며, 구체 타입을 알아야 하므로 변경이 전파된다. 객체의 생성과 연결을 코드 밖으로 빼낸 것이 IoC이고, Spring에서 그 역할을 맡는 것이 ApplicationContext다.
 
 ## 핵심 개념
 
@@ -105,8 +105,8 @@ public class ShopApplication {
 
 ## 실무에서 걸리는 지점
 
-- ==**singleton Bean의 인스턴스 필드는 공유 상태다.**== 요청별 값을 필드로 두면 모든 스레드가 같은 객체를 쓰므로 데이터가 섞인다. 요청 단위 상태는 지역 변수로 다룬다.
-- ==**순환 참조는 구조 문제다.**== 생성자 주입은 순환 의존성을 기동 시점에 드러내며, Spring Boot 2.6부터 기본 금지다. `@Lazy`로 우회하기보다 의존 방향을 고친다.
+- **singleton Bean의 인스턴스 필드는 공유 상태다.** 요청별 값을 필드로 두면 모든 스레드가 같은 객체를 쓰므로 데이터가 섞인다. 요청 단위 상태는 지역 변수로 다룬다.
+- **순환 참조는 구조 문제다.** 생성자 주입은 순환 의존성을 기동 시점에 드러내며, Spring Boot 2.6부터 기본 금지다. `@Lazy`로 우회하기보다 의존 방향을 고친다.
 - **같은 타입의 Bean이 둘 이상이면 주입이 모호해진다.** `NoUniqueBeanDefinitionException`이 나면 `@Primary`나 `@Qualifier`로 대상을 지정한다.
 - **`getBean` 직접 호출은 IoC를 되돌린다.** 실행 시점에 구현체를 골라야 하면 `Map<String, PaymentGateway>` 주입을 쓴다.
 - **스캔 범위 밖의 클래스는 조용히 빠진다.** 스캔 시작점은 `@SpringBootApplication` 클래스의 패키지이므로, 상위나 형제 패키지의 `@Service`는 주입 시점의 `NoSuchBeanDefinitionException`으로만 드러난다.

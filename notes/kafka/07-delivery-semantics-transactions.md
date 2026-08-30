@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-message-delivery-semantics.md, data-infra/
 updated: 2026-08-29
 ---
 
-Producer가 ACK를 받지 못하면 재전송할지 포기할지, Consumer는 처리와 offset commit 중 무엇을 먼저 할지 정해야 한다. 어느 쪽이든 손실 또는 중복 중 하나를 감수하게 된다. 결제·정산처럼 둘 다 허용되지 않는 데이터에서는 이 선택이 곧 장애 원인이다. ==Kafka는 멱등 Producer와 트랜잭션으로 클러스터 내부에 한해 손실과 중복을 모두 제거하며, 그 범위와 비용을 알아야 올바르게 쓸 수 있다.==
+Producer가 ACK를 받지 못하면 재전송할지 포기할지, Consumer는 처리와 offset commit 중 무엇을 먼저 할지 정해야 한다. 어느 쪽이든 손실 또는 중복 중 하나를 감수하게 된다. 결제·정산처럼 둘 다 허용되지 않는 데이터에서는 이 선택이 곧 장애 원인이다. Kafka는 멱등 Producer와 트랜잭션으로 클러스터 내부에 한해 손실과 중복을 모두 제거하며, 그 범위와 비용을 알아야 올바르게 쓸 수 있다.
 
 ## 핵심 개념
 
@@ -140,7 +140,7 @@ public class OrderEnricher {
 
 ## 실무에서 걸리는 지점
 
-- ==**EOS 범위는 Kafka 클러스터 내부다.**== DB·HTTP·파일로 sink하면 트랜잭션 밖이므로 키 기반 upsert 같은 멱등 쓰기, 또는 DB 트랜잭션 안에 outbox 테이블을 쓰고 CDC로 발행하는 Transactional Outbox가 필요하다. 다른 클러스터로 복제한 뒤에도 EOS는 보장되지 않는다.
+- **EOS 범위는 Kafka 클러스터 내부다.** DB·HTTP·파일로 sink하면 트랜잭션 밖이므로 키 기반 upsert 같은 멱등 쓰기, 또는 DB 트랜잭션 안에 outbox 테이블을 쓰고 CDC로 발행하는 Transactional Outbox가 필요하다. 다른 클러스터로 복제한 뒤에도 EOS는 보장되지 않는다.
 - **`transaction.timeout.ms`(기본 60초)를 넘기면 자동 abort된다.** 배치가 크거나 외부 호출이 느리면 값을 올리되, 브로커 `transaction.max.timeout.ms`(기본 15분)를 넘길 수 없다.
 - **`transactional.id` 중복은 서로를 fencing한다.** 두 인스턴스가 같은 ID를 쓰면 번갈아 `ProducerFencedException`으로 죽는다. 이 예외는 재시도하지 말고 종료해야 한다.
 - **read_committed는 지연을 더한다.** 커밋 주기만큼 Consumer가 늦게 본다. EOS는 at-least-once 대비 10~20% 정도 처리량 손실이 있다.

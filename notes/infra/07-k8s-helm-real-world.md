@@ -9,7 +9,7 @@ sources: [2026-05-03-k8s-helm.md, 2026-05-03-k8s-real-world.md]
 updated: 2026-08-30
 ---
 
-같은 애플리케이션을 dev·staging·prod에 배포하면 이미지 태그와 replicas만 다른 매니페스트가 환경 수만큼 복제되고, 변경이 한 환경에 누락된다. 배포가 수동 `kubectl apply`면 롤백 기준점이 없고, 메트릭과 로그가 없으면 장애를 사용자 신고로 알게 된다. ==Helm은 매니페스트 중복을, GitOps는 배포 추적을, Observability 스택은 상태 파악을 해결한다.==
+같은 애플리케이션을 dev·staging·prod에 배포하면 이미지 태그와 replicas만 다른 매니페스트가 환경 수만큼 복제되고, 변경이 한 환경에 누락된다. 배포가 수동 `kubectl apply`면 롤백 기준점이 없고, 메트릭과 로그가 없으면 장애를 사용자 신고로 알게 된다. Helm은 매니페스트 중복을, GitOps는 배포 추적을, Observability 스택은 상태 파악을 해결한다.
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ Kustomize는 템플릿 없이 base 위에 overlay patch를 겹치며 `kubectl ap
 
 kubeadm·kops로 직접 세우면 etcd 백업·인증서 갱신·노드 패치가 전부 사용자 책임이다. GKE·EKS·AKS가 컨트롤 플레인을 관리하고, GKE Autopilot과 EKS Auto Mode는 노드까지 자동화한다. 클라우드 IAM과 ServiceAccount는 GKE의 Workload Identity, EKS의 IRSA 또는 Pod Identity로 연결한다.
 
-==GitOps는 Git을 desired state의 단일 진실로 삼는다.== CI가 이미지를 푸시하고 Git의 태그를 갱신하면 ArgoCD·Flux가 변경을 감지해 클러스터를 동기화한다. 모든 변경이 커밋으로 남고 롤백은 `git revert`다.
+GitOps는 Git을 desired state의 단일 진실로 삼는다. CI가 이미지를 푸시하고 Git의 태그를 갱신하면 ArgoCD·Flux가 변경을 감지해 클러스터를 동기화한다. 모든 변경이 커밋으로 남고 롤백은 `git revert`다.
 
 ### Observability 3축
 
@@ -153,7 +153,7 @@ spec:
 - **`latest` 태그.** 어느 커밋이 떠 있는지 알 수 없고 롤백 기준도 사라진다. semver 또는 git SHA로 고정한다. 태그를 재사용해 덮어쓰면 노드 캐시 때문에 구버전이 뜬다.
 - **`upgrade --install`.** 첫 배포에 `upgrade`만 쓰면 Release가 없어 실패한다. `--install`을 붙여야 파이프라인이 멱등해진다. 적용 전 `helm template`·`helm lint`로 렌더링 결과를 확인한다.
 - **Hook 리소스 누적.** Hook Job은 Release 관리 대상이 아니어서 삭제 정책이 없으면 실행 후 남고, 이름이 같은 Job은 다음 업그레이드에서 충돌한다. `hook-delete-policy: hook-succeeded`와 `hook-weight`를 함께 지정한다.
-- **selfHeal과 HPA 충돌.** ==`replicas`를 차트에 박아 두면 HPA가 늘린 값을 ArgoCD가 되돌린다.== 템플릿에서 `replicas`를 빼거나 `ignoreDifferences`를 설정한다. `kubectl edit`한 임시 조치도 즉시 원복된다.
+- **selfHeal과 HPA 충돌.** `replicas`를 차트에 박아 두면 HPA가 늘린 값을 ArgoCD가 되돌린다. 템플릿에서 `replicas`를 빼거나 `ignoreDifferences`를 설정한다. `kubectl edit`한 임시 조치도 즉시 원복된다.
 - **Prometheus 카디널리티.** URI에 ID가 섞인 메트릭이나 사용자별 태그는 시계열 수를 폭발시킨다. 태그 값 범위를 제한하고, 지연은 percentile이 아니라 histogram으로 내보내야 여러 Pod를 집계할 수 있다.
 
 ## 관련 글

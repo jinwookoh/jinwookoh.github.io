@@ -9,7 +9,7 @@ sources: [2026-05-01-aws-saa-databases.md, 2026-05-03-aws-dva-databases.md]
 updated: 2026-08-30
 ---
 
-EC2에 직접 MySQL을 올리면 OS 패치, 백업, 장애 복구, 읽기 분산을 전부 직접 처리해야 하고, 한 AZ가 죽으면 데이터베이스도 함께 사라진다. 반대로 관계형 DB 하나에 세션과 초당 수만 건의 키 조회까지 몰아넣으면 Join이 필요 없는 워크로드가 커넥션과 CPU를 소모한다. AWS는 이를 관리형 관계형 DB(RDS·Aurora)와 서버리스 NoSQL(DynamoDB)로 나눈다. ==Join과 트랜잭션이 필요하면 관계형, 키 하나로 값을 찾는 조회가 대규모로 반복되면 DynamoDB를 고른다.==
+EC2에 직접 MySQL을 올리면 OS 패치, 백업, 장애 복구, 읽기 분산을 전부 직접 처리해야 하고, 한 AZ가 죽으면 데이터베이스도 함께 사라진다. 반대로 관계형 DB 하나에 세션과 초당 수만 건의 키 조회까지 몰아넣으면 Join이 필요 없는 워크로드가 커넥션과 CPU를 소모한다. AWS는 이를 관리형 관계형 DB(RDS·Aurora)와 서버리스 NoSQL(DynamoDB)로 나눈다. Join과 트랜잭션이 필요하면 관계형, 키 하나로 값을 찾는 조회가 대규모로 반복되면 DynamoDB를 고른다.
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ RDS는 MySQL, PostgreSQL, MariaDB, Oracle, SQL Server, DB2, Aurora를 지원하�
 
 자동 백업은 1~35일 보존되고 트랜잭션 로그가 5분마다 저장되어 시점 복구가 가능하며, 수동 스냅샷은 영구 보존된다. 복원은 항상 새 인스턴스를 만든다. 저장 암호화는 생성 시에만 켤 수 있어 기존 DB는 스냅샷을 암호화 옵션으로 복원해야 한다. 스토리지 자동 확장은 여유 공간 10% 미만, 5분 이상 지속, 마지막 수정 후 6시간 경과가 모두 맞을 때만 동작한다.
 
-==Multi-AZ와 Read Replica는 목적이 다르다.==
+Multi-AZ와 Read Replica는 목적이 다르다.
 
 | 구분 | Multi-AZ | Read Replica |
 |:---|:---|:---|
@@ -43,7 +43,7 @@ Writer 엔드포인트는 현재 마스터를 가리키고, Reader 엔드포인�
 
 ### DynamoDB
 
-DynamoDB는 서버리스 NoSQL로 밀리초 지연과 자동 Multi-AZ 복제를 제공한다. 기본 키는 Partition Key 단독 또는 Sort Key와의 조합이다. ==파티션 키는 UUID나 사용자 ID처럼 균등 분포해야 하며, 날짜처럼 값이 몰리는 키는 hot partition으로 스로틀링을 유발한다.==
+DynamoDB는 서버리스 NoSQL로 밀리초 지연과 자동 Multi-AZ 복제를 제공한다. 기본 키는 Partition Key 단독 또는 Sort Key와의 조합이다. 파티션 키는 UUID나 사용자 ID처럼 균등 분포해야 하며, 날짜처럼 값이 몰리는 키는 hot partition으로 스로틀링을 유발한다.
 
 인덱스는 GSI(다른 파티션 키, 별도 용량, 언제든 추가)와 LSI(같은 파티션 키에 다른 정렬 키, 생성 시에만)로 나뉜다. 용량 모드는 Provisioned와 On-Demand이며, RCU는 강한 일관성 4KB 읽기 1회, WCU는 1KB 쓰기 1회다.
 
@@ -167,7 +167,7 @@ TTL은 테이블 설정에서 `expiresAt` 속성을 지정해야 동작하며, �
 
 ## 실무에서 걸리는 지점
 
-- ==Lambda가 RDS에 직접 붙으면 동시 실행 수만큼 커넥션이 생겨 `max_connections`를 넘긴다.== RDS Proxy를 둔다.
+- Lambda가 RDS에 직접 붙으면 동시 실행 수만큼 커넥션이 생겨 `max_connections`를 넘긴다. RDS Proxy를 둔다.
 - Read Replica와 Aurora Reader는 비동기 복제라 방금 쓴 데이터가 바로 읽히지 않을 수 있다. 쓰기 직후 확인 조회는 Writer로 보내야 한다.
 - Multi-AZ 장애 조치 후 JVM DNS 캐시 때문에 앱이 구 IP를 잡을 수 있다. `networkaddress.cache.ttl`을 짧게 둔다.
 - DynamoDB는 파티션 키를 나중에 바꾸기 어렵다. 조회 패턴을 먼저 정의하고 키와 GSI를 설계한다.

@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-analyzer-deep.md, elasticsearch
 updated: 2026-08-29
 ---
 
-Elasticsearch의 풀텍스트 검색은 문자열을 그대로 비교하지 않는다. ==색인 시 본문을 토큰으로 쪼개 역색인에 저장하고, 검색어도 같은 규칙으로 쪼개 매칭하므로 쪼개는 규칙이 곧 검색 결과를 결정한다.== 규칙을 지정하지 않으면 `text` 필드는 `standard` analyzer로 처리되는데, 영어에서는 `running`으로 색인된 문서가 `run`으로 검색되지 않고, 한국어에서는 `신촌에서`가 한 토큰으로 들어가 `신촌`으로 검색되지 않는다. 한국어는 띄어쓰기가 느슨하고 조사·어미가 어절에 붙으며 복합명사가 흔해 공백 분리만으로는 검색이 성립하지 않는다.
+Elasticsearch의 풀텍스트 검색은 문자열을 그대로 비교하지 않는다. 색인 시 본문을 토큰으로 쪼개 역색인에 저장하고, 검색어도 같은 규칙으로 쪼개 매칭하므로 쪼개는 규칙이 곧 검색 결과를 결정한다. 규칙을 지정하지 않으면 `text` 필드는 `standard` analyzer로 처리되는데, 영어에서는 `running`으로 색인된 문서가 `run`으로 검색되지 않고, 한국어에서는 `신촌에서`가 한 토큰으로 들어가 `신촌`으로 검색되지 않는다. 한국어는 띄어쓰기가 느슨하고 조사·어미가 어절에 붙으며 복합명사가 흔해 공백 분리만으로는 검색이 성립하지 않는다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ Elasticsearch의 풀텍스트 검색은 문자열을 그대로 비교하지 않�
 
 색인 시 analyzer와 검색 시 analyzer는 기본적으로 동일하다. `search_analyzer`를 따로 두는 경우는 자동완성처럼 비대칭이 필요한 자리뿐이다. 색인은 `edge_ngram`으로 prefix 토큰을 만들고, 검색은 `standard`로 둔다.
 
-==한국어 형태소 분석은 `analysis-nori` 플러그인이 표준이다.== Nori는 mecab-ko-dic 사전을 Lucene 인메모리 구조로 재가공해 JVM 안에서 동작하므로 별도 데몬이 필요 없다. 과거 표준이던 mecab-ko(seunjeon)는 사전 배포 비용이 크고 갱신이 멈춰 기존 인덱스 유지보수용으로만 남았다. Nori의 품질을 결정하는 옵션은 세 가지다.
+한국어 형태소 분석은 `analysis-nori` 플러그인이 표준이다. Nori는 mecab-ko-dic 사전을 Lucene 인메모리 구조로 재가공해 JVM 안에서 동작하므로 별도 데몬이 필요 없다. 과거 표준이던 mecab-ko(seunjeon)는 사전 배포 비용이 크고 갱신이 멈춰 기존 인덱스 유지보수용으로만 남았다. Nori의 품질을 결정하는 옵션은 세 가지다.
 
 | 옵션 | 역할 | 권장 |
 |---|---|---|
@@ -121,7 +121,7 @@ public class AnalyzerCheckService {
 
 - **플러그인 미설치 노드.** `analysis-nori`는 모든 노드에 설치하고 재시작해야 한다. 한 노드라도 빠지면 그 노드의 샤드만 분석이 달라 간헐적으로 결과가 누락된다. `_cat/plugins?v`로 확인한다.
 - **사용자 사전은 인덱스 open 시점에 로딩된다.** 파일만 바꿔서는 기존 인덱스에 반영되지 않으며 `_close`/`_open` 또는 reindex가 필요하다. 사전이 수만 줄로 커지면 힙 사용량과 open 시간이 늘어나므로 도메인 단어만 남긴다. 파일 배포가 막힌 매니지드 환경에서는 `user_dictionary_rules`로 설정에 직접 넣는다.
-- ==**analyzer 변경은 재색인이다.** `text` 필드의 analyzer는 매핑 생성 후 바꿀 수 없다.== `standard`로 색인한 뒤 Nori로 바꾸려면 새 인덱스를 만들고 alias를 교체한다.
+- **analyzer 변경은 재색인이다.** `text` 필드의 analyzer는 매핑 생성 후 바꿀 수 없다. `standard`로 색인한 뒤 Nori로 바꾸려면 새 인덱스를 만들고 alias를 교체한다.
 - **n-gram 범위 폭주.** `min_gram=1, max_gram=20` 같은 설정은 토큰 수를 수십 배로 키워 인덱스 크기와 색인 속도를 악화시킨다. 자동완성은 `edge_ngram` 2~10 범위로 별도 multi-field에만 적용한다. `decompound_mode: mixed`도 인덱스 크기를 30~50% 늘린다.
 - **오타 허용.** 완성형 한글은 한 글자 차이가 자모 하나 차이인 경우가 많아 글자 단위 fuzzy query가 잘 맞지 않는다. 자모 분리 토크나이저는 Nori에 없으므로 별도 플러그인으로 `name.jamo` multi-field를 두고 `should` 절로 함께 묶는다.
 

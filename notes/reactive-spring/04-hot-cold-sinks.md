@@ -9,13 +9,13 @@ sources: [2026-05-03-reactive-hot-cold-publishers.md, 2026-05-03-reactive-sinks.
 updated: 2026-08-29
 ---
 
-Reactor의 `Mono`와 `Flux`는 구독마다 소스를 처음부터 다시 실행한다. 하나의 `Flux`를 두 컴포넌트가 각각 구독하면 DB 쿼리나 HTTP 호출이 두 번 나가고, 웹소켓 피드처럼 연결이 비싼 소스라면 구독자 수만큼 연결이 열린다. 반대로 외부 이벤트 수신처럼 임의의 시점에 코드가 직접 값을 밀어 넣어야 하는 경우, 일반 생성 연산자로는 구독 시점과 발행 시점을 분리할 수 없다. ==앞의 문제는 Hot 변환 연산자가, 뒤의 문제는 `Sinks`가 해결한다.==
+Reactor의 `Mono`와 `Flux`는 구독마다 소스를 처음부터 다시 실행한다. 하나의 `Flux`를 두 컴포넌트가 각각 구독하면 DB 쿼리나 HTTP 호출이 두 번 나가고, 웹소켓 피드처럼 연결이 비싼 소스라면 구독자 수만큼 연결이 열린다. 반대로 외부 이벤트 수신처럼 임의의 시점에 코드가 직접 값을 밀어 넣어야 하는 경우, 일반 생성 연산자로는 구독 시점과 발행 시점을 분리할 수 없다. 앞의 문제는 Hot 변환 연산자가, 뒤의 문제는 `Sinks`가 해결한다.
 
 ## 핵심 개념
 
 Cold Publisher는 구독자마다 독립된 실행을 시작한다. `Flux.range`, `WebClient`의 `retrieve()` 결과, R2DBC 리포지토리 반환값 모두 Cold다. `Mono.just`도 Cold지만 인자는 assembly 시점에 한 번 평가되어 캡처되므로, 구독마다 계산을 다시 하려면 `Mono.fromSupplier`나 `Mono.defer`를 쓴다.
 
-==Hot Publisher는 하나의 실행을 여러 구독자가 공유하며, 늦게 합류한 구독자는 합류 시점 이후의 신호만 받는다.== 진입점은 `publish()`가 반환하는 `ConnectableFlux`다. `connect()` 전까지 상위 소스를 구독하지 않으며, `connect()` 시점을 정하는 방식에 따라 파생 연산자가 갈린다.
+Hot Publisher는 하나의 실행을 여러 구독자가 공유하며, 늦게 합류한 구독자는 합류 시점 이후의 신호만 받는다. 진입점은 `publish()`가 반환하는 `ConnectableFlux`다. `connect()` 전까지 상위 소스를 구독하지 않으며, `connect()` 시점을 정하는 방식에 따라 파생 연산자가 갈린다.
 
 | 연산자 | 소스 구독 시점 | 구독자 0명이 되면 | 재구독 시 | 이전 신호 |
 |:---|:---|:---|:---|:---|
@@ -133,7 +133,7 @@ public class WelcomeMailListener {
 
 ## 실무에서 걸리는 지점
 
-- ==`cache()`와 `replay().all()`을 무한 스트림에 붙이면 저장된 신호가 해제되지 않아 OOM으로 이어진다.== 끝이 없는 소스에는 `cache(n)`, `cache(Duration)`, `replay().limit(n)`처럼 상한을 둔다.
+- `cache()`와 `replay().all()`을 무한 스트림에 붙이면 저장된 신호가 해제되지 않아 OOM으로 이어진다. 끝이 없는 소스에는 `cache(n)`, `cache(Duration)`, `replay().limit(n)`처럼 상한을 둔다.
 - `share()`는 구독자가 잠시 0이 되는 구간마다 소스를 끊고 재연결하며 시퀀스가 리셋된다. 연결 유지가 목적이면 `autoConnect`를, 마지막 구독자 이탈 후 유예를 두려면 `refCount(n, Duration)`을 쓴다.
 - `Sinks.One`은 값을 한 번만 받는다. 두 번째 `tryEmitValue`는 `FAIL_TERMINATED`를 반환하고 조용히 무시되므로 반환값을 로그로 남긴다.
 - `multicast().onBackpressureBuffer()`는 느린 구독자 때문에 버퍼가 차면 `FAIL_OVERFLOW`를 반환한다. 손실이 허용되는 알림성 이벤트에는 `directBestEffort()`가 맞고, 아니면 버퍼 크기와 소비 속도를 함께 조정한다.

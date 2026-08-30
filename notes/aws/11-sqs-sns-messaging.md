@@ -9,7 +9,7 @@ sources: [2026-05-01-aws-saa-messaging.md, 2026-05-03-aws-dva-messaging.md]
 updated: 2026-08-30
 ---
 
-서비스 A가 B를 직접 호출하는 동기 구조에서는 B의 지연과 장애가 그대로 A에 전파되고, 트래픽이 급증하면 뒤쪽 DB가 먼저 무너진다. ==사이에 미들웨어를 두고 비동기로 전달하면 생산자와 소비자가 서로의 상태와 처리 속도에서 독립된다.== AWS는 이 역할을 큐(SQS), Pub/Sub(SNS), 스트림(Kinesis), 이벤트 버스(EventBridge)로 나누어 제공하며 각각 풀려는 문제가 다르다.
+서비스 A가 B를 직접 호출하는 동기 구조에서는 B의 지연과 장애가 그대로 A에 전파되고, 트래픽이 급증하면 뒤쪽 DB가 먼저 무너진다. 사이에 미들웨어를 두고 비동기로 전달하면 생산자와 소비자가 서로의 상태와 처리 속도에서 독립된다. AWS는 이 역할을 큐(SQS), Pub/Sub(SNS), 스트림(Kinesis), 이벤트 버스(EventBridge)로 나누어 제공하며 각각 풀려는 문제가 다르다.
 
 ## 핵심 개념
 
@@ -34,11 +34,11 @@ FIFO의 순서는 같은 `MessageGroupId` 안에서만 보장되고 다른 그�
 
 ### SNS — 토픽에 한 번 게시하면 모든 구독자가 받는 Pub/Sub
 
-구독자는 SQS, Lambda, Firehose, HTTP/S, 이메일, SMS, 푸시다. ==SNS는 메시지를 저장하지 않아 전달 실패 시 사라진다.== 유실이 허용되지 않으면 SNS 뒤에 SQS를 붙이는 **Fan-out** 패턴을 쓴다. 주문 이벤트 하나를 결제·재고·배송 큐가 각자 받아 독립적으로 처리하고, 새 소비자는 큐를 추가해 구독만 하면 된다. 이때 SQS 액세스 정책에서 토픽의 `sqs:SendMessage`를 허용해야 한다. 구독별 JSON 필터 정책으로 속성이 맞는 메시지만 받게 할 수 있고, SNS FIFO 토픽의 구독자는 SQS FIFO 큐로 제한된다.
+구독자는 SQS, Lambda, Firehose, HTTP/S, 이메일, SMS, 푸시다. SNS는 메시지를 저장하지 않아 전달 실패 시 사라진다. 유실이 허용되지 않으면 SNS 뒤에 SQS를 붙이는 **Fan-out** 패턴을 쓴다. 주문 이벤트 하나를 결제·재고·배송 큐가 각자 받아 독립적으로 처리하고, 새 소비자는 큐를 추가해 구독만 하면 된다. 이때 SQS 액세스 정책에서 토픽의 `sqs:SendMessage`를 허용해야 한다. 구독별 JSON 필터 정책으로 속성이 맞는 메시지만 받게 할 수 있고, SNS FIFO 토픽의 구독자는 SQS FIFO 큐로 제한된다.
 
 ### Kinesis — 보존되고 재생 가능한 스트림
 
-==SQS는 처리하면 삭제되고 Kinesis는 처리해도 남는다.== **Data Streams**는 레코드를 기본 24시간, 최대 365일 보존하며 여러 소비자가 같은 데이터를 읽거나 과거부터 다시 읽을 수 있다. 같은 Partition Key는 같은 샤드로 가서 샤드 안에서 순서가 보장된다. 샤드당 쓰기 1MB/s, 읽기 2MB/s이며 Provisioned 모드는 샤드 수를 직접 조정하고 On-Demand는 자동 확장한다.
+SQS는 처리하면 삭제되고 Kinesis는 처리해도 남는다. **Data Streams**는 레코드를 기본 24시간, 최대 365일 보존하며 여러 소비자가 같은 데이터를 읽거나 과거부터 다시 읽을 수 있다. 같은 Partition Key는 같은 샤드로 가서 샤드 안에서 순서가 보장된다. 샤드당 쓰기 1MB/s, 읽기 2MB/s이며 Provisioned 모드는 샤드 수를 직접 조정하고 On-Demand는 자동 확장한다.
 
 **Data Firehose**는 스트림을 S3·Redshift·OpenSearch 등으로 적재하는 완전 관리형 서비스다. 버퍼 크기 또는 간격이 먼저 채워질 때 전송하므로 near real-time이며 보존과 재생은 없다. Redshift는 S3에 적재한 뒤 `COPY`로 로드한다.
 
@@ -132,7 +132,7 @@ public class OrderTopicPublisher {
 
 ## 실무에서 걸리는 지점
 
-- ==**소비자 멱등성은 FIFO를 써도 필요하다.**== Standard는 at-least-once가 기본이고, FIFO도 Visibility Timeout 안에 처리가 끝나지 않으면 재전달된다. 주문 ID 같은 비즈니스 키로 처리 여부를 기록해 둔다.
+- **소비자 멱등성은 FIFO를 써도 필요하다.** Standard는 at-least-once가 기본이고, FIFO도 Visibility Timeout 안에 처리가 끝나지 않으면 재전달된다. 주문 ID 같은 비즈니스 키로 처리 여부를 기록해 둔다.
 - **Visibility Timeout은 최악 처리 시간에 맞춘다.** 짧으면 중복 처리, 길면 소비자 장애 시 재전달까지 공백이 생긴다.
 - **SNS만 쓰면 유실을 감지할 수 없다.** 처리 보장이 필요한 경로는 SQS를 사이에 둔다. Fan-out이 동작하지 않을 때 가장 흔한 원인은 SQS 액세스 정책 누락이다.
 - **FIFO 처리량은 그룹 수가 결정한다.** Message Group ID가 하나면 사실상 단일 스레드로 소비된다. 순서가 필요한 최소 범위로 그룹을 나눈다.

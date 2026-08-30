@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-replication.md, 2026-05-02-kafka-internals
 updated: 2026-08-29
 ---
 
-Replication Factor가 1이면 브로커 한 대가 내려가는 순간 파티션은 오프라인이 되고 소비되지 않은 메시지는 복구할 수 없다. 복제본을 여럿 두더라도 어떤 복제본이 최신인지, 어느 시점을 "저장됨"으로 볼지, 누가 승격될지에 대한 규칙이 없으면 오래된 복제본이 리더가 되어 확인 응답까지 나간 메시지가 사라진다. ==ISR, High Watermark, `min.insync.replicas`, Unclean Leader Election이 이 규칙을 이룬다.==
+Replication Factor가 1이면 브로커 한 대가 내려가는 순간 파티션은 오프라인이 되고 소비되지 않은 메시지는 복구할 수 없다. 복제본을 여럿 두더라도 어떤 복제본이 최신인지, 어느 시점을 "저장됨"으로 볼지, 누가 승격될지에 대한 규칙이 없으면 오래된 복제본이 리더가 되어 확인 응답까지 나간 메시지가 사라진다. ISR, High Watermark, `min.insync.replicas`, Unclean Leader Election이 이 규칙을 이룬다.
 
 ## 핵심 개념
 
@@ -151,7 +151,7 @@ public class IsrChecker {
 
 ## 실무에서 걸리는 지점
 
-- ==`acks=all`만 켜고 `min.insync.replicas`를 기본값 1로 두면 ISR이 리더만 남은 순간부터 리더 단독 기록으로 응답이 나간다.== 두 설정은 세트로 본다.
+- `acks=all`만 켜고 `min.insync.replicas`를 기본값 1로 두면 ISR이 리더만 남은 순간부터 리더 단독 기록으로 응답이 나간다. 두 설정은 세트로 본다.
 - `min.insync.replicas`를 RF와 같게 두면 팔로워 하나만 느려져도 쓰기가 멈춘다. RF=3에는 2가 적정하다.
 - `replica.lag.time.max.ms`를 줄이면 짧은 GC 정지에도 ISR이 흔들려 `NotEnoughReplicas`가 산발한다.
 - `UnderReplicatedPartitions`가 0을 넘는 상태는 아직 손실이 아니지만 지속되면 위험하다. `UnderMinIsrPartitions`와 `OfflinePartitionsCount`는 즉시 대응 대상이다.

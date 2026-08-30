@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-jpa-hibernate-spring-data.md, spring/2026-05-16-enti
 updated: 2026-08-29
 ---
 
-JdbcTemplate만으로 데이터 접근 계층을 만들면 테이블마다 SQL 문자열, RowMapper, 객체 간 참조를 잇는 코드가 반복된다. 자바 객체는 참조·상속·컬렉션으로 그래프를 이루지만 관계형 DB는 테이블·행·외래 키의 평면 구조이므로 이 불일치를 매번 손으로 메워야 한다. ==그 작업을 자동화하는 것이 ORM이고, 자바에서는 JPA·Hibernate·Spring Data JPA 세 층이 역할을 나눠 맡는다.==
+JdbcTemplate만으로 데이터 접근 계층을 만들면 테이블마다 SQL 문자열, RowMapper, 객체 간 참조를 잇는 코드가 반복된다. 자바 객체는 참조·상속·컬렉션으로 그래프를 이루지만 관계형 DB는 테이블·행·외래 키의 평면 구조이므로 이 불일치를 매번 손으로 메워야 한다. 그 작업을 자동화하는 것이 ORM이고, 자바에서는 JPA·Hibernate·Spring Data JPA 세 층이 역할을 나눠 맡는다.
 
 ## 핵심 개념
 
@@ -151,8 +151,8 @@ public class OrderService {
 
 ## 실무에서 걸리는 지점
 
-- ==**`ddl-auto: update`를 운영에 남기는 실수.** Entity 필드 추가가 곧바로 운영 DB의 ALTER TABLE로 이어지고, 컬럼 삭제·타입 변경은 반영되지 않아 스키마가 서서히 어긋난다.==
-- ==**`@Enumerated` 기본값은 `ORDINAL`이다.**== enum 순서 번호가 저장되므로 상수 사이에 값을 끼워 넣으면 기존 데이터의 의미가 바뀐다. enum 필드는 항상 `EnumType.STRING`을 명시한다.
+- **`ddl-auto: update`를 운영에 남기는 실수.** Entity 필드 추가가 곧바로 운영 DB의 ALTER TABLE로 이어지고, 컬럼 삭제·타입 변경은 반영되지 않아 스키마가 서서히 어긋난다.
+- **`@Enumerated` 기본값은 `ORDINAL`이다.** enum 순서 번호가 저장되므로 상수 사이에 값을 끼워 넣으면 기존 데이터의 의미가 바뀐다. enum 필드는 항상 `EnumType.STRING`을 명시한다.
 - **Lombok `@Data`를 Entity에 쓰면 안 된다.** 전체 필드 기반 `equals`는 영속화 전후로 결과가 바뀌고 연관 필드가 섞이면 지연 로딩과 순환 호출을 유발한다. 식별자 기반으로 직접 구현하고 `hashCode`는 상수로 두어 id 부여 전후에도 `Set` 안에서 안정되게 한다.
 - **Entity를 컨트롤러 응답으로 직접 반환하면** 트랜잭션 종료 후 Jackson이 지연 로딩 getter를 호출해 `LazyInitializationException`이 나고, 비밀번호 같은 내부 컬럼이 API에 노출된다. `open-in-view`를 `false`로 두고 서비스 안에서 DTO로 변환한다.
 

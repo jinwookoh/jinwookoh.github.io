@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-rag-hybrid-search.md]
 updated: 2026-08-29
 ---
 
-kNN만으로 RAG의 retrieval을 구성하면 두 곳에서 구멍이 난다. 고유명사·약어·모델명처럼 문자 매칭이 결정적인 질의에서 벡터는 의미가 비슷한 이웃 문서까지 끌어온다. "GPT-4 Turbo"를 찾는데 "GPT-4o"가 섞이는 식이다. 또 kNN 상위 N개가 답을 담은 청크를 앞 순위에 두었다는 보장이 없어, 그대로 LLM에 넣으면 컨텍스트 낭비와 오답이 늘어난다. ==전자는 BM25를 결합한 Hybrid Search로, 후자는 cross-encoder Reranking으로 메우며, Elasticsearch 8.x는 둘을 `retriever` API와 inference endpoint로 서버 안에서 처리한다.==
+kNN만으로 RAG의 retrieval을 구성하면 두 곳에서 구멍이 난다. 고유명사·약어·모델명처럼 문자 매칭이 결정적인 질의에서 벡터는 의미가 비슷한 이웃 문서까지 끌어온다. "GPT-4 Turbo"를 찾는데 "GPT-4o"가 섞이는 식이다. 또 kNN 상위 N개가 답을 담은 청크를 앞 순위에 두었다는 보장이 없어, 그대로 LLM에 넣으면 컨텍스트 낭비와 오답이 늘어난다. 전자는 BM25를 결합한 Hybrid Search로, 후자는 cross-encoder Reranking으로 메우며, Elasticsearch 8.x는 둘을 `retriever` API와 inference endpoint로 서버 안에서 처리한다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ RAG(Retrieval-Augmented Generation)는 세 단계로 나뉜다. 인덱싱은 오
 
 Chunking은 임베딩 모델의 입력 길이 한도와 retrieval 정밀도 때문에 필요하다. 고정 길이로 자르면 문장이 끊기므로 문장 단위로 분리한 뒤 목표 길이까지 모으고 청크 사이에 50~100자 overlap을 둔다. 한국어는 종결어미 변형이 많고 문장이 길어 kss 같은 문장 분리기를 쓴다. 표와 코드 블록은 한 덩어리로 유지하고 한 청크는 한 주제만 다루도록 300~800자로 잡는다.
 
-Hybrid Search는 BM25와 kNN 결과를 Reciprocal Rank Fusion으로 합친다. RRF는 점수가 아니라 순위를 써서 각 목록의 문서에 `1/(k + rank)`를 부여하고 합산하며 k는 보통 60이다. ==BM25 점수는 0에서 수십, cosine은 0에서 1이라 그대로 더하면 한쪽이 묻히지만 순위만 보면 정규화가 필요 없다.== `rrf` retriever의 `rank_constant`가 이 k다.
+Hybrid Search는 BM25와 kNN 결과를 Reciprocal Rank Fusion으로 합친다. RRF는 점수가 아니라 순위를 써서 각 목록의 문서에 `1/(k + rank)`를 부여하고 합산하며 k는 보통 60이다. BM25 점수는 0에서 수십, cosine은 0에서 1이라 그대로 더하면 한쪽이 묻히지만 순위만 보면 정규화가 필요 없다. `rrf` retriever의 `rank_constant`가 이 k다.
 
 Reranking은 bi-encoder와 cross-encoder의 역할 분담이다. 임베딩 모델은 질의와 문서를 따로 벡터화하는 bi-encoder라 빠르지만 정밀도에 한계가 있고, reranker는 둘을 함께 입력해 관련도를 직접 산출하는 cross-encoder라 정확하지만 느리다. 그래서 50개를 retrieve한 뒤 상위 5개를 rerank하며, `text_similarity_reranker` retriever가 이 단계를 검색 요청 안에 포함시킨다.
 
@@ -165,7 +165,7 @@ public class RagRetriever {
 
 ## 실무에서 걸리는 지점
 
-- ==문서 임베딩과 질의 임베딩의 모델이 다르면 차원이 같아도 벡터 공간이 달라 검색이 무너진다.== 모델 교체는 전체 재색인이며, `dense_vector.dims`를 고정하면 차원 불일치는 색인 시 오류로 잡힌다.
+- 문서 임베딩과 질의 임베딩의 모델이 다르면 차원이 같아도 벡터 공간이 달라 검색이 무너진다. 모델 교체는 전체 재색인이며, `dense_vector.dims`를 고정하면 차원 불일치는 색인 시 오류로 잡힌다.
 - 한국어를 standard analyzer로 색인하면 BM25가 어절 단위로만 매칭되어 hybrid의 BM25 기여가 거의 0이 되고 결과가 순수 kNN과 같아진다. `nori_tokenizer`와 사용자 사전을 먼저 적용한다.
 - `rank_constant` 60을 그대로 쓰면 BM25와 kNN의 영향력이 동등해서 법률·의료처럼 용어가 결정적인 도메인에서 키워드 매칭이 묻힌다. BM25 retriever에 boost를 주거나 8.13+의 `linear` retriever로 가중 합산을 명시한다.
 - Retrieval 상위 10개를 그대로 LLM에 넣으면 수만 토큰이 되어 context window를 넘긴다. Reranker로 5개 내외로 압축하고, 응답에 청크 번호를 인용하게 해 원본으로 역추적할 수 있게 한다.

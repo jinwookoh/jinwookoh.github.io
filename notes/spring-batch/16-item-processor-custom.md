@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-item-processor.md, batch/2026-05-17-batch-reusi
 updated: 2026-08-29
 ---
 
-Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 못 한다. ==변환·필터·검증을 Writer에 밀어 넣으면 테스트가 어렵고 롤백 후 재처리 때 같은 로직이 두 번 적용된다.== 온라인 서비스의 DAO를 두고 배치용 Reader를 다시 작성하면 로직이 두 곳으로 갈라지고, 표준 구현체가 없는 소스를 직접 구현하면 재시작 시 처음부터 읽거나 ExecutionContext 키가 충돌한다.
+Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 못 한다. 변환·필터·검증을 Writer에 밀어 넣으면 테스트가 어렵고 롤백 후 재처리 때 같은 로직이 두 번 적용된다. 온라인 서비스의 DAO를 두고 배치용 Reader를 다시 작성하면 로직이 두 곳으로 갈라지고, 표준 구현체가 없는 소스를 직접 구현하면 재시작 시 처음부터 읽거나 ExecutionContext 키가 충돌한다.
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 
 
 지원하지 않는 DELETE 레코드를 제외하는 것은 filter이고, 수량이 음수인 레코드는 skip이다. invalid 레코드를 `return null`로 처리하면 skipCount가 올라가지 않는다. `CompositeItemProcessor`는 순차 체인이며 중간 단계의 null은 filter로 집계된다. `ValidatingItemProcessor`는 `Validator<T>`를, `BeanValidatingItemProcessor`는 Jakarta Bean Validation 어노테이션을 쓰고, `setFilter(true)`면 검증 실패를 예외 대신 null로 바꾼다.
 
-==chunk가 롤백되면 캐시된 item이 다시 `process()`를 거친다.== 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.
+chunk가 롤백되면 캐시된 item이 다시 `process()`를 거친다. 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.
 
 ### 기존 서비스 재사용
 
@@ -230,7 +230,7 @@ public class CountingFooterWriter<T> extends ItemStreamSupport implements ItemWr
 - **Processor 안의 건별 조회.** item마다 DB를 조회하면 N+1이다. Reader에서 join으로 읽거나 캐시로 줄이고, 무거운 외부 호출은 partitioning으로 분산한다.
 - **ItemWriterAdapter의 대량 처리.** 건별 호출이라 chunk 크기만큼 DB 왕복이 생긴다. bulk 메서드를 커스텀 Writer로 감싸거나 `JdbcBatchItemWriter`를 쓴다.
 - **Process Indicator의 동시 실행.** 두 스레드가 같은 row를 읽고 flag를 바꾸면 중복 처리된다. `FOR UPDATE SKIP LOCKED`나 partitioning으로 row 범위를 분리한다.
-- ==**재시작 시 처음부터 읽는 커스텀 Reader.** `remove(0)`처럼 원본을 변경하는 읽기, `ItemStream` 미구현, Step에 `.stream()` 등록 누락, 같은 타입 Reader 두 개의 키 공유가 원인이다.==
+- **재시작 시 처음부터 읽는 커스텀 Reader.** `remove(0)`처럼 원본을 변경하는 읽기, `ItemStream` 미구현, Step에 `.stream()` 등록 누락, 같은 타입 Reader 두 개의 키 공유가 원인이다.
 - **롤백되지 않는 리소스.** 이메일·외부 API에 쓰는 Writer는 chunk 실패 시 부분 반영이 남으므로 idempotency key가 필요하다. `TransactionAwareProxyFactory.createTransactionalList()`는 테스트용이며 운영 대체재가 아니다.
 
 ## 관련 글

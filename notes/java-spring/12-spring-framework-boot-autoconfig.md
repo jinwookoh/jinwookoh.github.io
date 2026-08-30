@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-spring-framework-intro.md, spring/2026-05-26-spring-
 updated: 2026-08-29
 ---
 
-2000년대 초 자바 백엔드 표준이던 EJB는 비즈니스 클래스 하나에 Home·Remote·Bean 인터페이스 구현, 수십 줄의 XML, 전용 컨테이너 배포를 요구했고 컨테이너 없이는 단위 테스트가 불가능했다. 2004년 Spring Framework는 일반 자바 객체(POJO)를 그대로 두고 객체 생성·주입·트랜잭션·웹 요청 처리 같은 인프라만 프레임워크가 맡는 구조로 이 문제를 풀었다. 다만 Framework만으로는 web.xml, DispatcherServlet, DataSource 등록을 여전히 직접 적어야 했다. ==2014년 Spring Boot는 이 부담을 자동 구성(Auto-configuration)으로 없앴다.== 이 메커니즘을 모르면 내가 만들지 않은 Bean이 어디서 왔는지 설명할 수 없다.
+2000년대 초 자바 백엔드 표준이던 EJB는 비즈니스 클래스 하나에 Home·Remote·Bean 인터페이스 구현, 수십 줄의 XML, 전용 컨테이너 배포를 요구했고 컨테이너 없이는 단위 테스트가 불가능했다. 2004년 Spring Framework는 일반 자바 객체(POJO)를 그대로 두고 객체 생성·주입·트랜잭션·웹 요청 처리 같은 인프라만 프레임워크가 맡는 구조로 이 문제를 풀었다. 다만 Framework만으로는 web.xml, DispatcherServlet, DataSource 등록을 여전히 직접 적어야 했다. 2014년 Spring Boot는 이 부담을 자동 구성(Auto-configuration)으로 없앴다. 이 메커니즘을 모르면 내가 만들지 않은 Bean이 어디서 왔는지 설명할 수 없다.
 
 ## 핵심 개념
 
@@ -94,8 +94,8 @@ public class DataSourceConfig {
 
 ## 실무에서 걸리는 지점
 
-- ==컴포넌트가 등록되지 않는 문제의 대부분은 스캔 범위다.== `@ComponentScan`은 메인 클래스 패키지 이하만 훑으므로 `com.example.controller`에 둔 컨트롤러는 `com.example.app.Main`이 찾지 못한다.
-- ==켜진 구성은 리포트로 확인한다.== `debug: true` 또는 `--debug`로 실행하면 ConditionEvaluationReport가 Positive/Negative matches와 불발 이유를 출력하고, Actuator가 있으면 `/actuator/conditions`에서 같은 정보를 JSON으로 받는다.
+- 컴포넌트가 등록되지 않는 문제의 대부분은 스캔 범위다. `@ComponentScan`은 메인 클래스 패키지 이하만 훑으므로 `com.example.controller`에 둔 컨트롤러는 `com.example.app.Main`이 찾지 못한다.
+- 켜진 구성은 리포트로 확인한다. `debug: true` 또는 `--debug`로 실행하면 ConditionEvaluationReport가 Positive/Negative matches와 불발 이유를 출력하고, Actuator가 있으면 `/actuator/conditions`에서 같은 정보를 JSON으로 받는다.
 - 특정 자동 구성을 완전히 배제하려면 `@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)`를 쓴다. 클래스 자체가 후보에서 빠지므로 관련 프로퍼티 바인딩도 함께 사라진다.
 - 같은 타입 Bean을 여러 개 정의하면 주입 지점에서 모호성 예외가 난다. 하나에 `@Primary`를 붙이거나 주입부에 `@Qualifier`를 지정한다.
 - Boot 2에서 3으로 올릴 때 가장 먼저 깨지는 것은 `javax.servlet`·`javax.persistence` import다. Jakarta로 치환하고, 직접 만든 라이브러리의 `spring.factories` 등록도 `AutoConfiguration.imports`로 옮긴다.

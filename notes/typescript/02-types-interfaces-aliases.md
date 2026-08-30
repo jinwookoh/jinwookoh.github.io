@@ -9,7 +9,7 @@ sources: [https://www.typescriptlang.org/docs/handbook/2/everyday-types.html, ht
 updated: 2026-08-30
 ---
 
-JavaScript는 함수가 어떤 모양의 객체를 받는지 실행해 보기 전에는 알 수 없다. 필드 오타 하나가 `undefined`로 흘러가 깊숙한 곳에서 터지고, 필드 이름을 바꾸면 호출부를 grep으로 찾아다녀야 한다. ==TypeScript는 값의 형태를 타입으로 선언해 이 문제를 컴파일 시점으로 끌어올린다.== 그 출발점이 원시 타입, 객체 타입, 그리고 객체 타입에 이름을 붙이는 인터페이스와 타입 별칭이다.
+JavaScript는 함수가 어떤 모양의 객체를 받는지 실행해 보기 전에는 알 수 없다. 필드 오타 하나가 `undefined`로 흘러가 깊숙한 곳에서 터지고, 필드 이름을 바꾸면 호출부를 grep으로 찾아다녀야 한다. TypeScript는 값의 형태를 타입으로 선언해 이 문제를 컴파일 시점으로 끌어올린다. 그 출발점이 원시 타입, 객체 타입, 그리고 객체 타입에 이름을 붙이는 인터페이스와 타입 별칭이다.
 
 ## 핵심 개념
 
@@ -36,7 +36,7 @@ TypeScript의 객체 타입은 구조적(structural)이다. 이름이 다르더�
 | 표현 범위 | 객체·함수·클래스 형태 | 모든 타입(유니온·튜플·원시 포함) |
 | 성능 | 확장 시 캐시되어 빠름 | 교차 타입은 매번 재계산 |
 
-==공식 문서는 객체 형태에는 `interface`를 우선 쓰고 유니온이나 별칭이 필요할 때 `type`을 쓰라고 안내한다.== NestJS DTO나 Next.js Route Handler 응답처럼 확장 가능성이 있는 계약은 `interface`로, 상태 문자열 유니온이나 함수 시그니처는 `type`으로 잡는 관행이 일반적이다.
+공식 문서는 객체 형태에는 `interface`를 우선 쓰고 유니온이나 별칭이 필요할 때 `type`을 쓰라고 안내한다. NestJS DTO나 Next.js Route Handler 응답처럼 확장 가능성이 있는 계약은 `interface`로, 상태 문자열 유니온이나 함수 시그니처는 `type`으로 잡는 관행이 일반적이다.
 
 Spring 관점에서 `interface`는 Java의 interface보다 record의 필드 명세에 가깝다. 구현 키워드 없이 형태만 맞으면 통과하며, 런타임에는 남지 않으므로 Bean Validation 같은 실행 시 검증을 대신하지 않는다.
 
@@ -97,7 +97,7 @@ type Status = (typeof STATUS)[keyof typeof STATUS]; // "active" | "inactive"
 
 ## 실무에서 걸리는 지점
 
-- ==**런타임 검증은 별개다.** 인터페이스는 컴파일 후 사라지므로 NestJS 요청 본문이 선언과 다르게 들어와도 오류가 나지 않는다.== `class-validator` DTO나 `zod` 스키마 같은 실행 시 검증 수단을 따로 둔다.
+- **런타임 검증은 별개다.** 인터페이스는 컴파일 후 사라지므로 NestJS 요청 본문이 선언과 다르게 들어와도 오류가 나지 않는다. `class-validator` DTO나 `zod` 스키마 같은 실행 시 검증 수단을 따로 둔다.
 - **`readonly`는 얕다.** `readonly items: Item[]`은 `items` 재할당만 막고 `items.push()`는 허용한다. 배열까지 막으려면 `readonly Item[]` 또는 `ReadonlyArray<Item>`을 써야 한다.
 - **선택 프로퍼티와 `undefined` 명시는 다르다.** `exactOptionalPropertyTypes`를 켜면 `email?: string`에 `undefined`를 직접 대입하는 것이 오류가 된다.
 - **초과 프로퍼티 검사는 리터럴에만 동작한다.** 변수를 거쳐 넘기면 통과하므로 오타 방어를 이 검사에 기대면 안 된다.

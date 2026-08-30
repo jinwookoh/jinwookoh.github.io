@@ -9,7 +9,7 @@ sources: [micrometer/2026-05-25-micrometer-meter-types.md, micrometer/2026-05-25
 updated: 2026-08-29
 ---
 
-메트릭을 수집하기로 했다면 두 가지 결정이 따라온다. 어떤 종류의 값으로 기록할 것인가, 그 값을 어떤 축으로 쪼개서 볼 것인가. ==전자를 잘못 고르면 대시보드가 거짓말을 하고, 후자를 잘못 고르면 요청마다 새 시계열이 생겨 Prometheus가 OOM으로 죽는다.==
+메트릭을 수집하기로 했다면 두 가지 결정이 따라온다. 어떤 종류의 값으로 기록할 것인가, 그 값을 어떤 축으로 쪼개서 볼 것인가. 전자를 잘못 고르면 대시보드가 거짓말을 하고, 후자를 잘못 고르면 요청마다 새 시계열이 생겨 Prometheus가 OOM으로 죽는다.
 
 ## 핵심 개념
 
@@ -30,7 +30,7 @@ Gauge는 관찰 대상을 약한 참조로 잡아 대상이 GC되면 `NaN`을 �
 
 ### 태그는 차원이다
 
-같은 이름의 Meter라도 태그 조합이 다르면 별개의 시계열이 되고, `sum by (region)`처럼 태그가 집계의 축이 된다. 시계열 수는 태그별 고유 값 수의 곱이라 region 3종 × type 2종이면 6개지만 `userId`를 넣으면 3 × 1,000,000이 된다. ==각 시계열은 Prometheus 메모리에 상주하므로 태그 값은 유한 집합에서 나와야 한다.== userId·requestId·raw URL·IP는 태그 값으로 쓰지 않으며, 요청별 추적은 로그와 트레이스의 영역이다.
+같은 이름의 Meter라도 태그 조합이 다르면 별개의 시계열이 되고, `sum by (region)`처럼 태그가 집계의 축이 된다. 시계열 수는 태그별 고유 값 수의 곱이라 region 3종 × type 2종이면 6개지만 `userId`를 넣으면 3 × 1,000,000이 된다. 각 시계열은 Prometheus 메모리에 상주하므로 태그 값은 유한 집합에서 나와야 한다. userId·requestId·raw URL·IP는 태그 값으로 쓰지 않으며, 요청별 추적은 로그와 트레이스의 영역이다.
 
 ### common tags와 URI 정규화
 
@@ -151,7 +151,7 @@ public class MetricsConfig {
 - **Counter로 감소를 표현하려는 시도.** `increment(-1)`은 반영되지 않는다. `orders.cancelled` Counter를 따로 두거나 Gauge를 쓴다.
 - **같은 이름에 다른 타입 등록.** `orders.total`을 Counter와 Gauge로 함께 등록하면 `IllegalArgumentException`이 난다. 이름에 성격을 담아 구분한다.
 - **수동 시간 계산.** `System.currentTimeMillis()` 차이를 넘기면 예외 경로에서 기록이 빠진다. `timer.record(Runnable)`에 맡기고, `Timer.Sample`의 `stop()`은 `finally`에서 호출한다.
-- ==**404·봇 트래픽이 만드는 시계열.** 스캐너가 두드린 raw 경로가 uri 태그에 쌓인다.== `replaceTagValues`로 fallback 값에 모으거나 `maximumAllowableTags`로 상한을 걸되, 상한은 초과분을 버리는 2차 방어선이다.
+- **404·봇 트래픽이 만드는 시계열.** 스캐너가 두드린 raw 경로가 uri 태그에 쌓인다. `replaceTagValues`로 fallback 값에 모으거나 `maximumAllowableTags`로 상한을 걸되, 상한은 초과분을 버리는 2차 방어선이다.
 - **방어적 태그 과다.** 태그 여섯 개를 달면 3 × 4 × 2 × 10 × 5 × 3 = 3,600 시계열이 된다. 실제 쿼리에서 쓰는 3~4개로 줄이고 `topk`로 시계열 수 상위 메트릭을 점검한다.
 
 ## 관련 글

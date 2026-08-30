@@ -9,7 +9,7 @@ sources: [https://react.dev/reference/react/useRef, https://react.dev/reference/
 updated: 2026-08-30
 ---
 
-React 함수 컴포넌트는 렌더링마다 함수 본문 전체를 다시 실행한다. 지역 변수와 본문 안에서 정의한 함수·객체는 매번 새 참조가 된다. 그래서 세 가지 문제가 생긴다. 렌더링과 무관하게 유지해야 하는 값(타이머 ID, DOM 노드)을 둘 곳이 없고, 입력이 같아도 비싼 계산을 반복하며, 자식에게 넘기는 콜백과 객체가 매번 새 참조라서 `memo`로 감싼 자식이 불필요하게 다시 렌더링되고 `useEffect` 의존성이 매번 바뀐 것으로 판정된다. ==`useRef`, `useMemo`, `useCallback`은 각각 이 세 문제를 다루는 도구다.==
+React 함수 컴포넌트는 렌더링마다 함수 본문 전체를 다시 실행한다. 지역 변수와 본문 안에서 정의한 함수·객체는 매번 새 참조가 된다. 그래서 세 가지 문제가 생긴다. 렌더링과 무관하게 유지해야 하는 값(타이머 ID, DOM 노드)을 둘 곳이 없고, 입력이 같아도 비싼 계산을 반복하며, 자식에게 넘기는 콜백과 객체가 매번 새 참조라서 `memo`로 감싼 자식이 불필요하게 다시 렌더링되고 `useEffect` 의존성이 매번 바뀐 것으로 판정된다. `useRef`, `useMemo`, `useCallback`은 각각 이 세 문제를 다루는 도구다.
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ React 함수 컴포넌트는 렌더링마다 함수 본문 전체를 다시 실�
 
 `useCallback(fn, dependencies)`는 `useMemo(() => fn, dependencies)`와 같다. 함수 실행 결과가 아니라 함수 정의 자체를 캐시해 자식에 넘길 때 참조가 유지되게 한다.
 
-`memo(Component, arePropsEqual?)`는 훅이 아니라 컴포넌트 래퍼다. 부모가 리렌더링될 때 각 prop을 `Object.is`로 비교해 모두 같으면 자식 렌더링을 건너뛴다. ==인라인 객체나 함수가 하나라도 있으면 항상 다르다고 판정되어 무력화되며, `useMemo`·`useCallback`이 의미를 갖는 지점이 여기다.== 반대로 `memo` 자식이나 effect 의존성으로 가지 않는 함수를 `useCallback`으로 감싸는 것은 비교 비용만 더한다.
+`memo(Component, arePropsEqual?)`는 훅이 아니라 컴포넌트 래퍼다. 부모가 리렌더링될 때 각 prop을 `Object.is`로 비교해 모두 같으면 자식 렌더링을 건너뛴다. 인라인 객체나 함수가 하나라도 있으면 항상 다르다고 판정되어 무력화되며, `useMemo`·`useCallback`이 의미를 갖는 지점이 여기다. 반대로 `memo` 자식이나 effect 의존성으로 가지 않는 함수를 `useCallback`으로 감싸는 것은 비교 비용만 더한다.
 
 | 훅 | 유지 대상 | 변경 시 리렌더링 | 주 용도 |
 |---|---|---|---|
@@ -123,7 +123,7 @@ export function TodoApp({ theme }: { theme: "light" | "dark" }) {
 
 ## 실무에서 걸리는 지점
 
-- ==측정 없이 감싸지 않는다. 두 훅은 의존성 비교와 클로저 생성 비용이 있으므로, 계산이 실제로 무겁거나 결과가 `memo` 자식·effect 의존성으로 흘러갈 때만 이득이다.== React DevTools Profiler로 원인을 확인한 뒤 적용한다.
+- 측정 없이 감싸지 않는다. 두 훅은 의존성 비교와 클로저 생성 비용이 있으므로, 계산이 실제로 무겁거나 결과가 `memo` 자식·effect 의존성으로 흘러갈 때만 이득이다. React DevTools Profiler로 원인을 확인한 뒤 적용한다.
 - `memo`는 prop 하나만 새 참조여도 무효가 된다. 콜백은 고정했는데 `style={{ ... }}` 같은 인라인 객체를 같이 넘기면 매번 리렌더링된다. props 전체를 안정화하거나 `memo`를 걷어낸다.
 - 화면에 보여야 할 값을 ref에 두면 갱신되지 않는다. ref 변경은 리렌더링을 유발하지 않으므로, 화면에 반영할 값은 state로, 그렇지 않은 값만 ref로 둔다.
 - 의존성을 빼는 방식으로 참조를 고정하지 않는다. `react-hooks/exhaustive-deps`를 끄고 `[]`로 두면 이전 state를 붙든 stale closure 버그가 생긴다. setter의 함수형 업데이트나 상태 위치 변경으로 의존성을 줄인다.

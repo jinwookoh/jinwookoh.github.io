@@ -9,7 +9,7 @@ sources: [https://docs.nestjs.com/techniques/configuration, https://docs.nestjs.
 updated: 2026-08-30
 ---
 
-서비스 코드에서 `process.env`를 직접 읽으면 값이 항상 `string | undefined`라 파싱과 null 체크가 반복되고, 필수 변수가 빠진 채 기동해도 해당 코드가 실행되기 전까지 오류가 나지 않는다. 로깅도 마찬가지로 `console.log`를 흩어 쓰면 레벨을 한 곳에서 조절할 수 없고, 프레임워크 부트스트랩 로그와 애플리케이션 로그의 형식이 달라 수집기 파싱이 깨진다. ==`@nestjs/config`와 내장 `Logger`가 이 둘을 DI 안에서 해결한다.==
+서비스 코드에서 `process.env`를 직접 읽으면 값이 항상 `string | undefined`라 파싱과 null 체크가 반복되고, 필수 변수가 빠진 채 기동해도 해당 코드가 실행되기 전까지 오류가 나지 않는다. 로깅도 마찬가지로 `console.log`를 흩어 쓰면 레벨을 한 곳에서 조절할 수 없고, 프레임워크 부트스트랩 로그와 애플리케이션 로그의 형식이 달라 수집기 파싱이 깨진다. `@nestjs/config`와 내장 `Logger`가 이 둘을 DI 안에서 해결한다.
 
 ## 핵심 개념
 
@@ -27,7 +27,7 @@ Spring 대응으로 `ConfigModule` ≈ `Environment` + `@ConfigurationProperties
 
 ### 검증
 
-`validate`에는 `Record<string, unknown>`을 받아 검증된 객체를 반환하는 동기 함수를 넘긴다. `class-validator`와 `class-transformer`를 조합하면 DTO와 같은 데코레이터 방식이 되고, `validationSchema`에는 Standard Schema 호환 스키마(Zod 등)를 넘긴다. ==실패 시 기동이 중단되어 잘못된 배포가 트래픽을 받기 전에 걸러진다.==
+`validate`에는 `Record<string, unknown>`을 받아 검증된 객체를 반환하는 동기 함수를 넘긴다. `class-validator`와 `class-transformer`를 조합하면 DTO와 같은 데코레이터 방식이 되고, `validationSchema`에는 Standard Schema 호환 스키마(Zod 등)를 넘긴다. 실패 시 기동이 중단되어 잘못된 배포가 트래픽을 받기 전에 걸러진다.
 
 ### Logger와 LoggerService
 
@@ -172,8 +172,8 @@ export class OrdersService {
 
 ## 실무에서 걸리는 지점
 
-- **==`.env` 파일은 `process.env`를 덮어쓰지 않는다.==** 셸이나 컨테이너 런타임이 설정한 변수가 우선한다. 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 `ignoreEnvFile: true`로 파일 의존을 끊는다.
-- **==`ConfigService`를 `forRoot()` 이전에 쓸 수 없다.==** 설정에 의존하는 동적 모듈은 `TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })` 형태로 비동기 등록해야 한다. 동기 `forRoot()`에 `process.env`를 직접 넣으면 파일이 아직 읽히지 않아 `undefined`가 들어간다.
+- **`.env` 파일은 `process.env`를 덮어쓰지 않는다.** 셸이나 컨테이너 런타임이 설정한 변수가 우선한다. 파일 수정이 반영되지 않으면 셸 변수를 먼저 의심하고, 운영에서는 `ignoreEnvFile: true`로 파일 의존을 끊는다.
+- **`ConfigService`를 `forRoot()` 이전에 쓸 수 없다.** 설정에 의존하는 동적 모듈은 `TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory })` 형태로 비동기 등록해야 한다. 동기 `forRoot()`에 `process.env`를 직접 넣으면 파일이 아직 읽히지 않아 `undefined`가 들어간다.
 - **`cache: true`는 런타임 변경을 반영하지 않는다.** 기동 이후 `process.env`를 바꿔도 `ConfigService`에는 보이지 않으므로, 테스트에서 변수를 바꿔 가며 검증할 때 원인이 되기 쉽다.
 - **`bufferLogs` 없이 `useLogger()`를 호출하면 부트스트랩 로그는 기본 로거로 나간다.** 모듈 초기화 로그가 텍스트로 먼저 찍히고 이후부터 JSON이 되어 수집기 파싱이 깨진다. 기동 실패 시 버퍼가 비워지지 않을 수 있으므로 `catch`에서 `app.flushLogs()`를 호출한다.
 

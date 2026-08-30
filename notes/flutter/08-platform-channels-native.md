@@ -9,7 +9,7 @@ sources: [https://docs.flutter.dev/platform-integration/platform-channels, https
 updated: 2026-08-30
 ---
 
-Flutter는 자체 렌더링 엔진으로 화면을 그리기 때문에 UI 층에서는 OS에 의존하지 않는다. 그 대가로 배터리 잔량, 블루투스, 생체 인증, 카메라 권한 같은 OS 기능에는 Dart 표준 라이브러리만으로 접근할 수 없다. ==이 경계를 넘는 통로가 플랫폼 채널이다.== 채널이 없으면 플러그인이 지원하지 않는 API는 포기해야 한다.
+Flutter는 자체 렌더링 엔진으로 화면을 그리기 때문에 UI 층에서는 OS에 의존하지 않는다. 그 대가로 배터리 잔량, 블루투스, 생체 인증, 카메라 권한 같은 OS 기능에는 Dart 표준 라이브러리만으로 접근할 수 없다. 이 경계를 넘는 통로가 플랫폼 채널이다. 채널이 없으면 플러그인이 지원하지 않는 API는 포기해야 한다.
 
 ## 핵심 개념
 
@@ -25,7 +25,7 @@ Flutter는 자체 렌더링 엔진으로 화면을 그리기 때문에 UI 층에
 
 기본 코덱 `StandardMessageCodec`은 null·bool·int·double·String·List·Map·바이트 배열을 자동 변환한다. 이 범위를 벗어나는 객체는 직접 Map으로 풀어 보내야 한다.
 
-스레드 규칙이 중요하다. ==채널 핸들러는 기본적으로 플랫폼 메인 스레드(Android UI 스레드, iOS 메인 스레드)에서 실행된다.== 무거운 작업을 핸들러 안에서 그대로 돌리면 네이티브 UI가 멈추므로, `makeBackgroundTaskQueue()`로 생성한 TaskQueue를 채널에 넘겨 백그라운드에서 처리하거나 핸들러 안에서 별도 스레드로 넘기고 결과만 메인 스레드로 되돌린다. Dart 쪽도 마찬가지로 루트 isolate 외의 isolate에서는 `BackgroundIsolateBinaryMessenger.ensureInitialized`를 먼저 호출해야 채널을 쓸 수 있다.
+스레드 규칙이 중요하다. 채널 핸들러는 기본적으로 플랫폼 메인 스레드(Android UI 스레드, iOS 메인 스레드)에서 실행된다. 무거운 작업을 핸들러 안에서 그대로 돌리면 네이티브 UI가 멈추므로, `makeBackgroundTaskQueue()`로 생성한 TaskQueue를 채널에 넘겨 백그라운드에서 처리하거나 핸들러 안에서 별도 스레드로 넘기고 결과만 메인 스레드로 되돌린다. Dart 쪽도 마찬가지로 루트 isolate 외의 isolate에서는 `BackgroundIsolateBinaryMessenger.ensureInitialized`를 먼저 호출해야 채널을 쓸 수 있다.
 
 메서드 이름을 문자열로 맞추는 방식은 타입 검사를 받지 못한다. Pigeon은 Dart로 인터페이스를 선언하면 양쪽 코드를 생성해 주는 도구로, 문자열 오타와 타입 불일치를 컴파일 단계에서 잡는다.
 
@@ -94,7 +94,7 @@ class ConnectivityWatcher {
 
 ## 실무에서 걸리는 지점
 
-- ==핸들러를 메인 스레드에서 동기로 오래 돌리면 네이티브 UI가 끊긴다.== 파일 I/O나 네트워크는 TaskQueue나 코루틴으로 빼고, ==`result`는 정확히 한 번만 호출한다. 빠뜨리면 Dart 쪽 Future가 영원히 대기한다.==
+- 핸들러를 메인 스레드에서 동기로 오래 돌리면 네이티브 UI가 끊긴다. 파일 I/O나 네트워크는 TaskQueue나 코루틴으로 빼고, `result`는 정확히 한 번만 호출한다. 빠뜨리면 Dart 쪽 Future가 영원히 대기한다.
 - 채널 이름과 메서드 이름은 문자열이라 오타가 런타임에야 드러난다. 플랫폼 하나에 핸들러 등록을 빠뜨리면 `MissingPluginException`이 발생한다. 채널이 서너 개를 넘어가면 Pigeon으로 넘기는 편이 유지보수 비용이 낮다.
 - 숫자 타입이 플랫폼마다 다르게 도착한다. Dart의 int가 값 크기에 따라 `Int`와 `Long`으로 갈리므로 Kotlin에서 `as Int` 캐스팅이 간헐적으로 실패한다. `Number`로 받아 변환하는 편이 안전하다.
 - Android 플랫폼 뷰는 렌더링 방식 선택이 성능을 좌우한다. 하이브리드 컴포지션은 접근성과 표시 정확도가 완전하지만 래스터 스레드가 플랫폼 스레드와 합쳐져 프레임이 떨어지고, 텍스처 레이어 방식(`AndroidView`)은 Flutter 성능은 유지되나 빠른 스크롤에서 끊기고 SurfaceView 접근성이 깨진다.

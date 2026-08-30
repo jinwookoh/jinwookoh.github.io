@@ -9,7 +9,7 @@ sources: [2026-05-03-reactive-threading-schedulers.md, 2026-05-03-reactive-conte
 updated: 2026-08-29
 ---
 
-Project Reactor는 `subscribeOn`이나 `publishOn`을 명시하지 않으면 소스부터 `subscribe` 콜백까지 호출자 스레드에서 동기적으로 실행한다. ==비동기는 기본값이 아니라 개발자가 켜는 옵션이다.== 파이프라인에 JDBC 조회를 넣으면 이벤트 루프 스레드가 응답을 기다리며 멈춘다. 반대로 스레드를 옮기면 요청 범위 데이터를 전파하던 `ThreadLocal`이 값을 잃는다. 전자는 Schedulers가, 후자는 Reactor Context가 담당한다.
+Project Reactor는 `subscribeOn`이나 `publishOn`을 명시하지 않으면 소스부터 `subscribe` 콜백까지 호출자 스레드에서 동기적으로 실행한다. 비동기는 기본값이 아니라 개발자가 켜는 옵션이다. 파이프라인에 JDBC 조회를 넣으면 이벤트 루프 스레드가 응답을 기다리며 멈춘다. 반대로 스레드를 옮기면 요청 범위 데이터를 전파하던 `ThreadLocal`이 값을 잃는다. 전자는 Schedulers가, 후자는 Reactor Context가 담당한다.
 
 ## 핵심 개념
 
@@ -41,7 +41,7 @@ Project Reactor는 `subscribeOn`이나 `publishOn`을 명시하지 않으면 소
 
 ### Reactor Context
 
-==Context는 스레드가 아니라 구독에 붙는 불변 키-값 저장소라 스레드가 바뀌어도 유지된다.== `contextWrite`로 쓰고 `deferContextual`로 읽는다. 전파 방향은 데이터와 반대인 downstream에서 upstream, 즉 구독 신호와 같은 방향이다. 따라서 `contextWrite`는 읽는 연산자보다 코드상 아래에 있어야 하며, 여러 개면 아래 것이 먼저 적용된다.
+Context는 스레드가 아니라 구독에 붙는 불변 키-값 저장소라 스레드가 바뀌어도 유지된다. `contextWrite`로 쓰고 `deferContextual`로 읽는다. 전파 방향은 데이터와 반대인 downstream에서 upstream, 즉 구독 신호와 같은 방향이다. 따라서 `contextWrite`는 읽는 연산자보다 코드상 아래에 있어야 하며, 여러 개면 아래 것이 먼저 적용된다.
 
 `ctx.put(k, v)`는 새 인스턴스를 반환하므로 반환값을 버리면 아무 변화가 없다. `ctx.get(k)`는 키가 없으면 `NoSuchElementException`을 던지므로 `getOrDefault`로 방어한다.
 
@@ -106,7 +106,7 @@ public class OrderService {
 
 ## 실무에서 걸리는 지점
 
-- **`parallel`에서 블로킹.** ==JDBC나 파일 I/O를 `Schedulers.parallel()`이나 Netty 이벤트 루프에서 호출하면 코어 수만큼의 요청이 동시에 들어올 때 서버 전체가 멈춘다.== 블로킹은 `boundedElastic`으로 보내고, BlockHound를 테스트에 붙여 검출한다.
+- **`parallel`에서 블로킹.** JDBC나 파일 I/O를 `Schedulers.parallel()`이나 Netty 이벤트 루프에서 호출하면 코어 수만큼의 요청이 동시에 들어올 때 서버 전체가 멈춘다. 블로킹은 `boundedElastic`으로 보내고, BlockHound를 테스트에 붙여 검출한다.
 - **체인 내부 `block()`.** `flatMap` 안에서 다른 Mono를 `block()`하면 같은 풀을 기다리는 데드락이 생길 수 있고, `parallel` 스레드에서는 `IllegalStateException`이 난다. 내부 Publisher는 `flatMap`으로 연결한다.
 - **`subscribeOn` 중복.** 라이브러리가 반환한 Mono에 이미 `subscribeOn`이 걸려 있으면 호출 측에서 다시 걸어도 무시된다.
 - **`boundedElastic` 큐 적체.** 상한을 넘는 작업은 큐에 쌓이고 `queuedTaskCap`을 초과하면 `RejectedExecutionException`이 난다. `flatMap`의 동시성 인자로 유입을 제한한다.

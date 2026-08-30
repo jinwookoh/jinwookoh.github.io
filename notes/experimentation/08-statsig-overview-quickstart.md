@@ -9,7 +9,7 @@ sources: [statsig/2026-05-17-statsig-welcome.md, statsig/2026-05-17-statsig-sdk-
 updated: 2026-08-30
 ---
 
-기능 토글이 코드 안의 boolean 상수로 박혀 있으면 기능을 켜고 끄는 일이 곧 재배포가 되고, 롤백 수단도 코드 revert뿐이다. A/B 테스트는 수작업 SQL로 분석하고, 사용자 행동과 서버 지연은 각각 다른 도구에서 본다. "새 결제 흐름을 켰더니 전환율이 올랐지만 p99 지연도 늘었다" 같은 결론을 내기 어렵고, 도구마다 식별자와 이벤트를 다시 이어 붙이는 비용이 실험 자체보다 커진다. ==Statsig는 이 요소들을 한 데이터 흐름 위에 올리는 플랫폼이다.==
+기능 토글이 코드 안의 boolean 상수로 박혀 있으면 기능을 켜고 끄는 일이 곧 재배포가 되고, 롤백 수단도 코드 revert뿐이다. A/B 테스트는 수작업 SQL로 분석하고, 사용자 행동과 서버 지연은 각각 다른 도구에서 본다. "새 결제 흐름을 켰더니 전환율이 올랐지만 p99 지연도 늘었다" 같은 결론을 내기 어렵고, 도구마다 식별자와 이벤트를 다시 이어 붙이는 비용이 실험 자체보다 커진다. Statsig는 이 요소들을 한 데이터 흐름 위에 올리는 플랫폼이다.
 
 ## 핵심 개념
 
@@ -29,7 +29,7 @@ Feature Flag라고 부르는 것은 실제로 세 유형으로 갈린다.
 
 데이터 저장 위치는 두 옵션이다. Statsig Cloud는 이벤트를 Statsig 인프라로 보내는 managed 방식이고 무료 plan이 월 200만 이벤트까지 받는다. Warehouse Native는 Snowflake·BigQuery·Databricks·Redshift에 원본 데이터를 두고 Statsig가 쿼리만 실행한다. Enterprise 계약이 필요하지만 PII가 회사 밖으로 나가지 않아 규제 환경에 맞는다.
 
-SDK는 Client 13종과 Server 9종으로 나뉜다. Client SDK는 initialize 시점에 해당 사용자의 평가 결과를 받아와 로컬에서 조회하고 공개 가능한 `client-` 키를 쓴다. ==Server SDK는 rule set 전체를 메모리에 적재해 매 요청을 로컬에서 평가하며 `secret-` 키를 쓴다.== 이 키는 백엔드에만 두고 노출되면 즉시 rotation한다. Quickstart는 어느 언어든 설치, `initialize()`, 키 주입, `checkGate`·`getDynamicConfig`·`getExperiment`·`logEvent` 호출의 네 단계다.
+SDK는 Client 13종과 Server 9종으로 나뉜다. Client SDK는 initialize 시점에 해당 사용자의 평가 결과를 받아와 로컬에서 조회하고 공개 가능한 `client-` 키를 쓴다. Server SDK는 rule set 전체를 메모리에 적재해 매 요청을 로컬에서 평가하며 `secret-` 키를 쓴다. 이 키는 백엔드에만 두고 노출되면 즉시 rotation한다. Quickstart는 어느 언어든 설치, `initialize()`, 키 주입, `checkGate`·`getDynamicConfig`·`getExperiment`·`logEvent` 호출의 네 단계다.
 
 ## 코드
 
@@ -116,7 +116,7 @@ public class CheckoutController {
 
 ## 실무에서 걸리는 지점
 
-- ==초기화 전 호출은 모두 기본값을 반환한다.== `initialize()` 완료를 기다리지 않으면 기동 직후 요청이 전부 OFF로 평가되고, `initTimeoutMs`를 넘겨도 같은 fallback 모드에 들어간다. 기본값이 운영에 노출되어도 안전하도록 둔다.
+- 초기화 전 호출은 모두 기본값을 반환한다. `initialize()` 완료를 기다리지 않으면 기동 직후 요청이 전부 OFF로 평가되고, `initTimeoutMs`를 넘겨도 같은 fallback 모드에 들어간다. 기본값이 운영에 노출되어도 안전하도록 둔다.
 - userID가 요청마다 바뀌면 같은 사용자가 다른 variant를 받는다. DB의 안정적인 ID를 쓰고, 익명 구간은 deviceID로 무작위화한 뒤 로그인 시점에 userID를 붙인다.
 - Client SDK를 SSR과 함께 쓰면 서버 렌더와 클라이언트 마운트 후 결과가 달라 화면이 깜빡인다. Server SDK의 `getClientInitializeResponse`로 평가값을 미리 만들어 bootstrap으로 주입한다.
 - 이벤트 이름이 `checkoutCompleted`와 `checkout_completed`로 섞이면 두 이벤트로 갈린다. 상수로 고정한다. 모든 행동을 이벤트로 보내면 무료 plan 한도를 빠르게 넘기므로 핵심 지표 위주로 보낸다.

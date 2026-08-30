@@ -9,7 +9,7 @@ sources: [https://nextjs.org/docs/app/building-your-application/routing/route-ha
 updated: 2026-08-30
 ---
 
-페이지와 Server Actions만으로는 외부 서비스가 호출하는 웹훅, 모바일 앱용 JSON API, RSS 같은 비UI 응답을 만들 수 없다. 로그인하지 않은 사용자를 렌더링 전에 돌려보내는 로직을 페이지마다 흩어 두면 누락이 생긴다. Next.js는 이 요구를 Route Handlers, 미들웨어, 데이터 접근 계층 중심의 인증 패턴으로 나누어 처리하며, ==계층 경계를 잘못 잡으면 보안 구멍과 성능 저하가 함께 생긴다.==
+페이지와 Server Actions만으로는 외부 서비스가 호출하는 웹훅, 모바일 앱용 JSON API, RSS 같은 비UI 응답을 만들 수 없다. 로그인하지 않은 사용자를 렌더링 전에 돌려보내는 로직을 페이지마다 흩어 두면 누락이 생긴다. Next.js는 이 요구를 Route Handlers, 미들웨어, 데이터 접근 계층 중심의 인증 패턴으로 나누어 처리하며, 계층 경계를 잘못 잡으면 보안 구멍과 성능 저하가 함께 생긴다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ updated: 2026-08-30
 
 **미들웨어**는 프로젝트 루트의 `middleware.ts` 한 파일에 정의하며, 라우트 렌더링 전에 매칭된 모든 요청에 실행된다. 할 수 있는 일은 리다이렉트, 리라이트, 헤더·쿠키 수정, 직접 응답 반환이다. `config.matcher`를 지정하지 않으면 `_next/static`과 `public` 자산까지 거치므로 부정 매칭으로 제외한다. 실행 순서는 `next.config`의 `headers` → `redirects` → 미들웨어 → 파일시스템 라우트다. 15.5부터 Node.js 런타임이 안정화되었고, 16에서는 `proxy.ts`로 개명되며 `middleware`는 deprecated가 되었다. Spring 대응 개념은 Security Filter Chain이나, 전역 상태에 의존하지 않고 CDN 엣지에 배포될 수 있다는 점이 다르다.
 
-**인증**은 세 단계로 나뉜다. 자격 증명 확인은 Server Action에서 zod 같은 스키마로 입력을 검증한 뒤 DB나 인증 제공자를 호출한다. 세션은 `jose`로 서명한 JWT를 `httpOnly`, `secure`, `sameSite: 'lax'` 쿠키에 담는 무상태 방식과, 세션 ID만 암호화해 쿠키에 두고 실데이터는 DB에 두는 방식 중 택한다. ==인가는 미들웨어에서 쿠키만 복호화하는 낙관적 검사와, 데이터 접근 계층(DAL)의 `verifySession()`에서 하는 안전한 검사로 나뉜다.== `verifySession()`은 React `cache`로 감싸 렌더 패스당 한 번만 실행되게 하고, Route Handler, Server Action, Server Component가 모두 이 함수를 호출한다. Spring의 서비스 계층 `@PreAuthorize` 검사와 같은 취지다.
+**인증**은 세 단계로 나뉜다. 자격 증명 확인은 Server Action에서 zod 같은 스키마로 입력을 검증한 뒤 DB나 인증 제공자를 호출한다. 세션은 `jose`로 서명한 JWT를 `httpOnly`, `secure`, `sameSite: 'lax'` 쿠키에 담는 무상태 방식과, 세션 ID만 암호화해 쿠키에 두고 실데이터는 DB에 두는 방식 중 택한다. 인가는 미들웨어에서 쿠키만 복호화하는 낙관적 검사와, 데이터 접근 계층(DAL)의 `verifySession()`에서 하는 안전한 검사로 나뉜다. `verifySession()`은 React `cache`로 감싸 렌더 패스당 한 번만 실행되게 하고, Route Handler, Server Action, Server Component가 모두 이 함수를 호출한다. Spring의 서비스 계층 `@PreAuthorize` 검사와 같은 취지다.
 
 ## 코드
 
@@ -149,7 +149,7 @@ export const verifySession = cache(async () => {
 
 ## 실무에서 걸리는 지점
 
-- ==**미들웨어를 유일한 방어선으로 삼는 실수.** Server Action은 별도 라우트가 아니라 사용된 페이지 경로로 들어오는 POST이므로, matcher에서 그 경로를 제외하면 액션 호출도 미들웨어를 건너뛴다.== 모든 Server Action과 Route Handler는 자체적으로 `verifySession()`을 호출해야 한다.
+- **미들웨어를 유일한 방어선으로 삼는 실수.** Server Action은 별도 라우트가 아니라 사용된 페이지 경로로 들어오는 POST이므로, matcher에서 그 경로를 제외하면 액션 호출도 미들웨어를 건너뛴다. 모든 Server Action과 Route Handler는 자체적으로 `verifySession()`을 호출해야 한다.
 - **미들웨어에서 DB 조회.** 미들웨어는 프리페치 요청까지 포함해 매칭된 모든 요청마다 실행되므로, 세션 테이블을 조회하면 링크에 마우스를 올릴 때마다 쿼리가 나간다. 쿠키 복호화까지만 하고 DB 검증은 DAL로 미룬다.
 - **레이아웃에서 인증 검사.** 레이아웃은 클라이언트 내비게이션 시 다시 렌더링되지 않아 경로 이동마다 세션이 재검사되지 않는다. 레이아웃이 `null`을 반환해도 하위 세그먼트와 병렬 라우트 슬롯은 따로 렌더링되어 RSC 페이로드에 데이터가 노출될 수 있다.
 - **GET 핸들러 캐싱 기본값.** 14까지 정적 캐시였던 `GET`이 15부터 동적이 기본이다. RSS, sitemap 같은 정적 응답은 `dynamic = 'force-static'`을 명시하지 않으면 매 요청마다 실행된다.

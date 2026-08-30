@@ -9,13 +9,13 @@ sources: [2026-05-03-grpc-error-handling.md, 2026-05-03-grpc-interceptors.md, 20
 updated: 2026-08-29
 ---
 
-RPC 모드 구현은 메서드 안에서 끝나지만, 실패 시 재시도를 결정할 근거, 인증·로깅을 반복하지 않을 위치, 평문 페이로드의 보호, 인스턴스 상태 확인은 메서드 밖의 문제다. ==이를 비워 두면 모든 실패가 UNKNOWN으로 뭉개지고, 토큰 검증 코드가 서비스마다 복사되며, 일반 Kubernetes Service 뒤의 서버는 한 파드에만 트래픽이 몰린다.==
+RPC 모드 구현은 메서드 안에서 끝나지만, 실패 시 재시도를 결정할 근거, 인증·로깅을 반복하지 않을 위치, 평문 페이로드의 보호, 인스턴스 상태 확인은 메서드 밖의 문제다. 이를 비워 두면 모든 실패가 UNKNOWN으로 뭉개지고, 토큰 검증 코드가 서비스마다 복사되며, 일반 Kubernetes Service 뒤의 서버는 한 파드에만 트래픽이 몰린다.
 
 ## 핵심 개념
 
 ### Status Code는 분류, Description은 메시지, Details는 구조화된 정보
 
-gRPC 에러는 16종의 Status Code로 표현된다. 서버는 `Status.NOT_FOUND.withDescription(...).asRuntimeException()`으로 호출을 닫고, 클라이언트는 `StatusRuntimeException`에서 `getStatus().getCode()`와 `getTrailers()`를 읽는다. ==선택 기준은 재시도 가능 여부다.==
+gRPC 에러는 16종의 Status Code로 표현된다. 서버는 `Status.NOT_FOUND.withDescription(...).asRuntimeException()`으로 호출을 닫고, 클라이언트는 `StatusRuntimeException`에서 `getStatus().getCode()`와 `getTrailers()`를 읽는다. 선택 기준은 재시도 가능 여부다.
 
 | 분류 | Status Code | 재시도 |
 |:---|:---|:---|
@@ -168,7 +168,7 @@ grpc:
 
 ## 실무에서 걸리는 지점
 
-- ==**DEADLINE_EXCEEDED를 무조건 재시도하지 않는다.**== 처리 도중 만료되면 재시도는 같은 작업을 두 번 수행한다. 멱등하지 않은 메서드는 UNAVAILABLE만 재시도한다.
+- **DEADLINE_EXCEEDED를 무조건 재시도하지 않는다.** 처리 도중 만료되면 재시도는 같은 작업을 두 번 수행한다. 멱등하지 않은 메서드는 UNAVAILABLE만 재시도한다.
 - **MDC는 gRPC 스레드 모델과 맞지 않는다.** ThreadLocal이라 인터셉터에서 넣은 trace-id가 서비스 메서드의 executor 스레드로 전파되지 않는다. gRPC `Context`에 싣거나 OpenTelemetry `GrpcTelemetry` 인터셉터에 맡긴다.
 - **KeepAlive 시간이 서버 허용치보다 짧으면 연결이 끊긴다.** 클라이언트 `keep-alive-time`이 서버 `permit-keep-alive-time`보다 짧으면 서버가 GOAWAY로 연결을 닫는다. 두 값을 함께 조정한다.
 - **Reflection과 상세 에러는 정보 노출 경로다.** 운영에서 Reflection을 끄고, 원인 예외는 로그에만 남기며 INTERNAL의 Description은 일반 문구로 제한한다.

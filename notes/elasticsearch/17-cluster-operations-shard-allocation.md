@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-cluster-operations.md, elastics
 updated: 2026-08-29
 ---
 
-단일 노드 Elasticsearch는 노드 하나의 장애가 곧 서비스 장애다. 노드를 늘리면 네트워크 파티션과 master 선출 실패, 샤드 미할당 문제가 따라온다. primary와 replica가 같은 가용 영역에 놓이면 replica는 의미가 없고, 디스크가 찬 노드에 샤드가 계속 들어오면 인덱스가 read-only로 잠긴다. ==클러스터 운영은 정족수와 재시작 절차로 클러스터를 지키고, shard allocation은 샤드를 어디에 둘지 제어한다.==
+단일 노드 Elasticsearch는 노드 하나의 장애가 곧 서비스 장애다. 노드를 늘리면 네트워크 파티션과 master 선출 실패, 샤드 미할당 문제가 따라온다. primary와 replica가 같은 가용 영역에 놓이면 replica는 의미가 없고, 디스크가 찬 노드에 샤드가 계속 들어오면 인덱스가 read-only로 잠긴다. 클러스터 운영은 정족수와 재시작 절차로 클러스터를 지키고, shard allocation은 샤드를 어디에 둘지 제어한다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 `node.roles`로 `master`·`data`·`ingest` 등 역할을 지정한다. 소규모는 모든 역할을 합친 노드 3대로 시작해도 되지만, 규모가 커지면 master 전용 3대를 분리한다. master가 data 역할과 겹치면 집계가 유발하는 GC pause를 다른 노드가 장애로 판단해 재선출이 반복된다.
 
-선출 정족수는 voting configuration의 노드 수 N에 대해 (N/2)+1이다. ==N=2면 한 대만 죽어도 선출이 불가능하므로 master-eligible은 3 또는 5로 두고 가용 영역에 분산한다.== `cluster.initial_master_nodes`는 최초 bootstrap 전용이며, 기존 클러스터에 노드를 추가할 때 넣으면 별도 클러스터가 형성되어 split-brain의 원인이 된다. 7.x 이전의 `discovery.zen.*` 설정은 8.x에서 시작을 거부하므로 제거한다.
+선출 정족수는 voting configuration의 노드 수 N에 대해 (N/2)+1이다. N=2면 한 대만 죽어도 선출이 불가능하므로 master-eligible은 3 또는 5로 두고 가용 영역에 분산한다. `cluster.initial_master_nodes`는 최초 bootstrap 전용이며, 기존 클러스터에 노드를 추가할 때 넣으면 별도 클러스터가 형성되어 split-brain의 원인이 된다. 7.x 이전의 `discovery.zen.*` 설정은 8.x에서 시작을 거부하므로 제거한다.
 
 ```yaml
 # master 전용 노드
@@ -162,7 +162,7 @@ public class AllocationBootstrapConfig {
 
 ## 실무에서 걸리는 지점
 
-- ==**master-eligible 1~2대.** 1대는 장애가 클러스터 정지로 이어지고, 2대는 한 대만 죽어도 정족수를 잃는다.== 규모가 작아도 3대에 둔다.
+- **master-eligible 1~2대.** 1대는 장애가 클러스터 정지로 이어지고, 2대는 한 대만 죽어도 정족수를 잃는다. 규모가 작아도 3대에 둔다.
 - **decommission 시 샤드가 빠지지 않음.** 다른 노드가 high watermark에 걸리면 exclude를 걸어도 샤드가 남는다. 필요하면 watermark를 임시 상향한 뒤 원복한다.
 - **exclude·voting exclusion 미정리.** 남은 exclude는 같은 이름의 새 노드에 샤드가 들어오지 않게 하고, 남은 voting exclusion은 정족수를 어긋나게 한다. 작업 마지막에 반드시 해제한다.
 

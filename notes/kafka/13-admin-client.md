@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-apis-overview.md, data-infra/2026-05-17-ka
 updated: 2026-08-29
 ---
 
-Topic 생성·파티션 확장·Consumer Group offset 되돌리기를 매번 CLI로 수동 처리하면 환경마다 Topic 설정이 어긋나고, 배포 직후 없는 Topic 때문에 애플리케이션이 실패하며, 장애 복구 수단이 사람 손밖에 남지 않는다. ==Admin Client는 이런 운영 작업을 코드와 CI/CD 파이프라인 안으로 끌어들여 재현 가능하게 만드는 API다.==
+Topic 생성·파티션 확장·Consumer Group offset 되돌리기를 매번 CLI로 수동 처리하면 환경마다 Topic 설정이 어긋나고, 배포 직후 없는 Topic 때문에 애플리케이션이 실패하며, 장애 복구 수단이 사람 손밖에 남지 않는다. Admin Client는 이런 운영 작업을 코드와 CI/CD 파이프라인 안으로 끌어들여 재현 가능하게 만드는 API다.
 
 ## 핵심 개념
 
@@ -164,7 +164,7 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- ==**파티션은 늘릴 수만 있다.**== 늘리는 순간 key 기반 매핑이 바뀌어 같은 key의 순서 보장이 그 시점에 끊긴다. 기존 메시지는 원래 파티션에 남고 새 메시지만 재해시된다.
+- **파티션은 늘릴 수만 있다.** 늘리는 순간 key 기반 매핑이 바뀌어 같은 key의 순서 보장이 그 시점에 끊긴다. 기존 메시지는 원래 파티션에 남고 새 메시지만 재해시된다.
 - **`deleteTopics`는 요청만 접수한다.** 실제 삭제는 broker가 백그라운드에서 처리하며 큰 Topic은 수 분이 걸린다. 같은 이름으로 재생성하려면 `listTopics`로 확인한 뒤 진행한다.
 - **`.get()`은 hot path에 두지 않는다.** `default.api.timeout.ms`만큼 스레드가 묶이므로 동기 호출은 시작 시점과 운영 스크립트로 한정한다.
 - **`alterConsumerGroupOffsets`는 그룹이 비어 있어야 한다.** 활성 멤버가 있으면 실패하므로 Consumer를 모두 내린 뒤 offset을 옮기고 다시 올린다.

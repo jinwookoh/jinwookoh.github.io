@@ -9,7 +9,7 @@ sources: [2026-05-03-db-eng-acid.md, data-infra/2026-05-17-pg-transactions.md]
 updated: 2026-08-29
 ---
 
-계좌 이체는 출금 UPDATE와 입금 UPDATE 두 문장으로 이루어진다. 첫 문장만 반영되고 프로세스가 죽으면 돈이 사라지고, 두 문장 사이에 다른 세션이 잔액을 읽으면 존재한 적 없는 중간 값을 보게 된다. 커밋 직후 정전이 나면 확정 응답한 데이터가 디스크에 없을 수도 있다. ==트랜잭션은 이 문제들을 하나의 실행 단위로 해결하는 장치이고, ACID는 그 단위가 지켜야 할 네 가지 성질이다.==
+계좌 이체는 출금 UPDATE와 입금 UPDATE 두 문장으로 이루어진다. 첫 문장만 반영되고 프로세스가 죽으면 돈이 사라지고, 두 문장 사이에 다른 세션이 잔액을 읽으면 존재한 적 없는 중간 값을 보게 된다. 커밋 직후 정전이 나면 확정 응답한 데이터가 디스크에 없을 수도 있다. 트랜잭션은 이 문제들을 하나의 실행 단위로 해결하는 장치이고, ACID는 그 단위가 지켜야 할 네 가지 성질이다.
 
 ## 핵심 개념
 
@@ -35,7 +35,7 @@ Isolation이 없을 때 나타나는 이상 현상은 네 가지다. Dirty Read�
 | Repeatable Read | 방지 | 방지 | 표준상 허용 |
 | Serializable | 방지 | 방지 | 방지 |
 
-PostgreSQL의 구현은 표준 표와 두 군데에서 다르다. Read Uncommitted를 요청해도 Read Committed로 동작하므로 Dirty Read는 어떤 수준에서도 발생하지 않는다. ==Repeatable Read는 트랜잭션 시작 시점의 스냅샷을 끝까지 유지하는 Snapshot Isolation이라 Phantom Read도 발생하지 않는다.== 다만 write skew 같은 직렬화 위반은 Serializable만 막는다. PostgreSQL의 Serializable은 SSI(Serializable Snapshot Isolation)로 구현되어, 락으로 선점하는 2PL과 달리 낙관적으로 실행하다가 읽기·쓰기 의존성 충돌 시 한쪽을 `could not serialize access` 오류로 중단시킨다. 재시도가 전제된다.
+PostgreSQL의 구현은 표준 표와 두 군데에서 다르다. Read Uncommitted를 요청해도 Read Committed로 동작하므로 Dirty Read는 어떤 수준에서도 발생하지 않는다. Repeatable Read는 트랜잭션 시작 시점의 스냅샷을 끝까지 유지하는 Snapshot Isolation이라 Phantom Read도 발생하지 않는다. 다만 write skew 같은 직렬화 위반은 Serializable만 막는다. PostgreSQL의 Serializable은 SSI(Serializable Snapshot Isolation)로 구현되어, 락으로 선점하는 2PL과 달리 낙관적으로 실행하다가 읽기·쓰기 의존성 충돌 시 한쪽을 `could not serialize access` 오류로 중단시킨다. 재시도가 전제된다.
 
 기본값은 Read Committed이며 문장 단위로 새 스냅샷을 잡으므로 한 트랜잭션 안에서도 앞뒤 SELECT 결과가 다를 수 있다. MySQL InnoDB 기본값은 Repeatable Read다.
 
@@ -98,7 +98,7 @@ public class TransferService {
 
 - 트랜잭션 안에서 외부 API를 호출하면 응답 대기 동안 행 락과 커넥션이 잡혀 다른 트랜잭션이 연쇄 대기한다. 외부 호출은 트랜잭션 밖으로 빼고, 원자성이 필요하면 Outbox 테이블에 발송 요청을 같이 커밋한 뒤 별도 워커가 전송한다.
 - 수백만 행을 한 트랜잭션으로 갱신하면 WAL이 급증하고 락 보유 시간이 길어지며 VACUUM이 막힌다. 기본 키 범위로 나눠 처리한다.
-- ==`@Transactional`은 프록시로 동작하므로 같은 클래스 안에서 자기 메서드를 호출하면 적용되지 않는다.== 기본적으로 unchecked 예외에서만 롤백하며 checked 예외는 `rollbackFor`를 지정해야 한다.
+- `@Transactional`은 프록시로 동작하므로 같은 클래스 안에서 자기 메서드를 호출하면 적용되지 않는다. 기본적으로 unchecked 예외에서만 롤백하며 checked 예외는 `rollbackFor`를 지정해야 한다.
 - Read Committed에서 조회 후 갱신하는 코드는 Lost Update에 노출된다. `SET balance = balance - 100`처럼 DB에서 계산하거나, `FOR UPDATE`로 잠그거나, 버전 컬럼으로 낙관적 락을 건다.
 - Serializable과 Repeatable Read는 직렬화 실패를 정상 동작으로 반환한다. 재시도가 없으면 간헐적 오류로 보이고, 재시도 안에 멱등하지 않은 부수 효과가 있으면 중복 처리된다.
 

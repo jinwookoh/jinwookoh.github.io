@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-security-overview.md, data-infra/2026-05-1
 updated: 2026-08-29
 ---
 
-Kafka의 기본 리스너는 PLAINTEXT다. 네트워크에 닿는 누구든 아무 토픽이나 읽고 쓸 수 있고, 브로커 사이를 오가는 레코드가 그대로 노출된다. "누가 붙었는가"는 SASL 또는 클라이언트 인증서가, "전송 구간이 안전한가"는 TLS가 맡는다. ==인가(ACL)는 이 둘이 확정한 principal 위에서 동작하므로 인증이 흔들리면 ACL도 의미를 잃는다.==
+Kafka의 기본 리스너는 PLAINTEXT다. 네트워크에 닿는 누구든 아무 토픽이나 읽고 쓸 수 있고, 브로커 사이를 오가는 레코드가 그대로 노출된다. "누가 붙었는가"는 SASL 또는 클라이언트 인증서가, "전송 구간이 안전한가"는 TLS가 맡는다. 인가(ACL)는 이 둘이 확정한 principal 위에서 동작하므로 인증이 흔들리면 ACL도 의미를 잃는다.
 
 ## 핵심 개념
 
@@ -92,7 +92,7 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- ==**인증서 만료.** 브로커 인증서가 만료되면 클라이언트와 인터브로커 연결이 한꺼번에 거부된다.== 만료 30~60일 전 알림을 걸고 Vault PKI·ACME 같은 자동 발급 경로를 둔다. keystore·truststore 경로를 유지한 채 파일을 교체하거나 `kafka-configs.sh --alter`로 갱신하면 재시작 없이 반영된다.
+- **인증서 만료.** 브로커 인증서가 만료되면 클라이언트와 인터브로커 연결이 한꺼번에 거부된다. 만료 30~60일 전 알림을 걸고 Vault PKI·ACME 같은 자동 발급 경로를 둔다. keystore·truststore 경로를 유지한 채 파일을 교체하거나 `kafka-configs.sh --alter`로 갱신하면 재시작 없이 반영된다.
 - **PLAINTEXT 리스너 혼재.** `listeners=PLAINTEXT://9092,SSL://9093`처럼 두 리스너를 열어두면 9092가 우회로가 된다. 마이그레이션이 끝나면 PLAINTEXT 리스너를 제거한다.
 - **hostname 검증 비활성.** `ssl.endpoint.identification.algorithm=`으로 비워두면 SAN 오류는 사라지지만 중간자 공격에 노출된다. 인증서 SAN을 고친다.
 - **TLS 처리량 비용.** TLS를 켜면 sendfile 기반 zero-copy가 무력화되고 처리량이 15~30% 떨어진다. TLSv1.3과 AES-NI 가속이 되는 GCM cipher로 부담을 줄인다.

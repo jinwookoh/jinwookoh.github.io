@@ -9,7 +9,7 @@ sources: [braze/2026-05-17-braze-rest-api-and-currents.md]
 updated: 2026-08-30
 ---
 
-SDK만으로 Braze를 운영하면 두 가지가 막힌다. 결제 완료·배송 상태 변경처럼 서버에서만 아는 사건을 발송 트리거로 쓸 수 없고, 발송·오픈·클릭 데이터가 Braze 콘솔 안에 갇혀 자사 BI나 추천 모델에서 쓸 수 없다. ==앞의 문제는 REST API가, 뒤의 문제는 Currents가 해결한다.==
+SDK만으로 Braze를 운영하면 두 가지가 막힌다. 결제 완료·배송 상태 변경처럼 서버에서만 아는 사건을 발송 트리거로 쓸 수 없고, 발송·오픈·클릭 데이터가 Braze 콘솔 안에 갇혀 자사 BI나 추천 모델에서 쓸 수 없다. 앞의 문제는 REST API가, 뒤의 문제는 Currents가 해결한다.
 
 ## 핵심 개념
 
@@ -28,7 +28,7 @@ REST API는 9개 카테고리로 나뉘지만 백엔드가 실제로 손대는 �
 
 세 endpoint는 콘텐츠가 어디에 있느냐로 갈린다. `/messages/send`는 제목·본문을 요청에 담아 캠페인 없이 바로 보내므로 장애 안내 같은 소량 일회성 발송에 맞는다. `/campaigns/trigger/send`는 콘솔에서 만든 API-triggered 캠페인을 id로 지정하고 `trigger_properties`로 개인화 값만 넘긴다. 영수증·주문 상태 알림이 여기에 해당한다. `/canvas/trigger/send`는 다단계 journey인 Canvas의 진입점을 열고, `canvas_entry_properties`는 journey 전체 step에서 Liquid로 참조된다.
 
-실무 호출의 대부분은 뒤의 두 trigger endpoint다. trigger 계열에는 re-eligibility 규칙이 붙어서, 콘솔에서 "사용자당 1회"로 설정된 캠페인은 API를 몇 번 호출해도 초과분을 조용히 건너뛴다. ==HTTP 201이 발송 성공을 뜻하지 않는다.==
+실무 호출의 대부분은 뒤의 두 trigger endpoint다. trigger 계열에는 re-eligibility 규칙이 붙어서, 콘솔에서 "사용자당 1회"로 설정된 캠페인은 API를 몇 번 호출해도 초과분을 조용히 건너뛴다. HTTP 201이 발송 성공을 뜻하지 않는다.
 
 ### Catalogs
 
@@ -131,7 +131,7 @@ public class CurrentsClickConsumer {
 ## 실무에서 걸리는 지점
 
 - Rate limit. `/users/track`은 요청당 attributes·events·purchases를 각 75개까지 묶을 수 있다. 대량 마이그레이션은 75건 batch에 백오프를 붙이고 응답 헤더의 잔여 한도를 보며 동시성을 조절한다.
-- 발송이 안 됐는데 에러가 없다. ==re-eligibility에 걸린 호출은 정상 응답 후 조용히 버려진다.== 콘솔 설정과 Currents의 Send 이벤트를 함께 본다.
+- 발송이 안 됐는데 에러가 없다. re-eligibility에 걸린 호출은 정상 응답 후 조용히 버려진다. 콘솔 설정과 Currents의 Send 이벤트를 함께 본다.
 - External ID 표기 불일치. SDK와 서버가 대소문자·공백이 다른 값을 보내면 사용자가 둘로 갈라진다. 이미 갈라진 프로필은 `/users/merge`로 합친다.
 - Catalogs 동기화 지연. daily sync만 두면 신규 상품이 최대 하루 늦게 반영된다. 상품 변경 이벤트에 즉시 upsert를 붙이고 daily sync는 정합성 보정용으로 남긴다.
 - Currents 비용과 스키마 변경. 모든 이벤트를 모든 destination으로 보내면 비용이 빠르게 오른다. 필요한 이벤트만 고르고 destination을 한두 개로 제한하며, 웨어하우스는 JSON 컬럼으로 받아 필드 추가에 대비한다.

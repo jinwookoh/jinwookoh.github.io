@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-configuring-job.md, 2026-05-03-spring-batch-job
 updated: 2026-08-29
 ---
 
-Job 정의를 소홀히 하면 같은 문제가 반복된다. 같은 JobParameters로 두 번째 실행하면 JobInstance가 이미 완료됐다는 이유로 거부되고, 필수 파라미터가 빠진 Job은 Step 중간에서 NullPointerException으로 죽는다. ==JobBuilder의 Validator·Incrementer·Listener·restart 옵션은 이 문제를 정의 시점에 고정하는 장치다.==
+Job 정의를 소홀히 하면 같은 문제가 반복된다. 같은 JobParameters로 두 번째 실행하면 JobInstance가 이미 완료됐다는 이유로 거부되고, 필수 파라미터가 빠진 Job은 Step 중간에서 NullPointerException으로 죽는다. JobBuilder의 Validator·Incrementer·Listener·restart 옵션은 이 문제를 정의 시점에 고정하는 장치다.
 
 ## 핵심 개념
 
@@ -21,7 +21,7 @@ Job·Step 이름은 메타데이터 테이블에 저장되므로, 이름을 바�
 
 ### 조건부 흐름
 
-Step의 ExitStatus에 따라 분기할 때는 `on()`·`to()`·`from()`을 조합한다. ==이 체인을 쓰면 빌더가 `FlowJobBuilder`로 바뀌고, `build()` 직전에 반드시 `end()`를 호출해야 한다.==
+Step의 ExitStatus에 따라 분기할 때는 `on()`·`to()`·`from()`을 조합한다. 이 체인을 쓰면 빌더가 `FlowJobBuilder`로 바뀌고, `build()` 직전에 반드시 `end()`를 호출해야 한다.
 
 | 메서드 | 역할 |
 |:---|:---|
@@ -147,7 +147,7 @@ public class TargetDateIncrementer implements JobParametersIncrementer {
 
 ## 실무에서 걸리는 지점
 
-- ==**Incrementer가 있어도 파라미터를 직접 넘기면 적용되지 않는다.**== `JobLauncher.run(job, params)`로 실행한다면 타임스탬프 같은 식별 파라미터를 직접 추가한다. 빠뜨리면 두 번째 호출부터 `JobInstanceAlreadyCompleteException`이 난다.
+- **Incrementer가 있어도 파라미터를 직접 넘기면 적용되지 않는다.** `JobLauncher.run(job, params)`로 실행한다면 타임스탬프 같은 식별 파라미터를 직접 추가한다. 빠뜨리면 두 번째 호출부터 `JobInstanceAlreadyCompleteException`이 난다.
 - **`end()` 누락은 컴파일 시점에 잡히지 않는다.** `on()`을 쓴 뒤 `end()` 없이 `build()`하면 런타임 예외로 컨텍스트 기동이 실패한다.
 - **`afterJob()` 안의 외부 호출 실패는 Job 상태를 오염시킨다.** 알림 발송에서 예외가 나면 COMPLETED로 끝난 Job이 FAILED로 기록된다. 리스너 내부에서 예외를 잡아 별도 로그로 남긴다.
 - **분기가 다섯 개를 넘으면 Job을 나눈다.** 재시작 시 어느 Step부터 이어지는지 추적하기 어려워진다. 독립 단계는 별도 Job으로 분리한다.

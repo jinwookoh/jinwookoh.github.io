@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-springdoc-openapi-swagger.md, 2026-05-02-spring-open
 updated: 2026-08-29
 ---
 
-API 문서를 손으로 작성하면 코드와 문서가 어긋나는 순간이 반드시 온다. 필드가 추가되거나 응답 코드가 바뀌어도 문서는 그대로 남고, 프론트엔드는 문서대로 구현했다가 실제 응답과 다르다는 사실을 런타임에 발견한다. ==해결책은 문서를 코드에서 생성하는 것이다.== Spring Boot 3에서는 Springdoc OpenAPI가 컨트롤러와 DTO를 분석해 OpenAPI 3 명세를 만들고 Swagger UI로 렌더링한다.
+API 문서를 손으로 작성하면 코드와 문서가 어긋나는 순간이 반드시 온다. 필드가 추가되거나 응답 코드가 바뀌어도 문서는 그대로 남고, 프론트엔드는 문서대로 구현했다가 실제 응답과 다르다는 사실을 런타임에 발견한다. 해결책은 문서를 코드에서 생성하는 것이다. Spring Boot 3에서는 Springdoc OpenAPI가 컨트롤러와 DTO를 분석해 OpenAPI 3 명세를 만들고 Swagger UI로 렌더링한다.
 
 ## 핵심 개념
 
@@ -146,9 +146,9 @@ public class SecurityConfig {
 
 ## 실무에서 걸리는 지점
 
-==**Swagger UI가 빈 화면이거나 깨져서 뜬다.** Security에서 `/swagger-ui.html`만 허용하고 `/swagger-ui/**`와 `/v3/api-docs/**`를 막은 경우다.== 메인 HTML은 열리지만 정적 리소스와 명세 JSON 요청이 401·403으로 떨어진다.
+**Swagger UI가 빈 화면이거나 깨져서 뜬다.** Security에서 `/swagger-ui.html`만 허용하고 `/swagger-ui/**`와 `/v3/api-docs/**`를 막은 경우다. 메인 HTML은 열리지만 정적 리소스와 명세 JSON 요청이 401·403으로 떨어진다.
 
-==**운영 환경에 문서가 그대로 노출된다.**== `application-prod.yml`에서 `springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`로 끄거나 관리자 권한으로 제한한다.
+**운영 환경에 문서가 그대로 노출된다.** `application-prod.yml`에서 `springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`로 끄거나 관리자 권한으로 제한한다.
 
 **응답 타입이 `ResponseEntity<?>`나 `Object`면 스키마가 비어 있다.** 반환 타입을 구체적으로 선언하거나 `@ApiResponse`의 `@Content`로 명시한다. `@ControllerAdvice`의 공통 에러 응답도 같은 방식으로 등록해야 문서에 나타난다.
 

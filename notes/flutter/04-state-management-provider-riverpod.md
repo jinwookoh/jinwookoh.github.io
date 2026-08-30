@@ -9,7 +9,7 @@ sources: [https://docs.flutter.dev/data-and-backend/state-mgmt/intro, https://do
 updated: 2026-08-30
 ---
 
-Flutter의 위젯은 불변이고, 상태가 바뀌면 그 상태를 읽는 서브트리를 다시 만든다. 화면 한 곳에서만 쓰는 값은 `setState`로 충분하지만, 로그인 정보나 장바구니처럼 여러 화면이 공유하는 값을 `setState`로 다루면 생성자 인자로 상태와 콜백을 몇 단계씩 내려보내게 되고, 값이 바뀔 때 어느 위젯이 다시 그려지는지도 흐려진다. ==상태 관리 도구는 상태의 위치와 리빌드 범위를 명시적으로 다루기 위한 장치다.==
+Flutter의 위젯은 불변이고, 상태가 바뀌면 그 상태를 읽는 서브트리를 다시 만든다. 화면 한 곳에서만 쓰는 값은 `setState`로 충분하지만, 로그인 정보나 장바구니처럼 여러 화면이 공유하는 값을 `setState`로 다루면 생성자 인자로 상태와 콜백을 몇 단계씩 내려보내게 되고, 값이 바뀔 때 어느 위젯이 다시 그려지는지도 흐려진다. 상태 관리 도구는 상태의 위치와 리빌드 범위를 명시적으로 다루기 위한 장치다.
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ Spring으로 대응시키면 `ChangeNotifierProvider`는 빈을 등록하는 `@C
 
 ### Riverpod
 
-Provider는 타입으로 값을 찾기 때문에 같은 타입의 provider를 둘 수 없고, 공급자가 없으면 런타임에 `ProviderNotFoundException`이 난다. ==Riverpod는 provider를 위젯 트리가 아닌 전역 상수로 선언해 이를 해결한다.== 저장소는 앱 루트의 `ProviderScope`이고, 위젯은 `ConsumerWidget`의 `WidgetRef`로, provider끼리는 `Ref`로 서로를 읽는다.
+Provider는 타입으로 값을 찾기 때문에 같은 타입의 provider를 둘 수 없고, 공급자가 없으면 런타임에 `ProviderNotFoundException`이 난다. Riverpod는 provider를 위젯 트리가 아닌 전역 상수로 선언해 이를 해결한다. 저장소는 앱 루트의 `ProviderScope`이고, 위젯은 `ConsumerWidget`의 `WidgetRef`로, provider끼리는 `Ref`로 서로를 읽는다.
 
 Riverpod 3.x에서는 상태와 변경 로직을 `Notifier` 서브클래스의 `build()`와 메서드로 묶고 `NotifierProvider`로 노출한다. 비동기 초기화는 `AsyncNotifier`가 맡고 상태가 `AsyncValue`로 감싸진다. `@riverpod` 코드 생성을 쓰면 화면을 벗어날 때 자동 폐기되는 `autoDispose`가 기본이다. Spring 관점에서 `ProviderScope`는 `ApplicationContext`, provider는 지연 초기화 싱글턴 빈, `ProviderScope(overrides:)`는 테스트에서 빈을 교체하는 `@MockBean`에 해당한다.
 
@@ -160,10 +160,10 @@ class ProfileView extends ConsumerWidget {
 
 ## 실무에서 걸리는 지점
 
-- ==`build` 안에서 `read`로 읽은 값은 바뀌어도 위젯이 갱신되지 않는다.== 표시할 값은 `watch`, 핸들러 안에서 한 번 쓰는 값은 `read`로 구분한다.
+- `build` 안에서 `read`로 읽은 값은 바뀌어도 위젯이 갱신되지 않는다. 표시할 값은 `watch`, 핸들러 안에서 한 번 쓰는 값은 `read`로 구분한다.
 - `notifyListeners()`는 어떤 필드가 바뀌었는지 구분하지 않아 모델이 커지면 무관한 위젯까지 리빌드된다. `context.select`나 `ref.watch(provider.select(...))`로 필요한 필드만 구독한다.
 - `autoDispose` provider를 `ref.read`로만 읽으면 구독자가 없다고 판단해 즉시 폐기되고 다음 접근 때 재초기화된다. 유지가 필요하면 `ref.keepAlive()`를 쓴다.
-- ==`Notifier.build()`는 의존 provider가 바뀔 때마다 다시 실행되어 상태가 초기값으로 돌아간다.== 입력 중인 값이 사라지는 버그의 흔한 원인이므로 `watch`할 대상과 `listen`으로 처리할 이벤트를 구분한다.
+- `Notifier.build()`는 의존 provider가 바뀔 때마다 다시 실행되어 상태가 초기값으로 돌아간다. 입력 중인 값이 사라지는 버그의 흔한 원인이므로 `watch`할 대상과 `listen`으로 처리할 이벤트를 구분한다.
 
 ## 관련 글
 

@@ -9,11 +9,11 @@ sources: [braze/2026-05-17-braze-canvas-campaign-operations.md, braze/2026-05-17
 updated: 2026-08-30
 ---
 
-사용자 데이터를 쌓아도 언제 어떤 채널에 무엇을 보낼지 정하는 층이 없으면 발송은 개발자의 배치 스크립트로 되돌아간다. 가입 후 24시간 미결제면 push, 48시간 뒤에도 미결제면 in-app 같은 다단계 분기를 코드로 유지하면 조건이 바뀔 때마다 배포가 필요하고, 같은 사용자에게 여러 채널이 동시에 쏟아지는 폭격도 막기 어렵다. ==Braze에서 이 자리를 맡는 것이 Campaign과 Canvas이며, 이 층을 누가 운영하고 어느 규모에서 가치가 생기는지가 도입 결정을 가른다.==
+사용자 데이터를 쌓아도 언제 어떤 채널에 무엇을 보낼지 정하는 층이 없으면 발송은 개발자의 배치 스크립트로 되돌아간다. 가입 후 24시간 미결제면 push, 48시간 뒤에도 미결제면 in-app 같은 다단계 분기를 코드로 유지하면 조건이 바뀔 때마다 배포가 필요하고, 같은 사용자에게 여러 채널이 동시에 쏟아지는 폭격도 막기 어렵다. Braze에서 이 자리를 맡는 것이 Campaign과 Canvas이며, 이 층을 누가 운영하고 어느 규모에서 가치가 생기는지가 도입 결정을 가른다.
 
 ## 핵심 개념
 
-Campaign은 단일 메시지를 한 번 보내는 단위이고, Canvas는 여러 메시지를 분기·지연·조건으로 엮은 journey 자동화 단위다. Campaign은 One-time(정해진 시각 1회), Trigger-based(사용자 행동 시 자동), API-triggered(`/campaigns/trigger/send`로 백엔드가 발송 시점 통제), Recurring(정기 반복) 네 타입으로 나뉜다. ==서버가 시점을 아는 트랜잭션 메시지는 API-triggered Campaign, Onboarding·Cart Abandonment·Win-back처럼 상태에 따라 갈라지는 lifecycle은 Canvas가 맞다.==
+Campaign은 단일 메시지를 한 번 보내는 단위이고, Canvas는 여러 메시지를 분기·지연·조건으로 엮은 journey 자동화 단위다. Campaign은 One-time(정해진 시각 1회), Trigger-based(사용자 행동 시 자동), API-triggered(`/campaigns/trigger/send`로 백엔드가 발송 시점 통제), Recurring(정기 반복) 네 타입으로 나뉜다. 서버가 시점을 아는 트랜잭션 메시지는 API-triggered Campaign, Onboarding·Cart Abandonment·Win-back처럼 상태에 따라 갈라지는 lifecycle은 Canvas가 맞다.
 
 Canvas는 다섯 요소로 구성된다.
 
@@ -107,7 +107,7 @@ public class BrazeWebhookController {
 
 ## 실무에서 걸리는 지점
 
-- ==Audience 필터는 Entry 시점에 한 번 평가된다.== 진입 후 국가나 구독 상태가 바뀐 사용자도 journey를 계속 타므로, 중간 재평가가 필요하면 Audience Filter Step을 끼우고 Exit 조건에 구독 해지를 넣는다. 구독 상태 동기화가 늦으면 수신 거부자에게 발송된다.
+- Audience 필터는 Entry 시점에 한 번 평가된다. 진입 후 국가나 구독 상태가 바뀐 사용자도 journey를 계속 타므로, 중간 재평가가 필요하면 Audience Filter Step을 끼우고 Exit 조건에 구독 해지를 넣는다. 구독 상태 동기화가 늦으면 수신 거부자에게 발송된다.
 - Exit 조건 없이 goal에 도달한 사용자에게 후속 메시지가 계속 나가는 사고가 잦다. Cart Abandonment는 `checkout_completed`, Onboarding은 첫 결제처럼 goal event 자동 종료를 기본으로 두고 최대 기간(7일·30일)도 함께 건다.
 - 마케터가 Liquid에서 쓰는 attribute·event property는 엔지니어가 실제로 보내는 것과 일치해야 한다. 서버가 보낸 적 없는 `preferred_category`를 참조하면 모든 사용자에게 빈 개인화가 나간다. 사용 가능한 attribute·event·trigger property 목록을 계약으로 명문화하고 default 값을 강제한다.
 - 운영 중인 Canvas의 Audience·Flow·Goal 변경은 이미 진입한 사용자 경로를 흔든다. 콘텐츠 수정은 다음 발송부터 반영되어 안전하지만, 구조 변경은 새 Canvas를 만들고 기존 것은 진입만 끊는다.

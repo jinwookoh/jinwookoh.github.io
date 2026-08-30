@@ -9,13 +9,13 @@ sources: [ga/2026-05-17-ga-measurement-methods.md, 2026-05-03-ga4-gtm-setup.md, 
 updated: 2026-08-30
 ---
 
-gtag.js를 페이지에 직접 박으면 이벤트를 추가할 때마다 배포가 필요하고, GTM에 dataLayer push만 쌓고 트리거·태그를 연결하지 않으면 보고서가 빈다. ==결제 웹훅이나 환불처럼 브라우저가 없는 시점의 전환은 클라이언트 측정으로 잡히지 않는다.== 전자상거래 이벤트는 items 구조가 어긋나거나 transaction_id가 빠지면 퍼널과 매출 집계가 틀어진다.
+gtag.js를 페이지에 직접 박으면 이벤트를 추가할 때마다 배포가 필요하고, GTM에 dataLayer push만 쌓고 트리거·태그를 연결하지 않으면 보고서가 빈다. 결제 웹훅이나 환불처럼 브라우저가 없는 시점의 전환은 클라이언트 측정으로 잡히지 않는다. 전자상거래 이벤트는 items 구조가 어긋나거나 transaction_id가 빠지면 퍼널과 매출 집계가 틀어진다.
 
 ## 핵심 개념
 
 ### 측정 경로
 
-gtag.js는 페이지 코드에 직접 넣고, GTM은 대시보드에서 태그를 관리하며, Firebase SDK는 모바일 앱, Measurement Protocol은 서버가 직접 보낸다. 규모가 커지면 웹은 GTM, 앱은 Firebase, 서버는 Measurement Protocol이 맡고 한 속성의 서로 다른 스트림으로 모인다. ==gtag.js와 GTM을 한 페이지에 같이 두면 이벤트가 중복되므로 하나만 택한다.== `gtag()`는 `dataLayer.push`를 감싼 함수다.
+gtag.js는 페이지 코드에 직접 넣고, GTM은 대시보드에서 태그를 관리하며, Firebase SDK는 모바일 앱, Measurement Protocol은 서버가 직접 보낸다. 규모가 커지면 웹은 GTM, 앱은 Firebase, 서버는 Measurement Protocol이 맡고 한 속성의 서로 다른 스트림으로 모인다. gtag.js와 GTM을 한 페이지에 같이 두면 이벤트가 중복되므로 하나만 택한다. `gtag()`는 `dataLayer.push`를 감싼 함수다.
 
 ### GTM 구성
 
@@ -150,7 +150,7 @@ public class ClientIdController {
 
 ## 실무에서 걸리는 지점
 
-- ==**SPA의 page_view 누락.** 라우트가 바뀌어도 페이지가 다시 로드되지 않아 자동 page_view가 한 번만 남는다.== 라우터 훅에서 수동 전송하거나 GTM의 History Change 트리거를 쓴다.
+- **SPA의 page_view 누락.** 라우트가 바뀌어도 페이지가 다시 로드되지 않아 자동 page_view가 한 번만 남는다. 라우터 훅에서 수동 전송하거나 GTM의 History Change 트리거를 쓴다.
 - **폼 제출과 변수 빈 값.** Form Submission 트리거는 `Wait for Tags`를 켜지 않으면 리디렉션 직전에 이벤트가 유실된다. 트리거 미발동의 대부분은 조건 값이 비어 있거나 대소문자·후행 슬래시가 다른 경우이므로 Preview의 Variables 탭에서 실제 값부터 확인한다.
 - **비동기 상품 조회의 순서 역전.** 상품 정보를 API로 가져와 push하면 빠른 연속 클릭에서 응답 순서가 뒤바뀐다. 요청 카운터로 최신 응답만 처리하고 같은 상품은 캐시한다.
 - **비밀값과 식별자.** `api_secret`은 서버 환경 변수에만 둔다. 서버 hit는 사용자 IP가 없어 지역이 서버 위치로 찍히므로 IP 오버라이드가 필요하다. User ID에는 PII 대신 해시된 식별자만 쓴다.

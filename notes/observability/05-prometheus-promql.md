@@ -9,7 +9,7 @@ sources: [grafana/2026-05-18-grafana-prometheus-promql.md]
 updated: 2026-08-30
 ---
 
-애플리케이션이 Micrometer로 메트릭을 노출해도, 그 값을 주기적으로 수집해 시간축으로 저장하고 질의할 저장소가 없으면 "지금 p99가 얼마인가", "지난 1시간 에러율이 올랐는가"에 답할 수 없다. ==Prometheus는 이 자리를 채우는 시계열 데이터베이스이자 질의 엔진이며, Grafana가 가장 흔하게 연결하는 datasource다.==
+애플리케이션이 Micrometer로 메트릭을 노출해도, 그 값을 주기적으로 수집해 시간축으로 저장하고 질의할 저장소가 없으면 "지금 p99가 얼마인가", "지난 1시간 에러율이 올랐는가"에 답할 수 없다. Prometheus는 이 자리를 채우는 시계열 데이터베이스이자 질의 엔진이며, Grafana가 가장 흔하게 연결하는 datasource다.
 
 ## 핵심 개념
 
@@ -19,7 +19,7 @@ scrape 대상은 정적 목록 대신 Service Discovery(Kubernetes·Consul·EC2�
 
 메트릭 이름과 라벨 집합의 조합 하나가 시계열 하나이고, 각 시계열은 (timestamp, value) 샘플의 나열이다. 타입은 Counter(단조 증가), Gauge(자유 변동), Histogram(bucket별 누적 카운트), Summary(클라이언트에서 quantile 계산) 네 가지이며, Summary는 인스턴스 간 합산이 불가능하므로 대부분 Histogram을 쓴다.
 
-==라벨 조합의 가짓수가 곧 시계열 수이며 이것이 cardinality다.== user_id나 정규화되지 않은 URL(`/products/12345`)을 라벨로 넣으면 시계열이 수백만 개로 불어나 메모리가 고갈된다. 라벨 값은 method, status, route(`/products/{id}`)처럼 유한한 집합으로 제한한다.
+라벨 조합의 가짓수가 곧 시계열 수이며 이것이 cardinality다. user_id나 정규화되지 않은 URL(`/products/12345`)을 라벨로 넣으면 시계열이 수백만 개로 불어나 메모리가 고갈된다. 라벨 값은 method, status, route(`/products/{id}`)처럼 유한한 집합으로 제한한다.
 
 PromQL에서 `http_requests_total`은 현재 시점의 값 집합(instant vector), `http_requests_total[5m]`은 지난 5분의 샘플 집합(range vector)이다. Counter는 원값 대신 `rate()`(구간 평균 초당 증가율), `irate()`(마지막 두 샘플 기준), `increase()`(구간 누적 증가량)로 읽으며, 이 함수들은 리셋을 보정한다. Histogram의 분위수는 bucket별 rate를 `le`로 합친 뒤 `histogram_quantile`에 넘긴다. 집계는 `sum`·`avg`·`max`·`topk`에 `by`·`without`을 붙이고, 두 벡터의 연산은 `on`·`ignoring`·`group_left`로 라벨을 맞춘다. subquery `[1h:1m]`은 내부 식을 1분 간격으로 재평가한 임시 시계열을 만든다.
 
@@ -102,7 +102,7 @@ groups:
 
 ## 실무에서 걸리는 지점
 
-- ==Cardinality 폭발이 가장 흔한 장애 원인이다.== 직접 등록한 태그에 원시 경로나 사용자 ID가 섞이면 시계열이 급증하므로 `count by (__name__) ({__name__=~".+"})`로 상위 메트릭을 주기적으로 확인한다.
+- Cardinality 폭발이 가장 흔한 장애 원인이다. 직접 등록한 태그에 원시 경로나 사용자 ID가 섞이면 시계열이 급증하므로 `count by (__name__) ({__name__=~".+"})`로 상위 메트릭을 주기적으로 확인한다.
 - rate 윈도가 scrape_interval에 비해 짧으면 구간 안에 샘플이 1~2개뿐이라 값이 튄다. 15초 scrape에 `[1m]`이 하한이고 대시보드 기본값은 `[5m]`이 안전하다. 반대로 scrape_interval을 1~5초로 줄이면 저장 용량과 CPU가 비례해서 늘어난다.
 - Histogram bucket이 기대 지연 분포와 맞지 않으면 `histogram_quantile`은 bucket 경계 사이를 선형 보간한 값을 돌려주므로 결과가 실제와 어긋난다. Micrometer의 `slo` 설정으로 관심 구간 경계를 추가한다.
 - Recording Rule interval을 scrape_interval보다 짧게 잡으면 평가 자체가 부하가 된다. 30초~1분을 기본으로 두고 raw → job 집계 → 비즈니스 지표의 계층으로 정리한다.

@@ -9,7 +9,7 @@ sources: [2026-05-02-spring-certification-best-practices.md]
 updated: 2026-08-29
 ---
 
-==Spring Boot 장애의 상당수는 프레임워크 버그가 아니라 규칙을 모르고 쓴 코드에서 나온다.== 같은 클래스 안에서 `@Transactional` 메서드를 호출해 트랜잭션이 걸리지 않고, 싱글턴 빈에 요청 상태를 담아 데이터가 섞이고, Actuator 전체를 노출해 환경 변수가 새고, 에러 응답에 스택 트레이스가 실려 나간다. 반복해서 등장한 규칙을 한 곳에 모아 원리와 함께 정리한다.
+Spring Boot 장애의 상당수는 프레임워크 버그가 아니라 규칙을 모르고 쓴 코드에서 나온다. 같은 클래스 안에서 `@Transactional` 메서드를 호출해 트랜잭션이 걸리지 않고, 싱글턴 빈에 요청 상태를 담아 데이터가 섞이고, Actuator 전체를 노출해 환경 변수가 새고, 에러 응답에 스택 트레이스가 실려 나간다. 반복해서 등장한 규칙을 한 곳에 모아 원리와 함께 정리한다.
 
 ## 핵심 개념
 
@@ -164,10 +164,10 @@ public class GlobalExceptionHandler {
 
 ## 실무에서 걸리는 지점
 
-- ==**`@Async`와 `@Transactional`의 조합.** 비동기 메서드는 다른 스레드에서 새 트랜잭션을 연다. 호출자가 롤백돼도 비동기 쪽은 커밋됐을 수 있다.== 커밋 이후에만 실행해야 하면 `@TransactionalEventListener(phase = AFTER_COMMIT)`을 쓴다.
+- **`@Async`와 `@Transactional`의 조합.** 비동기 메서드는 다른 스레드에서 새 트랜잭션을 연다. 호출자가 롤백돼도 비동기 쪽은 커밋됐을 수 있다. 커밋 이후에만 실행해야 하면 `@TransactionalEventListener(phase = AFTER_COMMIT)`을 쓴다.
 - **동기 리스너의 느린 작업.** `@EventListener`는 발행자 스레드에서 동기 실행되므로 메일 발송이나 외부 호출을 넣으면 그만큼 응답이 지연된다. `@Async`를 붙이거나 브로커로 넘긴다.
 - **N+1과 전체 로딩.** 지연 로딩 컬렉션을 반복문에서 접근하면 건수만큼 쿼리가 나간다. Fetch Join·`@EntityGraph`·`default_batch_fetch_size` 중 하나로 해결한다. 일부 필드만 필요한 `findAll()`은 프로젝션 쿼리로 대체한다.
-- ==**JPA 엔티티에 Lombok `@Data`.** 생성된 `hashCode`·`toString`이 양방향 연관 필드를 타고 들어가 `StackOverflowError`를 낸다.== `@Getter`·`@Setter`·`@NoArgsConstructor`만 쓰고 연관 필드는 `@ToString.Exclude`로 뺀다.
+- **JPA 엔티티에 Lombok `@Data`.** 생성된 `hashCode`·`toString`이 양방향 연관 필드를 타고 들어가 `StackOverflowError`를 낸다. `@Getter`·`@Setter`·`@NoArgsConstructor`만 쓰고 연관 필드는 `@ToString.Exclude`로 뺀다.
 - **Spring Boot 2.x 잔재.** `javax.*`는 `jakarta.*`로 바꿔야 컴파일된다. 동기 HTTP 클라이언트는 `RestTemplate` 대신 `RestClient`를 쓰고, record·sealed·pattern matching을 DTO와 이벤트 모델링에 활용한다.
 
 ## 관련 글

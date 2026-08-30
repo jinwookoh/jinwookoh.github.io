@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-producer-api.md, data-infra/2026-05-17-kaf
 updated: 2026-08-29
 ---
 
-`producer.send(record)` 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. ==설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.==
+`producer.send(record)` 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. 설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.
 
 ## 핵심 개념
 
@@ -167,7 +167,7 @@ public class OrderEventPublisher {
 
 ## 실무에서 걸리는 지점
 
-- ==`close()`나 `flush()` 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다.== try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.
+- `close()`나 `flush()` 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다. try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.
 - `delivery.timeout.ms`가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다. timeout 값들을 함께 설계한다.
 - `max.request.size`(1MB)를 넘는 메시지는 `RecordTooLargeException`으로 즉시 실패하며 재시도되지 않는다. 대용량은 외부 저장소에 두고 키만 보낸다.
 - `buffer.memory`가 작으면 `send()`가 블로킹되어 애플리케이션 스레드가 묶인다. `buffer-available-bytes` 메트릭을 JMX로 확인한다.

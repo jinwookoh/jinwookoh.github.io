@@ -9,13 +9,13 @@ sources: [2026-05-03-webflux-webfilter.md, 2026-05-03-webflux-validation-error-h
 updated: 2026-08-29
 ---
 
-인증, 로깅, 보안 헤더 추가는 모든 요청에 공통으로 필요하다. 컨트롤러마다 반복하면 누락이 생기고, 검증과 예외 응답도 핸들러마다 달라져 클라이언트는 실패 원인을 상태 코드로 판단할 수 없게 된다. WebFlux는 이를 WebFilter와 `@ControllerAdvice` + `ProblemDetail`로 처리한다. ==Servlet의 `Filter`, `HandlerInterceptor`, `MethodArgumentNotValidException`, ThreadLocal MDC는 WebFlux에서 동작하지 않는다.==
+인증, 로깅, 보안 헤더 추가는 모든 요청에 공통으로 필요하다. 컨트롤러마다 반복하면 누락이 생기고, 검증과 예외 응답도 핸들러마다 달라져 클라이언트는 실패 원인을 상태 코드로 판단할 수 없게 된다. WebFlux는 이를 WebFilter와 `@ControllerAdvice` + `ProblemDetail`로 처리한다. Servlet의 `Filter`, `HandlerInterceptor`, `MethodArgumentNotValidException`, ThreadLocal MDC는 WebFlux에서 동작하지 않는다.
 
 ## 핵심 개념
 
 WebFilter는 서버와 핸들러 사이에서 모든 요청·응답을 가로채는 컴포넌트다. 인터페이스는 `Mono<Void> filter(ServerWebExchange, WebFilterChain)` 하나이며 `@Component`로 등록하면 체인에 포함된다. `ServerWebExchange`는 요청, 응답, 필터 간 공유 맵(`getAttributes()`)을 묶은 객체다.
 
-`chain.filter(exchange)`가 다음 필터와 핸들러로 이어지는 지점이다. 이 호출 앞이 전처리, 뒤에 붙는 `doFinally` 등이 후처리다. ==반환된 `Mono<Void>`를 return하지 않으면 구독이 일어나지 않아 요청이 사라진다.== 차단하려면 상태 코드를 설정하고 `exchange.getResponse().setComplete()`를 반환한다. `Mono.empty()`를 반환하면 응답이 완료되지 않는다.
+`chain.filter(exchange)`가 다음 필터와 핸들러로 이어지는 지점이다. 이 호출 앞이 전처리, 뒤에 붙는 `doFinally` 등이 후처리다. 반환된 `Mono<Void>`를 return하지 않으면 구독이 일어나지 않아 요청이 사라진다. 차단하려면 상태 코드를 설정하고 `exchange.getResponse().setComplete()`를 반환한다. `Mono.empty()`를 반환하면 응답이 완료되지 않는다.
 
 실행 순서는 `@Order` 값이 낮을수록 앞선다. 애노테이션이 없으면 순서가 보장되지 않아 인증보다 권한 필터가 먼저 실행될 수 있다. CORS·보안은 `Ordered.HIGHEST_PRECEDENCE`, 인증 → 권한 순으로 낮은 값을 주고, 응답 헤더 필터는 `Ordered.LOWEST_PRECEDENCE`로 둔다.
 
@@ -173,7 +173,7 @@ public class GlobalExceptionHandler {
 
 ## 실무에서 걸리는 지점
 
-- ==`@ControllerAdvice`는 핸들러 단계의 예외만 처리한다.== WebFilter에서 난 예외는 기본 `ErrorWebExceptionHandler`로 가므로, 필터 단계 에러 응답까지 통일하려면 `WebExceptionHandler`를 직접 등록하거나 필터 안에서 응답을 완성한다.
+- `@ControllerAdvice`는 핸들러 단계의 예외만 처리한다. WebFilter에서 난 예외는 기본 `ErrorWebExceptionHandler`로 가므로, 필터 단계 에러 응답까지 통일하려면 `WebExceptionHandler`를 직접 등록하거나 필터 안에서 응답을 완성한다.
 - 응답 헤더를 `doOnSuccess`에서 추가하면 이미 커밋된 응답에 쓰려다 예외가 나거나 무시된다. `beforeCommit` 또는 `chain.filter` 호출 전에 넣는다.
 - Reactor Context는 MDC에 자동 반영되지 않는다. 로그에 trace ID를 남기려면 Micrometer Context Propagation을 함께 구성한다.
 - `Exception` 핸들러가 `ResponseStatusException`까지 삼키면 상태 코드가 500으로 바뀐다. `ResponseEntityExceptionHandler`를 상속하고 `spring.webflux.problemdetails.enabled=true`를 켠다.

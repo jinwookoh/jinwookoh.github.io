@@ -9,11 +9,11 @@ sources: [https://react.dev/learn/typescript, https://testing-library.com/docs/r
 updated: 2026-08-30
 ---
 
-컴포넌트가 늘어나면 리팩터링 후 어디가 깨졌는지 눈으로 확인하는 방식은 한계에 이른다. props 이름을 바꿨는데 호출부 하나를 빠뜨리면 런타임에야 드러나고, 내부 구현에 묶인 테스트는 DOM 구조를 조금만 바꿔도 실패한다. 빌드 산출물과 환경 변수 처리를 모르면 개발 서버에서는 되던 것이 배포 후 동작하지 않는다. ==이 세 문제를 각각 Testing Library, TypeScript, Vite 프로덕션 빌드가 맡는다.==
+컴포넌트가 늘어나면 리팩터링 후 어디가 깨졌는지 눈으로 확인하는 방식은 한계에 이른다. props 이름을 바꿨는데 호출부 하나를 빠뜨리면 런타임에야 드러나고, 내부 구현에 묶인 테스트는 DOM 구조를 조금만 바꿔도 실패한다. 빌드 산출물과 환경 변수 처리를 모르면 개발 서버에서는 되던 것이 배포 후 동작하지 않는다. 이 세 문제를 각각 Testing Library, TypeScript, Vite 프로덕션 빌드가 맡는다.
 
 ## 핵심 개념
 
-==**Testing Library**는 사용자가 쓰는 방식으로 테스트한다는 원칙을 API로 강제한다.== 컴포넌트 state에 접근하는 수단을 주지 않고, 렌더된 DOM을 접근성 기준으로 조회한다. 쿼리 우선순위는 `getByRole` → `getByLabelText` → `getByText` → `getByTestId` 순이다. `getBy*`는 없으면 즉시 예외, `queryBy*`는 `null` 반환, `findBy*`는 나타날 때까지 기다리는 Promise다. 상호작용은 `fireEvent`보다 `@testing-library/user-event`를 쓴다. 클릭 하나에도 pointerdown·focus·click이 브라우저 순서대로 발생한다. Spring의 `@WebMvcTest` + MockMvc처럼 HTTP 경계에서 검증하는 위치에 해당한다.
+**Testing Library**는 사용자가 쓰는 방식으로 테스트한다는 원칙을 API로 강제한다. 컴포넌트 state에 접근하는 수단을 주지 않고, 렌더된 DOM을 접근성 기준으로 조회한다. 쿼리 우선순위는 `getByRole` → `getByLabelText` → `getByText` → `getByTestId` 순이다. `getBy*`는 없으면 즉시 예외, `queryBy*`는 `null` 반환, `findBy*`는 나타날 때까지 기다리는 Promise다. 상호작용은 `fireEvent`보다 `@testing-library/user-event`를 쓴다. 클릭 하나에도 pointerdown·focus·click이 브라우저 순서대로 발생한다. Spring의 `@WebMvcTest` + MockMvc처럼 HTTP 경계에서 검증하는 위치에 해당한다.
 
 **Vitest**는 Vite 설정을 그대로 공유하는 테스트 러너다. alias·플러그인·환경 변수 처리가 테스트에도 동일하게 적용되어 Jest처럼 변환기를 따로 맞출 필요가 없다. DOM 테스트는 `environment: 'jsdom'`을 지정하고, watch 모드는 모듈 그래프로 영향받는 테스트만 다시 돌린다.
 
@@ -120,7 +120,7 @@ it('로딩 후 사용자 이름을 표시한다', async () => {
 - **`getByTestId` 남용.** `data-testid`를 기본으로 쓰면 접근성 결함이 걸러지지 않고 마크업 변경마다 테스트를 고치게 된다. 다른 쿼리가 불가능할 때만 쓴다.
 - **`act` 경고.** `userEvent`·`findBy*`·`waitFor`는 내부에서 `act`를 감싸므로 직접 호출할 일이 거의 없다. 경고가 남으면 `await`가 빠진 비동기 작업이 있다는 신호다. `findBy*` 기본 타임아웃은 1초다.
 - **Provider 의존.** `render`의 `wrapper` 옵션으로 Provider를 주입하는 `renderWithProviders`를 만든다. QueryClient는 테스트마다 새로 만들고 `retry: false`로 설정해야 캐시와 재시도가 테스트 간에 새지 않는다.
-- ==**타입 검사와 번들의 분리.** Vite와 Vitest는 esbuild로 타입을 지우기만 하고 검사하지 않는다.== `tsc -b && vite build`처럼 CI에 검사 단계를 넣지 않으면 타입 오류가 있는 코드가 그대로 배포된다.
+- **타입 검사와 번들의 분리.** Vite와 Vitest는 esbuild로 타입을 지우기만 하고 검사하지 않는다. `tsc -b && vite build`처럼 CI에 검사 단계를 넣지 않으면 타입 오류가 있는 코드가 그대로 배포된다.
 - **환경 변수와 `base` 경로.** `VITE_` 접두사가 붙은 값은 공개 번들에 노출되므로 비밀 키를 넣으면 안 된다. 서브 경로 배포 시 `base`를 빠뜨리면 자산 요청이 404가 나고, SPA는 서버에서 모든 경로를 `index.html`로 fallback 시켜야 새로고침이 동작한다.
 - **청크와 캐시.** `manualChunks`로 vendor를 분리하지 않으면 작은 수정에도 번들 해시가 바뀌어 캐시가 무효화된다. 500kB 경고는 라우트 단위 `lazy` 분할이 안 되어 있다는 신호다.
 

@@ -9,7 +9,7 @@ sources: [2026-05-03-rsocket-server.md, 2026-05-03-rsocket-client.md, 2026-05-03
 updated: 2026-08-29
 ---
 
-RSocket 프로토콜은 프레임과 네 가지 Interaction Model만 정의한다. 요청이 어느 핸들러로 가는지, 인증 토큰을 어디에 실을지는 프로토콜 밖의 일이다. 직접 구현하면 라우트 파싱·인코더·연결 관리 코드가 서비스마다 중복되고, 양쪽 규약이 어긋나는 순간 통신이 깨진다. ==Spring의 `@MessageMapping`과 `RSocketRequester`는 이 규약을 메타데이터 MIME Type 기준으로 표준화한다.==
+RSocket 프로토콜은 프레임과 네 가지 Interaction Model만 정의한다. 요청이 어느 핸들러로 가는지, 인증 토큰을 어디에 실을지는 프로토콜 밖의 일이다. 직접 구현하면 라우트 파싱·인코더·연결 관리 코드가 서비스마다 중복되고, 양쪽 규약이 어긋나는 순간 통신이 깨진다. Spring의 `@MessageMapping`과 `RSocketRequester`는 이 규약을 메타데이터 MIME Type 기준으로 표준화한다.
 
 ## 핵심 개념
 
@@ -24,7 +24,7 @@ RSocket 프로토콜은 프레임과 네 가지 Interaction Model만 정의한�
 | 단일 입력, `Flux<T>` 반환 | Request-Stream |
 | `Flux<In>` 입력, `Flux<Out>` 반환 | Channel |
 
-==라우트 구분자는 `/`가 아니라 `.`이다.== `user.{id}` 패턴 변수는 `@DestinationVariable`로 받고, `admin.**` 와일드카드와 클래스 레벨 prefix도 지원한다. 애노테이션 없는 인자가 페이로드, `@Header`가 메타데이터 단일 항목, `@Headers`가 전체 Map, `RSocketRequester` 인자가 현재 연결의 상대방을 호출하는 핸들이다.
+라우트 구분자는 `/`가 아니라 `.`이다. `user.{id}` 패턴 변수는 `@DestinationVariable`로 받고, `admin.**` 와일드카드와 클래스 레벨 prefix도 지원한다. 애노테이션 없는 인자가 페이로드, `@Header`가 메타데이터 단일 항목, `@Headers`가 전체 Map, `RSocketRequester` 인자가 현재 연결의 상대방을 호출하는 핸들이다.
 
 예외는 `@MessageExceptionHandler`(컨트롤러)와 `@ControllerAdvice`(전역)로 잡는다. 핸들러의 반환값은 정상 응답이 되고, 핸들러가 없으면 ERROR 프레임으로 내려간다. SETUP 프레임은 `@ConnectMapping`이 받으며, 인증은 여기서 한 번만 검증한다.
 
@@ -152,7 +152,7 @@ public class UserClient {
 
 ## 실무에서 걸리는 지점
 
-- ==**시그니처 불일치는 컴파일 타임에 잡히지 않는다.**== 서버가 `Flux`인데 클라이언트가 `retrieveMono`를 쓰면 첫 요소 이후 취소된다. 라우트별 모델을 문서화해야 한다.
+- **시그니처 불일치는 컴파일 타임에 잡히지 않는다.** 서버가 `Flux`인데 클라이언트가 `retrieveMono`를 쓰면 첫 요소 이후 취소된다. 라우트별 모델을 문서화해야 한다.
 - **requester를 요청마다 생성하면 연결 비용이 폭발한다.** 매번 TCP 연결과 SETUP 핸드셰이크가 발생한다. Bean 하나로 두고 `dispose()`는 종료 시에만 부른다.
 - **RSocket에는 요청 타임아웃이 없다.** keepalive는 연결 생존만 확인하므로 요청마다 Reactor `timeout()`을 붙인다.
 - **메타데이터는 평문이다.** 인증 토큰이 프레임에 그대로 실리므로 `spring.rsocket.server.ssl` 또는 mTLS 없이는 노출된다.

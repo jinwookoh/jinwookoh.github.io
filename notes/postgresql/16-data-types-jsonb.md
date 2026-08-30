@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-datatype.md, data-infra/2026-05-17-pg-datatyp
 updated: 2026-08-29
 ---
 
-컬럼 타입을 잘못 고르면 문제는 데이터가 쌓인 뒤에 드러난다. 금액을 부동소수로 저장하면 합계가 원 단위에서 어긋나고, 시간대 없는 TIMESTAMP는 서버와 클라이언트의 시간대가 다를 때 같은 값이 다른 시각으로 읽힌다. INTEGER 기본 키는 21억에서 멈추고, JSON 타입에 넣은 이벤트 로그는 인덱스를 탈 수 없어 조회마다 전체 스캔과 재파싱을 반복한다. ==타입 변경은 테이블 재작성을 동반하므로 나중에 고치는 비용이 처음 고르는 비용보다 훨씬 크다.==
+컬럼 타입을 잘못 고르면 문제는 데이터가 쌓인 뒤에 드러난다. 금액을 부동소수로 저장하면 합계가 원 단위에서 어긋나고, 시간대 없는 TIMESTAMP는 서버와 클라이언트의 시간대가 다를 때 같은 값이 다른 시각으로 읽힌다. INTEGER 기본 키는 21억에서 멈추고, JSON 타입에 넣은 이벤트 로그는 인덱스를 탈 수 없어 조회마다 전체 스캔과 재파싱을 반복한다. 타입 변경은 테이블 재작성을 동반하므로 나중에 고치는 비용이 처음 고르는 비용보다 훨씬 크다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ updated: 2026-08-29
 
 **문자.** CHAR·VARCHAR·TEXT는 저장 구조와 성능이 같다. TEXT를 기본으로 쓰고 길이 제한은 CHECK 제약으로 걸면 제한 변경이 제약 교체만으로 끝난다. 대소문자를 구분하지 않아야 하는 이메일은 citext 확장을 쓴다.
 
-**날짜·시간.** TIMESTAMP는 시간대 정보가 없어 해석이 세션 설정에 의존한다. TIMESTAMPTZ는 입력값을 UTC로 정규화해 저장하고 조회 시 세션 시간대로 변환한다. ==둘 다 8바이트이므로 표준은 TIMESTAMPTZ다.== 기간은 INTERVAL, 절단과 추출은 DATE_TRUNC·EXTRACT를 쓴다.
+**날짜·시간.** TIMESTAMP는 시간대 정보가 없어 해석이 세션 설정에 의존한다. TIMESTAMPTZ는 입력값을 UTC로 정규화해 저장하고 조회 시 세션 시간대로 변환한다. 둘 다 8바이트이므로 표준은 TIMESTAMPTZ다. 기간은 INTERVAL, 절단과 추출은 DATE_TRUNC·EXTRACT를 쓴다.
 
 **UUID.** 노드 간 조율 없이 고유 키를 만들고 순번 추측도 막는다. 대신 16바이트이고, v4는 무작위라 B-Tree 삽입 위치가 흩어져 인덱스 지역성이 나쁘다. PostgreSQL 13부터 `gen_random_uuid()`가 내장이라 uuid-ossp 확장은 필요 없고, 18은 시간 순 정렬이 되는 `uuidv7()`을 제공한다.
 
@@ -115,7 +115,7 @@ public class User {
 
 ## 실무에서 걸리는 지점
 
-- ==**JPA 타입 매핑.** TIMESTAMPTZ는 `OffsetDateTime`이나 `Instant`로 받아야 하며 `LocalDateTime`은 JVM 시간대에 따라 값이 밀린다.== NUMERIC은 `BigDecimal`, 상태 컬럼은 `@Enumerated(EnumType.STRING)`으로 DB CHECK와 맞춘다.
+- **JPA 타입 매핑.** TIMESTAMPTZ는 `OffsetDateTime`이나 `Instant`로 받아야 하며 `LocalDateTime`은 JVM 시간대에 따라 값이 밀린다. NUMERIC은 `BigDecimal`, 상태 컬럼은 `@Enumerated(EnumType.STRING)`으로 DB CHECK와 맞춘다.
 - **인덱스와 조건 형태 불일치.** `@>`·`?`는 GIN이, `->>` 비교는 표현식 인덱스가 담당한다. 인덱스가 있어도 조건 형태가 다르면 순차 스캔이다.
 - **jsonb_set의 NULL 전파.** 대상이 NULL이면 결과도 NULL이 되어 컬럼이 통째로 비워진다. `COALESCE`로 감싸고 새 키 추가 시 네 번째 인자를 TRUE로 명시한다.
 - **큰 JSONB와 TOAST.** 값이 2KB를 넘으면 TOAST로 분리 저장되고, JSONB는 부분 갱신이 없어 키 하나를 바꿔도 값 전체를 다시 쓴다. 자주 읽거나 바뀌는 필드는 일반 컬럼으로 승격한다.

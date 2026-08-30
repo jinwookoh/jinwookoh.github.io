@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-mvcc-intro.md, data-infra/2026-05-17-pg-mvcc-
 updated: 2026-08-29
 ---
 
-여러 트랜잭션이 같은 행에 동시에 접근하면 Lost Update, Dirty Read, Non-Repeatable Read, Phantom Read가 발생한다. 초기 RDBMS는 이를 테이블 락으로 막았고, 쓰기 하나가 끝날 때까지 모든 읽기가 대기했다. PostgreSQL은 행의 여러 버전을 유지하는 MVCC로 읽기와 쓰기가 서로를 차단하지 않게 했다. ==다만 MVCC가 락을 없애는 것은 아니며, 격리 수준의 의미와 락이 걸리는 지점, 옛 버전 행의 운영 비용을 모르면 동시성 버그와 bloat가 함께 온다.==
+여러 트랜잭션이 같은 행에 동시에 접근하면 Lost Update, Dirty Read, Non-Repeatable Read, Phantom Read가 발생한다. 초기 RDBMS는 이를 테이블 락으로 막았고, 쓰기 하나가 끝날 때까지 모든 읽기가 대기했다. PostgreSQL은 행의 여러 버전을 유지하는 MVCC로 읽기와 쓰기가 서로를 차단하지 않게 했다. 다만 MVCC가 락을 없애는 것은 아니며, 격리 수준의 의미와 락이 걸리는 지점, 옛 버전 행의 운영 비용을 모르면 동시성 버그와 bloat가 함께 온다.
 
 ## 핵심 개념
 
@@ -21,7 +21,7 @@ MVCC(Multi-Version Concurrency Control)는 UPDATE를 제자리 덮어쓰기가 �
 
 ### 격리 수준과 스냅샷 시점
 
-==격리 수준 차이는 스냅샷을 언제 찍는가의 차이다.== READ UNCOMMITTED를 지정해도 READ COMMITTED로 동작하며, Dirty Read는 어떤 수준에서도 발생하지 않는다.
+격리 수준 차이는 스냅샷을 언제 찍는가의 차이다. READ UNCOMMITTED를 지정해도 READ COMMITTED로 동작하며, Dirty Read는 어떤 수준에서도 발생하지 않는다.
 
 | 수준 | 스냅샷 | Non-Repeatable | Phantom | Serialization Anomaly |
 |---|---|---|---|---|
@@ -151,7 +151,7 @@ public class CouponService {
 
 ## 실무에서 걸리는 지점
 
-- ==**오래 열린 트랜잭션이 bloat를 만든다.**== 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. 방치된 `idle in transaction` 커넥션 하나가 테이블을 부풀린다. `idle_in_transaction_session_timeout`을 설정하고 트랜잭션을 짧게 끊는다.
+- **오래 열린 트랜잭션이 bloat를 만든다.** 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. 방치된 `idle in transaction` 커넥션 하나가 테이블을 부풀린다. `idle_in_transaction_session_timeout`을 설정하고 트랜잭션을 짧게 끊는다.
 - **트랜잭션 ID Wraparound.** 트랜잭션 ID는 32bit이며 약 20억 개를 지나면 행의 가시성이 뒤집힌다. autovacuum이 오래된 행을 frozen 처리해 막는데, 밀리면 DB가 쓰기를 거부한다. `age(datfrozenxid)`를 모니터링하고 autovacuum을 끄지 않는다.
 - **SERIALIZABLE 남용.** 모든 트랜잭션에 걸면 SSI 추적 비용과 재시도가 처리량을 무너뜨린다. 일반 API는 READ COMMITTED, 보고서는 REPEATABLE READ, 돈·재고만 SERIALIZABLE에 재시도를 붙인다.
 - **낙관적 락 예외를 삼키면 갱신이 사라진다.** `ObjectOptimisticLockingFailureException`을 catch만 하고 넘기면 변경이 유실된다. 재시도하거나 충돌을 알린다.

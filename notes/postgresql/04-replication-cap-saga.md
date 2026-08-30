@@ -9,7 +9,7 @@ sources: [2026-05-03-db-eng-replication.md, 2026-05-03-db-eng-advanced.md]
 updated: 2026-08-29
 ---
 
-단일 노드 PostgreSQL은 그 노드가 곧 SPOF다. 디스크가 죽으면 서비스가 멈추고, 읽기 트래픽이 늘어도 수직 확장 외에 선택지가 없다. 복제는 이 두 문제를 동시에 푼다. ==그러나 노드가 둘 이상이 되는 순간 네트워크 단절, 복제 지연, 두 노드가 동시에 primary라고 믿는 상황이 생기고, 여러 서비스에 걸친 업무를 원자적으로 묶던 트랜잭션 경계도 사라진다.==
+단일 노드 PostgreSQL은 그 노드가 곧 SPOF다. 디스크가 죽으면 서비스가 멈추고, 읽기 트래픽이 늘어도 수직 확장 외에 선택지가 없다. 복제는 이 두 문제를 동시에 푼다. 그러나 노드가 둘 이상이 되는 순간 네트워크 단절, 복제 지연, 두 노드가 동시에 primary라고 믿는 상황이 생기고, 여러 서비스에 걸친 업무를 원자적으로 묶던 트랜잭션 경계도 사라진다.
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ Physical(Streaming) 복제는 WAL을 그대로 전달하므로 replica가 primar
 
 ### Failover와 Split-Brain
 
-primary 장애 시 replica를 승격하는 것이 Failover다. 수동 승격은 다운타임이 분에서 시간 단위로 늘어나므로 Patroni처럼 etcd·Consul 합의로 새 primary를 정하는 자동화를 쓴다. 핵심은 정족수(Quorum)와 Fencing이다. ==과반 합의 없이 승격하면 옛 primary와 새 primary가 동시에 쓰기를 받는 Split-Brain이 발생하고, 수동 병합 외에 복구 방법이 없다.==
+primary 장애 시 replica를 승격하는 것이 Failover다. 수동 승격은 다운타임이 분에서 시간 단위로 늘어나므로 Patroni처럼 etcd·Consul 합의로 새 primary를 정하는 자동화를 쓴다. 핵심은 정족수(Quorum)와 Fencing이다. 과반 합의 없이 승격하면 옛 primary와 새 primary가 동시에 쓰기를 받는 Split-Brain이 발생하고, 수동 병합 외에 복구 방법이 없다.
 
 ### CAP과 PACELC
 
@@ -124,7 +124,7 @@ public class OrderSagaOrchestrator {
 
 ## 실무에서 걸리는 지점
 
-- ==**복제는 백업이 아니다.**== primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다. 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.
+- **복제는 백업이 아니다.** primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다. 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.
 - **`synchronous_standby_names`를 켠 상태에서 standby가 전부 내려가면 커밋이 멈춘다.** `ANY 1 (s1, s2)` 정족수로 낮추거나 장애 시 설정을 풀 운영 절차를 준비해야 한다.
 - **long transaction과 replica 충돌.** standby의 긴 조회는 primary VACUUM이 만든 WAL과 충돌해 취소되거나(`hot_standby_feedback` off), primary의 dead tuple 정리를 막는다(on). 분석 쿼리는 전용 replica로 분리한다.
 - **Cascade 복제는 lag이 누적된다.** replica의 replica는 primary lag과 중간 노드 lag을 합산한 지연을 가지므로 Eventual 조회 전용으로 격리한다.

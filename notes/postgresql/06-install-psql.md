@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-install.md, data-infra/2026-05-17-pg-psql-sta
 updated: 2026-08-29
 ---
 
-PostgreSQL 작업은 서버 프로세스를 띄우고 클라이언트로 접속하는 데서 시작한다. 이 단계가 정리되어 있지 않으면 설치 방식마다 초기 사용자와 인증 규칙이 달라 접속에서 막히고, 개발 PC·CI·운영 서버 환경이 제각각이 되어 같은 SQL이 한 곳에서만 동작한다. 비밀번호를 환경 변수에 평문으로 남기는 습관도 여기서 굳어진다. ==설치는 Docker를 기본으로 하고, 접속은 psql의 옵션·URI·설정 파일을 구분해 둔다.==
+PostgreSQL 작업은 서버 프로세스를 띄우고 클라이언트로 접속하는 데서 시작한다. 이 단계가 정리되어 있지 않으면 설치 방식마다 초기 사용자와 인증 규칙이 달라 접속에서 막히고, 개발 PC·CI·운영 서버 환경이 제각각이 되어 같은 SQL이 한 곳에서만 동작한다. 비밀번호를 환경 변수에 평문으로 남기는 습관도 여기서 굳어진다. 설치는 Docker를 기본으로 하고, 접속은 psql의 옵션·URI·설정 파일을 구분해 둔다.
 
 ## 핵심 개념
 
@@ -33,7 +33,7 @@ psql은 PostgreSQL의 표준 CLI 클라이언트다. 접속 정보는 호스트�
 
 `\c - appuser`의 `-`는 현재 값 유지로, DB를 둔 채 사용자만 바꾼다. 전환 시 새 backend 프로세스가 생성되어 진행 중이던 트랜잭션은 종료된다.
 
-==원격 접속은 서버의 `pg_hba.conf`에서 허용 IP와 인증 방식을 모두 만족해야 통과한다.== 인증 방식은 `trust`(무인증, 개발 전용), `peer`(OS 사용자명 매칭, 로컬 소켓), `md5`(PostgreSQL 18부터 deprecated), `scram-sha-256`(현행 표준)이 있고 신규 설정은 `scram-sha-256`만 쓴다. `postgresql.conf`의 `listen_addresses`가 `localhost`면 외부 TCP 접속이 열리지 않는다.
+원격 접속은 서버의 `pg_hba.conf`에서 허용 IP와 인증 방식을 모두 만족해야 통과한다. 인증 방식은 `trust`(무인증, 개발 전용), `peer`(OS 사용자명 매칭, 로컬 소켓), `md5`(PostgreSQL 18부터 deprecated), `scram-sha-256`(현행 표준)이 있고 신규 설정은 `scram-sha-256`만 쓴다. `postgresql.conf`의 `listen_addresses`가 `localhost`면 외부 TCP 접속이 열리지 않는다.
 
 비밀번호는 `~/.pgpass`에 `host:port:db:user:password` 형식으로 두고 `chmod 600`을 적용한다. 권한이 느슨하면 psql이 파일을 무시한다. `~/.psqlrc`에는 `\timing on` 같은 설정을 넣는다.
 
@@ -100,7 +100,7 @@ spring:
 
 - **포트 5432 충돌.** Homebrew PostgreSQL이 떠 있는 상태에서 Docker 컨테이너를 같은 포트로 띄우면 기동이 실패하거나 호스트 쪽 인스턴스에 접속되어 데이터가 엉뚱한 곳에 쌓인다. 하나만 쓰거나 `-p 5433:5432`로 포트를 분리한다.
 - **`localhost`와 Unix 소켓의 인증 규칙 차이.** `psql`만 치면 소켓으로, `-h localhost`를 주면 TCP로 붙고 `pg_hba.conf`의 `local` 행과 `host` 행이 각각 적용된다. 한쪽은 `peer`로 통과하고 다른 쪽은 비밀번호를 요구할 수 있다.
-- ==**`PGPASSWORD` 평문 노출.**== 환경 변수로 넘긴 비밀번호는 다른 사용자가 프로세스 환경에서 읽을 수 있다. `.pgpass`를 쓰고, 운영에서는 Secrets Manager나 Vault에서 주입한다. URI 비밀번호의 `@` 같은 특수문자는 `%40`으로 URL 인코딩해야 파싱된다.
+- **`PGPASSWORD` 평문 노출.** 환경 변수로 넘긴 비밀번호는 다른 사용자가 프로세스 환경에서 읽을 수 있다. `.pgpass`를 쓰고, 운영에서는 Secrets Manager나 Vault에서 주입한다. URI 비밀번호의 `@` 같은 특수문자는 `%40`으로 URL 인코딩해야 파싱된다.
 - **`COPY`와 `\copy`.** `COPY`는 서버 파일 시스템을 읽는 SQL 명령이라 클라이언트의 로컬 파일을 볼 수 없고 별도 권한이 필요하다. 클라이언트 쪽 CSV는 `\copy`로 옮긴다.
 - **인코딩 불일치로 한글이 `?`로 출력.** `SHOW server_encoding`·`SHOW client_encoding`이 모두 UTF8인지 확인하고, 클라이언트는 `\encoding UTF8`로 바꾼다. 서버는 DB 생성 시 UTF8로 만든다.
 

@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-argument-resolver.md, spring/2026-05-17-file-upload.
 updated: 2026-08-29
 ---
 
-컨트롤러가 늘어나면 같은 코드가 반복된다. 토큰에서 사용자를 조회하는 코드가 메서드마다 붙고, 파일은 `@RequestBody`로 받을 수 없으며, 목록 조회는 `page`·`size`·`sort`를 매번 파싱해야 한다. ==Spring MVC는 이 셋을 HandlerMethodArgumentResolver, MultipartFile, Pageable로 추상화하며, 모두 "컨트롤러 매개변수를 프레임워크가 대신 채운다"는 같은 메커니즘 위에서 동작한다.==
+컨트롤러가 늘어나면 같은 코드가 반복된다. 토큰에서 사용자를 조회하는 코드가 메서드마다 붙고, 파일은 `@RequestBody`로 받을 수 없으며, 목록 조회는 `page`·`size`·`sort`를 매번 파싱해야 한다. Spring MVC는 이 셋을 HandlerMethodArgumentResolver, MultipartFile, Pageable로 추상화하며, 모두 "컨트롤러 매개변수를 프레임워크가 대신 채운다"는 같은 메커니즘 위에서 동작한다.
 
 ## 핵심 개념
 
@@ -207,8 +207,8 @@ public final class ProductSpecs {
 - **`supportsParameter` 조건이 느슨하면 다른 매개변수를 가로챈다.** 어노테이션만 검사하면 `@LoginUser String`에 `User`를 반환하고, 타입만 검사하면 의도하지 않은 `User` 매개변수까지 처리한다.
 - **`Content-Type`은 클라이언트가 보내는 값이다.** 매직 바이트 검사(Apache Tika 등)를 추가하고, 업로드 파일은 정적 리소스 경로 밖에 UUID 이름으로 저장한다.
 - **`getBytes()`는 파일 전체를 힙에 올린다.** 동시 요청 수만큼 배가되므로 `getInputStream()`으로 스트리밍하고, 수백 MB 이상은 presigned URL로 서버를 거치지 않게 한다.
-- ==**`size`와 `sort`를 그대로 받으면 공격 벡터가 된다.**== `size=999999`는 테이블 전체를 읽고 `sort=password`는 숨겨야 할 컬럼을 건드린다. `spring.data.web.pageable.max-page-size`를 낮추고 정렬 필드는 화이트리스트로 검증한다.
-- ==**컬렉션 fetch join과 페이징은 함께 쓸 수 없다.**== `JOIN FETCH` 쿼리에 `Pageable`을 넘기면 Hibernate가 `HHH90003004` 경고와 함께 전체 결과를 메모리에서 페이징한다. ID만 먼저 페이징한 뒤 `IN`으로 fetch join한다. 무한 스크롤에는 `Slice`로 COUNT 쿼리를 없앤다.
+- **`size`와 `sort`를 그대로 받으면 공격 벡터가 된다.** `size=999999`는 테이블 전체를 읽고 `sort=password`는 숨겨야 할 컬럼을 건드린다. `spring.data.web.pageable.max-page-size`를 낮추고 정렬 필드는 화이트리스트로 검증한다.
+- **컬렉션 fetch join과 페이징은 함께 쓸 수 없다.** `JOIN FETCH` 쿼리에 `Pageable`을 넘기면 Hibernate가 `HHH90003004` 경고와 함께 전체 결과를 메모리에서 페이징한다. ID만 먼저 페이징한 뒤 `IN`으로 fetch join한다. 무한 스크롤에는 `Slice`로 COUNT 쿼리를 없앤다.
 
 ## 관련 글
 

@@ -9,7 +9,7 @@ sources: [elasticsearch/2026-05-19-elasticsearch-mapping-deep.md, elasticsearch/
 updated: 2026-08-29
 ---
 
-Mapping은 인덱스의 각 필드가 어떤 타입으로 색인되는지 정의하는 스키마다. ==RDBMS와 달리 이미 색인된 필드의 타입을 바꾸는 명령이 없다.== 문자열을 `text`로 잡으면 집계가 안 되고 `keyword`로 잡으면 부분 검색이 안 되며, 고치려면 전체를 재색인해야 한다. Mapping 없이 문서를 넣으면 타입을 자동 추론해 필드를 추가하는데, 이 동작이 운영에서 필드 수 폭증과 오추론 사고를 만든다.
+Mapping은 인덱스의 각 필드가 어떤 타입으로 색인되는지 정의하는 스키마다. RDBMS와 달리 이미 색인된 필드의 타입을 바꾸는 명령이 없다. 문자열을 `text`로 잡으면 집계가 안 되고 `keyword`로 잡으면 부분 검색이 안 되며, 고치려면 전체를 재색인해야 한다. Mapping 없이 문서를 넣으면 타입을 자동 추론해 필드를 추가하는데, 이 동작이 운영에서 필드 수 폭증과 오추론 사고를 만든다.
 
 ## 핵심 개념
 
@@ -23,7 +23,7 @@ Static Mapping은 `mappings.properties`에 필드와 타입을 직접 선언한�
 | `false` | `_source`에만 보관, 검색 불가 | 조용한 실패 |
 | `strict` | 문서 거부 | 운영 표준 |
 
-==운영 인덱스는 `strict`로 잠그고 `index.mapping.total_fields.limit`(기본 1000)을 2차 방벽으로 둔다.== 필드를 미리 알 수 없는 로그성 데이터는 `dynamic_templates`로 규칙(`match_mapping_type`, `match`)을 정해 허용한다.
+운영 인덱스는 `strict`로 잠그고 `index.mapping.total_fields.limit`(기본 1000)을 2차 방벽으로 둔다. 필드를 미리 알 수 없는 로그성 데이터는 `dynamic_templates`로 규칙(`match_mapping_type`, `match`)을 정해 허용한다.
 
 ### text vs keyword와 Multi-field
 
@@ -128,7 +128,7 @@ PUT /app-logs
 
 ## 실무에서 걸리는 지점
 
-- ==**Mapping Explosion.** `dynamic: true`에서 가변 값을 필드 이름으로 쓰는 JSON이 들어오면 필드 수가 폭증해 클러스터 메모리가 소진된다.== `strict`로 막고 가변 키 덩어리는 `flattened`로 받는다.
+- **Mapping Explosion.** `dynamic: true`에서 가변 값을 필드 이름으로 쓰는 JSON이 들어오면 필드 수가 폭증해 클러스터 메모리가 소진된다. `strict`로 막고 가변 키 덩어리는 `flattened`로 받는다.
 - **keyword 하위 필드 누락.** `text`만으로 잡은 필드에 `terms` 집계를 걸면 "Fielddata is disabled on text fields"로 실패하고 해결에는 reindex가 필요하다.
 - **date 포맷 불일치.** 추론된 date 필드에 다른 형식이 들어오면 `mapper_parsing_exception`으로 거부된다. `format`을 명시하되 클라이언트를 ISO 8601 UTC로 통일하는 편이 낫다.
 - **nested 남용과 미사용.** `object`로 두면 짝이 깨진 조합이 매치되고, 모든 배열에 `nested`를 쓰면 색인·쿼리 비용이 1.5~3배 늘어난다. 수만 건이 붙는 관계는 별도 인덱스로 뺀다.

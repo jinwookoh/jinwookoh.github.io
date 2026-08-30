@@ -9,7 +9,7 @@ sources: [https://nextjs.org/docs/app/building-your-application/rendering, https
 updated: 2026-08-30
 ---
 
-React만으로 화면을 만들면 브라우저는 빈 HTML과 번들 JavaScript를 받은 뒤에야 화면을 그린다. 첫 화면이 늦고, 크롤러는 데이터가 채워지기 전의 빈 문서를 본다. 이를 피하려고 서버에서 HTML을 먼저 만들려 하면 라우팅, 데이터 로딩 시점, 번들 분리, 캐시 무효화를 직접 조립해야 한다. Next.js는 이 조립을 프레임워크 규약으로 흡수한다. ==파일 시스템이 라우팅을 정의하고, 각 라우트가 어떤 방식으로 렌더링될지를 코드의 데이터 접근 패턴에서 추론한다.==
+React만으로 화면을 만들면 브라우저는 빈 HTML과 번들 JavaScript를 받은 뒤에야 화면을 그린다. 첫 화면이 늦고, 크롤러는 데이터가 채워지기 전의 빈 문서를 본다. 이를 피하려고 서버에서 HTML을 먼저 만들려 하면 라우팅, 데이터 로딩 시점, 번들 분리, 캐시 무효화를 직접 조립해야 한다. Next.js는 이 조립을 프레임워크 규약으로 흡수한다. 파일 시스템이 라우팅을 정의하고, 각 라우트가 어떤 방식으로 렌더링될지를 코드의 데이터 접근 패턴에서 추론한다.
 
 ## 핵심 개념
 
@@ -26,7 +26,7 @@ App Router의 컴포넌트는 기본적으로 React Server Component다. 서버�
 | SSR (동적) | 요청마다 | 서버 | `cookies()`, `headers()`, `searchParams` 등 사용 시 |
 | CSR | 브라우저 | 클라이언트 | Client Component에서 마운트 후 fetch |
 
-App Router는 이 전략을 페이지 단위 설정으로 고르게 하지 않는다. ==라우트 세그먼트를 렌더링하면서 요청 시점 정보를 읽는 동적 API가 호출되는지를 관찰하고, 호출이 없으면 정적으로, 있으면 동적으로 분류한다.== 개발자는 `export const dynamic = 'force-dynamic'`이나 `export const revalidate = 60` 같은 세그먼트 설정으로 판단을 덮어쓸 수 있다.
+App Router는 이 전략을 페이지 단위 설정으로 고르게 하지 않는다. 라우트 세그먼트를 렌더링하면서 요청 시점 정보를 읽는 동적 API가 호출되는지를 관찰하고, 호출이 없으면 정적으로, 있으면 동적으로 분류한다. 개발자는 `export const dynamic = 'force-dynamic'`이나 `export const revalidate = 60` 같은 세그먼트 설정으로 판단을 덮어쓸 수 있다.
 
 동적 라우트에서 `loading.tsx`나 `<Suspense>`로 경계를 두면 준비된 부분부터 HTML을 스트리밍하고, 느린 부분은 나중에 채운다.
 
@@ -122,7 +122,7 @@ export function LiveCounter() {
 
 ## 실무에서 걸리는 지점
 
-- ==**의도치 않은 동적 전환.** 공통 레이아웃에서 `cookies()`나 `headers()`를 한 번 읽으면 그 아래 모든 페이지가 동적 렌더링으로 바뀐다.== 빌드 로그에서 라우트 옆의 기호(정적 `○`, 동적 `ƒ`)를 확인해 의도와 맞는지 점검해야 한다.
+- **의도치 않은 동적 전환.** 공통 레이아웃에서 `cookies()`나 `headers()`를 한 번 읽으면 그 아래 모든 페이지가 동적 렌더링으로 바뀐다. 빌드 로그에서 라우트 옆의 기호(정적 `○`, 동적 `ƒ`)를 확인해 의도와 맞는지 점검해야 한다.
 - **Next.js 15 캐시 기본값.** 14에서 15로 올리면 `fetch` 결과가 캐시되지 않아 백엔드 호출량이 급증할 수 있다. 캐시가 필요한 호출마다 `cache` 또는 `next.revalidate`를 명시하고, 세그먼트 단위로 묶고 싶다면 `export const fetchCache = 'default-cache'`를 검토한다.
 - **Promise 기반 params.** `params`와 `searchParams`를 동기 객체로 다루던 코드는 15에서 경고를 거쳐 오류가 된다. 타입을 `Promise<...>`로 바꾸고 `await`를 붙이는 마이그레이션이 필요하다.
 - **직렬화 경계.** Server Component에서 Client Component로 넘기는 props는 직렬화 가능해야 한다. Map, 클래스 인스턴스, 일반 함수는 넘길 수 없고, 함수는 Server Action으로만 전달된다.

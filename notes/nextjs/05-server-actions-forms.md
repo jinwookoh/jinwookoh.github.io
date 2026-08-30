@@ -9,7 +9,7 @@ sources: [https://nextjs.org/docs/app/building-your-application/data-fetching/se
 updated: 2026-08-30
 ---
 
-전통적인 React 앱에서 데이터 하나를 바꾸려면 손이 많이 간다. 서버에 POST 엔드포인트를 만들고, 클라이언트에서 `fetch`를 호출하는 핸들러를 쓰고, 로딩·에러 상태를 `useState`로 관리하고, 성공하면 다시 목록을 불러오는 코드를 붙인다. 요청 바디의 타입은 양쪽에서 각자 유지해야 하고, JavaScript가 로드되기 전에는 폼이 동작하지 않는다. ==Server Actions는 이 왕복 구조를 함수 호출 하나로 접는다.== 서버에서 실행되는 async 함수를 폼의 `action`에 직접 넘기면 Next.js가 직렬화·전송·실행·UI 갱신을 한 번의 요청으로 처리한다.
+전통적인 React 앱에서 데이터 하나를 바꾸려면 손이 많이 간다. 서버에 POST 엔드포인트를 만들고, 클라이언트에서 `fetch`를 호출하는 핸들러를 쓰고, 로딩·에러 상태를 `useState`로 관리하고, 성공하면 다시 목록을 불러오는 코드를 붙인다. 요청 바디의 타입은 양쪽에서 각자 유지해야 하고, JavaScript가 로드되기 전에는 폼이 동작하지 않는다. Server Actions는 이 왕복 구조를 함수 호출 하나로 접는다. 서버에서 실행되는 async 함수를 폼의 `action`에 직접 넘기면 Next.js가 직렬화·전송·실행·UI 갱신을 한 번의 요청으로 처리한다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ Server Action은 `'use server'` 지시어가 붙은 비동기 함수다. 함수 
 
 호출 방식은 두 가지다. 첫째는 `<form action={fn}>` 또는 `<button formAction={fn}>`으로, 이 경우 함수는 `FormData`를 인자로 받는다. Server Component의 폼은 점진적 향상을 지원해서 하이드레이션 전이나 JavaScript가 꺼진 환경에서도 일반 HTML 폼처럼 제출된다. 둘째는 Client Component의 이벤트 핸들러나 `useEffect`에서 일반 함수처럼 호출하는 방식으로, 인자와 반환값은 직렬화 가능한 값이어야 한다.
 
-==내부적으로 모든 Server Action은 POST 요청으로 전달되며 다른 HTTP 메서드로는 호출되지 않는다.== 빌드 시 각 액션에는 암호화된 ID가 부여되어 클라이언트는 이 ID로만 함수를 참조한다. 클로저로 캡처한 변수는 암호화되어 클라이언트를 거쳐 돌아오고, 사용되지 않는 액션은 빌드에서 제거된다. 액션이 완료되면 서버는 갱신된 RSC 페이로드를 같은 응답에 실어 보내므로, `revalidatePath`·`revalidateTag`·`redirect`·`cookies().set`을 액션 안에서 호출하면 별도 요청 없이 화면이 새 데이터로 바뀐다.
+내부적으로 모든 Server Action은 POST 요청으로 전달되며 다른 HTTP 메서드로는 호출되지 않는다. 빌드 시 각 액션에는 암호화된 ID가 부여되어 클라이언트는 이 ID로만 함수를 참조한다. 클로저로 캡처한 변수는 암호화되어 클라이언트를 거쳐 돌아오고, 사용되지 않는 액션은 빌드에서 제거된다. 액션이 완료되면 서버는 갱신된 RSC 페이로드를 같은 응답에 실어 보내므로, `revalidatePath`·`revalidateTag`·`redirect`·`cookies().set`을 액션 안에서 호출하면 별도 요청 없이 화면이 새 데이터로 바뀐다.
 
 상태 관리는 React 19 훅에 맡긴다. `useActionState(action, initialState)`는 `[state, formAction, pending]`을 반환하며, 액션의 첫 인자로 이전 상태가 주입된다. `useFormStatus`는 부모 `<form>`의 제출 상태를 자식 컴포넌트에서 읽고, `useOptimistic`은 서버 응답 전에 UI를 먼저 바꾼다.
 
@@ -145,7 +145,7 @@ export function LikeButton({ postId, likes }: { postId: string; likes: number })
 
 ## 실무에서 걸리는 지점
 
-- ==**액션은 공개 엔드포인트다.** UI를 거치지 않고 직접 POST로 호출할 수 있으므로 모든 액션 안에서 인증과 소유권 확인을 다시 한다.== 페이지에서 이미 검사했다는 이유로 액션에서 생략하면 권한 우회 경로가 된다.
+- **액션은 공개 엔드포인트다.** UI를 거치지 않고 직접 POST로 호출할 수 있으므로 모든 액션 안에서 인증과 소유권 확인을 다시 한다. 페이지에서 이미 검사했다는 이유로 액션에서 생략하면 권한 우회 경로가 된다.
 - **`redirect`는 throw다.** 내부적으로 예외를 던져 제어 흐름을 끊으므로 `try/catch` 안에서 호출하면 catch가 리다이렉트를 삼킨다. `redirect`와 `revalidatePath`는 try 블록 밖에서 호출하고, 캐시 무효화는 `redirect`보다 먼저 실행한다.
 - **예외를 UI에 그대로 노출하지 않는다.** 액션에서 throw한 에러는 가장 가까운 `error.tsx`로 전달되고 프로덕션에서는 메시지가 가려진다. 검증 실패처럼 사용자가 고쳐야 하는 오류는 throw 대신 상태 객체로 반환해서 `useActionState`로 렌더링하는 편이 낫다.
 - **직렬 실행과 응답 크기.** 클라이언트는 액션을 한 번에 하나씩 순서대로 전송하고 응답을 기다린다. 버튼 연타나 목록 항목별 액션이 병렬 처리를 기대하면 지연이 누적된다. 또 응답에는 갱신된 트리의 RSC 페이로드가 함께 실리므로 큰 페이지에서 잦은 mutation은 전송량이 커진다. 조회 목적이라면 액션 대신 Server Component의 데이터 페칭을 쓴다.

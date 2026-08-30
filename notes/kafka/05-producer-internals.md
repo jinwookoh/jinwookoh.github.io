@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-design-producer.md, 2026-05-02-kafka-produ
 updated: 2026-08-29
 ---
 
-`producer.send()`는 호출 즉시 반환된다. 레코드는 내부 버퍼에 쌓이고 별도 스레드가 배치 단위로 전송한다. 이 비동기 경로를 통제하지 못하면 같은 주문의 이벤트 순서가 뒤섞이고, 낮은 ACK 수준에서 리더가 죽어 메시지가 조용히 사라지며, 재시도 중 ACK 유실로 같은 레코드가 두 번 저장된다. ==파티션 선택·ACK·멱등성은 이 세 사고를 각각 막는 장치다.==
+`producer.send()`는 호출 즉시 반환된다. 레코드는 내부 버퍼에 쌓이고 별도 스레드가 배치 단위로 전송한다. 이 비동기 경로를 통제하지 못하면 같은 주문의 이벤트 순서가 뒤섞이고, 낮은 ACK 수준에서 리더가 죽어 메시지가 조용히 사라지며, 재시도 중 ACK 유실로 같은 레코드가 두 번 저장된다. 파티션 선택·ACK·멱등성은 이 세 사고를 각각 막는 장치다.
 
 ## 핵심 개념
 
@@ -128,7 +128,7 @@ public class VipAwarePartitioner implements Partitioner {
 
 ## 실무에서 걸리는 지점
 
-- ==**`acks=all`만 켜고 `min.insync.replicas`를 두지 않는다.** 브로커 기본값 1이면 리더가 쓰는 즉시 응답이 나가 `acks=1`과 손실 위험이 같다.== 토픽 생성 시점에 두 값을 함께 확인한다.
+- **`acks=all`만 켜고 `min.insync.replicas`를 두지 않는다.** 브로커 기본값 1이면 리더가 쓰는 즉시 응답이 나가 `acks=1`과 손실 위험이 같다. 토픽 생성 시점에 두 값을 함께 확인한다.
 - **커스텀 Partitioner가 키 없는 레코드까지 처리하면 Sticky 이점이 사라진다.** 키 없는 경로는 내장 동작에 맡기고 키 있는 경로만 커스텀하는 편이 안전하다.
 - **`linger.ms`가 크면 지연이 그만큼 늘어난다.** 알림처럼 도착 시간이 중요한 경로는 0~5ms로 둔다. `batch-size-avg`가 `batch.size`에 한참 못 미치면 `linger.ms`가 매번 만료되어 전송되는 상태다.
 - **`max.request.size`(기본 1MB)를 넘는 레코드는 `RecordTooLargeException`으로 즉시 실패한다.** 재시도 대상이 아니며, 브로커 `message.max.bytes`도 함께 올려야 통과한다.

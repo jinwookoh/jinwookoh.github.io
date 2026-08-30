@@ -9,11 +9,11 @@ sources: [statsig/2026-05-17-statsig-integrations-deep.md, statsig/2026-05-17-st
 updated: 2026-08-30
 ---
 
-Statsig가 사내 다른 시스템과 단절되어 있으면 운영 부담은 줄지 않는다. Segment로 수집 중인 이벤트를 SDK로 한 번 더 보내야 하고, 실험 결과는 콘솔을 열어야 보이며, gate 변경 이력은 컴플라이언스용 저장소에 남지 않는다. 인프라 지표와 제품 지표가 따로 놓여 실험이 latency에 준 영향을 사람이 두 대시보드를 비교해 추정한다. ==통합 계층이 이 단절을 메우고, 부수 기능과 도입 결정은 어디까지 확장할지를 정한다.==
+Statsig가 사내 다른 시스템과 단절되어 있으면 운영 부담은 줄지 않는다. Segment로 수집 중인 이벤트를 SDK로 한 번 더 보내야 하고, 실험 결과는 콘솔을 열어야 보이며, gate 변경 이력은 컴플라이언스용 저장소에 남지 않는다. 인프라 지표와 제품 지표가 따로 놓여 실험이 latency에 준 영향을 사람이 두 대시보드를 비교해 추정한다. 통합 계층이 이 단절을 메우고, 부수 기능과 도입 결정은 어디까지 확장할지를 정한다.
 
 ## 핵심 개념
 
-통합은 네 범주다. CDP(Segment·Rudderstack·Hightouch·mParticle)는 한 번의 `track` 호출을 여러 destination에 분배하므로 Statsig를 destination으로 추가하면 SDK의 `logEvent`를 따로 심지 않아도 된다. ==핵심은 user ID mapping이다.== 로그인 전 anonymousId와 로그인 후 userId를 `userID`·`customIDs`에 일관되게 대응시키지 않으면 같은 사용자가 두 entity로 갈라져 variant가 바뀐다.
+통합은 네 범주다. CDP(Segment·Rudderstack·Hightouch·mParticle)는 한 번의 `track` 호출을 여러 destination에 분배하므로 Statsig를 destination으로 추가하면 SDK의 `logEvent`를 따로 심지 않아도 된다. 핵심은 user ID mapping이다. 로그인 전 anonymousId와 로그인 후 userId를 `userID`·`customIDs`에 일관되게 대응시키지 않으면 같은 사용자가 두 entity로 갈라져 variant가 바뀐다.
 
 메시징은 Slack이다. Product·General·Personal 세 카테고리를 releases·experiments·results·audit·alerts 채널로 나눠 팀별로 구독하고, Daily Digest로 수동 확인을 대체한다.
 
@@ -137,7 +137,7 @@ public class CheckoutService {
 
 - Webhook endpoint가 일시 중단되면 Statsig가 재시도하므로 같은 이벤트가 여러 번 도착한다. 이벤트 ID로 중복을 거르지 않으면 audit DB 이중 기록이나 배포 자동화 중복 실행이 생긴다.
 - Console API에는 분당 rate limit이 있어 대량 cleanup 시 429가 난다. backoff와 시간 분산이 필요하고, 키가 git history에 남으면 즉시 rotation한다.
-- ==MCP에 콘솔 전체 권한을 주면 AI 도구가 production gate를 실수로 바꿀 수 있다.== read-only로 시작해 저위험 범주부터 write를 넓히고 production gate 변경은 사람이 확인한다.
+- MCP에 콘솔 전체 권한을 주면 AI 도구가 production gate를 실수로 바꿀 수 있다. read-only로 시작해 저위험 범주부터 write를 넓히고 production gate 변경은 사람이 확인한다.
 - OTel metric label에 user_id·request_id 같은 high cardinality 값을 넣으면 시계열이 폭증한다. Collector 단일 인스턴스는 단일 실패점이므로 다중 인스턴스로 둔다.
 - Daily Digest는 전날 이벤트가 덜 도착한 상태에서 발송되면 지표가 거짓으로 하락해 보이므로 24~48시간 delay window를 둔다. Web Analytics와 GA는 샘플링·bot 필터가 달라 절대값이 아닌 추세로 비교한다.
 

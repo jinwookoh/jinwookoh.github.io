@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-dml-overview.md, data-infra/2026-05-17-pg-dml
 updated: 2026-08-29
 ---
 
-INSERT는 DML 네 동사 중 가장 단순하다. 옛 버전 행을 남기지 않으므로 MVCC 부담도 없다. ==그런데도 대량 입력에서 병목이 되는 이유는 문장마다 붙는 고정 비용 때문이다.== 단건 INSERT 한 번에는 네트워크 왕복, 파싱·계획, 트랜잭션 커밋, WAL fsync, 인덱스 갱신, 트리거 실행이 따라붙고, 10만 건을 반복문으로 넣으면 이 비용이 10만 번 반복된다. 여기에 중복 키 처리 방식을 정하지 않으면 동시 요청에서 UNIQUE 위반이 발생한다. 입력 방식과 충돌 처리 전략을 함께 설계해야 하는 이유다.
+INSERT는 DML 네 동사 중 가장 단순하다. 옛 버전 행을 남기지 않으므로 MVCC 부담도 없다. 그런데도 대량 입력에서 병목이 되는 이유는 문장마다 붙는 고정 비용 때문이다. 단건 INSERT 한 번에는 네트워크 왕복, 파싱·계획, 트랜잭션 커밋, WAL fsync, 인덱스 갱신, 트리거 실행이 따라붙고, 10만 건을 반복문으로 넣으면 이 비용이 10만 번 반복된다. 여기에 중복 키 처리 방식을 정하지 않으면 동시 요청에서 UNIQUE 위반이 발생한다. 입력 방식과 충돌 처리 전략을 함께 설계해야 하는 이유다.
 
 ## 핵심 개념
 
@@ -34,7 +34,7 @@ COPY는 SQL 파서를 거치지 않는 별도 프로토콜로 데이터를 받�
 - `MERGE` (PG 15+) — 소스와 타깃을 조인해 `WHEN MATCHED`·`WHEN NOT MATCHED` 분기별로 UPDATE·INSERT·DELETE를 지정한다. PG 17부터 `RETURNING merge_action()`으로 행별 적용 동작을 받을 수 있다.
 - `SELECT ... FOR UPDATE` 후 분기 — 락을 잡고 애플리케이션에서 판단한다. 느리지만 ON CONFLICT로 표현할 수 없는 로직의 대안이다.
 
-동시 INSERT 경합은 `SELECT`로 존재를 확인한 뒤 `INSERT`하는 분리 패턴에서 생긴다. ==`ON CONFLICT`는 확인과 입력을 한 문장에서 원자적으로 처리한다.==
+동시 INSERT 경합은 `SELECT`로 존재를 확인한 뒤 `INSERT`하는 분리 패턴에서 생긴다. `ON CONFLICT`는 확인과 입력을 한 문장에서 원자적으로 처리한다.
 
 ### RETURNING과 시퀀스
 
@@ -125,7 +125,7 @@ public class LogCopyRepository {
 
 ## 실무에서 걸리는 지점
 
-- **반복문 save()** — `for (...) repo.save(u)`는 단건 INSERT를 N번 보내며, `saveAll()`로 바꿔도 `batch_size`가 없으면 같다. ==IDENTITY 전략은 Hibernate가 배치 INSERT를 비활성화하므로 SEQUENCE 전략과 `allocationSize`를 함께 잡는다.==
+- **반복문 save()** — `for (...) repo.save(u)`는 단건 INSERT를 N번 보내며, `saveAll()`로 바꿔도 `batch_size`가 없으면 같다. IDENTITY 전략은 Hibernate가 배치 INSERT를 비활성화하므로 SEQUENCE 전략과 `allocationSize`를 함께 잡는다.
 - **트리거의 행 단위 비용** — `FOR EACH ROW` 트리거는 대량 입력에서 행마다 실행된다. 적재 전 `ALTER TABLE ... DISABLE TRIGGER`로 끄고 끝난 뒤 켠다.
 - **EXCLUDED 대신 상수** — `DO UPDATE SET name = 'fixed'`처럼 상수를 쓰면 충돌 행이 모두 같은 값으로 덮인다. INSERT하려던 값을 반영하려면 `EXCLUDED.name`이어야 한다.
 - **UPSERT 대상 인덱스 누락** — `ON CONFLICT (col)`은 col에 unique 인덱스가 있어야 실행된다. 오류가 나면 인덱스 존재 여부와, 부분 인덱스라면 WHERE 조건 일치 여부를 확인한다.

@@ -9,19 +9,19 @@ sources: [2026-05-02-aws-s3-performance.md, 2026-05-02-aws-s3-lifecycle.md, 2026
 updated: 2026-08-30
 ---
 
-단일 PUT은 5GB까지만 허용되고 전송 중 끊기면 처음부터 다시 보내야 한다. 버전 관리를 켠 버킷은 이전 버전과 중단된 멀티파트 조각이 쌓여 저장 비용이 조용히 늘어난다. 리전 하나에만 데이터가 있으면 리전 장애나 데이터 주권 요구에 대응할 수 없다. ==멀티파트 업로드, 라이프사이클 정책, 복제가 각각 이 문제를 담당한다.==
+단일 PUT은 5GB까지만 허용되고 전송 중 끊기면 처음부터 다시 보내야 한다. 버전 관리를 켠 버킷은 이전 버전과 중단된 멀티파트 조각이 쌓여 저장 비용이 조용히 늘어난다. 리전 하나에만 데이터가 있으면 리전 장애나 데이터 주권 요구에 대응할 수 없다. 멀티파트 업로드, 라이프사이클 정책, 복제가 각각 이 문제를 담당한다.
 
 ## 핵심 개념
 
 ### 처리량과 멀티파트 업로드
 
-==S3 처리량 한도는 버킷이 아니라 prefix 단위로, prefix당 초당 PUT/COPY/POST/DELETE 3,500건, GET/HEAD 5,500건이다.== 한도에 닿으면 키 앞에 해시 몇 자리를 붙여 prefix를 분산한다. 날짜 기반 prefix는 같은 날 객체가 한 prefix에 몰리므로 고트래픽에 불리하다.
+S3 처리량 한도는 버킷이 아니라 prefix 단위로, prefix당 초당 PUT/COPY/POST/DELETE 3,500건, GET/HEAD 5,500건이다. 한도에 닿으면 키 앞에 해시 몇 자리를 붙여 prefix를 분산한다. 날짜 기반 prefix는 같은 날 객체가 한 prefix에 몰리므로 고트래픽에 불리하다.
 
 멀티파트 업로드는 CreateMultipartUpload로 UploadId를 받고, UploadPart를 병렬 호출한 뒤, CompleteMultipartUpload로 병합한다(실패 시 Abort). 파트는 5MB~5GB이고 마지막 파트만 5MB 미만이 허용되며, 최대 10,000 파트, 객체 최대 5TB다. 100MB 이상이면 권장, 5GB 초과는 필수다. 클라이언트가 리전에서 멀면 Transfer Acceleration이 가까운 엣지까지만 공용망을 타고 이후 AWS 백본으로 전달하며 별도 요금이 붙는다. 다운로드는 Range 헤더로 범위를 나눠 병렬로 받고, S3 Select는 단일 객체 안에서 SQL로 행을 필터한다.
 
 ### 라이프사이클
 
-라이프사이클 정책은 조건에 맞는 객체를 N일 뒤 처리하는 규칙 모음이며 정책 자체는 무료다. ==전환(Transition)은 Standard에서 IA·Glacier·Deep Archive 방향으로만 흐르고 역방향은 자동화되지 않는다.== IA 계층으로의 전환은 객체 생성 후 30일이 지나야 하며 그보다 짧은 규칙은 거부된다. 만료(Expiration)는 현재 버전, 이전 버전(`NoncurrentDays`와 `NewerNoncurrentVersions`로 최신 N개 보존), 혼자 남은 삭제 마커, 미완료 멀티파트 네 종류다. 필터는 Prefix·Tag·객체 크기를 쓰고 조건을 결합할 때는 `And` 블록 안에 넣는다.
+라이프사이클 정책은 조건에 맞는 객체를 N일 뒤 처리하는 규칙 모음이며 정책 자체는 무료다. 전환(Transition)은 Standard에서 IA·Glacier·Deep Archive 방향으로만 흐르고 역방향은 자동화되지 않는다. IA 계층으로의 전환은 객체 생성 후 30일이 지나야 하며 그보다 짧은 규칙은 거부된다. 만료(Expiration)는 현재 버전, 이전 버전(`NoncurrentDays`와 `NewerNoncurrentVersions`로 최신 N개 보존), 혼자 남은 삭제 마커, 미완료 멀티파트 네 종류다. 필터는 Prefix·Tag·객체 크기를 쓰고 조건을 결합할 때는 `And` 블록 안에 넣는다.
 
 Intelligent-Tiering은 정해진 시점이 아니라 접근 패턴을 관찰해 Frequent와 Infrequent 사이를 양방향으로 옮기며, 객체당 모니터링 비용이 붙고 128KB 미만 객체는 제외된다. Glacier 계층 객체는 복원 요청 후 지정 일수 동안만 임시 사본으로 읽을 수 있고 클래스는 바뀌지 않는다. Deep Archive에는 Expedited 복원이 없다.
 
@@ -143,7 +143,7 @@ public class ReplicationConfigurer {
 
 ## 실무에서 걸리는 지점
 
-- ==**미완료 멀티파트 조각은 목록에 보이지 않으면서 과금된다.**== Abort 호출 전에 프로세스가 죽는 경우가 생기므로 모든 버킷에 `AbortIncompleteMultipartUpload` 7일 규칙을 건다.
+- **미완료 멀티파트 조각은 목록에 보이지 않으면서 과금된다.** Abort 호출 전에 프로세스가 죽는 경우가 생기므로 모든 버킷에 `AbortIncompleteMultipartUpload` 7일 규칙을 건다.
 - **최소 저장 기간을 무시한 전환은 비용을 늘린다.** Standard-IA·One Zone-IA 30일, Glacier Instant·Flexible 90일, Deep Archive 180일이 최소 과금 기간이며 그 안에 삭제하거나 다음 계층으로 옮겨도 남은 기간이 청구된다.
 - **SSE-KMS 객체는 기본 설정으로 복제되지 않는다.** `SourceSelectionCriteria`, 대상 키 지정, 복제 역할의 소스 키 Decrypt와 대상 키 Encrypt 권한이 모두 있어야 하며, 빠지면 FAILED 상태만 남는다. SSE-C 객체와 Glacier 계층 객체는 복제 대상이 아니다.
 - **복제 규칙은 이후 객체에만 적용되고 라이프사이클은 복제되지 않는다.** 기존 객체는 Batch Operations의 `S3ReplicateObject` 작업으로 따로 처리하고, 대상 버킷에도 라이프사이클을 별도로 건다.

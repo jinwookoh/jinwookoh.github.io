@@ -9,14 +9,14 @@ sources: [elasticsearch/2026-05-19-elasticsearch-series-conclusion.md]
 updated: 2026-08-29
 ---
 
-Elasticsearch는 검색·로그·관측·벡터를 하나의 엔진으로 처리할 수 있지만, 그만큼 도입 판단과 초기 설정에서 갈림길이 많다. ==기준 없이 도입하면 RDBMS FULLTEXT로 충분한 규모에 클러스터 운영비를 지불하거나, 규모가 커진 뒤 Dynamic Mapping·샤드 수·Snapshot 같은 초기 결정을 되돌리지 못해 재색인을 반복하게 된다.== 도입 결정 트리, 운영 30일 체크리스트, 반복 사고 유형 세 가지로 정리한다.
+Elasticsearch는 검색·로그·관측·벡터를 하나의 엔진으로 처리할 수 있지만, 그만큼 도입 판단과 초기 설정에서 갈림길이 많다. 기준 없이 도입하면 RDBMS FULLTEXT로 충분한 규모에 클러스터 운영비를 지불하거나, 규모가 커진 뒤 Dynamic Mapping·샤드 수·Snapshot 같은 초기 결정을 되돌리지 못해 재색인을 반복하게 된다. 도입 결정 트리, 운영 30일 체크리스트, 반복 사고 유형 세 가지로 정리한다.
 
 ## 핵심 개념
 
 도입 결정은 여섯 개 질문을 순서대로 답하면 배포 형태까지 정해진다.
 
 1. 검색·로그·관측·벡터 중 하나라도 필요한가. 아니면 PostgreSQL·Redis·Kafka로 충분하다.
-2. 데이터 규모는 어느 정도인가. ==10만 행 미만, QPS 10 미만이면 PostgreSQL tsvector나 MySQL FULLTEXT가 운영비 대비 유리하다.==
+2. 데이터 규모는 어느 정도인가. 10만 행 미만, QPS 10 미만이면 PostgreSQL tsvector나 MySQL FULLTEXT가 운영비 대비 유리하다.
 3. 주 용도는 무엇인가. 풀텍스트 검색이면 ES와 Nori, 로그·관측이면 ES와 Beats·Logstash·Kibana, 벡터·RAG면 dense_vector·kNN·hybrid search가 표준이다. 둘 이상이 섞이면 검색 클러스터와 로그 클러스터를 분리한다.
 4. 라이선스와 클라우드 환경은 어떠한가. AWS 단일 환경에 Apache 2.0이 필요하면 AWS OpenSearch Service, 멀티 클라우드거나 Elastic 최신 기능이 필요하면 Elastic Cloud, 온프레미스면 자체 운영이며 Kubernetes 환경이면 ECK를 쓴다.
 5. 벡터 검색만 사용하는가. 100만 벡터 미만이고 검색·로그와 함께 쓰면 ES가 유리하다. 벡터만 1억 개 이상이면 Qdrant·Milvus·Weaviate 같은 전용 Vector DB가 앞선다.
@@ -128,7 +128,7 @@ public void reindexAll(List<Product> products) throws IOException {
 - **Deep Pagination.** `from + size`로 깊은 페이지를 요청하면 모든 shard가 `from + size` 만큼 정렬한 뒤 coordinating 노드가 다시 합친다. `search_after`와 PIT 조합으로 대체한다.
 - **fielddata 폭증.** `text` 필드에 정렬·집계를 걸면 fielddata가 heap에 올라와 circuit breaker가 발동한다. 정렬·집계는 `keyword` sub-field에서만 수행한다.
 - **Red 상태와 Split-brain.** Primary Shard 미할당은 `_cluster/allocation/explain`으로 확인하며 대부분 디스크 watermark가 원인이다. master-eligible 3대와 quorum voting이 있어야 파티션 시 master가 둘로 갈리지 않는다.
-- ==**Snapshot 부재.** 인덱스를 잘못 삭제했을 때 복구 수단이 없는 사고가 반복된다.== SLM으로 자동화하고 복구 리허설로 RTO를 실측한다.
+- **Snapshot 부재.** 인덱스를 잘못 삭제했을 때 복구 수단이 없는 사고가 반복된다. SLM으로 자동화하고 복구 리허설로 RTO를 실측한다.
 
 ## 관련 글
 

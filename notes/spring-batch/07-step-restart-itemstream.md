@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-step-restart.md, batch/2026-05-17-batch-item-st
 updated: 2026-08-29
 ---
 
-천만 건을 적재하는 Step이 600만 건에서 실패했을 때 재시작이 처음부터 다시 돈다면 처리 시간 전체를 잃고 적재한 600만 건은 중복으로 남는다. Spring Batch는 Step별 진행 상태를 JobRepository에 기록해 실패 지점부터 재개하지만, 이 동작은 두 조건이 맞아야 성립한다. ==어떤 Step을 건너뛸지 정하는 Step 설정, 그리고 Reader·Writer가 위치를 ExecutionContext에 남기는 ItemStream 구현이다.==
+천만 건을 적재하는 Step이 600만 건에서 실패했을 때 재시작이 처음부터 다시 돈다면 처리 시간 전체를 잃고 적재한 600만 건은 중복으로 남는다. Spring Batch는 Step별 진행 상태를 JobRepository에 기록해 실패 지점부터 재개하지만, 이 동작은 두 조건이 맞아야 성립한다. 어떤 Step을 건너뛸지 정하는 Step 설정, 그리고 Reader·Writer가 위치를 ExecutionContext에 남기는 ItemStream 구현이다.
 
 ## 핵심 개념
 
@@ -27,7 +27,7 @@ updated: 2026-08-29
 | `update(ExecutionContext)` | 매 chunk commit 직전 | 현재 위치 기록 |
 | `close()` | Step 종료 시 1회 | 자원 정리 |
 
-==`update()`가 commit 직전에 같은 트랜잭션 안에서 호출된다는 점이 핵심이다.== chunk의 write 결과와 ExecutionContext가 원자적으로 commit되므로 commit 직후 프로세스가 죽어도 데이터와 위치가 어긋나지 않고, rollback되면 위치 변경도 함께 되돌아간다. 재시작에서는 직전 실행의 ExecutionContext가 `open()`에 전달되므로 `containsKey` 분기 하나로 첫 실행과 재시작을 같은 코드로 처리한다.
+`update()`가 commit 직전에 같은 트랜잭션 안에서 호출된다는 점이 핵심이다. chunk의 write 결과와 ExecutionContext가 원자적으로 commit되므로 commit 직후 프로세스가 죽어도 데이터와 위치가 어긋나지 않고, rollback되면 위치 변경도 함께 되돌아간다. 재시작에서는 직전 실행의 ExecutionContext가 `open()`에 전달되므로 `containsKey` 분기 하나로 첫 실행과 재시작을 같은 코드로 처리한다.
 
 값은 `putLong`·`putString` 같은 기본 타입으로 제한한다. 임의 객체는 직렬화에 실패할 수 있고, 내용이 커지면 BLOB 컬럼 부담과 chunk마다 반복되는 쓰기 증폭으로 돌아온다.
 
@@ -160,7 +160,7 @@ public Step reportStep(JobRepository repo, PlatformTransactionManager tx,
 
 ## 실무에서 걸리는 지점
 
-- ==재시작이 처음부터 다시 처리된다면 원인은 거의 등록 누락이다.== wrapper가 ItemStream을 구현하지 않았거나, Tasklet 안 Reader를 `stream()`에 넣지 않은 경우다.
+- 재시작이 처음부터 다시 처리된다면 원인은 거의 등록 누락이다. wrapper가 ItemStream을 구현하지 않았거나, Tasklet 안 Reader를 `stream()`에 넣지 않은 경우다.
 - `allowStartIfComplete(true)`는 재시작마다 Step 전체를 다시 돌린다. 짧은 Tasklet에만 붙인다.
 - `startLimit(1)` Step이 실패하면 코드 수정 후에도 같은 JobInstance로는 재시작할 수 없다. 새 JobInstance로 실행하는 운영 절차가 필요하다.
 - multi-threaded Step에서는 `read()`와 `update()`가 동시에 호출되므로 상태 변경이 thread-safe하거나 partitioning으로 스레드마다 독립 인스턴스를 준다.

@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-install-binaries.md, data-infra/2026-05-17-pg
 updated: 2026-08-29
 ---
 
-개발 PC에서 `apt install`로 띄운 PostgreSQL을 그대로 운영에 올리면 두 가지 문제가 생긴다. 단일 인스턴스라 디스크 장애나 패치 재시작이 곧 다운타임이 되고, 백업과 페일오버가 전부 사람 손에 달린다. ==또 기본 설정은 1GB급 호스트를 가정한 값이라 `shared_buffers` 128MB, `random_page_cost` 4가 32GB SSD 서버에서도 그대로 적용된다.== 메모리는 놀고 계획자는 순차 스캔을 고르며, 슬로우 쿼리 로그가 꺼져 있어 원인을 찾을 수도 없다.
+개발 PC에서 `apt install`로 띄운 PostgreSQL을 그대로 운영에 올리면 두 가지 문제가 생긴다. 단일 인스턴스라 디스크 장애나 패치 재시작이 곧 다운타임이 되고, 백업과 페일오버가 전부 사람 손에 달린다. 또 기본 설정은 1GB급 호스트를 가정한 값이라 `shared_buffers` 128MB, `random_page_cost` 4가 32GB SSD 서버에서도 그대로 적용된다. 메모리는 놀고 계획자는 순차 스캔을 고르며, 슬로우 쿼리 로그가 꺼져 있어 원인을 찾을 수도 없다.
 
 ## 핵심 개념
 
@@ -26,7 +26,7 @@ updated: 2026-08-29
 
 ### 설정 우선순위와 적용 방식
 
-설정은 명령행 옵션 > `ALTER SYSTEM`(`postgresql.auto.conf`) > `postgresql.conf` > include 파일 > 기본값 순으로 우선하며, 현재 값과 출처는 `pg_settings`의 `source` 컬럼으로 본다. 파라미터는 세션 `SET`으로 바뀌는 것(`work_mem`), `pg_reload_conf()`로 반영되는 것(`log_min_duration_statement`), 재시작이 필요한 것(`shared_buffers`, `max_connections`, `shared_preload_libraries`)으로 나뉜다. ==`pg_settings.context`가 `postmaster`이면 재시작 대상이다.==
+설정은 명령행 옵션 > `ALTER SYSTEM`(`postgresql.auto.conf`) > `postgresql.conf` > include 파일 > 기본값 순으로 우선하며, 현재 값과 출처는 `pg_settings`의 `source` 컬럼으로 본다. 파라미터는 세션 `SET`으로 바뀌는 것(`work_mem`), `pg_reload_conf()`로 반영되는 것(`log_min_duration_statement`), 재시작이 필요한 것(`shared_buffers`, `max_connections`, `shared_preload_libraries`)으로 나뉜다. `pg_settings.context`가 `postmaster`이면 재시작 대상이다.
 
 ### 영역별 핵심 파라미터
 
@@ -136,7 +136,7 @@ ALTER TABLE orders SET (autovacuum_vacuum_scale_factor = 0.05,
 ## 실무에서 걸리는 지점
 
 - **`ALTER SYSTEM`과 파일 편집의 충돌.** `postgresql.auto.conf`가 `postgresql.conf`보다 우선한다. 파일을 고쳤는데 값이 안 바뀌면 `pg_settings.source`로 auto.conf에 같은 키가 있는지 확인한다. IaC로 관리한다면 `ALTER SYSTEM` 사용을 금지하는 편이 안전하다.
-- ==**`max_connections`를 키워서 연결 문제를 푸는 것.**== 연결 하나가 프로세스 하나이며 `work_mem`도 연결마다 곱해진다. HikariCP와 PgBouncer를 두고 `max_connections`는 100 안팎으로 유지한다.
+- **`max_connections`를 키워서 연결 문제를 푸는 것.** 연결 하나가 프로세스 하나이며 `work_mem`도 연결마다 곱해진다. HikariCP와 PgBouncer를 두고 `max_connections`는 100 안팎으로 유지한다.
 - **`shared_preload_libraries` 변경은 재시작 대상.** 첫 셋업에 넣고, RDS는 `apply_method = "pending-reboot"`로 지정해 유지보수 창에 반영한다.
 - **autovacuum 기본 임계가 큰 테이블에 너무 느슨함.** `autovacuum_vacuum_scale_factor` 0.2는 1억 행 테이블에서 2천만 행이 죽어야 VACUUM이 시작된다는 뜻이다. 큰 테이블에 개별 저장 파라미터를 설정하고 autovacuum 로그로 실행 주기를 검증한다.
 - **관리 서비스의 제약을 설계 전에 확인하지 않음.** RDS는 일부 확장과 서버 파일 경로 `COPY`를 쓸 수 없고, Aurora는 일부 WAL 파라미터를 무시한다. 필요한 확장과 파라미터가 지원되는지 인스턴스 생성 전에 확인한다.

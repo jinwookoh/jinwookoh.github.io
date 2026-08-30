@@ -9,7 +9,7 @@ sources: [ga/2026-05-17-ga-bigquery-export.md, ga/2026-05-17-ga-data-admin-api.m
 updated: 2026-08-30
 ---
 
-GA4 UI만으로는 실험 분석이 막히는 지점이 온다. 탐색은 1천만 이벤트를 넘으면 샘플링이 걸리고, 작은 세그먼트는 threshold로 행이 사라지며, dimension 고유값이 500을 넘으면 나머지가 (other)로 뭉개진다. Standard 속성의 보존 기간은 최대 14개월이다. ==이를 푸는 경로가 BigQuery Export·Data API·Admin API이고, 동시에 Consent Mode와 PII 처리가 따라붙는다.==
+GA4 UI만으로는 실험 분석이 막히는 지점이 온다. 탐색은 1천만 이벤트를 넘으면 샘플링이 걸리고, 작은 세그먼트는 threshold로 행이 사라지며, dimension 고유값이 500을 넘으면 나머지가 (other)로 뭉개진다. Standard 속성의 보존 기간은 최대 14개월이다. 이를 푸는 경로가 BigQuery Export·Data API·Admin API이고, 동시에 Consent Mode와 PII 처리가 따라붙는다.
 
 ## 핵심 개념
 
@@ -27,7 +27,7 @@ Streaming은 best-effort라 완전성을 보장하지 않고 신규 사용자의
 
 Data API는 집계 report를 코드로 꺼낸다. `runReport`·`batchRunReports`(최대 5개)·`runPivotReport`·`runRealtimeReport`(최근 30분) 네 메서드를 dimension·metric·dateRange·filter·orderBy·limit·offset으로 조립하며, Standard 속성은 하루 core token 25,000이 상한이다. Admin API는 Property·Stream·Custom Dimension·Audience·Key Event·Property Linking을 CRUD하므로 Terraform 같은 IaC와 결합한다. 서버 자동화는 Service Account를 쓰고 속성 Access Management에 등록해야 하며, Data API는 Viewer, Admin API는 Editor 이상이 필요하다.
 
-==Privacy의 핵심은 Consent Mode v2다.== `analytics_storage`·`ad_storage`·`ad_user_data`·`ad_personalization` 네 유형을 배너 전 `default`에서 denied로 두고 선택 후 `update`한다. 뒤의 두 유형은 EU DMA 의무라 빠지면 EU 전환 데이터가 비고, 한국 PIPA는 명시 동의와 국외 이전 동의를 요구한다. 미동의 사용자는 cookieless ping으로 modeling에 쓰인다. 이메일·전화번호·주민번호는 약관이 금지하는 PII이며 대개 URL 파라미터·page_title로 자동 유입된다. User ID는 SHA-256 해시로 넘긴다.
+Privacy의 핵심은 Consent Mode v2다. `analytics_storage`·`ad_storage`·`ad_user_data`·`ad_personalization` 네 유형을 배너 전 `default`에서 denied로 두고 선택 후 `update`한다. 뒤의 두 유형은 EU DMA 의무라 빠지면 EU 전환 데이터가 비고, 한국 PIPA는 명시 동의와 국외 이전 동의를 요구한다. 미동의 사용자는 cookieless ping으로 modeling에 쓰인다. 이메일·전화번호·주민번호는 약관이 금지하는 PII이며 대개 URL 파라미터·page_title로 자동 유입된다. User ID는 SHA-256 해시로 넘긴다.
 
 ## 코드
 
@@ -118,7 +118,7 @@ public class DailyReportService {
 
 ## 실무에서 걸리는 지점
 
-- ==`SELECT * FROM events_*`를 `_TABLE_SUFFIX` 없이 실행하면 전체 이력이 스캔된다.== 컬럼을 명시하고 `INFORMATION_SCHEMA.JOBS`로 비용 상위 쿼리를 점검하며, Looker Studio는 요약 테이블에만 연결한다.
+- `SELECT * FROM events_*`를 `_TABLE_SUFFIX` 없이 실행하면 전체 이력이 스캔된다. 컬럼을 명시하고 `INFORMATION_SCHEMA.JOBS`로 비용 상위 쿼리를 점검하며, Looker Studio는 요약 테이블에만 연결한다.
 - `event_timestamp`와 `event_date`는 UTC다. 한국 일자는 `DATE(TIMESTAMP_MICROS(event_timestamp), 'Asia/Seoul')`로 변환하고, 데이터셋 location은 BI 도구와 같은 리전으로 맞춘다.
 - Custom Dimension의 scope와 Audience의 filter는 생성 후 변경할 수 없어 삭제 후 재생성뿐이다. Terraform 관리 리소스를 UI에서 손대면 drift가 생겨 다음 apply에서 되돌아간다.
 - 대시보드가 수 초마다 `runReport`를 호출하면 quota가 소진되어 429가 온다. 결과를 캐시하고 `batchRunReports`로 묶으며 지수 backoff를 건다.

@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-security-authorization-acl.md, data-infra/
 updated: 2026-08-29
 ---
 
-TLS와 SASL로 클라이언트가 누구인지 확인해도, 무엇을 할 수 있는지는 별개의 문제다. 인가 규칙이 없으면 인증만 통과한 애플리케이션이 다른 팀의 topic을 읽고 임의 이름의 topic을 만든다. 여러 팀이 한 클러스터를 공유하면 한 팀의 producer가 대역폭을 독점해 나머지 팀의 지연이 함께 오른다. ==ACL은 접근 범위를, Quota와 naming convention은 자원 사용 범위를 팀 단위로 가른다.==
+TLS와 SASL로 클라이언트가 누구인지 확인해도, 무엇을 할 수 있는지는 별개의 문제다. 인가 규칙이 없으면 인증만 통과한 애플리케이션이 다른 팀의 topic을 읽고 임의 이름의 topic을 만든다. 여러 팀이 한 클러스터를 공유하면 한 팀의 producer가 대역폭을 독점해 나머지 팀의 지연이 함께 오른다. ACL은 접근 범위를, Quota와 naming convention은 자원 사용 범위를 팀 단위로 가른다.
 
 ## 핵심 개념
 
@@ -124,7 +124,7 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- ==**Group ACL 누락.** Topic Read만 주면 poll은 되다가 offset commit에서 `GroupAuthorizationException`이 난다.== `kafka-acls.sh --consumer`는 Topic Read · Describe와 Group Read를, `--producer`는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.
+- **Group ACL 누락.** Topic Read만 주면 poll은 되다가 offset commit에서 `GroupAuthorizationException`이 난다. `kafka-acls.sh --consumer`는 Topic Read · Describe와 Group Read를, `--producer`는 Topic Write · Describe · Create와 Cluster IdempotentWrite를 한 번에 넣는다.
 - **mTLS principal 불일치.** `ssl.principal.mapping.rules`가 어긋나면 ACL의 이름과 실제 principal이 달라 모든 요청이 거부된다. broker 로그의 principal 문자열을 ACL과 대조한다.
 - **`super.users` 남발과 `allow.everyone.if.no.acl.found=true`.** 둘 다 ACL을 무력화한다. 운영 admin 1~2명만 super.users에 둔다.
 - **Quota 부재 또는 과소.** 없으면 producer 하나가 대역폭을 차지하고, 너무 낮으면 throttle이 정상 트래픽에 번진다. user · client-id 별 throttle-time 메트릭을 보며 점진적으로 조정한다.

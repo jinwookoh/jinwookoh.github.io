@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-design-motivation.md, data-infra/2026-05-1
 updated: 2026-08-29
 ---
 
-2010년 무렵 LinkedIn은 하루 수십억 건의 활동 데이터를 수십 개 시스템에 전달해야 했다. 소스 N개와 목적지 M개를 직접 연결하면 N×M개의 파이프라인이 생긴다. 기존 브로커(ActiveMQ·RabbitMQ)는 consume 즉시 메시지를 지우고 consumer별 큐를 BTree로 관리하므로, 며칠치 backlog 보관이나 여러 소비자의 독립적인 재처리를 감당하지 못했다. ==Kafka는 이 문제를 중앙 스트림 허브 하나로 풀되, 설계를 메시지 큐가 아니라 데이터베이스의 write-ahead log에 가깝게 잡았다.== 디스크 1급 저장, 배치, zero-copy는 그 결과다.
+2010년 무렵 LinkedIn은 하루 수십억 건의 활동 데이터를 수십 개 시스템에 전달해야 했다. 소스 N개와 목적지 M개를 직접 연결하면 N×M개의 파이프라인이 생긴다. 기존 브로커(ActiveMQ·RabbitMQ)는 consume 즉시 메시지를 지우고 consumer별 큐를 BTree로 관리하므로, 며칠치 backlog 보관이나 여러 소비자의 독립적인 재처리를 감당하지 못했다. Kafka는 이 문제를 중앙 스트림 허브 하나로 풀되, 설계를 메시지 큐가 아니라 데이터베이스의 write-ahead log에 가깝게 잡았다. 디스크 1급 저장, 배치, zero-copy는 그 결과다.
 
 ## 핵심 개념
 
@@ -106,7 +106,7 @@ public static void sendFile(Path path, SocketAddress address) throws IOException
 
 ## 실무에서 걸리는 지점
 
-- ==**TLS와 zero-copy는 양립하지 않는다.**== 암호화가 user space에서 이뤄지므로 TLS 리스너는 sendfile 경로를 타지 못한다. consumer가 많으면 kTLS나 TLS 종단 분리를 검토한다.
+- **TLS와 zero-copy는 양립하지 않는다.** 암호화가 user space에서 이뤄지므로 TLS 리스너는 sendfile 경로를 타지 못한다. consumer가 많으면 kTLS나 TLS 종단 분리를 검토한다.
 - **`linger.ms`는 그대로 지연에 더해진다.** 배치가 차지 않으면 설정값만큼 대기하므로 실시간 경로는 5~10ms로 제한한다.
 - **broker 힙을 크게 잡으면 페이지 캐시가 줄어든다.** 힙은 4~8GB로 두고 나머지를 OS에 남긴다. lag가 커져 캐시 밖 segment를 읽으면 디스크 I/O가 급증한다.
 - **이미 압축된 payload에 압축을 겹치면 CPU만 낭비한다.** 이미지·압축 파일은 압축률이 1.0~1.5배에 그치므로 `compression.type=none`으로 둔다.

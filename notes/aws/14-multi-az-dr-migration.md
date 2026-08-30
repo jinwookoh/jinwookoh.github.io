@@ -9,7 +9,7 @@ sources: [2026-05-01-aws-saa-architectures.md, 2026-05-01-aws-saa-dr-migration.m
 updated: 2026-08-30
 ---
 
-EC2 한 대에 애플리케이션과 세션과 데이터를 모두 올리면 인스턴스 재시작 한 번에 서비스가 멈추고, AZ 하나의 장애가 곧 전체 장애가 된다. ==리전 단위 재해와 온프레미스 이전까지 고려하면 허용 가능한 데이터 손실과 다운타임을 먼저 숫자로 정해야 한다.== 이 숫자가 없으면 백업 주기도 대기 인프라 규모도 근거 없이 결정된다.
+EC2 한 대에 애플리케이션과 세션과 데이터를 모두 올리면 인스턴스 재시작 한 번에 서비스가 멈추고, AZ 하나의 장애가 곧 전체 장애가 된다. 리전 단위 재해와 온프레미스 이전까지 고려하면 허용 가능한 데이터 손실과 다운타임을 먼저 숫자로 정해야 한다. 이 숫자가 없으면 백업 주기도 대기 인프라 규모도 근거 없이 결정된다.
 
 ## 핵심 개념
 
@@ -26,7 +26,7 @@ RDS Multi-AZ는 동기 복제와 자동 페일오버로 가용성을 확보하�
 
 ### RPO·RTO와 DR 4전략
 
-==RPO는 허용하는 데이터 손실 시간이고 백업 빈도로 결정된다. RTO는 허용하는 다운타임이고 대기 인프라 규모로 결정된다.== 둘 다 줄일수록 비용이 급격히 증가하므로 DR 전략은 비용 제약 아래에서 고른다.
+RPO는 허용하는 데이터 손실 시간이고 백업 빈도로 결정된다. RTO는 허용하는 다운타임이고 대기 인프라 규모로 결정된다. 둘 다 줄일수록 비용이 급격히 증가하므로 DR 전략은 비용 제약 아래에서 고른다.
 
 | 전략 | 평시 상태 | RTO | 비용 |
 |:---|:---|:---|:---|
@@ -35,7 +35,7 @@ RDS Multi-AZ는 동기 복제와 자동 페일오버로 가용성을 확보하�
 | Warm Standby | 전체 스택을 최소 규모로 실행 | 수 분 | 높음 |
 | Multi-Site (Active-Active) | 두 리전 모두 프로덕션 규모 | 거의 0 | 최고 |
 
-==Pilot Light와 Warm Standby의 차이는 EC2가 꺼져 있는지 최소 규모로 켜져 있는지 하나다.== Multi-Site는 Route 53 라우팅과 Aurora Global Database를 결합하고, Direct Connect의 백업 경로는 Site-to-Site VPN으로 둔다.
+Pilot Light와 Warm Standby의 차이는 EC2가 꺼져 있는지 최소 규모로 켜져 있는지 하나다. Multi-Site는 Route 53 라우팅과 Aurora Global Database를 결합하고, Direct Connect의 백업 경로는 Site-to-Site VPN으로 둔다.
 
 AWS Elastic Disaster Recovery(DRS)는 에이전트로 블록 수준 지속 복제를 하며 저사양 스테이징을 유지하다 재해 시 수 분 안에 프로덕션 규모 EC2로 전환한다(RPO 초, RTO 분 단위). AWS Backup은 여러 서비스의 백업을 태그 기반으로 중앙 관리하며, Vault Lock은 WORM 모델을 강제해 루트 사용자조차 백업을 삭제하거나 보존 기간을 줄일 수 없게 한다.
 
@@ -95,7 +95,7 @@ spring:
 
 ## 실무에서 걸리는 지점
 
-- ==RDS 페일오버는 자동이지만 애플리케이션 재연결은 자동이 아니다.== JVM DNS 캐시(`networkaddress.cache.ttl`)와 풀의 `max-lifetime`을 짧게 두지 않으면 페일오버 뒤에도 수 분간 오류가 이어진다.
+- RDS 페일오버는 자동이지만 애플리케이션 재연결은 자동이 아니다. JVM DNS 캐시(`networkaddress.cache.ttl`)와 풀의 `max-lifetime`을 짧게 두지 않으면 페일오버 뒤에도 수 분간 오류가 이어진다.
 - Auto Scaling 확장 속도는 부팅 시간이 결정한다. 무거운 설치는 Golden AMI에 담고 User Data에는 환경별 동적 값만 남긴다.
 - DR 전략은 페일오버 훈련으로 검증한다. 대상 리전에 AMI가 실제로 있는지, 리전마다 다른 AMI ID를 반영했는지 주기적으로 확인한다.
 - DMS CDC는 소스 DB의 트랜잭션 로그에 의존한다. binlog나 logical replication이 꺼져 있으면 증분이 따라오지 않고, Snowball 배송 기간보다 로그 보존이 짧으면 CDC 시작점이 사라진다.

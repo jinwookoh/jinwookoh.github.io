@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-streams-intro.md, data-infra/2026-05-17-ka
 updated: 2026-08-29
 ---
 
-Kafka 토픽의 이벤트를 필터링·집계·조인해 다른 토픽으로 내보내야 할 때, Consumer API로 직접 구현하면 파티션 재분배·상태 복구·정확히 한 번 처리를 손으로 짜야 하고, Spark Streaming·Flink를 쓰면 별도 클러스터 운영과 잡 제출이라는 인프라 부담이 따라온다. Kafka Streams는 이 사이를 메운다. ==Kafka 클러스터만 있으면 되는 클라이언트 라이브러리로, 의존성 하나로 분산·내결함성·exactly-once를 갖춘 스트림 처리를 얻는다.==
+Kafka 토픽의 이벤트를 필터링·집계·조인해 다른 토픽으로 내보내야 할 때, Consumer API로 직접 구현하면 파티션 재분배·상태 복구·정확히 한 번 처리를 손으로 짜야 하고, Spark Streaming·Flink를 쓰면 별도 클러스터 운영과 잡 제출이라는 인프라 부담이 따라온다. Kafka Streams는 이 사이를 메운다. Kafka 클러스터만 있으면 되는 클라이언트 라이브러리로, 의존성 하나로 분산·내결함성·exactly-once를 갖춘 스트림 처리를 얻는다.
 
 ## 핵심 개념
 
@@ -116,7 +116,7 @@ public class TopologyLogger implements ApplicationRunner {
 
 ## 실무에서 걸리는 지점
 
-- ==**파티션 수가 스케일 상한이다.**== 입력 파티션 수를 넘는 인스턴스는 유휴 상태로 남는다. 예상 인스턴스 수의 4~8배로 파티션을 잡는다.
+- **파티션 수가 스케일 상한이다.** 입력 파티션 수를 넘는 인스턴스는 유휴 상태로 남는다. 예상 인스턴스 수의 4~8배로 파티션을 잡는다.
 - **`application.id` 변경은 state 재빌드다.** 내부 토픽·state 디렉토리 이름이 바뀌어 처음부터 다시 쌓는다.
 - **changelog RF와 standby 기본값은 복구를 길게 만든다.** RF 1은 브로커 한 대 손실로 state를 잃을 수 있고, standby 0이면 인스턴스 교체마다 changelog 전체를 다시 읽는다. 운영은 RF 3, standby 1 이상으로 둔다.
 - **Serde 누락은 런타임에야 드러난다.** `count()` 결과를 `Produced.with` 없이 내보내면 기본 String Serde가 `ClassCastException`을 던진다.

@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-springboottest-integration-test.md, spring/2026-05-1
 updated: 2026-08-29
 ---
 
-자동 테스트가 없으면 변경의 영향을 매번 손으로 확인해야 하고, 누락된 경로에서 장애가 난다. 테스트가 있어도 구성이 잘못되면 다른 문제가 생긴다. ==모든 테스트를 `@SpringBootTest`로 작성하면 컨텍스트 기동 비용 때문에 스위트가 수십 분으로 늘어나 실행하지 않게 되고, H2에만 의존하면 PostgreSQL·MySQL 고유 문법 차이 때문에 테스트는 통과하는데 운영에서 SQL이 깨진다.==
+자동 테스트가 없으면 변경의 영향을 매번 손으로 확인해야 하고, 누락된 경로에서 장애가 난다. 테스트가 있어도 구성이 잘못되면 다른 문제가 생긴다. 모든 테스트를 `@SpringBootTest`로 작성하면 컨텍스트 기동 비용 때문에 스위트가 수십 분으로 늘어나 실행하지 않게 되고, H2에만 의존하면 PostgreSQL·MySQL 고유 문법 차이 때문에 테스트는 통과하는데 운영에서 SQL이 깨진다.
 
 ## 핵심 개념
 
@@ -134,8 +134,8 @@ spring:
 ## 실무에서 걸리는 지점
 
 - **컨텍스트 캐시가 깨지는 구성.** Spring Test는 같은 설정의 컨텍스트를 캐시해 재사용하는데, 클래스마다 `@MockitoBean` 조합이나 프로퍼티가 다르면 다시 띄운다. 통합 테스트는 공통 추상 클래스에 구성을 모아 캐시 히트를 높인다.
-- ==**컨테이너 기동 비용.** `@Container`를 인스턴스 필드에 두면 메서드마다 기동된다.== static 필드나 수동 `start()`한 싱글턴 컨테이너를 공유하면 스위트 전체에서 한 번만 기동된다. `.withReuse(true)`는 `~/.testcontainers.properties`에 `testcontainers.reuse.enable=true`가 있어야 동작하고 JVM 종료 후에도 컨테이너가 남으므로 로컬 개발용으로만 쓴다.
-- ==**`@Transactional` 롤백이 가리는 결함.** `REQUIRES_NEW`로 분리된 트랜잭션, `AFTER_COMMIT` 이벤트 리스너, 비동기 스레드의 DB 접근은 롤백 환경에서 실제와 다르게 동작한다.== 이런 경로는 롤백 없이 실행하고 `@Sql`로 정리한다.
+- **컨테이너 기동 비용.** `@Container`를 인스턴스 필드에 두면 메서드마다 기동된다. static 필드나 수동 `start()`한 싱글턴 컨테이너를 공유하면 스위트 전체에서 한 번만 기동된다. `.withReuse(true)`는 `~/.testcontainers.properties`에 `testcontainers.reuse.enable=true`가 있어야 동작하고 JVM 종료 후에도 컨테이너가 남으므로 로컬 개발용으로만 쓴다.
+- **`@Transactional` 롤백이 가리는 결함.** `REQUIRES_NEW`로 분리된 트랜잭션, `AFTER_COMMIT` 이벤트 리스너, 비동기 스레드의 DB 접근은 롤백 환경에서 실제와 다르게 동작한다. 이런 경로는 롤백 없이 실행하고 `@Sql`로 정리한다.
 - **Flyway 버전 충돌과 큰 DML.** 브랜치마다 마이그레이션을 만들면 같은 V 번호가 두 개 생겨 병합 후 기동이 실패한다. 병합 시점에 번호를 확정하는 규칙이 안전하다. 대량 UPDATE는 락으로 배포가 멎으므로 단계를 나눈다.
 - **Docker 없는 CI.** Testcontainers는 Docker 데몬이 필수다. 컨테이너 안에서 빌드하는 러너는 소켓 마운트나 Testcontainers Cloud 설정이 없으면 시작 단계에서 실패한다.
 

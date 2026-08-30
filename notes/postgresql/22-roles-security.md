@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-user-management.md]
 updated: 2026-08-29
 ---
 
-애플리케이션이 postgres 슈퍼유저 하나로 접속하는 구성은 초기에는 편하지만, 커넥션 문자열 하나가 유출되는 순간 DDL·데이터 삭제·설정 변경까지 모두 열린다. 분석가에게 쓰기 권한이 섞여 들어가거나, 새 테이블을 만들 때마다 GRANT를 잊어 서비스가 permission denied로 멈추는 사고도 권한 체계를 세우지 않은 데서 비롯된다. ==PostgreSQL의 ROLE·GRANT·DEFAULT PRIVILEGES·RLS는 이 문제를 접속 주체 단위로 분리하고, 새 객체에도 권한이 자동 적용되도록 만드는 도구다.==
+애플리케이션이 postgres 슈퍼유저 하나로 접속하는 구성은 초기에는 편하지만, 커넥션 문자열 하나가 유출되는 순간 DDL·데이터 삭제·설정 변경까지 모두 열린다. 분석가에게 쓰기 권한이 섞여 들어가거나, 새 테이블을 만들 때마다 GRANT를 잊어 서비스가 permission denied로 멈추는 사고도 권한 체계를 세우지 않은 데서 비롯된다. PostgreSQL의 ROLE·GRANT·DEFAULT PRIVILEGES·RLS는 이 문제를 접속 주체 단위로 분리하고, 새 객체에도 권한이 자동 적용되도록 만드는 도구다.
 
 ## 핵심 개념
 
@@ -30,7 +30,7 @@ ROLE 속성은 시스템 수준 능력을 정한다. `SUPERUSER`, `CREATEDB`, `C
 
 접속 경로는 계층적이다. 데이터베이스 CONNECT, 스키마 USAGE, 테이블 SELECT가 모두 있어야 한 행을 읽을 수 있다. PostgreSQL 15부터 public 스키마의 CREATE가 PUBLIC에서 제거됐으므로, 일반 역할이 public에 객체를 만들려면 CREATE를 명시적으로 부여한다.
 
-==`GRANT ... ON ALL TABLES IN SCHEMA`는 실행 시점에 존재하는 객체에만 적용된다.== 이후 생성되는 객체는 `ALTER DEFAULT PRIVILEGES`로 처리하며, `FOR ROLE`로 "어떤 역할이 만드는 객체에" 적용할지를 지정한다.
+`GRANT ... ON ALL TABLES IN SCHEMA`는 실행 시점에 존재하는 객체에만 적용된다. 이후 생성되는 객체는 `ALTER DEFAULT PRIVILEGES`로 처리하며, `FOR ROLE`로 "어떤 역할이 만드는 객체에" 적용할지를 지정한다.
 
 Row-Level Security는 테이블 권한 아래에 행 단위 필터를 추가한다. `CREATE POLICY`의 `USING`은 읽기·갱신 대상 행을, `WITH CHECK`는 쓰기 허용 행을 정한다. 테이블 소유자와 `BYPASSRLS` 역할은 정책을 우회한다.
 
@@ -137,7 +137,7 @@ public class TenantSessionAspect {
 
 ## 실무에서 걸리는 지점
 
-- ==앱 계정이 테이블 소유자면 RLS가 무력화된다.== 마이그레이션 계정이 소유자가 되고 앱 계정은 별도 역할로 두거나, `FORCE ROW LEVEL SECURITY`를 걸어야 정책이 실제로 작동한다.
+- 앱 계정이 테이블 소유자면 RLS가 무력화된다. 마이그레이션 계정이 소유자가 되고 앱 계정은 별도 역할로 두거나, `FORCE ROW LEVEL SECURITY`를 걸어야 정책이 실제로 작동한다.
 - `ALTER DEFAULT PRIVILEGES`에서 `FOR ROLE`을 생략하면 명령을 실행한 역할이 만드는 객체에만 적용된다. DBA가 실행하고 migrator가 테이블을 만들면 기본 권한은 한 번도 발동하지 않는다. 스키마 단위이므로 새 스키마마다 다시 건다.
 - 테이블 DML만 주고 SEQUENCE의 USAGE를 빠뜨리면 `bigserial`·identity 컬럼 INSERT가 실패한다. `ON ALL SEQUENCES`를 함께 부여한다.
 - `DROP ROLE`은 그 역할이 소유하거나 권한을 받은 객체가 있으면 실패한다. `REASSIGN OWNED BY old TO new` 후 `DROP OWNED BY old`로 정리하며, 두 명령 모두 데이터베이스 단위라 클러스터의 모든 DB에서 반복한다.

@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-job-operator.md, batch/2026-05-17-batch-running
 updated: 2026-08-29
 ---
 
-실행 진입점이 정리되어 있지 않으면 애플리케이션 시작 시 등록된 Job이 전부 자동으로 돌고, REST 요청 스레드가 Job이 끝날 때까지 블로킹되고, 실패한 실행을 이어 돌리는 대신 DB 상태를 손으로 고치게 된다. ==Spring Batch는 실행 엔진(JobLauncher), 제어(JobOperator), 조회(JobExplorer)를 분리해 이 문제를 다룬다.==
+실행 진입점이 정리되어 있지 않으면 애플리케이션 시작 시 등록된 Job이 전부 자동으로 돌고, REST 요청 스레드가 Job이 끝날 때까지 블로킹되고, 실패한 실행을 이어 돌리는 대신 DB 상태를 손으로 고치게 된다. Spring Batch는 실행 엔진(JobLauncher), 제어(JobOperator), 조회(JobExplorer)를 분리해 이 문제를 다룬다.
 
 ## 핵심 개념
 
@@ -27,7 +27,7 @@ Batch 5.x의 `start(String jobName, Properties)`는 execution id(Long)를 반환
 
 ### 동기와 비동기
 
-`TaskExecutorJobLauncher`의 기본 `SyncTaskExecutor`는 호출 스레드에서 Job을 끝까지 돌리므로 `run` 반환 시점이 곧 완료 시점이다. 스레드 풀을 주면 JobExecution을 즉시 반환하고 Job은 별도 스레드에서 돈다. ==CLI 일회성 실행은 동기, `@Scheduled`와 HTTP 트리거는 비동기가 맞다.==
+`TaskExecutorJobLauncher`의 기본 `SyncTaskExecutor`는 호출 스레드에서 Job을 끝까지 돌리므로 `run` 반환 시점이 곧 완료 시점이다. 스레드 풀을 주면 JobExecution을 즉시 반환하고 Job은 별도 스레드에서 돈다. CLI 일회성 실행은 동기, `@Scheduled`와 HTTP 트리거는 비동기가 맞다.
 
 ### JobParameters와 JobInstance 식별
 
@@ -158,7 +158,7 @@ public class StuckJobMonitor {
 
 ## 실무에서 걸리는 지점
 
-- ==**Spring Boot 자동 실행.** `spring.batch.job.enabled` 기본값이 true라 시작 시 등록된 Job이 전부 실행된다.== 운영에서는 false로 두거나 `spring.batch.job.name`으로 대상을 한정한다.
+- **Spring Boot 자동 실행.** `spring.batch.job.enabled` 기본값이 true라 시작 시 등록된 Job이 전부 실행된다. 운영에서는 false로 두거나 `spring.batch.job.name`으로 대상을 한정한다.
 - **동기 launcher의 스레드 점유.** `@Scheduled`에서 동기 launcher를 쓰면 스케줄러 스레드가 묶여 다음 cron이 밀리고, HTTP에서는 응답이 Job 완료까지 지연된다.
 - **stop 이후 polling.** `stop`은 STOPPING 마킹만 하고 반환한다. 곧바로 `restart`하면 아직 STARTED라 실패하므로 STOPPED를 확인한 뒤 다음 명령을 보낸다.
 - **파라미터 타입 drift.** 코드는 `addLong`, CLI는 String으로 넘기면 다른 JobInstance가 되어 재시작이 이어지지 않는다. CLI에서는 `param(long)=123`처럼 타입 힌트를 붙인다.

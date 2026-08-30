@@ -9,11 +9,11 @@ sources: [2026-05-03-webflux-performance.md, 2026-05-03-webflux-reactive-microse
 updated: 2026-08-29
 ---
 
-==WebFlux를 도입했다는 사실만으로 처리량이 오르지는 않는다.== 이벤트 루프 스레드는 CPU 코어 수만큼만 있고, 그중 하나가 JPA 호출이나 파일 I/O에 붙잡히면 그 스레드가 담당하던 모든 요청이 함께 멈춘다. 연결 풀 없이 외부 서비스를 호출하면 요청마다 TCP 핸드셰이크가 반복되고, `flatMap`의 기본 동시성 256은 하위 서비스에 조용히 과부하를 건다. Aggregator에서 호출을 순차로 엮으면 지연이 합산되고, 하위 서비스 하나의 장애가 상위까지 전파된다.
+WebFlux를 도입했다는 사실만으로 처리량이 오르지는 않는다. 이벤트 루프 스레드는 CPU 코어 수만큼만 있고, 그중 하나가 JPA 호출이나 파일 I/O에 붙잡히면 그 스레드가 담당하던 모든 요청이 함께 멈춘다. 연결 풀 없이 외부 서비스를 호출하면 요청마다 TCP 핸드셰이크가 반복되고, `flatMap`의 기본 동시성 256은 하위 서비스에 조용히 과부하를 건다. Aggregator에서 호출을 순차로 엮으면 지연이 합산되고, 하위 서비스 하나의 장애가 상위까지 전파된다.
 
 ## 핵심 개념
 
-최적화 순서는 블로킹 코드 제거, 연결 풀, 응답 압축, `flatMap` 동시성 제한, 캐싱이며 서버 증설은 마지막이다. ==병목이 코드 안에 있으면 인스턴스를 늘려도 해결되지 않는다.==
+최적화 순서는 블로킹 코드 제거, 연결 풀, 응답 압축, `flatMap` 동시성 제한, 캐싱이며 서버 증설은 마지막이다. 병목이 코드 안에 있으면 인스턴스를 늘려도 해결되지 않는다.
 
 **블로킹 격리.** 블로킹 호출은 `Mono.fromCallable`로 감싸고 `subscribeOn(Schedulers.boundedElastic())`으로 별도 풀에 보낸다. 기본 최대 스레드는 CPU 코어 × 10(최소 10), 대기 큐는 100,000개이며 큐가 차면 `RejectedExecutionException`이 발생한다. CPU 집약 작업은 `parallel()`을 쓰고, 개발 환경에서는 BlockHound로 블로킹 호출을 잡아낸다.
 
@@ -131,7 +131,7 @@ public class PortfolioAggregator {
 ## 실무에서 걸리는 지점
 
 - `Mono.cache()`를 `ConcurrentHashMap`에 넣는 방식은 값의 TTL만 있고 맵 엔트리는 제거되지 않는다. 키 공간이 크거나 인스턴스가 여러 개면 Reactive Redis로 옮긴다.
-- ==`pendingAcquireTimeout`이 없으면 풀 고갈 시 요청이 무한 대기한다.== Gzip 효과는 localhost에서 측정되지 않으므로 네트워크 구간이 있는 환경에서 부하 도구로 확인한다.
+- `pendingAcquireTimeout`이 없으면 풀 고갈 시 요청이 무한 대기한다. Gzip 효과는 localhost에서 측정되지 않으므로 네트워크 구간이 있는 환경에서 부하 도구로 확인한다.
 - `onStatus` 조건에 `HttpStatus.NOT_FOUND::equals`처럼 enum 동일성을 쓰면 `HttpStatusCode` 구현체에 따라 매칭이 빗나갈 수 있다. `status -> status.value() == 404`로 비교한다.
 - SSE를 릴레이하는 엔드포인트에 `produces = TEXT_EVENT_STREAM_VALUE`가 없으면 Flux가 JSON 배열로 수집돼 스트림이 끊긴다. 클라이언트 쪽도 `accept(MediaType.TEXT_EVENT_STREAM)`과 `bodyToFlux`로 받아야 한다.
 - Resilience4j 애노테이션은 `resilience4j-reactor` 어댑터가 있어야 Mono/Flux를 인식한다. 코어 모듈만 추가하면 리액티브 파이프라인에서 동작하지 않는다.

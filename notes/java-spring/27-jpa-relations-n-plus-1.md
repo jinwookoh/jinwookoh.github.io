@@ -9,7 +9,7 @@ sources: [spring/2026-05-17-jpa-relations.md, spring/2026-05-17-jpa-embedded-emb
 updated: 2026-08-29
 ---
 
-고객은 여러 주문을 가지고, 주문은 여러 항목을 담으며, 주문에는 주소와 금액이 붙는다. 이 구조를 외래 키 컬럼과 개별 필드로만 표현하면 서비스 코드가 ID를 들고 반복 조회를 하고, 연관 객체의 로딩 시점이 드러나지 않아 목록 화면 하나에 SQL이 수백 번 나가는 N+1이 생기며, 주소·금액 필드가 엔티티마다 흩어져 검증·계산 로직이 중복된다. ==연관관계 매핑, 페치 전략, `@Embeddable` 값 객체가 이 세 문제를 각각 맡는다.==
+고객은 여러 주문을 가지고, 주문은 여러 항목을 담으며, 주문에는 주소와 금액이 붙는다. 이 구조를 외래 키 컬럼과 개별 필드로만 표현하면 서비스 코드가 ID를 들고 반복 조회를 하고, 연관 객체의 로딩 시점이 드러나지 않아 목록 화면 하나에 SQL이 수백 번 나가는 N+1이 생기며, 주소·금액 필드가 엔티티마다 흩어져 검증·계산 로직이 중복된다. 연관관계 매핑, 페치 전략, `@Embeddable` 값 객체가 이 세 문제를 각각 맡는다.
 
 ## 핵심 개념
 
@@ -195,10 +195,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
 ## 실무에서 걸리는 지점
 
-- ==**컬렉션 Fetch Join과 페이징을 함께 쓰면 메모리 페이징이 일어난다.**== Hibernate는 `HHH90003004` 경고를 남기고 전체 결과를 메모리에 올린 뒤 잘라낸다. 컬렉션은 `hibernate.default_batch_fetch_size`로 IN 쿼리 묶음 로딩을 하고, Fetch Join은 `@ManyToOne` 방향에만 쓴다.
+- **컬렉션 Fetch Join과 페이징을 함께 쓰면 메모리 페이징이 일어난다.** Hibernate는 `HHH90003004` 경고를 남기고 전체 결과를 메모리에 올린 뒤 잘라낸다. 컬렉션은 `hibernate.default_batch_fetch_size`로 IN 쿼리 묶음 로딩을 하고, Fetch Join은 `@ManyToOne` 방향에만 쓴다.
 - **`CascadeType.REMOVE`와 `orphanRemoval`은 자식 행을 한 건씩 DELETE한다.** 자식이 수천 건이면 그만큼의 DELETE 문이 나간다. 대량 삭제는 `@Modifying` 벌크 JPQL이나 DB의 `ON DELETE CASCADE`로 처리한다.
 - **Lombok `@Data`·`@ToString`을 엔티티에 붙이면 양방향 관계에서 `StackOverflowError`가 난다.** `equals`는 ID 기반으로 직접 구현하고, `hashCode`는 영속화 전후로 ID가 바뀌어도 `Set` 버킷이 유지되도록 클래스 상수로 둔다.
-- ==**트랜잭션 밖에서 LAZY 컬렉션에 접근하면 `LazyInitializationException`이 난다.**== `spring.jpa.open-in-view=true` 기본값이 이를 감추지만 뷰 렌더링까지 커넥션을 붙잡는다. OSIV를 끄고 서비스 계층 안에서 DTO로 변환해 반환한다.
+- **트랜잭션 밖에서 LAZY 컬렉션에 접근하면 `LazyInitializationException`이 난다.** `spring.jpa.open-in-view=true` 기본값이 이를 감추지만 뷰 렌더링까지 커넥션을 붙잡는다. OSIV를 끄고 서비스 계층 안에서 DTO로 변환해 반환한다.
 
 ## 관련 글
 

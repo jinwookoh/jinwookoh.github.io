@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-kafka-log-compaction.md, data-infra/2026-05-17-k
 updated: 2026-08-29
 ---
 
-기본 정책 `cleanup.policy=delete` 는 세그먼트를 시간이나 크기 기준으로 통째로 버린다. 이 모델이 놓치는 요구가 둘 있다. 하나는 프로필·설정·CDC 처럼 각 key 의 최신 상태만 의미 있는 데이터다. 시간으로 자르면 오래 갱신되지 않은 key 가 사라지고, 자르지 않으면 낡은 이력이 디스크를 채운다. 다른 하나는 수년치 이벤트를 보존해야 하는 경우다. 읽기는 최근 데이터에 몰리는데도 오래된 데이터가 브로커 SSD 를 복제본 수만큼 차지한다. ==Log Compaction 은 첫 번째를, Tiered Storage 는 두 번째를 해결한다.==
+기본 정책 `cleanup.policy=delete` 는 세그먼트를 시간이나 크기 기준으로 통째로 버린다. 이 모델이 놓치는 요구가 둘 있다. 하나는 프로필·설정·CDC 처럼 각 key 의 최신 상태만 의미 있는 데이터다. 시간으로 자르면 오래 갱신되지 않은 key 가 사라지고, 자르지 않으면 낡은 이력이 디스크를 채운다. 다른 하나는 수년치 이벤트를 보존해야 하는 경우다. 읽기는 최근 데이터에 몰리는데도 오래된 데이터가 브로커 SSD 를 복제본 수만큼 차지한다. Log Compaction 은 첫 번째를, Tiered Storage 는 두 번째를 해결한다.
 
 ## 핵심 개념
 
@@ -99,7 +99,7 @@ public NewTopic eventsTopic() {
 
 ## 실무에서 걸리는 지점
 
-- ==**key 가 없으면 compaction 이 성립하지 않는다.**== compacted 토픽에 key 가 `null` 인 레코드는 브로커가 거부한다.
+- **key 가 없으면 compaction 이 성립하지 않는다.** compacted 토픽에 key 가 `null` 인 레코드는 브로커가 거부한다.
 - **tombstone 을 보내지 않으면 영원히 남는다.** 반대로 `delete.retention.ms` 가 너무 짧으면 느린 consumer 가 삭제를 보지 못해 로컬 캐시에 유령 데이터가 남는다.
 - **log cleaner 는 CPU 와 디스크 I/O 를 소비한다.** `log.cleaner.threads`, `log.cleaner.io.max.bytes.per.second` 로 조절하고, `uncleanable-partitions-count` 가 0 을 넘으면 cleaner 가 따라가지 못하는 상태다.
 - **compacted 토픽은 tiered storage 를 켤 수 없다.** `cleanup.policy` 에 `compact` 가 포함되면 `remote.storage.enable=true` 는 거부된다.

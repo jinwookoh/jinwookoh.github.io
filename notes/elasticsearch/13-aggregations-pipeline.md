@@ -9,11 +9,11 @@ sources: [elasticsearch/2026-05-19-elasticsearch-aggregations-pipeline.md]
 updated: 2026-08-29
 ---
 
-Metric과 Bucket 집계만으로 일별 매출 합 같은 1차 통계는 구할 수 있다. 그러나 운영 화면이 요구하는 숫자는 대개 1차 통계의 변화다. 전일 대비 증감, 7일 이동 평균, 누적 가입자, 매출 상위 10개 카테고리는 응답을 받은 뒤 애플리케이션 코드에서 다시 계산해야 했다. ==이 후처리를 Elasticsearch 안으로 끌어들여 한 요청에서 끝내는 것이 Pipeline Aggregation이다.==
+Metric과 Bucket 집계만으로 일별 매출 합 같은 1차 통계는 구할 수 있다. 그러나 운영 화면이 요구하는 숫자는 대개 1차 통계의 변화다. 전일 대비 증감, 7일 이동 평균, 누적 가입자, 매출 상위 10개 카테고리는 응답을 받은 뒤 애플리케이션 코드에서 다시 계산해야 했다. 이 후처리를 Elasticsearch 안으로 끌어들여 한 요청에서 끝내는 것이 Pipeline Aggregation이다.
 
 ## 핵심 개념
 
-==Pipeline 집계는 문서를 직접 읽지 않는다.== 이미 계산된 다른 집계의 결과를 입력으로 받아 한 번 더 가공하는 후처리 노드다. 그래서 모든 pipeline 집계의 공통 파라미터가 `buckets_path`이며, 어느 집계 결과를 입력으로 쓸지 가리키는 경로 문자열이다. `>`가 경로 구분자로, `sales_per_day>daily_revenue`는 `sales_per_day` 안의 `daily_revenue`를 뜻한다.
+Pipeline 집계는 문서를 직접 읽지 않는다. 이미 계산된 다른 집계의 결과를 입력으로 받아 한 번 더 가공하는 후처리 노드다. 그래서 모든 pipeline 집계의 공통 파라미터가 `buckets_path`이며, 어느 집계 결과를 입력으로 쓸지 가리키는 경로 문자열이다. `>`가 경로 구분자로, `sales_per_day>daily_revenue`는 `sales_per_day` 안의 `daily_revenue`를 뜻한다.
 
 어디에 매달려 무엇을 보느냐에 따라 두 종류로 나뉜다.
 
@@ -156,7 +156,7 @@ public class DailyRevenueService {
 
 ## 실무에서 걸리는 지점
 
-- ==`buckets_path` 오타는 400 에러로 잡히지 않는다.== 잘못된 경로는 빈 결과나 NaN으로 돌아온다. 경로와 metric 이름을 상수로 관리하고 Kibana Dev Tools에서 먼저 확인한다.
+- `buckets_path` 오타는 400 에러로 잡히지 않는다. 잘못된 경로는 빈 결과나 NaN으로 돌아온다. 경로와 metric 이름을 상수로 관리하고 Kibana Dev Tools에서 먼저 확인한다.
 - `bucket_selector`는 terms가 `size`만큼 버킷을 확정한 뒤에 동작한다. 상위 10개 안에 없던 조건 충족 버킷은 이미 잘려 있으므로 size를 전체 개수에 가깝게 키운다. terms의 `order`에 pipeline 결과를 넣는 것도 동작하지 않으며, 정렬은 `bucket_sort`로 분리한다.
 - `bucket_script`는 버킷 수만큼 스크립트를 실행한다. 식이 복잡하면 집계 본체보다 스크립트 비용이 커지므로 식을 단순하게 유지하고 selector로 버킷을 먼저 줄인다.
 - `percentiles_bucket`은 입력 버킷 수가 표본 크기다. 7개 버킷의 p99는 통계적으로 의미가 없고, 최소 30~50개 버킷 이상에서만 쓴다.

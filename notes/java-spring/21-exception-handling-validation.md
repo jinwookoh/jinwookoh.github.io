@@ -9,7 +9,7 @@ sources: [spring/2026-05-16-exception-handler-controlleradvice.md, spring/2026-0
 updated: 2026-08-29
 ---
 
-서비스에서 "주문 없음" 예외가 올라오면, 별도 처리가 없을 때 Spring Boot는 500으로 응답한다. 정상적인 404 케이스인데도 클라이언트는 서버 장애로 인식한다. 컨트롤러마다 try-catch를 넣으면 변환 코드가 중복되고, DTO 검증을 if 문으로 처리하면 비즈니스 로직 앞에 방어 코드가 쌓인다. ==예외를 상태 코드와 일관된 JSON으로 바꾸는 일과 입력 형식을 검사하는 일은 컨트롤러 바깥으로 빼야 한다.==
+서비스에서 "주문 없음" 예외가 올라오면, 별도 처리가 없을 때 Spring Boot는 500으로 응답한다. 정상적인 404 케이스인데도 클라이언트는 서버 장애로 인식한다. 컨트롤러마다 try-catch를 넣으면 변환 코드가 중복되고, DTO 검증을 if 문으로 처리하면 비즈니스 로직 앞에 방어 코드가 쌓인다. 예외를 상태 코드와 일관된 JSON으로 바꾸는 일과 입력 형식을 검사하는 일은 컨트롤러 바깥으로 빼야 한다.
 
 ## 핵심 개념
 
@@ -167,9 +167,9 @@ public class UniqueEmailValidator implements ConstraintValidator<UniqueEmail, St
 ## 실무에서 걸리는 지점
 
 - **500 핸들러의 로그 누락.** 클라이언트에는 일반화된 메시지만 보내고 스택 트레이스는 서버 로그에 남긴다. 반대로 404·400을 ERROR 레벨로 남기면 로그 노이즈가 커진다.
-- ==**Security 예외는 ControllerAdvice에 도달하지 않는다.**== 인증·인가 실패는 Filter 단계에서 발생하므로 `AuthenticationEntryPoint`·`AccessDeniedHandler`로 형식을 맞춘다. `@ExceptionHandler(AccessDeniedException.class)`는 `@PreAuthorize` 실패에만 걸린다.
+- **Security 예외는 ControllerAdvice에 도달하지 않는다.** 인증·인가 실패는 Filter 단계에서 발생하므로 `AuthenticationEntryPoint`·`AccessDeniedHandler`로 형식을 맞춘다. `@ExceptionHandler(AccessDeniedException.class)`는 `@PreAuthorize` 실패에만 걸린다.
 - **DB 조회 Validator의 경쟁 조건.** 검증 통과 후 저장 사이에 동일 이메일이 삽입될 수 있다. 최종 보장은 DB unique 제약과 `DataIntegrityViolationException` 처리에 두고, Validator는 조기 피드백 용도로 한정한다.
-- ==**검증 예외 타입이 하나가 아니다.**== `@Validated` 클래스의 메서드 인자 검증 실패는 `ConstraintViolationException`, `@RequestParam`·`@PathVariable` 제약 실패는 Spring 6.1부터 `HandlerMethodValidationException`으로 올라온다. `MethodArgumentNotValidException` 핸들러만 있으면 이들은 500으로 새어 나간다.
+- **검증 예외 타입이 하나가 아니다.** `@Validated` 클래스의 메서드 인자 검증 실패는 `ConstraintViolationException`, `@RequestParam`·`@PathVariable` 제약 실패는 Spring 6.1부터 `HandlerMethodValidationException`으로 올라온다. `MethodArgumentNotValidException` 핸들러만 있으면 이들은 500으로 새어 나간다.
 - **검증과 비즈니스 규칙의 경계.** 재고 부족 같은 규칙을 제약 어노테이션에 넣으면 트랜잭션 경계 밖에서 실행되고 테스트가 어려워진다. 서비스에서 도메인 예외로 던지고 핸들러가 상태 코드로 변환한다.
 
 ## 관련 글

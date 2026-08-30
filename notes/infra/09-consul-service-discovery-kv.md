@@ -9,7 +9,7 @@ sources: [2026-05-03-consul-service-discovery.md, 2026-05-03-consul-kv-store.md]
 updated: 2026-08-30
 ---
 
-서비스 주소를 설정 파일에 박아 두면 인스턴스가 늘거나 죽을 때마다 재배포해야 하고, 죽은 인스턴스로 요청이 가는 것도 막지 못한다. 기능 플래그 하나를 바꾸는 데도 재배포가 필요하다. ==Consul은 이 두 문제를 Service Discovery와 KV Store로 해결한다.==
+서비스 주소를 설정 파일에 박아 두면 인스턴스가 늘거나 죽을 때마다 재배포해야 하고, 죽은 인스턴스로 요청이 가는 것도 막지 못한다. 기능 플래그 하나를 바꾸는 데도 재배포가 필요하다. Consul은 이 두 문제를 Service Discovery와 KV Store로 해결한다.
 
 ## 핵심 개념
 
@@ -17,7 +17,7 @@ updated: 2026-08-30
 
 서비스는 로컬 에이전트에 등록한다. 구성 디렉터리의 HCL 파일 또는 `PUT /v1/agent/service/register` 두 방법이 있다. 소유권은 에이전트에 있어 노드가 내려가면 그 서비스도 카탈로그에서 비활성화된다. 정의에는 `tags`(DNS 필터 가능)와 `meta`(HTTP API로만 조회)를 붙인다.
 
-DNS 인터페이스는 8600 포트에서 `<service>.service.consul`을 해석한다. `<tag>.<service>.service.consul`로 태그를 거르고 `web.service.dc2.consul`로 데이터센터를 지정하며 SRV 레코드로 포트까지 받는다. ==DNS 응답은 헬스 체크를 통과한 인스턴스만 담는다.==
+DNS 인터페이스는 8600 포트에서 `<service>.service.consul`을 해석한다. `<tag>.<service>.service.consul`로 태그를 거르고 `web.service.dc2.consul`로 데이터센터를 지정하며 SRV 레코드로 포트까지 받는다. DNS 응답은 헬스 체크를 통과한 인스턴스만 담는다.
 
 HTTP API는 `/v1/catalog/service/<name>`이 헬스와 무관한 전체 인스턴스를, `/v1/health/service/<name>?passing`이 통과한 인스턴스만 반환한다. 트래픽 라우팅에는 후자를 쓴다. Prepared Query는 `OnlyPassing`·태그 필터·가까운 DC 우선·페일오버를 서버에 미리 정의해 두고 `<name>.query.consul`로 호출하는 기능이다.
 
@@ -139,7 +139,7 @@ EOF
 
 ## 실무에서 걸리는 지점
 
-- ==**`/catalog`로 라우팅하면 죽은 인스턴스로 요청이 간다.**== 직접 API를 쓰는 클라이언트는 `/health/service?passing`을 써야 하고, 클라이언트 리졸버가 DNS 결과를 오래 캐시하면 Consul이 걸러낸 인스턴스가 다시 살아난다.
+- **`/catalog`로 라우팅하면 죽은 인스턴스로 요청이 간다.** 직접 API를 쓰는 클라이언트는 `/health/service?passing`을 써야 하고, 클라이언트 리졸버가 DNS 결과를 오래 캐시하면 Consul이 걸러낸 인스턴스가 다시 살아난다.
 - **Script 체크는 임의 명령 실행 경로다.** `enable_script_checks`를 켜면 HTTP API로 등록한 체크도 스크립트를 실행할 수 있다. 필요하면 로컬 구성 파일만 허용하는 `enable_local_script_checks`를 쓴다.
 - **TTL 체크는 푸시 스레드가 멈추면 프로세스가 살아 있어도 critical이 된다.** 푸시 주기는 TTL의 절반 이하로 두고 푸시 실패를 메트릭으로 남긴다.
 - **블로킹 쿼리는 서버 부하를 만든다.** 수백 인스턴스가 watch를 걸면 매 변경마다 전부가 응답을 받고 재요청한다. `delay`를 넓히고 prefix 단위로 묶으며 자주 바뀌는 값은 KV에 두지 않는다.

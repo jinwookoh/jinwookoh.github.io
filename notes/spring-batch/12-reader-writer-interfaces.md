@@ -9,7 +9,7 @@ sources: [batch/2026-05-17-batch-item-reader.md, batch/2026-05-17-batch-item-wri
 updated: 2026-08-29
 ---
 
-입출력을 소스별로 따로 짜면 CSV 파서, JDBC 커서, Kafka 컨슈머가 각자 다른 종료 조건과 재시작 규칙을 갖게 되고, Step의 skip·retry 로직이 그 차이를 흡수하지 못한다. ==Spring Batch는 읽기와 쓰기를 메서드 하나짜리 인터페이스로 고정하고 그 위에 표준 구현체를 제공한다.==
+입출력을 소스별로 따로 짜면 CSV 파서, JDBC 커서, Kafka 컨슈머가 각자 다른 종료 조건과 재시작 규칙을 갖게 되고, Step의 skip·retry 로직이 그 차이를 흡수하지 못한다. Spring Batch는 읽기와 쓰기를 메서드 하나짜리 인터페이스로 고정하고 그 위에 표준 구현체를 제공한다.
 
 ## 핵심 개념
 
@@ -23,7 +23,7 @@ Reader는 forward-only다. JMS·Kafka 같은 transactional 소스는 rollback �
 
 `ItemWriter<T>`는 `void write(Chunk<? extends T> items)` 하나를 가진다. commit-interval만큼 모인 묶음을 한 트랜잭션 안에서 처리한다. 빈 chunk로도 호출되므로 `isEmpty()` 가드가 필요하다.
 
-`write()`가 예외를 던지면 chunk가 rollback되고 retry가 같은 묶음으로 다시 호출한다. ==외부 API 호출이나 파일 append는 되돌아가지 않으므로 Writer는 멱등해야 한다.== UPSERT와 idempotency key를 쓴다.
+`write()`가 예외를 던지면 chunk가 rollback되고 retry가 같은 묶음으로 다시 호출한다. 외부 API 호출이나 파일 append는 되돌아가지 않으므로 Writer는 멱등해야 한다. UPSERT와 idempotency key를 쓴다.
 
 ### Delegate Pattern과 Step 등록
 
@@ -157,7 +157,7 @@ public Step orderStep(JobRepository jobRepository, PlatformTransactionManager tx
 
 - **Reader의 thread-safety.** `FlatFileItemReader`·`JdbcCursorItemReader`는 multi-threaded Step에서 `SynchronizedItemStreamReader`로 감싸거나 partitioning으로 바꾼다.
 - **Cursor connection timeout.** `JdbcCursorItemReader`는 Step 종료까지 connection을 붙들어 idle timeout에 걸린다.
-- ==**CompositeItemWriter의 부분 실패.** 파일 delegate가 실패하면 chunk는 rollback되지만 파일 기록은 남는다.== 파일 출력은 Step을 분리한다.
+- **CompositeItemWriter의 부분 실패.** 파일 delegate가 실패하면 chunk는 rollback되지만 파일 기록은 남는다. 파일 출력은 Step을 분리한다.
 - **JpaItemWriter의 batch insert.** `hibernate.jdbc.batch_size` 설정과 `SEQUENCE` ID 전략일 때만 JDBC batch가 동작한다.
 - **Classifier의 default branch.** classifier가 `null`을 돌려주면 NPE가 나므로 default delegate를 둔다.
 

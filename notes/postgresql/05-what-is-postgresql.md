@@ -9,7 +9,7 @@ sources: [data-infra/2026-05-17-pg-intro.md, data-infra/2026-05-17-pg-architectu
 updated: 2026-08-29
 ---
 
-영속화 계층이 없으면 애플리케이션 상태는 프로세스 메모리에 머물고 재시작·장애·스케일 아웃 어느 상황에서도 살아남지 못한다. ==JPA가 SQL을 생성해 주더라도 그 SQL은 특정 RDBMS 위에서 실행되며, 저장소의 동작을 모르면 느린 쿼리 진단·인덱스 설계·대용량 운영 어느 것도 할 수 없다.==
+영속화 계층이 없으면 애플리케이션 상태는 프로세스 메모리에 머물고 재시작·장애·스케일 아웃 어느 상황에서도 살아남지 못한다. JPA가 SQL을 생성해 주더라도 그 SQL은 특정 RDBMS 위에서 실행되며, 저장소의 동작을 모르면 느린 쿼리 진단·인덱스 설계·대용량 운영 어느 것도 할 수 없다.
 
 ## 핵심 개념
 
@@ -35,7 +35,7 @@ MVCC(Multi-Version Concurrency Control)는 같은 행의 여러 버전을 유지
 
 ### 클라이언트·서버와 프로세스 모델
 
-클라이언트가 TCP 5432로 접속하면 부모 프로세스 postmaster가 `pg_hba.conf` 규칙으로 인증한 뒤 backend 프로세스를 fork한다. 클라이언트와 backend는 1:1이며, 옆에서 WAL writer·checkpointer·autovacuum launcher 같은 보조 프로세스가 상시 동작한다. ==MySQL의 스레드 모델과 달리 연결마다 프로세스를 두므로 연결 풀이 사실상 필수다.== 데이터·인덱스 페이지는 `shared_buffers`에 캐시되고, 모든 변경은 데이터 파일보다 먼저 `pg_wal`의 WAL에 기록된다.
+클라이언트가 TCP 5432로 접속하면 부모 프로세스 postmaster가 `pg_hba.conf` 규칙으로 인증한 뒤 backend 프로세스를 fork한다. 클라이언트와 backend는 1:1이며, 옆에서 WAL writer·checkpointer·autovacuum launcher 같은 보조 프로세스가 상시 동작한다. MySQL의 스레드 모델과 달리 연결마다 프로세스를 두므로 연결 풀이 사실상 필수다. 데이터·인덱스 페이지는 `shared_buffers`에 캐시되고, 모든 변경은 데이터 파일보다 먼저 `pg_wal`의 WAL에 기록된다.
 
 ### 4단계 계층
 
@@ -137,7 +137,7 @@ public class Order {
 
 ## 실무에서 걸리는 지점
 
-- ==**연결 수가 곧 프로세스 수다.**== 풀 없이 요청마다 접속하면 backend 프로세스가 수백 개로 늘어난다. HikariCP와 PgBouncer를 함께 두고 총 연결 수를 `max_connections` 이하로 설계한다.
+- **연결 수가 곧 프로세스 수다.** 풀 없이 요청마다 접속하면 backend 프로세스가 수백 개로 늘어난다. HikariCP와 PgBouncer를 함께 두고 총 연결 수를 `max_connections` 이하로 설계한다.
 - **"데이터베이스"라는 단어의 층위.** 클러스터와 그 안의 한 데이터베이스를 같은 단어로 부르므로 마이그레이션·복구 논의에서 어느 단계인지 먼저 고정한다. 다른 데이터베이스는 `postgres_fdw`나 별도 연결로만 접근한다.
 - **public 스키마에 모든 객체를 두는 습관.** 이름 충돌과 권한 분리가 어려워지므로 스키마를 일찍 나누고 `search_path`를 명시한다.
 - **콤마 구분 문자열과 자연 키.** `'red,blue'` 같은 셀은 별도 테이블이나 배열 타입으로 분리한다. 이메일을 기본 키로 잡으면 변경 시 참조하는 외래 키가 함께 깨진다.

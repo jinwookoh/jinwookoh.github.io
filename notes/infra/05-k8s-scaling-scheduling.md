@@ -9,7 +9,7 @@ sources: [2026-05-03-k8s-scaling-scheduling.md]
 updated: 2026-08-30
 ---
 
-replicas를 고정해 두면 트래픽이 늘 때 사람이 숫자를 고쳐야 하고, 줄어도 비용이 남는다. 프로세스가 데드락에 빠져도 kubelet은 모른 채 트래픽을 흘려보낸다. 배치 기준이 없으면 replicas 3개가 한 노드에 모여 노드 장애 한 번에 서비스가 내려가고, 한 팀이 namespace 자원을 다 쓰면 다른 팀의 Pod이 Pending에 걸린다. ==자동 확장·Probe·스케줄링 제어·자원 한도가 이 네 문제를 맡는다.==
+replicas를 고정해 두면 트래픽이 늘 때 사람이 숫자를 고쳐야 하고, 줄어도 비용이 남는다. 프로세스가 데드락에 빠져도 kubelet은 모른 채 트래픽을 흘려보낸다. 배치 기준이 없으면 replicas 3개가 한 노드에 모여 노드 장애 한 번에 서비스가 내려가고, 한 팀이 namespace 자원을 다 쓰면 다른 팀의 Pod이 Pending에 걸린다. 자동 확장·Probe·스케줄링 제어·자원 한도가 이 네 문제를 맡는다.
 
 ## 핵심 개념
 
@@ -31,7 +31,7 @@ HPA(`autoscaling/v2`)는 Metrics Server가 수집한 CPU·메모리 사용률 �
 | Readiness | 트래픽을 받을 수 있는가 | Service Endpoints에서 제외, 재시작 없음 |
 | Startup | 기동이 끝났는가 | 재시작. 성공 전까지 나머지 두 Probe 비활성 |
 
-Liveness는 프로세스는 살아 있지만 복구 불가능한 상태를 잡는다. Readiness는 워밍업 중이거나 외부 의존이 끊긴 상황에서 트래픽만 끊는다. ==Startup은 기동이 긴 앱에 `failureThreshold × periodSeconds` 만큼 유예를 주어 Liveness가 기동 중인 컨테이너를 죽이지 못하게 막는다.== 검사 방식은 `httpGet`·`tcpSocket`·`exec`·`grpc`다.
+Liveness는 프로세스는 살아 있지만 복구 불가능한 상태를 잡는다. Readiness는 워밍업 중이거나 외부 의존이 끊긴 상황에서 트래픽만 끊는다. Startup은 기동이 긴 앱에 `failureThreshold × periodSeconds` 만큼 유예를 주어 Liveness가 기동 중인 컨테이너를 죽이지 못하게 막는다. 검사 방식은 `httpGet`·`tcpSocket`·`exec`·`grpc`다.
 
 ### 스케줄링 제어 4가지
 
@@ -167,7 +167,7 @@ spec:
 
 ## 실무에서 걸리는 지점
 
-- ==**Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.**== DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다. 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.
+- **Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.** DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다. 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.
 - **Startup Probe 없이 JVM 앱을 올리면 기동 중에 죽는다.** `initialDelaySeconds`로 버티는 방식은 기동 시간이 늘면 깨진다. `failureThreshold × periodSeconds`를 최악의 기동 시간보다 넉넉히 잡는다.
 - **HPA는 CPU requests가 없으면 동작하지 않는다.** 사용률 분모가 requests이므로 생략하면 메트릭이 `unknown`이 된다. VPA와 HPA를 같은 메트릭에 동시에 걸면 서로 반대 방향으로 조정해 충돌한다.
 - **PDB와 AntiAffinity가 drain을 막을 수 있다.** `minAvailable: 2`에 replicas 2면 drain이 끝나지 않고, `required` AntiAffinity는 노드보다 replicas가 많으면 Pending을 만든다. 노드가 적으면 `preferred`로 완화한다.
