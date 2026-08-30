@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ingest Pipeline과 수집기 (Logstash·Beats·Fluentd) · Elasticsearch</title>
+  <meta name="description" content="색인 전 가공은 ES 안의 Ingest Pipeline이 맡고, 수집·전송은 Beats·Fluent Bit·Logstash·Vector 중 규모에 맞게 고른다">
+  <meta property="og:title" content="Ingest Pipeline과 수집기 (Logstash·Beats·Fluentd) · Elasticsearch">
+  <meta property="og:description" content="색인 전 가공은 ES 안의 Ingest Pipeline이 맡고, 수집·전송은 Beats·Fluent Bit·Logstash·Vector 중 규모에 맞게 고른다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/ingest-pipeline-collectors/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Ingest Pipeline과 수집기 (Logstash·Beats·Fluentd)</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 수집</p>
+  <h1>Ingest Pipeline과 수집기 (Logstash·Beats·Fluentd)</h1>
+  <p class="summary">색인 전 가공은 ES 안의 Ingest Pipeline이 맡고, 수집·전송은 Beats·Fluent Bit·Logstash·Vector 중 규모에 맞게 고른다</p>
+  <div class="content">
+<p>현실의 로그는 ES가 바로 받을 수 있는 JSON으로 오지 않는다. nginx access log는 한 줄 텍스트이고 Kubernetes Pod 로그는 노드 파일 시스템에 흩어져 있다. 필드로 쪼개고 타임스탬프를 맞추고 민감 필드를 지우는 작업을 클라이언트마다 구현하면 파싱 규칙이 분산되고 규칙 변경마다 배포가 따라붙는다. 그래서 수집 경로는 서버에서 ES까지 데이터를 옮기는 외부 수집기와, 색인 직전 문서를 가공하는 ES 내장 Ingest Pipeline 두 층으로 나눈다.</p>
+<h2>핵심 개념</h2>
+<p>Ingest Pipeline은 색인 직전의 전처리 단계를 클러스터 단위 리소스로 정의한 것이다. <code>PUT _ingest/pipeline/{name}</code>으로 만들며 <code>processors</code> 배열이 순차 실행되고, 실패 시 <code>on_failure</code> 블록이 대신 실행된다. 8.x에서는 역할을 명시하지 않은 노드가 모두 ingest 역할을 가지며, 대규모 환경에서는 <code>node.roles: [ingest]</code> 전용 노드를 분리한다.</p>
+<p>자주 쓰는 processor는 <code>grok</code>(alias 정규식 추출, Logstash와 문법 동일), <code>dissect</code>(구분자 기반 파서), <code>set</code>, <code>remove</code>, <code>rename</code>, <code>convert</code>(grok이 문자열로 뽑은 값의 타입 변환), <code>date</code>(여러 포맷을 순서대로 시도해 <code>@timestamp</code>로 정규화, <code>timezone</code> 필수), <code>script</code>(Painless)다. 모든 processor에 공통 <code>if</code> 옵션이 있어 Painless 표현식으로 실행 여부를 분기한다.</p>
+<p>적용 방법은 요청의 <code>?pipeline=</code> 파라미터, 인덱스 설정 <code>index.default_pipeline</code>, default 뒤에 마지막으로 도는 <code>index.final_pipeline</code> 세 갈래다. 공통 메타데이터 주입이나 PII 마스킹은 인덱스 템플릿과 final_pipeline 조합으로 둔다. <code>_ingest/pipeline/_simulate</code>는 샘플 문서를 흘려 결과를 확인하며 <code>?verbose=true</code>로 단계별 변화를 본다.</p>
+<p>외부 수집기는 ES 앞단에서 읽기와 전송을 맡으며 메모리 부담과 가공 기능의 두께로 갈린다.</p>
+<table>
+<thead>
+<tr>
+<th>도구</th>
+<th>언어</th>
+<th>메모리</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Logstash</td>
+<td>JRuby (JVM)</td>
+<td>1~2GB</td>
+<td>중앙 ETL, persistent queue</td>
+</tr>
+<tr>
+<td>Filebeat / Metricbeat</td>
+<td>Go</td>
+<td>10~80MB</td>
+<td>서버별 로그·메트릭 shipper</td>
+</tr>
+<tr>
+<td>Fluentd</td>
+<td>Ruby+C</td>
+<td>40~100MB</td>
+<td>CNCF ETL, plugin 800+</td>
+</tr>
+<tr>
+<td>Fluent Bit</td>
+<td>C</td>
+<td>1~5MB</td>
+<td>Kubernetes DaemonSet 표준</td>
+</tr>
+<tr>
+<td>Vector</td>
+<td>Rust</td>
+<td>30~80MB</td>
+<td>통합 ETL, VRL</td>
+</tr>
+</tbody></table>
+<p>1단 구조는 경량 shipper가 ES로 직접 보내고 파싱은 Ingest Pipeline이 맡는다. 2단 구조는 shipper가 중앙의 Logstash·Fluentd·Vector로 모으고 거기서 가공과 디스크 버퍼링을 한 뒤 ES로 보내며, 초당 1만 건 이상이거나 여러 소스를 합쳐야 할 때 택한다. Elastic 중심이면 Beats + Logstash(ELK), Kubernetes 중심이면 Fluent Bit + Fluentd(EFK)가 표준이다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x에서 <code>elasticsearch-java</code> 클라이언트로 nginx access log용 파이프라인을 등록한다. grok으로 파싱하고 date로 <code>@timestamp</code>를 만든 뒤 임시 필드를 지우며, 실패 시 색인은 유지하고 에러 필드만 남긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ingest.Processor;
+<span class="hljs-keyword">import</span> co.elastic.clients.json.JsonData;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AccessLogPipelineInitializer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">PIPELINE</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;access-log-pipeline&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">NGINX_PATTERN</span> <span class="hljs-operator">=</span>
+        <span class="hljs-string">&quot;%{IP:client_ip} - - \\[%{HTTPDATE:ts}\\] \&quot;%{WORD:method} %{URIPATHPARAM:path} HTTP/%{NUMBER}\&quot; &quot;</span>
+        + <span class="hljs-string">&quot;%{NUMBER:status:int} %{NUMBER:bytes:int}&quot;</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">AccessLogPipelineInitializer</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">register</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> java.io.IOException {
+        client.ingest().putPipeline(p -&gt; p
+            .id(PIPELINE)
+            .description(<span class="hljs-string">&quot;nginx access log 파싱 + KST 보정&quot;</span>)
+            .processors(List.of(
+                Processor.of(pr -&gt; pr.grok(g -&gt; g.field(<span class="hljs-string">&quot;message&quot;</span>).patterns(NGINX_PATTERN))),
+                Processor.of(pr -&gt; pr.date(d -&gt; d.field(<span class="hljs-string">&quot;ts&quot;</span>)
+                    .formats(<span class="hljs-string">&quot;dd/MMM/yyyy:HH:mm:ss Z&quot;</span>)
+                    .timezone(<span class="hljs-string">&quot;Asia/Seoul&quot;</span>)
+                    .targetField(<span class="hljs-string">&quot;@timestamp&quot;</span>))),
+                Processor.of(pr -&gt; pr.set(s -&gt; s.field(<span class="hljs-string">&quot;source&quot;</span>).value(JsonData.of(<span class="hljs-string">&quot;nginx&quot;</span>)).override(<span class="hljs-literal">false</span>))),
+                Processor.of(pr -&gt; pr.remove(r -&gt; r.field(List.of(<span class="hljs-string">&quot;ts&quot;</span>, <span class="hljs-string">&quot;message&quot;</span>)).ignoreMissing(<span class="hljs-literal">true</span>)))
+            ))
+            .onFailure(List.of(
+                Processor.of(pr -&gt; pr.set(s -&gt; s.field(<span class="hljs-string">&quot;_ingest_failed&quot;</span>).value(JsonData.of(<span class="hljs-literal">true</span>)))),
+                Processor.of(pr -&gt; pr.set(s -&gt; s.field(<span class="hljs-string">&quot;_ingest_error&quot;</span>)
+                    .value(JsonData.of(<span class="hljs-string">&quot;{{ _ingest.on_failure_message }}&quot;</span>))))
+            ))
+        );
+    }
+}</code></pre>
+<p>파이프라인을 default_pipeline으로 걸면 클라이언트는 문서만 색인하고, 특정 요청은 <code>pipeline()</code> 옵션으로 덮어쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AccessLogIndexer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">AccessLogIndexer</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">bindDefaultPipeline</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+        client.indices().putSettings(s -&gt; s
+            .index(<span class="hljs-string">&quot;nginx-logs&quot;</span>)
+            .settings(st -&gt; st.defaultPipeline(<span class="hljs-string">&quot;access-log-pipeline&quot;</span>)));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">indexRawLine</span><span class="hljs-params">(String rawLine)</span> <span class="hljs-keyword">throws</span> IOException {
+        client.index(i -&gt; i
+            .index(<span class="hljs-string">&quot;nginx-logs&quot;</span>)
+            .document(Map.of(<span class="hljs-string">&quot;message&quot;</span>, rawLine)));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">indexWithExplicitPipeline</span><span class="hljs-params">(String rawLine)</span> <span class="hljs-keyword">throws</span> IOException {
+        client.index(i -&gt; i
+            .index(<span class="hljs-string">&quot;nginx-logs&quot;</span>)
+            .pipeline(<span class="hljs-string">&quot;access-log-pipeline&quot;</span>)
+            .document(Map.of(<span class="hljs-string">&quot;message&quot;</span>, rawLine)));
+    }
+}</code></pre>
+<p>배포 전 검증은 <code>_simulate</code>로 하며, 샘플 라인을 흘려 기대 필드를 검증한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ingest.SimulateResponse;
+<span class="hljs-keyword">import</span> co.elastic.clients.json.JsonData;
+<span class="hljs-keyword">import</span> org.junit.jupiter.api.Test;
+<span class="hljs-keyword">import</span> org.springframework.beans.factory.annotation.Autowired;
+<span class="hljs-keyword">import</span> org.springframework.boot.test.context.SpringBootTest;
+
+<span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-keyword">import</span> <span class="hljs-keyword">static</span> org.assertj.core.api.Assertions.assertThat;
+
+<span class="hljs-meta">@SpringBootTest</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">AccessLogPipelineTest</span> {
+
+    <span class="hljs-meta">@Autowired</span>
+    ElasticsearchClient client;
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">parsesNginxLine</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">String</span> <span class="hljs-variable">line</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;192.168.1.1 - - [19/May/2026:10:00:00 +0900] \&quot;GET /api/items HTTP/1.1\&quot; 200 1234&quot;</span>;
+
+        <span class="hljs-type">SimulateResponse</span> <span class="hljs-variable">res</span> <span class="hljs-operator">=</span> client.ingest().simulate(s -&gt; s
+            .id(<span class="hljs-string">&quot;access-log-pipeline&quot;</span>)
+            .docs(d -&gt; d.source(JsonData.of(Map.of(<span class="hljs-string">&quot;message&quot;</span>, line)))));
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">source</span> <span class="hljs-operator">=</span> res.docs().get(<span class="hljs-number">0</span>).doc().source();
+        assertThat(source.get(<span class="hljs-string">&quot;client_ip&quot;</span>).to(String.class)).isEqualTo(<span class="hljs-string">&quot;192.168.1.1&quot;</span>);
+        assertThat(source.get(<span class="hljs-string">&quot;status&quot;</span>).to(Integer.class)).isEqualTo(<span class="hljs-number">200</span>);
+        assertThat(source.containsKey(<span class="hljs-string">&quot;message&quot;</span>)).isFalse();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>파이프라인 실패가 색인 거부로 번진다.</strong> processor 실패 시 기본 동작은 색인 거부이며 Filebeat가 재시도를 반복해 큐가 부푼다. 최상위 <code>on_failure</code>에서 실패 표식을 남기고 dead-letter 인덱스로 보내는 구성을 기본으로 둔다.</li>
+<li><strong>grok backtracking으로 CPU가 잠긴다.</strong> <code>GREEDYDATA</code>와 중첩 alternation이 섞이면 한 줄 파싱에 수 초가 걸린다. 긴 라인은 dissect로 먼저 쪼갠 뒤 작은 조각만 grok으로 파싱하고 <code>timeout_millis</code>로 상한을 둔다.</li>
+<li><strong>script processor는 마지막 카드다.</strong> 대량 ingest에서 Painless 한두 개가 지연을 수십 배 키운다. 치환은 <code>gsub</code>, 타입은 <code>convert</code>, 분기는 <code>if</code>로 푼다.</li>
+<li><strong>_simulate 통과가 색인 성공을 보장하지 않는다.</strong> 매핑 검증은 실제 색인 시점에 일어나므로 테스트 인덱스에 실제 1건 색인까지 검증한다. reindex는 파이프라인을 자동으로 타지 않으므로 <code>dest.pipeline</code>을 명시한다.</li>
+<li><strong>수집기의 backpressure와 버퍼 한도.</strong> downstream이 느려지면 Filebeat는 큐가 차고 Fluentd는 output buffer가 디스크를 채워 멈춘다. Logstash persistent queue, Fluentd <code>total_limit_size</code>·<code>overflow_action</code>으로 완충 정책을 명시하고, retention은 수집기가 아니라 ES의 ILM에서 관리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/document-crud-bulk-reindex/">Document CRUD·Bulk·Reindex·Versioning</a></li>
+<li><a href="/notes/elasticsearch/index-management-ilm/">Index 관리·ILM·Rollover</a></li>
+<li><a href="/notes/elasticsearch/kibana-cloud-opensearch-iac/">Kibana·Elastic Cloud·OpenSearch·IaC</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Ingest Pipeline, Logstash, Filebeat, Fluentd</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/rag-hybrid-search/"><small>이전</small>RAG·Hybrid Search</a>
+  <a class="next" href="/notes/elasticsearch/cluster-operations-shard-allocation/"><small>다음</small>클러스터 운영과 Shard Allocation</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

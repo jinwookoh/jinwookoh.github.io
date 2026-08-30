@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vector Search·kNN · Elasticsearch</title>
+  <meta name="description" content="dense_vector·HNSW·kNN 절로 별도 벡터 DB 없이 의미 검색을 구성하고 RRF로 BM25와 결합한다">
+  <meta property="og:title" content="Vector Search·kNN · Elasticsearch">
+  <meta property="og:description" content="dense_vector·HNSW·kNN 절로 별도 벡터 DB 없이 의미 검색을 구성하고 RRF로 BM25와 결합한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/vector-search-knn/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Vector Search·kNN</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 집계와 고급 검색</p>
+  <h1>Vector Search·kNN</h1>
+  <p class="summary">dense_vector·HNSW·kNN 절로 별도 벡터 DB 없이 의미 검색을 구성하고 RRF로 BM25와 결합한다</p>
+  <div class="content">
+<p>BM25 풀텍스트 검색은 질의어와 문서의 토큰이 겹칠 때만 점수를 낸다. &quot;환불 절차&quot;로 검색하면 &quot;반품 방법&quot;을 다룬 문서는 잡히지 않는다. RAG처럼 질문과 의미적으로 가까운 문서 k개를 LLM 프롬프트에 넣어야 하는 구조에서는 이 한계가 치명적이다. 벡터 전용 DB를 따로 두면 도구가 둘로 나뉘고 키워드 검색과 벡터 검색을 한 쿼리로 묶기 어렵다. Elasticsearch 8.x는 dense_vector 필드, kNN 절, HNSW 인덱스로 벡터 검색을 자체 처리하고 BM25와 결합하는 hybrid retrieval까지 한 요청에서 지원한다.</p>
+<h2>핵심 개념</h2>
+<h3>dense_vector 필드</h3>
+<p>임베딩 모델이 출력한 고정 차원 부동소수점 배열을 저장하는 필드 타입이다. 매핑 파라미터 네 개가 동작을 결정한다.</p>
+<ul>
+<li><code>dims</code> — 벡터 차원. 임베딩 모델 출력과 정확히 일치해야 하며 재색인 없이 바꿀 수 없다. text-embedding-3-small은 1,536, BGE-M3는 1,024이다.</li>
+<li><code>index</code> — HNSW 그래프 생성 여부. <code>true</code>면 ANN(근사 최근접) 검색, <code>false</code>면 전수 계산하는 exact kNN만 가능하다.</li>
+<li><code>similarity</code> — 거리 함수. <code>cosine</code>은 방향만 비교하며 주요 텍스트 임베딩의 표준이다. <code>dot_product</code>는 L2 정규화된 벡터에서 cosine과 같은 결과를 더 빠르게 내지만 정규화되지 않은 벡터에서는 크기에 좌우된다. <code>l2_norm</code>은 유클리드 거리다.</li>
+<li><code>element_type</code> — <code>float</code> 외에 <code>byte</code>(int8), <code>bit</code>(1-bit)를 지원한다. 메모리를 각각 4배·32배 절약하는 대신 recall이 소폭 떨어진다.</li>
+</ul>
+<h3>HNSW</h3>
+<p><code>index: true</code>이면 Lucene이 HNSW(Hierarchical Navigable Small World) 그래프를 만든다. 노드가 듬성한 상위 층에서 진입해 가까운 이웃으로 이동하며 하위 층으로 내려가고, 최하위 층에서 후보를 추린다. 전수 계산 대비 수십~수백 배 빠르며 recall 95% 이상을 유지한다.</p>
+<table>
+<thead>
+<tr>
+<th>파라미터</th>
+<th>의미</th>
+<th>기본값</th>
+<th>효과</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>m</code></td>
+<td>노드당 이웃 수</td>
+<td>16</td>
+<td>크면 recall 상승, 메모리·색인 비용 증가</td>
+</tr>
+<tr>
+<td><code>ef_construction</code></td>
+<td>색인 시 탐색 후보 수</td>
+<td>100</td>
+<td>크면 그래프 품질 상승, 색인 시간 증가</td>
+</tr>
+</tbody></table>
+<p>두 값 모두 색인 후 변경할 수 없다. 검색 시점의 탐색 폭은 쿼리의 <code>num_candidates</code>가 담당한다. <code>type</code>에는 <code>hnsw</code> 외에 <code>int8_hnsw</code>(스칼라 양자화), <code>flat</code>, <code>int8_flat</code>이 있으며 대규모 인덱스에는 <code>int8_hnsw</code>가 권장된다.</p>
+<h3>kNN 절</h3>
+<p><code>_search</code>의 <code>knn</code> 절이 벡터 검색의 진입점이다. <code>k</code>는 최종 반환 수, <code>num_candidates</code>는 샤드별로 HNSW가 추릴 후보 수이며 k보다 충분히 커야 근사 오차가 줄어든다. <code>filter</code>는 벡터 탐색 전에 후보를 좁히는 pre-filter로, post-filter 방식의 벡터 DB와 달리 정확히 k개를 보장한다.</p>
+<h3>Hybrid Retrieval과 RRF</h3>
+<p>정확한 키워드·고유명사는 BM25가, 의미 유사성은 벡터가 잘 잡는다. <code>query</code>와 <code>knn</code>을 함께 보내면 두 점수가 <code>boost</code>로 합산되지만 BM25(0<del>∞)와 cosine(-1</del>1)의 스케일이 달라 튜닝이 불안정하다. 8.8부터 지원하는 RRF(Reciprocal Rank Fusion)는 점수 대신 순위를 합친다. 각 검색기에서 문서가 r위이면 <code>1 / (rank_constant + r)</code>을 부여해 합산하며 <code>rank_constant</code> 기본값 60은 거의 조정하지 않는다.</p>
+<h3>Inference API</h3>
+<p>8.11부터 OpenAI·Cohere·ELSER 등을 inference endpoint로 등록해 ES가 직접 호출한다. ingest pipeline의 <code>inference</code> 프로세서로 색인 시점에 임베딩을 생성하고, 쿼리에서는 <code>query_vector_builder</code>로 질의 텍스트를 벡터로 바꾼다. 편리한 대신 임베딩 비용 가시성이 떨어진다.</p>
+<h2>코드</h2>
+<p>HNSW 파라미터와 int8 양자화를 지정한 dense_vector 매핑이다.</p>
+<pre><code class="hljs language-json">PUT articles
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;mappings&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;properties&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;title&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;text&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;analyzer&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;nori&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;category&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;keyword&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;published_at&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;date&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;embedding&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;dense_vector&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;dims&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1536</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;index&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;similarity&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;cosine&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;index_options&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;int8_hnsw&quot;</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;m&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">16</span><span class="hljs-punctuation">,</span>
+          <span class="hljs-attr">&quot;ef_construction&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">200</span>
+        <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>BM25와 kNN을 RRF로 결합하는 retriever 쿼리이며, kNN 쪽에는 pre-filter를 건다.</p>
+<pre><code class="hljs language-json">POST articles/_search
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;retriever&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;rrf&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;retrievers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;standard&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;query&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;match&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;title&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;환불 절차&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;knn&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+            <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;embedding&quot;</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;query_vector_builder&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+              <span class="hljs-attr">&quot;text_embedding&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+                <span class="hljs-attr">&quot;model_id&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;openai-small&quot;</span><span class="hljs-punctuation">,</span>
+                <span class="hljs-attr">&quot;model_text&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;환불 절차&quot;</span>
+              <span class="hljs-punctuation">}</span>
+            <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;k&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">50</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;num_candidates&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">200</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;filter&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+              <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;term&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;category&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;cs&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+              <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;range&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;published_at&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;gte&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2025-01-01&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span>
+            <span class="hljs-punctuation">]</span>
+          <span class="hljs-punctuation">}</span>
+        <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;rank_window_size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">50</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;rank_constant&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">60</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">10</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>Java 클라이언트로 kNN 검색을 실행하는 Spring 서비스다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ArticleVectorSearchService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ArticleVectorSearchService</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Article&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(List&lt;Float&gt; queryVector, String category)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">SearchResponse</span>&lt;Article&gt; <span class="hljs-variable">response</span> <span class="hljs-operator">=</span> client.search(s -&gt; s
+                .index(<span class="hljs-string">&quot;articles&quot;</span>)
+                .knn(k -&gt; k
+                        .field(<span class="hljs-string">&quot;embedding&quot;</span>)
+                        .queryVector(queryVector)
+                        .k(<span class="hljs-number">10</span>)
+                        .numCandidates(<span class="hljs-number">100</span>)
+                        .filter(f -&gt; f.term(t -&gt; t.field(<span class="hljs-string">&quot;category&quot;</span>).value(category))))
+                .size(<span class="hljs-number">10</span>),
+            Article.class);
+
+        <span class="hljs-keyword">return</span> response.hits().hits().stream()
+                .map(Hit::source)
+                .toList();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>dims 불일치</strong> — 매핑을 1,536으로 잡고 768차원 모델 출력을 색인하면 모든 문서가 실패한다. 임베딩 모델 교체는 새 인덱스에 reindex하고 alias를 전환하는 절차로만 가능하다.</li>
+<li><strong>num_candidates 부족</strong> — k와 같은 값이면 탐색 폭이 좁아 같은 질의의 결과가 요청마다 달라진다. k의 10~20배 또는 최소 100 이상으로 둔다.</li>
+<li><strong>메모리 폭증</strong> — 1억 건 × 1,536차원 × 4byte는 벡터만 약 614GB다. 처음부터 <code>int8_hnsw</code>를 적용하면 recall 손실 2~3%p로 메모리를 4배 줄인다.</li>
+<li><strong>filter 위치 오류</strong> — <code>query</code> 절에 필터를 넣고 <code>knn</code>을 분리하면 벡터 검색이 전체 인덱스에서 k개를 뽑은 뒤 필터가 적용되어 결과가 k보다 훨씬 적거나 0건이 된다. 필터는 <code>knn.filter</code>에 둔다.</li>
+<li><strong>Inference API rate limit</strong> — ingest pipeline이 문서마다 외부 API를 호출하면 bulk 색인이 rate limit에 걸려 정지한다. 클라이언트에서 배치 임베딩 후 벡터를 포함해 색인한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/rag-hybrid-search/">RAG·Hybrid Search</a></li>
+<li><a href="/notes/elasticsearch/mapping-field-types/">Mapping과 Field Type</a></li>
+<li><a href="/notes/elasticsearch/ingest-pipeline-collectors/">Ingest Pipeline과 수집기 (Logstash·Beats·Fluentd)</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, kNN, HNSW, dense_vector, RRF</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/aggregations-pipeline/"><small>이전</small>집계 — Pipeline</a>
+  <a class="next" href="/notes/elasticsearch/rag-hybrid-search/"><small>다음</small>RAG·Hybrid Search</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

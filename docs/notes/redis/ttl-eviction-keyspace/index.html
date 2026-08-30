@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TTL·Eviction·Keyspace Notification · Redis</title>
+  <meta name="description" content="키 수명은 TTL, 메모리 한계는 maxmemory-policy, 만료 후속 처리는 Keyspace Notification이 맡되 각각의 정확성 한계를 안다">
+  <meta property="og:title" content="TTL·Eviction·Keyspace Notification · Redis">
+  <meta property="og:description" content="키 수명은 TTL, 메모리 한계는 maxmemory-policy, 만료 후속 처리는 Keyspace Notification이 맡되 각각의 정확성 한계를 안다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/ttl-eviction-keyspace/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>TTL·Eviction·Keyspace Notification</span></nav>
+    <article class="post">
+  <p class="part">Redis · 명령과 스크립트</p>
+  <h1>TTL·Eviction·Keyspace Notification</h1>
+  <p class="summary">키 수명은 TTL, 메모리 한계는 maxmemory-policy, 만료 후속 처리는 Keyspace Notification이 맡되 각각의 정확성 한계를 안다</p>
+  <div class="content">
+<p>Redis는 메모리 위에서 동작하므로 세션·OTP·응답 캐시처럼 수명이 있는 데이터에 만료를 걸지 않으면 메모리 고갈로 서비스가 멈춘다. 만료를 걸어도 메모리가 가득 찼을 때 어떤 키를 버릴지 정해두지 않으면 기본값인 <code>noeviction</code>이 모든 쓰기를 거부한다. 반대로 세션 만료 시 통계를 남기는 식으로 키가 사라진 사실을 애플리케이션이 알아야 하는 경우도 있다. 이 세 문제를 각각 TTL 명령, <code>maxmemory-policy</code>, Keyspace Notification이 담당한다.</p>
+<h2>핵심 개념</h2>
+<h3>TTL 명령</h3>
+<p>만료 설정은 단위와 기준의 조합으로 네 개다. <code>EXPIRE</code>는 초 단위 상대 시간, <code>PEXPIRE</code>는 밀리초 상대, <code>EXPIREAT</code>·<code>PEXPIREAT</code>은 Unix 타임스탬프 기준 절대 시각을 받는다. 조회는 <code>TTL</code>·<code>PTTL</code>(남은 시간)과 <code>EXPIRETIME</code>·<code>PEXPIRETIME</code>(절대 만료 시각), <code>PERSIST</code>는 만료를 제거한다. <code>TTL</code> 반환값은 양수(남은 초), <code>-1</code>(키는 있으나 만료 없음), <code>-2</code>(키 없음)로 갈리며, <code>-1</code>과 <code>-2</code>를 구분하지 않으면 영구 키에 잘못 만료를 거는 버그가 생긴다. Redis 7부터는 <code>NX</code>·<code>XX</code>·<code>GT</code>·<code>LT</code> 옵션으로 기존 만료와의 관계를 조건으로 걸 수 있다.</p>
+<p>실무에서는 <code>SET key value EX 3600</code>처럼 저장과 만료를 한 명령으로 묶는다. <code>SET</code>과 <code>EXPIRE</code>를 따로 부르면 그 사이 장애로 만료 없는 키가 남을 수 있고 왕복도 두 번이다. 옵션은 <code>EX</code>·<code>PX</code>·<code>EXAT</code>·<code>PXAT</code>·<code>KEEPTTL</code>이며, <code>GET</code>은 TTL을 갱신하지 않으므로 접근 시 만료를 연장하려면 <code>GETEX</code>를 쓴다.</p>
+<h3>만료 처리 방식</h3>
+<p>만료 시각이 지나도 키가 그 순간 삭제되지는 않는다. Lazy expiration은 접근 시점에 만료를 확인해 삭제하고 nil을 돌려준다. Active expiration은 서버가 주기적으로 만료가 설정된 키 일부를 표본 추출해 지우고, 표본의 만료 비율이 높으면 반복한다. 따라서 접근되지 않는 만료 키가 잠시 남을 수 있고, 만료 이벤트도 실제 시각보다 늦게 발생한다.</p>
+<h3>maxmemory와 eviction policy</h3>
+<p><code>maxmemory</code>에 도달하면 <code>maxmemory-policy</code>가 정한 규칙으로 키를 제거한다. 이름은 대상 범위와 선택 기준의 조합이다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">정책</th>
+<th align="left">대상</th>
+<th align="left">기준</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>noeviction</code></td>
+<td align="left">제거 안 함</td>
+<td align="left">쓰기 명령 에러 (기본값)</td>
+</tr>
+<tr>
+<td align="left"><code>allkeys-lru</code> / <code>allkeys-lfu</code> / <code>allkeys-random</code></td>
+<td align="left">모든 키</td>
+<td align="left">최근 접근 / 접근 빈도 / 무작위</td>
+</tr>
+<tr>
+<td align="left"><code>volatile-lru</code> / <code>volatile-lfu</code> / <code>volatile-random</code></td>
+<td align="left">만료가 설정된 키</td>
+<td align="left">최근 접근 / 접근 빈도 / 무작위</td>
+</tr>
+<tr>
+<td align="left"><code>volatile-ttl</code></td>
+<td align="left">만료가 설정된 키</td>
+<td align="left">만료 시각이 가까운 순</td>
+</tr>
+</tbody></table>
+<p>LRU는 마지막 접근 시각, LFU는 접근 빈도를 보는 근사 알고리즘이며, 빈도 편차가 큰 워크로드가 아니면 LRU가 기본 선택이다. 순수 캐시는 <code>allkeys-lru</code>, 만료 있는 세션과 영구 데이터를 섞은 인스턴스는 <code>volatile-lru</code>, 유실이 허용되지 않는 저장소는 <code>noeviction</code>을 두고 쓰기 에러를 알람으로 받는다.</p>
+<h3>Keyspace Notification</h3>
+<p>키에 일어난 이벤트를 Pub/Sub으로 발행하는 기능으로, 기본값은 꺼져 있다. 채널은 두 종류다. <code>__keyspace@&lt;db&gt;__:&lt;key&gt;</code>는 한 키의 모든 이벤트를 받고 본문은 이벤트 이름이다. <code>__keyevent@&lt;db&gt;__:&lt;event&gt;</code>는 한 이벤트가 일어난 모든 키를 받고 본문은 키 이름이다. 세션 만료 처리처럼 이벤트 한 종류를 넓게 잡는 자리에는 <code>__keyevent__</code>를 쓴다.</p>
+<p><code>notify-keyspace-events</code>는 플래그 조합이다. <code>K</code>·<code>E</code>는 각 채널 발행을 켜며 둘 중 하나는 필수다. <code>g</code>는 범용 명령, <code>$lshzx</code>는 타입별 명령, <code>e</code>는 만료, <code>t</code>는 eviction, <code>A</code>는 <code>g$lshzxet</code>의 별칭이다. 만료 이벤트만 받는 <code>Ex</code>가 가장 흔한 조합이고, <code>KEA</code>는 개발 환경 전용이다.</p>
+<h2>코드</h2>
+<p><code>StringRedisTemplate</code>으로 만료 있는 저장, 접근 시 만료 연장, 남은 TTL 조회를 처리하는 세션 저장소다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SessionStore</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Duration</span> <span class="hljs-variable">SESSION_TTL</span> <span class="hljs-operator">=</span> Duration.ofHours(<span class="hljs-number">1</span>);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SessionStore</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">save</span><span class="hljs-params">(String sessionId, String payload)</span> {
+        <span class="hljs-comment">// SET session:{id} payload EX 3600</span>
+        redis.opsForValue().set(<span class="hljs-string">&quot;session:&quot;</span> + sessionId, payload, SESSION_TTL);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">touch</span><span class="hljs-params">(String sessionId)</span> {
+        <span class="hljs-comment">// GETEX — 조회하면서 만료를 1시간으로 재설정</span>
+        <span class="hljs-keyword">return</span> redis.opsForValue().getAndExpire(<span class="hljs-string">&quot;session:&quot;</span> + sessionId, SESSION_TTL);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">remainingSeconds</span><span class="hljs-params">(String sessionId)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">ttl</span> <span class="hljs-operator">=</span> redis.getExpire(<span class="hljs-string">&quot;session:&quot;</span> + sessionId);
+        <span class="hljs-comment">// -2: 키 없음, -1: 만료 없음</span>
+        <span class="hljs-keyword">return</span> ttl == <span class="hljs-literal">null</span> ? -<span class="hljs-number">2</span> : ttl;
+    }
+}</code></pre>
+<p><code>notify-keyspace-events Ex</code>가 켜진 서버에서 <code>__keyevent@0__:expired</code>를 구독해 세션 만료 후속 처리를 실행하는 리스너다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.Message;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.MessageListener;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.RedisConnectionFactory;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.listener.PatternTopic;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.listener.RedisMessageListenerContainer;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ExpiredKeyListenerConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">RedisMessageListenerContainer</span> <span class="hljs-title function_">keyEventContainer</span><span class="hljs-params">(
+            RedisConnectionFactory connectionFactory,
+            SessionExpiredHandler handler)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">container</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RedisMessageListenerContainer</span>();
+        container.setConnectionFactory(connectionFactory);
+        container.addMessageListener(handler, <span class="hljs-keyword">new</span> <span class="hljs-title class_">PatternTopic</span>(<span class="hljs-string">&quot;__keyevent@0__:expired&quot;</span>));
+        <span class="hljs-keyword">return</span> container;
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">SessionExpiredHandler</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">MessageListener</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> SessionStatsService stats;
+
+    SessionExpiredHandler(SessionStatsService stats) {
+        <span class="hljs-built_in">this</span>.stats = stats;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onMessage</span><span class="hljs-params">(Message message, <span class="hljs-type">byte</span>[] pattern)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>(message.getBody()); <span class="hljs-comment">// 만료된 키 이름</span>
+        <span class="hljs-keyword">if</span> (key.startsWith(<span class="hljs-string">&quot;session:&quot;</span>)) {
+            stats.recordSessionEnd(key.substring(<span class="hljs-string">&quot;session:&quot;</span>.length()));
+        }
+    }
+}</code></pre>
+<p>재시작 없이 메모리 한계·정책·알림 플래그를 바꾸는 명령이다. 영구 반영은 <code>redis.conf</code> 수정 또는 <code>CONFIG REWRITE</code>로 한다.</p>
+<pre><code class="hljs language-bash">CONFIG SET maxmemory 4gb
+CONFIG SET maxmemory-policy allkeys-lru
+CONFIG SET notify-keyspace-events Exe
+INFO memory   <span class="hljs-comment"># used_memory · used_memory_rss · mem_fragmentation_ratio</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>volatile 정책과 만료 없는 키.</strong> <code>volatile-*</code>는 만료가 설정된 키만 제거하므로 만료 없는 키로 메모리가 차면 <code>noeviction</code>과 똑같이 쓰기가 실패한다. TTL을 빠뜨린 코드 한 곳이 인스턴스 전체의 쓰기 장애가 된다.</li>
+<li><strong>만료 이벤트의 지연.</strong> 이벤트는 Redis가 키를 실제로 삭제하는 시점에 발생한다. 정확한 시각에 실행되어야 하는 작업은 Sorted Set 기반 지연 큐나 별도 스케줄러에 맡긴다.</li>
+<li><strong>Pub/Sub의 at-most-once.</strong> 구독자가 끊겨 있는 동안의 이벤트는 보관되지 않는다. 리스너 재배포 중 만료된 세션은 후속 처리를 받지 못하므로, 누락이 허용되지 않으면 애플리케이션이 Stream에 상태 변화를 직접 기록하는 쪽이 안전하다.</li>
+<li><strong>플래그 범위와 CPU.</strong> 모든 명령에 이벤트를 발행하면 쓰기 처리량이 떨어진다. 필요한 플래그만 켜고, <code>K</code>나 <code>E</code> 누락으로 이벤트가 오지 않는 설정 실수도 점검한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/string-hash/">String·Hash — 값 캐싱과 객체 저장</a></li>
+<li><a href="/notes/redis/stream-pubsub/">Stream·Pub/Sub — 영속 로그와 실시간 전파</a></li>
+<li><a href="/notes/redis/caching-patterns-stampede/">캐싱 패턴 — Cache-Aside·스탬피드·Hot Key</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, TTL, Eviction, maxmemory-policy, Keyspace Notifications</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/stream-pubsub/"><small>이전</small>Stream·Pub/Sub — 영속 로그와 실시간 전파</a>
+  <a class="next" href="/notes/redis/pipelining-transactions/"><small>다음</small>Pipelining·Transaction·WATCH</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

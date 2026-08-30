@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>분산 락 — SET NX와 Redlock · Redis</title>
+  <meta name="description" content="단일 인스턴스 SET NX 락이 보장하는 것과 못 하는 것, Redlock의 quorum 모델과 fencing token이 필요한 경계를 정리한다.">
+  <meta property="og:title" content="분산 락 — SET NX와 Redlock · Redis">
+  <meta property="og:description" content="단일 인스턴스 SET NX 락이 보장하는 것과 못 하는 것, Redlock의 quorum 모델과 fencing token이 필요한 경계를 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/distributed-lock-redlock/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>분산 락 — SET NX와 Redlock</span></nav>
+    <article class="post">
+  <p class="part">Redis · 패턴</p>
+  <h1>분산 락 — SET NX와 Redlock</h1>
+  <p class="summary">단일 인스턴스 SET NX 락이 보장하는 것과 못 하는 것, Redlock의 quorum 모델과 fencing token이 필요한 경계를 정리한다.</p>
+  <div class="content">
+<p>애플리케이션 서버가 여러 대로 늘어나면 JVM 안의 <code>synchronized</code>나 <code>ReentrantLock</code>은 아무것도 막지 못한다. 결제 버튼이 두 번 눌리면 같은 주문에 결제가 두 번 호출되고, 재고 차감 요청이 동시에 들어오면 재고가 음수로 내려가며, 스케줄러가 클러스터링되어 있지 않으면 같은 배치가 인스턴스 수만큼 실행된다. 유니크 제약이나 <code>SELECT FOR UPDATE</code>로 DB 레벨에서 막을 수 있는 자리라면 그쪽이 먼저다. 그러나 외부 API 호출이 포함된 작업, DB 커넥션을 오래 잡을 수 없는 짧고 빈번한 임계 구역, 캐시 워밍처럼 DB가 개입하지 않는 작업에는 프로세스 밖의 공유 잠금이 필요하다. Redis가 그 자리를 자주 맡는다.</p>
+<h2>핵심 개념</h2>
+<h3>단일 인스턴스 락 — SET NX EX</h3>
+<p>가장 단순한 형태는 <code>SET key value NX EX seconds</code> 한 줄이다. NX로 키가 없을 때만 쓰고, EX로 만료를 걸어 락 소유자가 죽어도 자동으로 풀린다. value에는 소유자 식별용 랜덤 토큰을 넣고, 해제는 &quot;값이 내 토큰일 때만 DEL&quot;을 Lua로 원자적으로 수행한다. GET 후 DEL을 두 명령으로 나누면 그 사이에 만료·재획득이 끼어들어 남의 락을 지울 수 있다.</p>
+<p>이 구성이 보장하는 것은 한 시점에 한 클라이언트만 락을 갖는 상호 배제와 TTL로 인한 교착 방지다. 보장하지 않는 것은 마스터 장애 시의 안전성이다. 복제는 비동기이므로 락 키가 replica에 전달되기 전에 마스터가 죽고 replica가 승격되면, 승격된 노드에는 락이 없고 두 번째 클라이언트가 같은 락을 얻는다.</p>
+<h3>Redlock</h3>
+<p>Redlock은 복제 관계가 없는 독립 Redis 인스턴스 N개(보통 5)에 동시에 락을 시도해 과반수 합의로 소유를 결정하는 알고리즘이다.</p>
+<ol>
+<li>현재 시각 t1을 기록한다.</li>
+<li>모든 인스턴스에 짧은 타임아웃(수 ms)으로 <code>SET NX PX</code>를 순차 시도한다.</li>
+<li>성공한 인스턴스 수를 센다.</li>
+<li>유효 시간을 계산한다. <code>validity = TTL - (now - t1) - clock drift</code>.</li>
+<li>성공 수가 N/2+1 이상이고 validity가 양수면 획득이다. 아니면 모든 인스턴스에 해제를 보내고 실패 처리한다.</li>
+</ol>
+<p>인스턴스 두 대가 죽어도 세 대가 quorum을 이루므로 단일 장애점이 사라지고, 마스터 승격 문제도 없다. 해제는 quorum 여부와 무관하게 N개 전부에 보낸다. 실패한 시도에서도 일부 인스턴스에 락이 남아 있을 수 있기 때문이다.</p>
+<h3>두 방식의 한계 비교</h3>
+<table>
+<thead>
+<tr>
+<th>항목</th>
+<th>단일 인스턴스</th>
+<th>Redlock</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>마스터 장애</td>
+<td>이중 획득 가능</td>
+<td>quorum으로 방어</td>
+</tr>
+<tr>
+<td>클라이언트 정지(GC, 스왑)</td>
+<td>취약</td>
+<td>취약</td>
+</tr>
+<tr>
+<td>시계 점프</td>
+<td>TTL 오차</td>
+<td>validity 계산 오차</td>
+</tr>
+<tr>
+<td>운영 부담</td>
+<td>낮음</td>
+<td>독립 인스턴스 5대</td>
+</tr>
+</tbody></table>
+<p>Redlock이 해결하는 것은 Redis 쪽 장애이고, 클라이언트 쪽 정지는 어느 쪽도 막지 못한다. 락을 쥔 프로세스가 TTL보다 긴 GC pause에서 깨어나면 그 사이 락을 얻은 다른 프로세스와 동시에 자원을 건드린다. Martin Kleppmann은 락마다 단조 증가하는 fencing token을 발급하고 저장소가 오래된 토큰의 쓰기를 거부해야만 안전하다고 지적했고, 이는 ZooKeeper·etcd 같은 합의 시스템이 제공하는 보장이다. 한 번의 이중 실행도 허용되지 않는 자리는 그쪽으로 가고, 작업을 멱등하게 만들 수 있는 일반 비즈니스 로직은 단일 인스턴스 락이나 Redlock으로 충분하다.</p>
+<h2>코드</h2>
+<p>Lettuce 기반 <code>StringRedisTemplate</code>로 단일 인스턴스 락을 구현한다. 획득은 <code>setIfAbsent</code>, 해제는 소유자 검증을 포함한 Lua 스크립트다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SimpleRedisLock</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RedisScript</span>&lt;Long&gt; <span class="hljs-variable">UNLOCK</span> <span class="hljs-operator">=</span> RedisScript.of(<span class="hljs-string">&quot;&quot;&quot;
+        if redis.call(&#x27;GET&#x27;, KEYS[1]) == ARGV[1] then
+            return redis.call(&#x27;DEL&#x27;, KEYS[1])
+        end
+        return 0
+        &quot;&quot;&quot;</span>, Long.class);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SimpleRedisLock</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Optional</span>&lt;String&gt; <span class="hljs-title function_">tryAcquire</span><span class="hljs-params">(String key, Duration ttl)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">token</span> <span class="hljs-operator">=</span> UUID.randomUUID().toString();
+        <span class="hljs-type">Boolean</span> <span class="hljs-variable">ok</span> <span class="hljs-operator">=</span> redis.opsForValue().setIfAbsent(key, token, ttl);
+        <span class="hljs-keyword">return</span> Boolean.TRUE.equals(ok) ? Optional.of(token) : Optional.empty();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">release</span><span class="hljs-params">(String key, String token)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">deleted</span> <span class="hljs-operator">=</span> redis.execute(UNLOCK, List.of(key), token);
+        <span class="hljs-keyword">return</span> deleted != <span class="hljs-literal">null</span> &amp;&amp; deleted == <span class="hljs-number">1L</span>;
+    }
+}</code></pre>
+<p>Java에서는 Redlock을 직접 구현하지 않고 Redisson을 쓴다. <code>redisson-spring-boot-starter</code>를 추가하면 <code>RedissonClient</code> 빈이 자동 구성되며, <code>tryLock(waitTime, leaseTime, unit)</code>은 대기 시간과 임대 시간을 분리해 받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RedissonClient redisson;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(RedissonClient redisson)</span> {
+        <span class="hljs-built_in">this</span>.redisson = redisson;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">process</span><span class="hljs-params">(Long orderId)</span> <span class="hljs-keyword">throws</span> InterruptedException {
+        <span class="hljs-type">RLock</span> <span class="hljs-variable">lock</span> <span class="hljs-operator">=</span> redisson.getLock(<span class="hljs-string">&quot;lock:order:&quot;</span> + orderId);
+        <span class="hljs-keyword">if</span> (!lock.tryLock(<span class="hljs-number">5</span>, <span class="hljs-number">30</span>, TimeUnit.SECONDS)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;order is being processed: &quot;</span> + orderId);
+        }
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-comment">// 비즈니스 로직</span>
+        } <span class="hljs-keyword">finally</span> {
+            <span class="hljs-keyword">if</span> (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+}</code></pre>
+<p>독립 인스턴스 여러 대에 걸친 quorum 락은 <code>RedissonMultiLock</code>으로 잡는다. Redisson 3.x 후반부터 <code>RedissonRedLock</code>은 deprecated이며, <code>MultiLock</code>이 과반수가 아닌 전체 성공을 요구하는 점만 다르다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">RLock</span> <span class="hljs-variable">l1</span> <span class="hljs-operator">=</span> client1.getLock(<span class="hljs-string">&quot;lock:batch:settlement&quot;</span>);
+<span class="hljs-type">RLock</span> <span class="hljs-variable">l2</span> <span class="hljs-operator">=</span> client2.getLock(<span class="hljs-string">&quot;lock:batch:settlement&quot;</span>);
+<span class="hljs-type">RLock</span> <span class="hljs-variable">l3</span> <span class="hljs-operator">=</span> client3.getLock(<span class="hljs-string">&quot;lock:batch:settlement&quot;</span>);
+
+<span class="hljs-type">RLock</span> <span class="hljs-variable">multi</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RedissonMultiLock</span>(l1, l2, l3);
+<span class="hljs-keyword">if</span> (multi.tryLock(<span class="hljs-number">5</span>, <span class="hljs-number">30</span>, TimeUnit.SECONDS)) {
+    <span class="hljs-keyword">try</span> {
+        <span class="hljs-comment">// 클러스터에서 한 번만 실행되어야 하는 작업</span>
+    } <span class="hljs-keyword">finally</span> {
+        multi.unlock();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>TTL과 작업 길이의 불일치.</strong> TTL 30초에 작업이 60초 걸리면 후반 30초 동안 다른 워커가 같은 자원을 만진다. Redisson의 <code>leaseTime</code>을 지정하지 않으면 watchdog이 기본 30초 임대를 주기적으로 연장해 주지만, 지정하는 순간 watchdog은 꺼진다. 어느 쪽인지 알고 써야 한다.</li>
+<li><strong>watchdog은 정지된 프로세스를 구하지 못한다.</strong> 연장 스레드도 같은 JVM에 있으므로 GC pause나 스왑으로 전체가 멈추면 연장도 멈춘다. 긴 작업은 쪼개고, 쓰기 경로에는 버전 컬럼이나 조건부 갱신으로 멱등성을 넣는 편이 락을 길게 잡는 것보다 안전하다.</li>
+<li><strong>강제 종료 후 잔존 락.</strong> <code>kill -9</code>나 <code>finally</code> 누락으로 해제가 빠지면 TTL이 끝날 때까지 다른 워커가 대기한다. TTL은 평균 작업 시간의 2~3배를 기준으로 잡고 나머지는 연장에 맡긴다.</li>
+<li><strong>Redlock 대상은 Cluster나 Sentinel이 아니다.</strong> 알고리즘은 서로 복제하지 않는 독립 마스터 N대를 전제한다. 하나의 Cluster에 락 키를 걸면 결국 슬롯을 소유한 마스터 한 대에 의존하므로 단일 인스턴스 락과 같다.</li>
+<li><strong>락의 정확도를 과신하지 않는다.</strong> 네트워크 파티션으로 락 노드와 워커가 분리되면 갱신은 실패하고 TTL 만료 후 다른 워커가 락을 가져간다. Redis 락은 중복 실행 확률을 낮추는 장치이지 완전한 상호 배제의 증명이 아니다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/lua-scripting-functions/">Lua Scripting과 Functions</a></li>
+<li><a href="/notes/redis/pipelining-transactions/">Pipelining·Transaction·WATCH</a></li>
+<li><a href="/notes/redis/replication-sentinel/">Replication과 Sentinel</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, Distributed Lock, Redlock, Redisson, Fencing Token</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/caching-patterns-stampede/"><small>이전</small>캐싱 패턴 — Cache-Aside·스탬피드·Hot Key</a>
+  <a class="next" href="/notes/redis/secondary-index-fanout-id/"><small>다음</small>Secondary Index·Fanout·분산 ID</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

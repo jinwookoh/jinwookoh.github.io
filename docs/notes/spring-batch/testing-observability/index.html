@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>테스트와 관측성 — @SpringBatchTest·Micrometer·JFR · Spring Batch</title>
+  <meta name="description" content="Job을 테스트로 검증하고, 운영 중에는 Micrometer 메트릭과 JFR 이벤트로 무엇이 왜 느린지 찾는 방법">
+  <meta property="og:title" content="테스트와 관측성 — @SpringBatchTest·Micrometer·JFR · Spring Batch">
+  <meta property="og:description" content="Job을 테스트로 검증하고, 운영 중에는 Micrometer 메트릭과 JFR 이벤트로 무엇이 왜 느린지 찾는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/testing-observability/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>테스트와 관측성 — @SpringBatchTest·Micrometer·JFR</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · 확장과 운영</p>
+  <h1>테스트와 관측성 — @SpringBatchTest·Micrometer·JFR</h1>
+  <p class="summary">Job을 테스트로 검증하고, 운영 중에는 Micrometer 메트릭과 JFR 이벤트로 무엇이 왜 느린지 찾는 방법</p>
+  <div class="content">
+<p>배치 Job의 결과는 JobRepository 메타데이터와 대상 DB에 흩어져 남기 때문에 테스트 없이 배포하면 실패를 운영 로그에서 처음 발견한다. <code>@StepScope</code> Bean은 Step 실행 중에만 만들어지므로 일반 단위 테스트에서 주입하면 <code>IllegalStateException: No Scope registered</code>가 난다. 운영 중에는 어느 Step이 느린지 알 수단이 없고, GC나 I/O 대기 같은 원인은 로그에 나타나지 않는다. <code>spring-batch-test</code>, Micrometer Observation, JFR이 각각 이 공백을 메운다.</p>
+<h2>핵심 개념</h2>
+<h3>@SpringBatchTest</h3>
+<p><code>@SpringBatchTest</code>는 Job이나 Step을 실행하는 <code>JobOperatorTestUtils</code>(v5까지 <code>JobLauncherTestUtils</code>), 메타데이터를 지우는 <code>JobRepositoryTestUtils</code>, Step·Job scope 테스트 리스너를 등록한다. Job Bean이 여러 개면 <code>setJob()</code>으로 고른다.</p>
+<p>Step scope 리스너는 테스트 클래스에서 <code>StepExecution</code>을 반환하는 메서드를 찾아 각 테스트 전에 호출해 Step 컨텍스트를 활성화한다. 한 테스트 안에서 컨텍스트를 바꾸려면 <code>StepScopeTestUtils.doInStepScope()</code>를 쓴다. <code>MetaDataInstanceFactory</code>는 StepExecution 체인을 한 줄로 만들어 주므로 Listener나 Processor는 ApplicationContext 없이 테스트한다.</p>
+<h3>Micrometer Observation</h3>
+<p>Spring Batch 5부터 메트릭과 트레이싱은 Micrometer Observation API로 통합됐다. <code>ObservationRegistry</code> Bean이 있어야 수집이 시작되고 <code>DefaultMeterObservationHandler</code>가 Observation을 <code>MeterRegistry</code>의 Timer와 Counter로 바꾼다. Spring Boot Actuator가 두 registry를 자동 구성한다.</p>
+<p>기본 메트릭은 <code>spring.batch</code> 접두어로 여덟 개다. <code>job</code>과 <code>step</code>은 완료된 실행의 TIMER, <code>job.active</code>와 <code>step.active</code>는 진행 중인 실행의 LONG_TASK_TIMER다. <code>item.read</code>, <code>item.process</code>, <code>chunk.write</code>는 <code>job.name</code>, <code>step.name</code>, <code>status</code> 태그를 갖고, <code>job.launch.count</code>는 COUNTER다. <code>micrometer-tracing-bridge-otel</code> 같은 bridge를 추가하면 Job, Step, chunk 계층의 span이 생기고 MDC에 <code>traceId</code>가 들어간다.</p>
+<h3>Java Flight Recorder</h3>
+<p>JFR은 JVM 내장 이벤트 프로파일러로 오버헤드가 1~2% 수준이다. Spring Batch 6은 Job과 Step 실행, item read와 write, chunk 트랜잭션 경계를 JFR 이벤트로 기록한다. Micrometer가 집계값을 외부로 보내는 반면 JFR은 원시 이벤트를 로컬 <code>.jfr</code> 파일에 남기고 GC pause, 스레드 대기, 할당 hot spot을 같은 타임라인에서 보여준다. 분석은 JMC에서 하고, 실행 중인 JVM에는 <code>jcmd &lt;pid&gt; JFR.start</code>로 켜며, 상시 기록은 <code>-XX:StartFlightRecording</code>에 <code>dumponexit</code>·<code>maxage</code>·<code>maxsize</code>를 준다.</p>
+<h2>코드</h2>
+<p>Job 전체를 실행하고 상태, Step 통계, 결과 데이터를 검증하는 테스트다. <code>run.id</code>를 매번 다르게 주어 JobInstance 중복을 피한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@SpringBatchTest</span>
+<span class="hljs-meta">@SpringJUnitConfig({BatchConfig.class, TestConfig.class})</span>
+<span class="hljs-meta">@ActiveProfiles(&quot;test&quot;)</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ImportJobIntegrationTests</span> {
+
+    <span class="hljs-meta">@Autowired</span> <span class="hljs-keyword">private</span> JobOperatorTestUtils jobOperatorTestUtils;
+    <span class="hljs-meta">@Autowired</span> <span class="hljs-keyword">private</span> JobRepositoryTestUtils jobRepositoryTestUtils;
+    <span class="hljs-meta">@Autowired</span> <span class="hljs-keyword">private</span> JdbcTemplate jdbcTemplate;
+
+    <span class="hljs-meta">@BeforeEach</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">clean</span><span class="hljs-params">()</span> {
+        jdbcTemplate.update(<span class="hljs-string">&quot;DELETE FROM customer&quot;</span>);
+        jobRepositoryTestUtils.removeJobExecutions();
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">importsAllCustomers</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">1</span>; i &lt;= <span class="hljs-number">10</span>; i++) {
+            jdbcTemplate.update(<span class="hljs-string">&quot;INSERT INTO source_customer VALUES (?, ?)&quot;</span>, i, <span class="hljs-string">&quot;customer&quot;</span> + i);
+        }
+        <span class="hljs-type">JobParameters</span> <span class="hljs-variable">params</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobParametersBuilder</span>()
+                .addString(<span class="hljs-string">&quot;input.file&quot;</span>, <span class="hljs-string">&quot;customers.csv&quot;</span>)
+                .addLong(<span class="hljs-string">&quot;run.id&quot;</span>, System.currentTimeMillis())
+                .toJobParameters();
+
+        <span class="hljs-type">JobExecution</span> <span class="hljs-variable">execution</span> <span class="hljs-operator">=</span> jobOperatorTestUtils.startJob(params);
+
+        assertEquals(BatchStatus.COMPLETED, execution.getStatus());
+        <span class="hljs-type">StepExecution</span> <span class="hljs-variable">step</span> <span class="hljs-operator">=</span> execution.getStepExecutions().iterator().next();
+        assertEquals(<span class="hljs-number">10</span>, step.getReadCount());
+        assertEquals(<span class="hljs-number">10</span>, step.getWriteCount());
+        assertEquals(<span class="hljs-number">10L</span>, jdbcTemplate.queryForObject(<span class="hljs-string">&quot;SELECT COUNT(*) FROM customer&quot;</span>, Long.class));
+    }
+}</code></pre>
+<p><code>@StepScope</code> Reader를 Step 컨텍스트 안에서 단독으로 검증한다. <code>getStepExecution()</code>이 테스트마다 호출된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@SpringBatchTest</span>
+<span class="hljs-meta">@SpringJUnitConfig(ReaderConfig.class)</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">CustomerReaderTests</span> {
+
+    <span class="hljs-meta">@Autowired</span> <span class="hljs-keyword">private</span> FlatFileItemReader&lt;Customer&gt; reader;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">StepExecution</span> <span class="hljs-title function_">getStepExecution</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">StepExecution</span> <span class="hljs-variable">execution</span> <span class="hljs-operator">=</span> MetaDataInstanceFactory.createStepExecution();
+        execution.getExecutionContext().putString(<span class="hljs-string">&quot;input.file&quot;</span>, <span class="hljs-string">&quot;src/test/resources/customers.csv&quot;</span>);
+        <span class="hljs-keyword">return</span> execution;
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">readsAllRows</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        reader.open(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ExecutionContext</span>());
+        <span class="hljs-type">int</span> <span class="hljs-variable">count</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">while</span> (reader.read() != <span class="hljs-literal">null</span>) {
+            count++;
+        }
+        reader.close();
+        assertEquals(<span class="hljs-number">10</span>, count);
+    }
+}</code></pre>
+<p>ItemProcessor의 외부 API 호출을 별도 Observation으로 감싸 메트릭과 span을 동시에 남긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ApiEnrichmentProcessor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemProcessor</span>&lt;Customer, EnrichedCustomer&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApiClient client;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ObservationRegistry observationRegistry;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ApiEnrichmentProcessor</span><span class="hljs-params">(ApiClient client, ObservationRegistry observationRegistry)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+        <span class="hljs-built_in">this</span>.observationRegistry = observationRegistry;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">EnrichedCustomer</span> <span class="hljs-title function_">process</span><span class="hljs-params">(Customer customer)</span> {
+        <span class="hljs-keyword">return</span> Observation.createNotStarted(<span class="hljs-string">&quot;processor.api.enrich&quot;</span>, observationRegistry)
+                .lowCardinalityKeyValue(<span class="hljs-string">&quot;country&quot;</span>, customer.country())
+                .observe(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">EnrichedCustomer</span>(customer, client.fetch(customer.id())));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>같은 JobParameters로 두 번 실행하면 <code>JobInstanceAlreadyCompleteException</code>이 난다. 타임스탬프 파라미터를 주거나 <code>removeJobExecutions()</code>로 비운다.</li>
+<li>멀티스레드 Step은 처리 순서가 비결정적이라 테스트가 간헐적으로 깨진다. 테스트 프로파일에서 <code>SyncTaskExecutor</code>로 바꾼다.</li>
+<li><code>customer.id</code>처럼 unique 값이 많은 태그를 메트릭에 넣으면 시계열이 폭증한다. 식별자는 <code>highCardinalityKeyValue</code>로 span에만 남기고, 운영에서는 <code>management.tracing.sampling.probability</code>를 0.05~0.1로 낮춘다.</li>
+<li>비동기 TaskExecutor를 거치면 trace context가 끊겨 span이 분리된다. <code>ContextPropagatingTaskDecorator</code>를 executor에 적용한다. JFR은 JVM 단위이므로 worker JVM의 <code>.jfr</code> 파일은 각각 수집한다.</li>
+<li>item마다 커스텀 JFR 이벤트를 <code>commit()</code>하면 파일이 처리 건수만큼 급증하므로 chunk 단위로 집계한다. <code>.jfr</code> 파일에는 클래스와 메서드 이름이 포함되므로 접근 권한을 관리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/scaling-partitioning/">Scaling — Multi-thread·Partitioning·Remote Chunking</a></li>
+<li><a href="/notes/spring-batch/operations-patterns-faq/">운영 패턴과 FAQ</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, SpringBatchTest, Micrometer, Observation, JFR</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/spring-batch-integration/"><small>이전</small>Spring Batch Integration — 메시지로 Job 실행</a>
+  <a class="next" href="/notes/spring-batch/operations-patterns-faq/"><small>다음</small>운영 패턴과 FAQ</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

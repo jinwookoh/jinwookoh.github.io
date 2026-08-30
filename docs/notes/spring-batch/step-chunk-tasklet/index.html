@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step — Chunk 지향과 Tasklet·Commit Interval · Spring Batch</title>
+  <meta name="description" content="Step은 chunk 지향과 Tasklet 두 방식으로 동작하며, chunk 크기가 곧 트랜잭션 경계이자 성능 튜닝의 핵심이다.">
+  <meta property="og:title" content="Step — Chunk 지향과 Tasklet·Commit Interval · Spring Batch">
+  <meta property="og:description" content="Step은 chunk 지향과 Tasklet 두 방식으로 동작하며, chunk 크기가 곧 트랜잭션 경계이자 성능 튜닝의 핵심이다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/step-chunk-tasklet/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Step — Chunk 지향과 Tasklet·Commit Interval</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Step</p>
+  <h1>Step — Chunk 지향과 Tasklet·Commit Interval</h1>
+  <p class="summary">Step은 chunk 지향과 Tasklet 두 방식으로 동작하며, chunk 크기가 곧 트랜잭션 경계이자 성능 튜닝의 핵심이다.</p>
+  <div class="content">
+<p>수백만 건을 단일 트랜잭션으로 묶으면 전체 데이터가 메모리에 올라가 OOM이 나고, 마지막 한 건의 실패가 앞선 결과를 모두 되돌린다. 반대로 한 건마다 commit하면 트랜잭션 오버헤드가 건수만큼 늘어난다. 파일 이동이나 프로시저 호출 같은 단발 작업을 Reader·Writer로 억지로 짜면 no-op Writer 같은 코드도 생긴다. Step은 이 문제를 chunk 지향 처리와 Tasklet이라는 두 실행 모델로 나누어 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>Step은 Job을 구성하는 독립적이고 순차적인 단계로, 별도의 StepExecution과 트랜잭션 경계를 갖는다. 실행 모델은 두 가지뿐이며 <code>StepBuilder</code>에서 <code>.chunk()</code>와 <code>.tasklet()</code> 중 하나만 호출한다.</p>
+<h3>Chunk 지향 처리</h3>
+<p>Reader가 chunk 크기만큼 <code>read()</code>를 반복해 아이템을 모으고, Processor가 한 건씩 처리한 뒤, Writer가 처리된 묶음을 한 번에 받아 쓴다. 이 사이클 하나가 트랜잭션 하나이며 write가 끝나면 commit한다. Reader와 Processor는 건 단위, Writer는 chunk 단위로 호출된다.</p>
+<p><code>read()</code>의 null은 데이터 종료 신호다. 모아둔 부분 chunk를 commit하고 Step을 끝내므로 마지막 chunk가 설정 크기보다 작은 것은 정상이다. Processor의 null은 해당 아이템을 Writer에 넘기지 않는 필터링이며 <code>filterCount</code>에 기록된다. 예외 후 건너뛰는 skip은 <code>skipCount</code>로 따로 집계된다.</p>
+<p>chunk 중간에 예외가 나면 그 chunk만 rollback되고 이미 commit된 이전 chunk는 보존된다. 그래서 재시작·skip·retry의 단위가 chunk가 된다.</p>
+<h3>Commit Interval</h3>
+<p><code>chunk(N, transactionManager)</code>의 N이 commit interval이다. 100만 건을 N=1로 돌리면 트랜잭션이 100만 번, N=1000이면 1천 번이다. 크기를 키울수록 트랜잭션 오버헤드는 줄지만 메모리 점유, rollback 범위, DB lock 유지 시간이 함께 늘어난다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="center">작은 chunk</th>
+<th align="center">큰 chunk</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">트랜잭션 오버헤드</td>
+<td align="center">크다</td>
+<td align="center">작다</td>
+</tr>
+<tr>
+<td align="left">메모리 사용</td>
+<td align="center">적다</td>
+<td align="center">많다</td>
+</tr>
+<tr>
+<td align="left">실패 시 rollback 범위</td>
+<td align="center">좁다</td>
+<td align="center">넓다</td>
+</tr>
+<tr>
+<td align="left">DB lock 유지 시간</td>
+<td align="center">짧다</td>
+<td align="center">길다</td>
+</tr>
+</tbody></table>
+<p>일반적인 DB row 기준으로 100<del>1000이 출발점이다. 레코드 하나가 수 MB인 큰 객체는 10</del>50, Processor에서 외부 API를 호출한다면 10~100으로 낮춰 호출 지연이 트랜잭션 timeout으로 번지지 않게 한다. 100에서 시작해 2배·5배로 늘리며 처리량을 측정하고 정체되는 지점에서 멈춘다. chunk 크기는 commit 단위이고 JDBC fetch size는 드라이버가 한 번에 가져오는 row 수로, 별개다.</p>
+<h3>TaskletStep</h3>
+<p><code>Tasklet</code>은 <code>execute(StepContribution, ChunkContext)</code> 메서드 하나를 가진 인터페이스다. <code>RepeatStatus.FINISHED</code>를 반환하거나 예외를 던질 때까지 반복 호출되며, <code>CONTINUABLE</code>을 반환하면 다시 호출된다. 호출 한 번이 트랜잭션 하나다. <code>StepContribution</code>으로 카운트와 ExitStatus를 조작하고, <code>ChunkContext</code>를 통해 StepExecution·JobParameters·ExecutionContext에 접근한다. 기존 메서드를 감싸는 <code>MethodInvokingTaskletAdapter</code>, OS 명령을 실행하는 <code>SystemCommandTasklet</code>도 제공된다.</p>
+<p>대량 데이터의 read·process·write 분리가 필요하면 chunk, 프로시저 호출·파일 정리·사전 검증·통계 통보 같은 단발 작업이면 Tasklet이다. 실무의 Job은 대개 준비용 Tasklet → 처리용 chunk Step → 정리용 Tasklet 순서로 구성된다.</p>
+<h2>코드</h2>
+<p>Reader·Processor·Writer를 묶은 chunk Step이다. 제네릭은 Reader 출력과 Processor 출력 타입이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">productStep</span><span class="hljs-params">(JobRepository jobRepository,
+                        PlatformTransactionManager transactionManager,
+                        FlatFileItemReader&lt;Product&gt; productReader,
+                        JdbcBatchItemWriter&lt;Product&gt; productWriter)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;productStep&quot;</span>, jobRepository)
+        .&lt;Product, Product&gt;chunk(<span class="hljs-number">500</span>, transactionManager)
+        .reader(productReader)
+        .processor(item -&gt; {
+            <span class="hljs-keyword">if</span> (item.price() &lt;= <span class="hljs-number">0</span>) {
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>; <span class="hljs-comment">// 필터링 — filterCount 증가, Writer로 전달되지 않음</span>
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Product</span>(item.id(), item.name().toUpperCase(),
+                               item.category(), item.price());
+        })
+        .writer(productWriter)
+        .build();
+}</code></pre>
+<p>Spring Batch 5부터 <code>ItemWriter.write()</code>는 <code>Chunk&lt;? extends T&gt;</code>를 받는다. 모든 아이템이 필터링되면 빈 Chunk가 들어온다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductLoggingWriter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemWriter</span>&lt;Product&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(ProductLoggingWriter.class);
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">write</span><span class="hljs-params">(Chunk&lt;? extends Product&gt; chunk)</span> {
+        <span class="hljs-keyword">if</span> (chunk.isEmpty()) {
+            <span class="hljs-keyword">return</span>;
+        }
+        log.info(<span class="hljs-string">&quot;writing {} items&quot;</span>, chunk.size());
+    }
+}</code></pre>
+<p>JobParameters로 받은 디렉터리를 비우는 TaskletStep이다. 삭제 실패는 예외로 던져 Step을 FAILED로 만든다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">cleanupStep</span><span class="hljs-params">(JobRepository jobRepository,
+                        PlatformTransactionManager transactionManager)</span> {
+    <span class="hljs-type">Tasklet</span> <span class="hljs-variable">tasklet</span> <span class="hljs-operator">=</span> (contribution, chunkContext) -&gt; {
+        <span class="hljs-type">String</span> <span class="hljs-variable">dir</span> <span class="hljs-operator">=</span> chunkContext.getStepContext()
+            .getStepExecution().getJobParameters().getString(<span class="hljs-string">&quot;inputDir&quot;</span>);
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">Stream</span>&lt;Path&gt; <span class="hljs-variable">files</span> <span class="hljs-operator">=</span> Files.list(Path.of(dir))) {
+            <span class="hljs-keyword">for</span> (Path file : files.toList()) {
+                Files.delete(file);
+                contribution.incrementWriteCount(<span class="hljs-number">1</span>);
+            }
+        }
+        <span class="hljs-keyword">return</span> RepeatStatus.FINISHED;
+    };
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;cleanupStep&quot;</span>, jobRepository)
+        .tasklet(tasklet, transactionManager)
+        .build();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>커스텀 Reader의 null 누락은 무한 루프다.</strong> 직접 구현한 Reader는 종료 조건을 검증한다. <code>CONTINUABLE</code>을 반환하는 Tasklet도 같으며, 제한 없는 폴링은 스케줄러로 분리한다.</li>
+<li><strong>chunk 크기를 10만 단위로 잡으면 OOM과 긴 rollback이 함께 온다.</strong> 한 건의 실패가 chunk 전체를 되돌리므로 skip을 켜지 않은 환경에서 비용이 크다.</li>
+<li><strong>Tasklet도 트랜잭션 안에서 실행된다.</strong> 긴 작업은 timeout에 걸리고 외부 호출 실패가 곧 rollback이 된다. 긴 작업은 chunk로 쪼개거나 외부 호출을 트랜잭션 밖으로 뺀다.</li>
+<li><strong>Tasklet 안에서 ItemReader를 직접 돌리면 ItemStream이 등록되지 않는다.</strong> <code>.stream(reader)</code>를 명시해야 재시작 시 위치가 복원된다.</li>
+<li><strong>Processor는 싱글톤이다.</strong> 인스턴스 필드의 카운터는 chunk 사이에 공유되고 멀티스레드 Step에서 경쟁 조건이 된다. 누적값은 ExecutionContext에 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/skip-retry/">Skip과 Retry</a></li>
+<li><a href="/notes/spring-batch/transaction-attributes-repeat/">트랜잭션 속성과 Repeat</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, Step, Chunk, Tasklet, Commit Interval</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/running-jobs/"><small>이전</small>Job 실행 — JobLauncher·JobOperator·JobExplorer</a>
+  <a class="next" href="/notes/spring-batch/step-restart-itemstream/"><small>다음</small>Step 재시작과 ItemStream</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

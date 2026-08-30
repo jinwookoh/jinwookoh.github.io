@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DB 원리와 PostgreSQL · Notes</title>
+  <meta name="description" content="데이터베이스 내부 구조·트랜잭션·복제 원리에서 PostgreSQL의 SQL·DDL/DML·인덱스·MVCC·운영까지.">
+  <meta property="og:title" content="DB 원리와 PostgreSQL · Notes">
+  <meta property="og:description" content="데이터베이스 내부 구조·트랜잭션·복제 원리에서 PostgreSQL의 SQL·DDL/DML·인덱스·MVCC·운영까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>DB 원리와 PostgreSQL</span></nav>
+    <header class="series-head"><h1>DB 원리와 PostgreSQL</h1><p>데이터베이스 내부 구조·트랜잭션·복제 원리에서 PostgreSQL의 SQL·DDL/DML·인덱스·MVCC·운영까지.</p><p class="count">23편</p></header>
+<section class="part-group"><h2>DB 원리</h2><ol class="toc"><li><a href="/notes/postgresql/storage-engine-wal/"><span class="n">1</span><span class="t">내부 구조 — Storage Engine·페이지·WAL</span><span class="s">PostgreSQL이 8KB 페이지와 Buffer Pool, WAL을 조합해 성능과 Durability를 동시에 확보하는 방식을 정리한다.</span></a></li>
+<li><a href="/notes/postgresql/acid-transactions-isolation/"><span class="n">2</span><span class="t">ACID·트랜잭션·격리 수준</span><span class="s">트랜잭션이 ACID를 어떻게 보장하고, PostgreSQL의 격리 수준 4단계가 동시 실행에서 무엇을 막는지 정리한다.</span></a></li>
+<li><a href="/notes/postgresql/partitioning-sharding/"><span class="n">3</span><span class="t">파티셔닝과 샤딩</span><span class="s">파티셔닝은 단일 DB 안에서 테이블을 쪼개고, 샤딩은 여러 서버로 데이터를 나눈다. 둘의 경계와 비용을 정리한다.</span></a></li>
+<li><a href="/notes/postgresql/replication-cap-saga/"><span class="n">4</span><span class="t">복제·CAP·분산 트랜잭션</span><span class="s">복제 모드와 CAP·PACELC 트레이드오프를 기준으로 읽기 라우팅·Failover·Saga 보상 설계를 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>시작</h2><ol class="toc"><li><a href="/notes/postgresql/what-is-postgresql/"><span class="n">5</span><span class="t">PostgreSQL이란 — MySQL과의 비교·아키텍처·관계형 모델</span><span class="s">PostgreSQL이 무엇이고 MySQL과 어디서 갈리는지, 프로세스 모델과 4단계 계층, 관계형 모델의 토대를 정리한다</span></a></li>
+<li><a href="/notes/postgresql/install-psql/"><span class="n">6</span><span class="t">설치와 psql 접속</span><span class="s">로컬 PostgreSQL을 Docker로 띄우고 psql 접속 옵션·메타 명령·인증 파일을 표준 형태로 정리한다</span></a></li>
+<li><a href="/notes/postgresql/create-database-table/"><span class="n">7</span><span class="t">데이터베이스와 테이블 만들기</span><span class="s">CREATE DATABASE와 CREATE TABLE의 표준 옵션, 제약 설계, 운영에서 안전하게 만들고 지우는 절차를 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>SQL 기초</h2><ol class="toc"><li><a href="/notes/postgresql/sql-basics-syntax/"><span class="n">8</span><span class="t">SQL 기초 — 어휘 구조와 문법</span><span class="s">키워드·식별자·리터럴·연산자·표현식 규칙을 알아야 따옴표·NULL·우선순위 실수 없이 SQL을 쓴다.</span></a></li>
+<li><a href="/notes/postgresql/select-join/"><span class="n">9</span><span class="t">SELECT와 JOIN 표준 패턴</span><span class="s">SELECT 8개 절의 순서와 WHERE·정렬·페이지네이션 패턴, JOIN 종류 선택 기준과 ON·WHERE 차이를 정리한다</span></a></li>
+<li><a href="/notes/postgresql/insert-update-delete/"><span class="n">10</span><span class="t">INSERT·UPDATE·DELETE 표준 패턴</span><span class="s">쓰기 세 동사의 표준 형태와 RETURNING·UPSERT·소프트 삭제·안전 가드를 한 번에 정리한다.</span></a></li>
+<li><a href="/notes/postgresql/views-window-functions/"><span class="n">11</span><span class="t">뷰·윈도우 함수·고급 SQL</span><span class="s">반복되는 쿼리는 VIEW로 이름을 붙이고, 행을 줄이지 않는 그룹 계산은 윈도우 함수와 CTE로 푼다</span></a></li></ol></section>
+<section class="part-group"><h2>DDL과 DML</h2><ol class="toc"><li><a href="/notes/postgresql/ddl-tables-constraints/"><span class="n">12</span><span class="t">DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</span><span class="s">대용량 테이블은 파티션·IDENTITY·제약·외래 키를 DDL 단계에서 함께 설계해야 운영 중 다운타임 없이 무결성을 지킬 수 있다.</span></a></li>
+<li><a href="/notes/postgresql/insert-bulk-copy-upsert/"><span class="n">13</span><span class="t">INSERT 깊이 — Bulk·COPY·UPSERT</span><span class="s">단건·Bulk·COPY의 비용 차이와 ON CONFLICT·MERGE 기반 UPSERT를 대량 입력 운영 관점에서 정리한다.</span></a></li>
+<li><a href="/notes/postgresql/update-delete-hot-bloat-vacuum/"><span class="n">14</span><span class="t">UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</span><span class="s">UPDATE와 DELETE는 행을 제자리에서 고치지 않고 새 버전을 쓰거나 표시만 남기므로, HOT·fillfactor·VACUUM·파티션 DROP으로 그 비용을 관리해야 한다</span></a></li>
+<li><a href="/notes/postgresql/query-structure/"><span class="n">15</span><span class="t">쿼리 구조 — SELECT 절·FROM·WHERE·GROUP BY</span><span class="s">SELECT 문의 작성 순서와 실행 순서가 다르다는 사실에서 출발해 각 절의 역할과 인덱스·페이지네이션 함정을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>타입·인덱스·성능</h2><ol class="toc"><li><a href="/notes/postgresql/data-types-jsonb/"><span class="n">16</span><span class="t">데이터 타입과 JSONB</span><span class="s">컬럼 타입은 BIGINT·TEXT·TIMESTAMPTZ·NUMERIC·JSONB를 기본으로 잡고, JSONB는 GIN·표현식 인덱스와 함께 써야 검색이 성립한다.</span></a></li>
+<li><a href="/notes/postgresql/index-types/"><span class="n">17</span><span class="t">인덱스 — 원리와 종류 (B-Tree·Hash·GIN·GiST·BRIN)</span><span class="s">PostgreSQL 인덱스가 빠른 이유와 여섯 가지 인덱스 종류를 언제 골라야 하는지 정리한다</span></a></li>
+<li><a href="/notes/postgresql/index-operations-explain/"><span class="n">18</span><span class="t">인덱스 운영과 EXPLAIN</span><span class="s">인덱스는 만들고 끝이 아니라 EXPLAIN으로 검증하고 통계로 관찰하며 주기적으로 재구성·제거하는 운영 대상이다.</span></a></li>
+<li><a href="/notes/postgresql/performance-textsearch/"><span class="n">19</span><span class="t">성능 팁과 전문 검색</span><span class="s">메모리·연결 풀·autovacuum 튜닝의 기준값과, LIKE 풀스캔을 tsvector·GIN 전문 검색으로 대체하는 방법을 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>동시성</h2><ol class="toc"><li><a href="/notes/postgresql/mvcc-isolation-locking/"><span class="n">20</span><span class="t">MVCC·격리 수준·락</span><span class="s">PostgreSQL이 MVCC 스냅샷으로 격리 수준을 구현하는 방식과, 락·Lost Update·Deadlock을 실무에서 다루는 기준을 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/postgresql/production-install-config/"><span class="n">21</span><span class="t">운영 설치와 postgresql.conf</span><span class="s">운영 PostgreSQL은 배포 옵션을 먼저 고르고, 기본값을 버리고 메모리·WAL·로그·계획자 설정을 호스트에 맞춰 튜닝한다</span></a></li>
+<li><a href="/notes/postgresql/roles-security/"><span class="n">22</span><span class="t">사용자·역할·권한</span><span class="s">ROLE 하나로 사용자와 그룹을 통합하고, 그룹 멤버십과 DEFAULT PRIVILEGES로 권한을 최소·자동화하는 방법</span></a></li>
+<li><a href="/notes/postgresql/backup-restore-pitr/"><span class="n">23</span><span class="t">백업과 복구 — pg_dump·PITR</span><span class="s">논리·물리·PITR 세 가지 백업을 언제 쓰고, WAL 아카이브로 특정 시점까지 어떻게 복원하는가</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

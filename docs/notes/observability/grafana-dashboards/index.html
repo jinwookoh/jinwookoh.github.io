@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grafana Dashboard·Panel·Variable · 관측성</title>
+  <meta name="description" content="Panel 선택·Variable 체인·Transformation·Annotation 자동화로 운영 가능한 Grafana 대시보드를 구성하는 기준을 정리한다">
+  <meta property="og:title" content="Grafana Dashboard·Panel·Variable · 관측성">
+  <meta property="og:description" content="Panel 선택·Variable 체인·Transformation·Annotation 자동화로 운영 가능한 Grafana 대시보드를 구성하는 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/grafana-dashboards/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/observability/">관측성</a><span class="sep">›</span><span>Grafana Dashboard·Panel·Variable</span></nav>
+    <article class="post">
+  <p class="part">관측성 · 시각화와 알림</p>
+  <h1>Grafana Dashboard·Panel·Variable</h1>
+  <p class="summary">Panel 선택·Variable 체인·Transformation·Annotation 자동화로 운영 가능한 Grafana 대시보드를 구성하는 기준을 정리한다</p>
+  <div class="content">
+<p>메트릭·로그·트레이스를 수집해 두어도 PromQL을 직접 작성하는 사람만 볼 수 있다면 관측 데이터는 팀 자산이 되지 못한다. 장애 때마다 쿼리를 새로 짜고, 지표가 튄 시각과 배포 시각을 대조하려고 CI 로그를 따로 뒤지게 된다. 같은 데이터라도 어떤 panel과 변수로 보여주느냐에 따라 사용성과 신뢰도가 갈린다. Grafana의 Dashboard·Panel·Variable은 이 표현 계층을 담당한다.</p>
+<h2>핵심 개념</h2>
+<h3>Panel</h3>
+<p>Panel은 쿼리 결과 하나를 시각화 하나로 표현하는 단위다. 시계열(Time series·Bar chart·Histogram·Heatmap·State timeline), 단일 값(Stat·Gauge·Bar gauge·Pie chart), 표·텍스트(Table·Logs·Text), 특수(Traces·Geomap·Node graph·Canvas·Alert list)로 나뉜다. 시계열 지표는 Time series, 단일 KPI는 Stat, 지연 시간 분포는 Heatmap, 상태 전이는 State timeline, 의존 관계는 Node graph를 고른다. 운영 대시보드의 대부분은 Time series·Stat·Table로 구성된다.</p>
+<h3>Variable</h3>
+<p>Variable은 드롭다운으로 고른 값을 모든 panel의 쿼리에 주입한다. type은 Query(datasource 질의, <code>label_values(up, instance)</code>), Custom(고정 목록), Constant(URL 비노출), Data source, Interval(<code>$__interval</code> 후보), Ad hoc filter(전 panel에 label 필터), Text box 일곱 가지다.</p>
+<p>앞 변수의 선택값이 뒤 변수의 query에 들어가는 구조가 cascading이다. environment → cluster → namespace → pod 순서로 좁혀야 의미 있는 범위만 조회된다. Multi-value나 Include All 변수는 <code>=~</code> 매처로 받고, <code>${var:regex}</code>, <code>${var:csv}</code>, <code>${var:json}</code> 같은 format modifier로 치환 형식을 지정한다.</p>
+<h3>Transformation</h3>
+<p>쿼리 결과와 시각화 사이에서 데이터를 가공한다. Join by field로 Prometheus의 RPS와 Loki의 에러율을 service 기준으로 합치거나, Add field from calculation으로 계산 열을 만들거나, Organize fields로 열을 정리한다. datasource에서 처리 가능한 연산은 PromQL·SQL로 끝내고 transformation은 마지막 단계로만 쓴다.</p>
+<h3>Annotation</h3>
+<p>Time series 위에 세로선으로 이벤트를 표시한다. built-in은 alert 상태 변화를 표시하고, annotation query는 datasource 쿼리 결과를 그리며(Loki의 <code>{app=&quot;ci-deploy&quot;} | json | event=&quot;deploy_completed&quot;</code>), manual은 UI에서 입력한다. CI가 배포 직후 <code>/api/annotations</code>에 POST하면 지표 급등이 배포 때문인지 즉시 확인된다.</p>
+<h3>Library Panel, Dashboard JSON, 권한</h3>
+<p>Library panel은 panel 하나를 여러 대시보드에서 참조하며, 한 곳을 수정하면 모두 반영된다. 대시보드 정의는 JSON이고 UI, grafana.com ID, <code>POST /api/dashboards/db</code>로 import한다. Grafonnet이나 Terraform provider로 코드화하면 Git 이력과 PR 리뷰를 얻는다. 권한은 Organization → Folder → Dashboard 세 계층에 Admin·Editor·Viewer role을 Team 단위로 부여한다. Public dashboard는 인증 없는 공개 URL이다.</p>
+<h2>코드</h2>
+<p>cascading variable 두 개와 Time series panel 하나를 가진 최소 Dashboard JSON이다.</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;title&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Service Dashboard&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;time&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;from&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;now-1h&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;to&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;now&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;templating&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;list&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;environment&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;custom&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;query&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;dev,staging,prod&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;service&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;query&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;datasource&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Prometheus&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;query&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;label_values(http_server_requests_seconds_count{env=\&quot;$environment\&quot;}, service)&quot;</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;multi&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;includeAll&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span> <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;panels&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;id&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;timeseries&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;title&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;RPS by service&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;gridPos&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;x&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;y&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;w&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">12</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;h&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">8</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;datasource&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Prometheus&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;targets&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;expr&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;sum by (service) (rate(http_server_requests_seconds_count{env=\&quot;$environment\&quot;, service=~\&quot;${service:regex}\&quot;}[$__rate_interval]))&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>Spring Boot 3.x 애플리케이션이 기동 완료 시점에 <code>RestClient</code>로 배포 annotation을 남기는 예다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DeployAnnotationPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient client;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String version;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DeployAnnotationPublisher</span><span class="hljs-params">(RestClient.Builder builder,
+                                     <span class="hljs-meta">@Value(&quot;${grafana.url}&quot;)</span> String url,
+                                     <span class="hljs-meta">@Value(&quot;${grafana.token}&quot;)</span> String token,
+                                     BuildProperties build)</span> {
+        <span class="hljs-built_in">this</span>.client = builder.baseUrl(url)
+                .defaultHeader(<span class="hljs-string">&quot;Authorization&quot;</span>, <span class="hljs-string">&quot;Bearer &quot;</span> + token)
+                .build();
+        <span class="hljs-built_in">this</span>.version = build.getVersion();
+    }
+
+    <span class="hljs-meta">@EventListener(ApplicationReadyEvent.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">publish</span><span class="hljs-params">()</span> {
+        client.post().uri(<span class="hljs-string">&quot;/api/annotations&quot;</span>)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of(
+                        <span class="hljs-string">&quot;tags&quot;</span>, List.of(<span class="hljs-string">&quot;deploy&quot;</span>, <span class="hljs-string">&quot;production&quot;</span>),
+                        <span class="hljs-string">&quot;text&quot;</span>, <span class="hljs-string">&quot;Deploy &quot;</span> + version,
+                        <span class="hljs-string">&quot;time&quot;</span>, Instant.now().toEpochMilli()))
+                .retrieve()
+                .toBodilessEntity();
+    }
+}</code></pre>
+<p>에러율을 PromQL로 계산한 Stat 쿼리다.</p>
+<pre><code class="hljs language-plaintext">sum(rate(http_server_requests_seconds_count{env=&quot;$environment&quot;, service=~&quot;${service:regex}&quot;, status=~&quot;5..&quot;}[$__rate_interval]))
+/
+sum(rate(http_server_requests_seconds_count{env=&quot;$environment&quot;, service=~&quot;${service:regex}&quot;}[$__rate_interval]))
+* 100</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>panel 과다.</strong> 30개 넘는 panel은 로딩이 느리고 읽히지 않는다. Overview·Service·Cluster·Business로 독자별 분리한다.</li>
+<li><strong>기본 시간 범위.</strong> last 30 days로 저장하면 열 때마다 모든 panel이 30일을 스캔한다. 기본은 last 1 hour로 두고, chain 없이 전체 service를 조회하는 쿼리도 피한다.</li>
+<li><strong>공개 대시보드 무수정 사용.</strong> Node Exporter Full(1860) 같은 대시보드는 metric 이름이 달라 panel이 비기 쉽다. Spring Boot용 대시보드도 Boot 2 이름을 쓰는 경우가 있어 Boot 3의 <code>http_server_requests_seconds_*</code>에 맞춰 고친다.</li>
+<li><strong>Public dashboard 정보 유출.</strong> 링크를 아는 누구나 접근한다. 개인정보 label이나 내부 지표 panel은 분리한 뒤 공개한다.</li>
+<li><strong>복사·붙여넣기와 JSON 손편집.</strong> panel 복사는 drift를, JSON 직접 수정은 import 실패를 만든다. 표준 panel은 Library panel로, 정의는 Grafonnet·Terraform으로 관리한다. Annotation은 배포·incident·feature flag만 남긴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/observability/prometheus-promql/">Prometheus와 PromQL</a></li>
+<li><a href="/notes/observability/loki-tempo/">Loki·LogQL과 Tempo·TraceQL</a></li>
+<li><a href="/notes/observability/alerting-slo/">Alerting·Notification·SLO</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Grafana, Dashboard, Variable, Annotation, Library Panel</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/observability/loki-tempo/"><small>이전</small>Loki·LogQL과 Tempo·TraceQL</a>
+  <a class="next" href="/notes/observability/alerting-slo/"><small>다음</small>Alerting·Notification·SLO</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

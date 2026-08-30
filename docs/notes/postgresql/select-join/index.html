@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SELECT와 JOIN 표준 패턴 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="SELECT 8개 절의 순서와 WHERE·정렬·페이지네이션 패턴, JOIN 종류 선택 기준과 ON·WHERE 차이를 정리한다">
+  <meta property="og:title" content="SELECT와 JOIN 표준 패턴 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="SELECT 8개 절의 순서와 WHERE·정렬·페이지네이션 패턴, JOIN 종류 선택 기준과 ON·WHERE 차이를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/select-join/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>SELECT와 JOIN 표준 패턴</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · SQL 기초</p>
+  <h1>SELECT와 JOIN 표준 패턴</h1>
+  <p class="summary">SELECT 8개 절의 순서와 WHERE·정렬·페이지네이션 패턴, JOIN 종류 선택 기준과 ON·WHERE 차이를 정리한다</p>
+  <div class="content">
+<p>관계형 데이터베이스는 한 사실을 한 테이블에만 저장한다. 사용자는 users, 주문은 orders에 나뉘어 있으므로 &quot;누가 무엇을 주문했는가&quot;를 알려면 두 테이블을 합쳐야 한다. SELECT의 절 순서와 JOIN 종류를 정확히 모르면 어떤 10건인지 알 수 없는 목록 API, 깊은 OFFSET으로 느려지는 페이지네이션, 조건 한 줄 때문에 LEFT JOIN이 INNER JOIN으로 바뀌는 조회 결과가 만들어진다.</p>
+<h2>핵심 개념</h2>
+<h3>SELECT 절의 순서와 실행 순서</h3>
+<p>SELECT 문은 <code>SELECT → FROM → WHERE → GROUP BY → HAVING → ORDER BY → LIMIT → OFFSET</code> 순서로 작성한다. 실제 실행은 <code>FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → LIMIT</code> 순이므로, WHERE에서는 SELECT의 별칭을 참조할 수 없고 ORDER BY에서는 참조할 수 있다. 운영 코드에서는 <code>SELECT *</code> 대신 컬럼을 명시한다. 컬럼이 추가되면 매핑 코드가 깨진다.</p>
+<h3>WHERE 조건의 종류</h3>
+<p>비교 연산자와 <code>AND</code>·<code>OR</code>·<code>NOT</code>이 기본이다. <code>IN</code>은 여러 값 중 하나를 고르며 서브쿼리를 넣을 수 있고, <code>BETWEEN a AND b</code>는 <code>&gt;= a AND &lt;= b</code>의 단축으로 양 끝을 포함한다. <code>LIKE</code>는 <code>%</code>(임의 길이)와 <code>_</code>(한 글자) 와일드카드를 쓰고, <code>ILIKE</code>는 PostgreSQL이 제공하는 대소문자 무시 버전이다. 정규식은 <code>~</code>·<code>~*</code>·<code>!~</code> 연산자로 지원한다. NULL은 <code>= NULL</code>로 비교하면 결과가 NULL이 되어 거짓으로 취급되므로 <code>IS NULL</code>을 써야 한다. NULL 대체에는 <code>COALESCE</code>, 특정 값을 NULL로 바꿀 때는 <code>NULLIF</code>를 쓴다.</p>
+<h3>정렬과 페이지네이션</h3>
+<p>ORDER BY의 기본은 ASC이고, <code>NULLS FIRST</code>·<code>NULLS LAST</code>로 NULL 위치를 지정한다(기본은 ASC일 때 NULLS LAST, DESC일 때 NULLS FIRST). LIMIT은 반드시 ORDER BY와 함께 써야 결정적인 결과를 얻는다. OFFSET은 건너뛴 행을 모두 읽고 버리므로 페이지가 깊어질수록 느려진다. 큰 테이블은 마지막으로 본 키를 조건으로 넘기는 커서 방식(<code>WHERE id &gt; :lastId ORDER BY id LIMIT n</code>)을 쓴다. <code>DISTINCT ON (col)</code>은 그룹별 첫 행을 가져오는 PostgreSQL 확장으로, ORDER BY 선두 컬럼과 일치해야 한다.</p>
+<h3>JOIN 종류</h3>
+<table>
+<thead>
+<tr>
+<th>종류</th>
+<th>결과</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>INNER JOIN</td>
+<td>양쪽 모두 매칭되는 행</td>
+<td>관계가 반드시 존재하는 조회</td>
+</tr>
+<tr>
+<td>LEFT JOIN</td>
+<td>왼쪽 전부 보존, 오른쪽 없으면 NULL</td>
+<td>목록 + 있을 수도 있는 부속 정보</td>
+</tr>
+<tr>
+<td>RIGHT JOIN</td>
+<td>오른쪽 보존</td>
+<td>테이블 순서를 바꿔 LEFT로 대체</td>
+</tr>
+<tr>
+<td>FULL OUTER JOIN</td>
+<td>양쪽 보존</td>
+<td>양쪽 불일치를 모두 확인할 때</td>
+</tr>
+<tr>
+<td>CROSS JOIN</td>
+<td>m × n 데카르트 곱</td>
+<td>모든 조합 생성</td>
+</tr>
+<tr>
+<td>LATERAL</td>
+<td>서브쿼리에서 외부 컬럼 참조</td>
+<td>그룹별 Top-N</td>
+</tr>
+</tbody></table>
+<p><code>INNER</code>는 생략 가능하다. 같은 테이블에 두 별칭을 붙이는 SELF JOIN은 계층 구조에 쓴다. <code>USING (col)</code>은 양쪽 컬럼 이름이 같을 때 <code>ON</code>을 줄인 형태다. <code>NATURAL JOIN</code>은 이름이 같은 모든 컬럼을 자동 매칭하므로 컬럼이 추가되면 의미가 바뀐다.</p>
+<h3>ON과 WHERE의 차이</h3>
+<p>ON 조건은 매칭 규칙에만 영향을 주고, WHERE는 JOIN이 끝난 뒤 결과를 필터링한다. LEFT JOIN에서 오른쪽 컬럼 조건을 WHERE에 두면 NULL로 채워진 행이 제거되어 INNER JOIN과 같은 결과가 된다.</p>
+<h3>JOIN 실행 방식</h3>
+<p>플래너는 Nested Loop(작은 집합), Hash Join(중간 규모), Merge Join(정렬 인덱스가 있을 때) 중 하나를 통계 기반으로 고른다. EXPLAIN으로 확인하며, 결정 변수는 JOIN 키의 인덱스 유무다.</p>
+<h2>코드</h2>
+<p>목록 조회의 표준 형태. ON 절 조건으로 결제 완료 주문만 붙이되 주문이 없는 사용자도 유지한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">SELECT</span>
+    u.id,
+    u.name,
+    <span class="hljs-built_in">COALESCE</span>(u.email, <span class="hljs-string">&#x27;no-email&#x27;</span>) <span class="hljs-keyword">AS</span> email,
+    <span class="hljs-keyword">CASE</span>
+        <span class="hljs-keyword">WHEN</span> u.age <span class="hljs-operator">&lt;</span> <span class="hljs-number">18</span> <span class="hljs-keyword">THEN</span> <span class="hljs-string">&#x27;MINOR&#x27;</span>
+        <span class="hljs-keyword">WHEN</span> u.age <span class="hljs-operator">&lt;</span> <span class="hljs-number">65</span> <span class="hljs-keyword">THEN</span> <span class="hljs-string">&#x27;ADULT&#x27;</span>
+        <span class="hljs-keyword">ELSE</span> <span class="hljs-string">&#x27;SENIOR&#x27;</span>
+    <span class="hljs-keyword">END</span> <span class="hljs-keyword">AS</span> age_group,
+    o.id      <span class="hljs-keyword">AS</span> order_id,
+    o.amount
+<span class="hljs-keyword">FROM</span> users u
+<span class="hljs-keyword">LEFT</span> <span class="hljs-keyword">JOIN</span> orders o
+    <span class="hljs-keyword">ON</span> o.user_id <span class="hljs-operator">=</span> u.id
+   <span class="hljs-keyword">AND</span> o.status <span class="hljs-operator">=</span> <span class="hljs-string">&#x27;PAID&#x27;</span>
+<span class="hljs-keyword">WHERE</span> u.deleted_at <span class="hljs-keyword">IS</span> <span class="hljs-keyword">NULL</span>
+  <span class="hljs-keyword">AND</span> u.name ILIKE <span class="hljs-string">&#x27;a%&#x27;</span>
+<span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> u.created_at <span class="hljs-keyword">DESC</span>, u.id <span class="hljs-keyword">DESC</span>
+LIMIT <span class="hljs-number">20</span>;</code></pre>
+<p>각 사용자의 최근 주문 3건을 붙이는 그룹별 Top-N. 서브쿼리가 외부의 <code>u.id</code>를 참조한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">SELECT</span> u.name, r.id, r.amount, r.created_at
+<span class="hljs-keyword">FROM</span> users u
+<span class="hljs-keyword">LEFT</span> <span class="hljs-keyword">JOIN</span> <span class="hljs-keyword">LATERAL</span> (
+    <span class="hljs-keyword">SELECT</span> id, amount, created_at
+    <span class="hljs-keyword">FROM</span> orders
+    <span class="hljs-keyword">WHERE</span> user_id <span class="hljs-operator">=</span> u.id
+    <span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> created_at <span class="hljs-keyword">DESC</span>
+    LIMIT <span class="hljs-number">3</span>
+) r <span class="hljs-keyword">ON</span> <span class="hljs-literal">true</span>;</code></pre>
+<p>Spring Data JPA의 커서 페이지네이션과 fetch join. 파생 쿼리는 단순 조건까지만 쓰고 JOIN은 JPQL로 명시한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Optional;
+<span class="hljs-keyword">import</span> org.springframework.data.domain.Pageable;
+<span class="hljs-keyword">import</span> org.springframework.data.jpa.repository.JpaRepository;
+<span class="hljs-keyword">import</span> org.springframework.data.jpa.repository.Query;
+<span class="hljs-keyword">import</span> org.springframework.data.repository.query.Param;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">UserRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;User, Long&gt; {
+
+    <span class="hljs-comment">// SELECT ... WHERE city = ? AND age &gt; ?</span>
+    <span class="hljs-type">List</span>&lt;User&gt; <span class="hljs-title function_">findByCityAndAgeGreaterThan</span><span class="hljs-params">(String city, <span class="hljs-type">int</span> age)</span>;
+
+    <span class="hljs-comment">// 커서 페이지네이션: Pageable의 page 번호는 0으로 고정하고 size만 사용</span>
+    <span class="hljs-meta">@Query(&quot;&quot;&quot;
+            SELECT u FROM User u
+            WHERE u.deletedAt IS NULL AND u.id &gt; :lastId
+            ORDER BY u.id ASC
+            &quot;&quot;&quot;)</span>
+    <span class="hljs-type">List</span>&lt;User&gt; <span class="hljs-title function_">findNextPage</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;lastId&quot;)</span> <span class="hljs-type">long</span> lastId, Pageable pageable)</span>;
+
+    <span class="hljs-comment">// fetch join으로 N+1 회피</span>
+    <span class="hljs-meta">@Query(&quot;SELECT u FROM User u LEFT JOIN FETCH u.orders WHERE u.id = :id&quot;)</span>
+    <span class="hljs-type">Optional</span>&lt;User&gt; <span class="hljs-title function_">findByIdWithOrders</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id)</span>;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>LEFT JOIN이 INNER JOIN으로 바뀌는 문제.</strong> 오른쪽 테이블 컬럼 조건을 WHERE에 두면 NULL 행이 걸러진다. 왼쪽을 보존해야 하는 조건은 ON 절에 두거나 <code>OR o.id IS NULL</code>로 NULL을 명시적으로 허용한다.</li>
+<li><strong>선행 와일드카드 LIKE.</strong> <code>LIKE &#39;%alice&#39;</code>는 B-Tree 인덱스를 쓰지 못해 전체 스캔이 된다. 접두 검색으로 바꾸거나 pg_trgm 기반 GIN 인덱스를 검토한다.</li>
+<li><strong>깊은 OFFSET.</strong> <code>LIMIT 10 OFFSET 1000000</code>은 백만 행을 읽고 버린다. 커서 방식으로 바꾸고, ORDER BY 키에 유일 컬럼을 덧붙여 페이지 경계에서 행이 중복·누락되지 않게 한다.</li>
+<li><strong>JOIN 조건 누락과 컬럼 모호성.</strong> 쉼표 구분(<code>FROM users, orders</code>)에 WHERE를 빠뜨리면 데카르트 곱이 그대로 실행된다. 같은 이름의 컬럼은 <code>column reference &quot;id&quot; is ambiguous</code> 오류가 나므로 항상 별칭으로 한정한다.</li>
+<li><strong>JPA의 N+1과 fetch join 제약.</strong> 지연 로딩 컬렉션을 반복문에서 접근하면 행 수만큼 쿼리가 나간다. fetch join으로 한 번에 가져오되, 컬렉션 fetch join에 Pageable을 결합하면 메모리 페이징이 되므로 <code>@BatchSize</code>나 별도 조회로 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/sql-basics-syntax/">SQL 기초 — 어휘 구조와 문법</a></li>
+<li><a href="/notes/postgresql/query-structure/">쿼리 구조 — SELECT 절·FROM·WHERE·GROUP BY</a></li>
+<li><a href="/notes/postgresql/index-operations-explain/">인덱스 운영과 EXPLAIN</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, SELECT, JOIN, LATERAL, Pagination</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/sql-basics-syntax/"><small>이전</small>SQL 기초 — 어휘 구조와 문법</a>
+  <a class="next" href="/notes/postgresql/insert-update-delete/"><small>다음</small>INSERT·UPDATE·DELETE 표준 패턴</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

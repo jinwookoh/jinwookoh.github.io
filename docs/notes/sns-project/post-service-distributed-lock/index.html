@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>게시물 서비스 — Redisson 분산 락과 동시성 · 실전 프로젝트 — SNS 마이크로서비스</title>
+  <meta name="description" content="락은 트랜잭션 바깥에, 외부 시스템 갱신은 afterCommit 안에 두어야 게시글 중복 생성과 유령 데이터를 막을 수 있다.">
+  <meta property="og:title" content="게시물 서비스 — Redisson 분산 락과 동시성 · 실전 프로젝트 — SNS 마이크로서비스">
+  <meta property="og:description" content="락은 트랜잭션 바깥에, 외부 시스템 갱신은 afterCommit 안에 두어야 게시글 중복 생성과 유령 데이터를 막을 수 있다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/sns-project/post-service-distributed-lock/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/sns-project/">실전 프로젝트 — SNS 마이크로서비스</a><span class="sep">›</span><span>게시물 서비스 — Redisson 분산 락과 동시성</span></nav>
+    <article class="post">
+  <p class="part">실전 프로젝트 — SNS 마이크로서비스 · 서비스</p>
+  <h1>게시물 서비스 — Redisson 분산 락과 동시성</h1>
+  <p class="summary">락은 트랜잭션 바깥에, 외부 시스템 갱신은 afterCommit 안에 두어야 게시글 중복 생성과 유령 데이터를 막을 수 있다.</p>
+  <div class="content">
+<p>게시글 생성 API는 겉보기에 단순한 INSERT지만, 같은 사용자의 요청이 수 밀리초 간격으로 두 번 들어오는 상황을 고려하지 않으면 중복 게시글이 그대로 저장된다. 인스턴스가 여러 대인 환경에서는 JVM 내부의 <code>synchronized</code>가 다른 인스턴스의 요청을 막지 못하므로 Redis 기반 분산 락이 필요하다. 문제는 락 하나로 끝나지 않는다. 게시글 저장과 함께 Redis 캐시, 랭킹 Sorted Set, Elasticsearch 인덱스, Kafka 이벤트까지 갱신해야 하는데, 이 호출들을 DB 트랜잭션 안에서 실행하면 롤백 시 DB에는 없고 캐시와 검색 인덱스에만 남는 유령 게시글이 생긴다. 좋아요 역시 동시 요청 두 건이 모두 INSERT에 성공하면 카운트가 두 번 올라간다. Post Service의 동시성 설계는 이 세 문제를 각각 다른 도구로 푼다.</p>
+<h2>핵심 개념</h2>
+<p><strong>락이 트랜잭션을 감싼다.</strong> <code>@Transactional</code> 메서드 안에서 락을 획득하고 해제하면 <code>finally</code>의 <code>unlock()</code>이 커밋보다 먼저 실행된다. 락이 풀린 시점과 커밋 사이의 짧은 구간에 다른 스레드가 락을 획득해 같은 조건으로 INSERT를 시도할 수 있으므로, 락 획득 → 트랜잭션 시작 → 커밋 → 락 해제 순서가 보장되도록 락을 잡는 메서드와 트랜잭션 메서드를 분리한다. 이때 트랜잭션 메서드는 별도 빈에 두거나 프록시를 거쳐 호출해야 <code>@Transactional</code>이 실제로 적용된다. 같은 클래스 내부의 자기 호출은 프록시를 우회하므로 어노테이션이 무시된다.</p>
+<p><strong>Redisson RLock과 Watchdog.</strong> <code>tryLock(waitTime, leaseTime, unit)</code>에서 <code>waitTime=0</code>은 락을 못 잡으면 대기 없이 즉시 <code>false</code>를 반환한다는 뜻이고, <code>leaseTime=-1</code>은 만료 시간을 고정하지 않고 Watchdog에 맡긴다는 뜻이다. Watchdog은 Redisson 클라이언트의 백그라운드 스레드로, 락 TTL(기본 30초)을 10초 주기로 연장한다. <code>unlock()</code>이 호출되거나 프로세스가 죽어 갱신이 멈추면 TTL이 만료되어 락이 자연 해제되므로 작업 시간을 미리 예측해 TTL을 잡을 필요가 없다.</p>
+<p><strong>afterCommit 동기화.</strong> <code>TransactionSynchronizationManager.registerSynchronization()</code>으로 등록한 <code>afterCommit()</code> 콜백은 커밋이 성공한 뒤에만 실행된다. 롤백되면 호출되지 않으므로 캐시 SET, 랭킹 갱신, ES 인덱싱처럼 되돌릴 수 없는 외부 호출을 여기에 둔다. 조회수 증가처럼 JPA dirty checking에 의존하는 값도 커밋 이후에야 DB에 반영되므로, 랭킹 점수 계산은 커밋 후에 해야 DB와 어긋나지 않는다.</p>
+<p><strong>Outbox 패턴.</strong> Kafka 발행을 트랜잭션 안에서 직접 하면 DB 성공·Kafka 실패(이벤트 유실) 또는 Kafka 성공·DB 롤백(유령 이벤트) 중 하나가 발생한다. 이벤트를 같은 트랜잭션의 <code>outbox_events</code> 테이블에 INSERT하고 Debezium이 PostgreSQL WAL(<code>wal_level=logical</code>)을 읽어 Kafka에 발행하면 DB 저장과 이벤트 발행이 원자적으로 묶인다.</p>
+<p><strong>DB UNIQUE 제약을 동시성 제어로 사용.</strong> 좋아요처럼 &quot;한 사용자당 한 건&quot;이 규칙인 데이터는 <code>UNIQUE(user_id, post_id)</code> 제약만으로 동시 INSERT 중 하나만 통과시킬 수 있다. 실패한 쪽에서 발생하는 <code>DataIntegrityViolationException</code>을 잡아 정상 응답으로 처리하면 결과가 멱등해지고 분산 락이나 <code>SELECT FOR UPDATE</code>가 필요 없다.</p>
+<h2>코드</h2>
+<p>게시글 생성. 락을 잡는 메서드는 트랜잭션이 없고, 실제 저장은 별도 빈 <code>PostWriter</code>의 트랜잭션 메서드가 담당한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PostService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RedissonClient redissonClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostWriter postWriter;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PostResponse</span> <span class="hljs-title function_">createPost</span><span class="hljs-params">(Long userId, PostRequest request)</span> {
+        <span class="hljs-type">RLock</span> <span class="hljs-variable">lock</span> <span class="hljs-operator">=</span> redissonClient.getLock(<span class="hljs-string">&quot;lock:post:create:&quot;</span> + userId);
+        <span class="hljs-type">boolean</span> <span class="hljs-variable">acquired</span> <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>;
+        <span class="hljs-keyword">try</span> {
+            acquired = lock.tryLock(<span class="hljs-number">0</span>, -<span class="hljs-number">1</span>, TimeUnit.SECONDS);
+            <span class="hljs-keyword">if</span> (!acquired) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DuplicatePostRequestException</span>(userId); <span class="hljs-comment">// HTTP 409</span>
+            }
+            <span class="hljs-keyword">return</span> postWriter.create(userId, request);
+        } <span class="hljs-keyword">catch</span> (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;lock interrupted&quot;</span>, e);
+        } <span class="hljs-keyword">finally</span> {
+            <span class="hljs-keyword">if</span> (acquired &amp;&amp; lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PostWriter</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostRepository postRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OutboxEventRepository outboxEventRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redisTemplate;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostIndexer postIndexer;
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PostResponse</span> <span class="hljs-title function_">create</span><span class="hljs-params">(Long userId, PostRequest request)</span> {
+        <span class="hljs-type">Post</span> <span class="hljs-variable">saved</span> <span class="hljs-operator">=</span> postRepository.save(Post.of(userId, request));
+        outboxEventRepository.save(
+                OutboxEvent.of(<span class="hljs-string">&quot;Post&quot;</span>, saved.getId(), <span class="hljs-string">&quot;PostCreated&quot;</span>, saved.toPayload()));
+
+        TransactionSynchronizationManager.registerSynchronization(<span class="hljs-keyword">new</span> <span class="hljs-title class_">TransactionSynchronization</span>() {
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterCommit</span><span class="hljs-params">()</span> {
+                redisTemplate.delete(<span class="hljs-string">&quot;cache:posts:list&quot;</span>);
+                postIndexer.index(saved);
+            }
+        });
+        <span class="hljs-keyword">return</span> PostResponse.from(saved);
+    }
+}</code></pre>
+<p>좋아요 토글. 락 없이 UNIQUE 제약과 예외 처리만으로 멱등성을 확보한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Transactional</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">toggleLike</span><span class="hljs-params">(Long postId, Long userId)</span> {
+    <span class="hljs-type">Post</span> <span class="hljs-variable">post</span> <span class="hljs-operator">=</span> postRepository.findById(postId)
+            .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">PostNotFoundException</span>(postId));
+
+    <span class="hljs-type">Optional</span>&lt;Like&gt; <span class="hljs-variable">existing</span> <span class="hljs-operator">=</span> likeRepository.findByUserIdAndPostId(userId, postId);
+    <span class="hljs-keyword">if</span> (existing.isPresent()) {
+        likeRepository.delete(existing.get());
+        post.decrementLikeCount();
+    } <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">try</span> {
+            likeRepository.saveAndFlush(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Like</span>(userId, postId)); <span class="hljs-comment">// UNIQUE(user_id, post_id)</span>
+            post.incrementLikeCount();
+        } <span class="hljs-keyword">catch</span> (DataIntegrityViolationException e) {
+            <span class="hljs-keyword">return</span>; <span class="hljs-comment">// 동시 요청이 먼저 INSERT — 멱등하게 무시</span>
+        }
+    }
+
+    TransactionSynchronizationManager.registerSynchronization(<span class="hljs-keyword">new</span> <span class="hljs-title class_">TransactionSynchronization</span>() {
+        <span class="hljs-meta">@Override</span>
+        <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterCommit</span><span class="hljs-params">()</span> {
+            <span class="hljs-type">double</span> <span class="hljs-variable">score</span> <span class="hljs-operator">=</span> post.getLikeCount() * <span class="hljs-number">2.0</span> + post.getViewCount();
+            redisTemplate.opsForZSet().add(<span class="hljs-string">&quot;ranking:posts&quot;</span>, String.valueOf(postId), score);
+        }
+    });
+}</code></pre>
+<p>랭킹 조회. Redis가 돌려준 순서를 유지하며 DB에서 본문을 채운다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;PostSummaryResponse&gt; <span class="hljs-title function_">getRanking</span><span class="hljs-params">(<span class="hljs-type">int</span> limit)</span> {
+    <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">ids</span> <span class="hljs-operator">=</span> redisTemplate.opsForZSet().reverseRange(<span class="hljs-string">&quot;ranking:posts&quot;</span>, <span class="hljs-number">0</span>, limit - <span class="hljs-number">1</span>);
+    <span class="hljs-keyword">if</span> (ids == <span class="hljs-literal">null</span> || ids.isEmpty()) <span class="hljs-keyword">return</span> List.of();
+
+    <span class="hljs-type">List</span>&lt;Long&gt; <span class="hljs-variable">orderedIds</span> <span class="hljs-operator">=</span> ids.stream().map(Long::parseLong).toList();
+    <span class="hljs-type">Map</span>&lt;Long, Post&gt; <span class="hljs-variable">byId</span> <span class="hljs-operator">=</span> postRepository.findAllById(orderedIds).stream()
+            .collect(Collectors.toMap(Post::getId, Function.identity()));
+
+    <span class="hljs-keyword">return</span> orderedIds.stream()
+            .filter(byId::containsKey)
+            .map(byId::get)
+            .map(PostSummaryResponse::from)
+            .toList();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>자기 호출로 트랜잭션이 사라진다.</strong> 락 메서드와 트랜잭션 메서드를 같은 클래스에 두고 <code>this.doCreate()</code>로 부르면 프록시를 거치지 않아 <code>@Transactional</code>이 적용되지 않는다. 별도 빈으로 분리하거나 <code>TransactionTemplate</code>을 직접 사용한다.</li>
+<li><strong>UNIQUE 위반 예외는 flush 시점에 발생한다.</strong> <code>save()</code>만 호출하면 INSERT가 커밋 직전까지 지연되어 <code>catch</code> 블록을 지나친 뒤 커밋에서 예외가 터진다. <code>saveAndFlush()</code>로 즉시 INSERT를 보내야 의도한 위치에서 잡힌다. 또한 예외가 발생한 트랜잭션은 rollback-only로 표시되므로, 좋아요 취소 분기와 섞이지 않도록 흐름을 설계한다.</li>
+<li><strong>afterCommit 안의 예외는 전파되지 않는다.</strong> 커밋은 이미 끝났으므로 캐시나 ES 호출 실패는 로그만 남고 요청은 성공으로 응답된다. 재시도 큐를 두거나, 정확성이 필요한 값은 배치 재계산으로 보정한다. 랭킹 점수는 Spring Batch가 청크 단위로 주기 재계산해 이 불일치를 흡수한다.</li>
+<li><strong>Watchdog은 프로세스가 살아 있는 한 락을 유지한다.</strong> 트랜잭션 메서드가 커넥션 풀 고갈이나 외부 API 지연으로 멈추면 락도 함께 잡혀 있어 해당 사용자의 생성 요청이 계속 409를 받는다. 트랜잭션 타임아웃을 명시하고 락 보유 시간을 모니터링한다.</li>
+<li><strong><code>findAllById</code>는 순서를 보장하지 않는다.</strong> Map으로 변환한 뒤 Redis 순서로 재조립하는 단계를 생략하면 점수가 높은 글이 아래에 표시되는 버그가 조용히 남는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/sns-project/microservices-architecture/">서비스 분해와 아키텍처</a></li>
+<li><a href="/notes/sns-project/kafka-outbox-redis-patterns/">Kafka 이벤트 흐름·Outbox·Redis 활용 패턴</a></li>
+<li><a href="/notes/sns-project/elasticsearch-s3/">Elasticsearch 검색과 S3 업로드</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redisson, 분산 락, afterCommit, Outbox Pattern, 동시성</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/sns-project/gateway-jwt-oauth2/"><small>이전</small>API Gateway·JWT·OAuth2 인증</a>
+  <a class="next" href="/notes/sns-project/kafka-outbox-redis-patterns/"><small>다음</small>Kafka 이벤트 흐름·Outbox·Redis 활용 패턴</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

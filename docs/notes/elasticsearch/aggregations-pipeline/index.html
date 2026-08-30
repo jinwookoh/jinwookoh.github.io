@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>집계 — Pipeline · Elasticsearch</title>
+  <meta name="description" content="Metric·Bucket 집계 결과 위에 변화량·이동 평균·누적·필터·정렬을 한 요청 안에서 얹는 방법과 buckets_path 규칙">
+  <meta property="og:title" content="집계 — Pipeline · Elasticsearch">
+  <meta property="og:description" content="Metric·Bucket 집계 결과 위에 변화량·이동 평균·누적·필터·정렬을 한 요청 안에서 얹는 방법과 buckets_path 규칙">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/aggregations-pipeline/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>집계 — Pipeline</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 집계와 고급 검색</p>
+  <h1>집계 — Pipeline</h1>
+  <p class="summary">Metric·Bucket 집계 결과 위에 변화량·이동 평균·누적·필터·정렬을 한 요청 안에서 얹는 방법과 buckets_path 규칙</p>
+  <div class="content">
+<p>Metric과 Bucket 집계만으로 일별 매출 합 같은 1차 통계는 구할 수 있다. 그러나 운영 화면이 요구하는 숫자는 대개 1차 통계의 변화다. 전일 대비 증감, 7일 이동 평균, 누적 가입자, 매출 상위 10개 카테고리는 응답을 받은 뒤 애플리케이션 코드에서 다시 계산해야 했다. 이 후처리를 Elasticsearch 안으로 끌어들여 한 요청에서 끝내는 것이 Pipeline Aggregation이다.</p>
+<h2>핵심 개념</h2>
+<p>Pipeline 집계는 문서를 직접 읽지 않는다. 이미 계산된 다른 집계의 결과를 입력으로 받아 한 번 더 가공하는 후처리 노드다. 그래서 모든 pipeline 집계의 공통 파라미터가 <code>buckets_path</code>이며, 어느 집계 결과를 입력으로 쓸지 가리키는 경로 문자열이다. <code>&gt;</code>가 경로 구분자로, <code>sales_per_day&gt;daily_revenue</code>는 <code>sales_per_day</code> 안의 <code>daily_revenue</code>를 뜻한다.</p>
+<p>어디에 매달려 무엇을 보느냐에 따라 두 종류로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th>분류</th>
+<th>위치</th>
+<th>입력</th>
+<th>출력</th>
+<th>대표 집계</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Parent</td>
+<td>부모 집계 안</td>
+<td>부모의 각 버킷</td>
+<td>각 버킷에 새 값 추가</td>
+<td>derivative, moving_fn, cumulative_sum, serial_diff, bucket_script, bucket_selector, bucket_sort</td>
+</tr>
+<tr>
+<td>Sibling</td>
+<td>부모 집계 옆</td>
+<td>부모의 전체 버킷</td>
+<td>새 결과 한 개</td>
+<td>avg_bucket, sum_bucket, stats_bucket, extended_stats_bucket, percentiles_bucket</td>
+</tr>
+</tbody></table>
+<p>Parent는 버킷마다 값을 하나씩 만들고, Sibling은 전체 버킷을 요약한 값 하나를 만든다.</p>
+<ul>
+<li><code>derivative</code>: 직전 버킷과의 차이. 첫 버킷에는 비교 대상이 없어 값이 생략된다. <code>unit</code>을 주면 단위 시간당 변화량으로 환산한다.</li>
+<li><code>serial_diff</code>: <code>lag</code>만큼 떨어진 버킷과의 차이. 7이면 주간, 30이면 월간 비교다. 기본값 1은 derivative와 같으므로 lag를 명시한다.</li>
+<li><code>moving_fn</code>: 최근 <code>window</code>개 버킷 위에서 Painless 스크립트를 실행한다. <code>MovingFunctions</code> 헬퍼로 <code>unweightedAvg</code>, <code>ewma</code>, <code>holt</code>, <code>holtWinters</code>, <code>stdDev</code> 등을 제공한다. 과거의 <code>moving_avg</code>는 deprecated되었고 8.x에서는 <code>moving_fn</code>만 사용한다.</li>
+<li><code>cumulative_sum</code>·<code>cumulative_cardinality</code>: 해당 버킷까지의 누적 합과 누적 unique 수. 누적 cardinality 위에 derivative를 얹으면 그날 처음 등장한 신규 사용자 수가 된다.</li>
+<li><code>bucket_script</code>: 버킷 안의 여러 metric을 map 형태 <code>buckets_path</code>로 받아 <code>params.이름</code>으로 계산식을 실행한다. 비율 계산에 쓴다.</li>
+<li><code>bucket_selector</code>: 조건을 만족하는 버킷만 남긴다. SQL의 HAVING에 해당한다.</li>
+<li><code>bucket_sort</code>: 버킷을 정렬하고 <code>from</code>·<code>size</code>로 잘라낸다. terms의 <code>order</code>와 달리 복합 정렬이 된다.</li>
+<li><code>stats_bucket</code>·<code>extended_stats_bucket</code>·<code>percentiles_bucket</code>: 전체 버킷 값의 분포를 sibling으로 요약한다. extended는 <code>sigma</code> 기준 <code>std_deviation_bounds</code>를 포함한다.</li>
+</ul>
+<h2>코드</h2>
+<p>일별 매출 위에 전일 대비 변화량, 7일 이동 평균, 주간 비교, 누적 합을 한 요청에 얹고 sibling으로 전체 평균과 분포를 받는 예제다.</p>
+<pre><code class="hljs language-json">GET /orders/_search
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;aggs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;sales_per_day&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;date_histogram&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;ordered_at&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;calendar_interval&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;day&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;aggs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">&quot;daily_revenue&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;sum&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;amount&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;revenue_delta&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;derivative&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;daily_revenue&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;wow_change&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;serial_diff&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;daily_revenue&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;lag&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">7</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;ma_7d&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;moving_fn&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+            <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;daily_revenue&quot;</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;window&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">7</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;script&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;MovingFunctions.unweightedAvg(values)&quot;</span>
+          <span class="hljs-punctuation">}</span>
+        <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;running_total&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;cumulative_sum&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;daily_revenue&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;avg_daily_revenue&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;avg_bucket&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;sales_per_day&gt;daily_revenue&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;daily_revenue_bounds&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;extended_stats_bucket&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;sales_per_day&gt;daily_revenue&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;sigma&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">2</span> <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>카테고리별 이익률을 계산하고, 매출 5천만 원 이상인 버킷만 남긴 뒤 이익률 상위 10개를 돌려주는 예제다. terms의 <code>size</code>를 키워 selector 전에 버킷이 잘리지 않게 한다.</p>
+<pre><code class="hljs language-json">GET /orders/_search
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;aggs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;categories&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;terms&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;category&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1000</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;aggs&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">&quot;total_revenue&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;sum&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;amount&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;total_cost&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;sum&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;cost&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;profit_margin&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;bucket_script&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+            <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;rev&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;total_revenue&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;cost&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;total_cost&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;script&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;(params.rev - params.cost) / params.rev * 100&quot;</span>
+          <span class="hljs-punctuation">}</span>
+        <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;min_50m&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;bucket_selector&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+            <span class="hljs-attr">&quot;buckets_path&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;rev&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;total_revenue&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+            <span class="hljs-attr">&quot;script&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;params.rev &gt; 50000000&quot;</span>
+          <span class="hljs-punctuation">}</span>
+        <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;top10&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+          <span class="hljs-attr">&quot;bucket_sort&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;sort&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;profit_margin&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;order&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;desc&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">10</span> <span class="hljs-punctuation">}</span>
+        <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>Spring Boot 3.x에서 Elasticsearch Java API Client로 첫 번째 요청을 구성하고 각 버킷의 값을 꺼내는 코드다. pipeline 값이 없는 첫 버킷은 <code>null</code> 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.aggregations.Aggregate;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.aggregations.CalendarInterval;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.SearchResponse;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DailyRevenueService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">DAILY_REVENUE</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;daily_revenue&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">REVENUE_DELTA</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;revenue_delta&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">MA_7D</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;ma_7d&quot;</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DailyRevenueService</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">DailyPoint</span><span class="hljs-params">(String day, <span class="hljs-type">double</span> revenue, Double delta, Double movingAvg)</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;DailyPoint&gt; <span class="hljs-title function_">dailyRevenue</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">SearchResponse</span>&lt;Void&gt; <span class="hljs-variable">res</span> <span class="hljs-operator">=</span> client.search(s -&gt; s
+                .index(<span class="hljs-string">&quot;orders&quot;</span>)
+                .size(<span class="hljs-number">0</span>)
+                .aggregations(<span class="hljs-string">&quot;sales_per_day&quot;</span>, a -&gt; a
+                        .dateHistogram(h -&gt; h.field(<span class="hljs-string">&quot;ordered_at&quot;</span>).calendarInterval(CalendarInterval.Day))
+                        .aggregations(DAILY_REVENUE, m -&gt; m.sum(v -&gt; v.field(<span class="hljs-string">&quot;amount&quot;</span>)))
+                        .aggregations(REVENUE_DELTA, d -&gt; d.derivative(p -&gt; p.bucketsPath(b -&gt; b.single(DAILY_REVENUE))))
+                        .aggregations(MA_7D, f -&gt; f.movingFn(p -&gt; p
+                                .bucketsPath(b -&gt; b.single(DAILY_REVENUE))
+                                .window(<span class="hljs-number">7</span>)
+                                .script(<span class="hljs-string">&quot;MovingFunctions.unweightedAvg(values)&quot;</span>)))),
+                Void.class);
+
+        <span class="hljs-keyword">return</span> res.aggregations().get(<span class="hljs-string">&quot;sales_per_day&quot;</span>).dateHistogram().buckets().array().stream()
+                .map(b -&gt; {
+                    <span class="hljs-type">Map</span>&lt;String, Aggregate&gt; <span class="hljs-variable">aggs</span> <span class="hljs-operator">=</span> b.aggregations();
+                    <span class="hljs-type">double</span> <span class="hljs-variable">revenue</span> <span class="hljs-operator">=</span> aggs.get(DAILY_REVENUE).sum().value();
+                    <span class="hljs-type">Double</span> <span class="hljs-variable">delta</span> <span class="hljs-operator">=</span> aggs.containsKey(REVENUE_DELTA) ? aggs.get(REVENUE_DELTA).derivative().value() : <span class="hljs-literal">null</span>;
+                    <span class="hljs-type">Double</span> <span class="hljs-variable">ma</span> <span class="hljs-operator">=</span> aggs.containsKey(MA_7D) ? aggs.get(MA_7D).simpleValue().value() : <span class="hljs-literal">null</span>;
+                    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DailyPoint</span>(b.keyAsString(), revenue, delta, ma);
+                })
+                .toList();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>buckets_path</code> 오타는 400 에러로 잡히지 않는다. 잘못된 경로는 빈 결과나 NaN으로 돌아온다. 경로와 metric 이름을 상수로 관리하고 Kibana Dev Tools에서 먼저 확인한다.</li>
+<li><code>bucket_selector</code>는 terms가 <code>size</code>만큼 버킷을 확정한 뒤에 동작한다. 상위 10개 안에 없던 조건 충족 버킷은 이미 잘려 있으므로 size를 전체 개수에 가깝게 키운다. terms의 <code>order</code>에 pipeline 결과를 넣는 것도 동작하지 않으며, 정렬은 <code>bucket_sort</code>로 분리한다.</li>
+<li><code>bucket_script</code>는 버킷 수만큼 스크립트를 실행한다. 식이 복잡하면 집계 본체보다 스크립트 비용이 커지므로 식을 단순하게 유지하고 selector로 버킷을 먼저 줄인다.</li>
+<li><code>percentiles_bucket</code>은 입력 버킷 수가 표본 크기다. 7개 버킷의 p99는 통계적으로 의미가 없고, 최소 30~50개 버킷 이상에서만 쓴다.</li>
+<li>pipeline 집계는 데이터 노드에 분산되지 않고 coordinator 노드에 모인 결과 위에서 실행된다. <code>cumulative_cardinality</code>는 버킷마다 HyperLogLog 상태를 유지해 부담이 더 크다. 버킷이 수만 단위로 늘어나면 selector로 미리 자르거나 pipeline을 빼고 클라이언트에서 계산한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/aggregations-metric-bucket/">집계 — Metric·Bucket</a></li>
+<li><a href="/notes/elasticsearch/performance-tuning/">성능 튜닝</a></li>
+<li><a href="/notes/elasticsearch/kibana-cloud-opensearch-iac/">Kibana·Elastic Cloud·OpenSearch·IaC</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Pipeline Aggregations, derivative, moving_fn, bucket_selector</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/aggregations-metric-bucket/"><small>이전</small>집계 — Metric·Bucket</a>
+  <a class="next" href="/notes/elasticsearch/vector-search-knn/"><small>다음</small>Vector Search·kNN</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

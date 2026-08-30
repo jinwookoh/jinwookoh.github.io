@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CI/CD와 개발자 도구 — CodePipeline·CDK·CloudFormation · AWS</title>
+  <meta name="description" content="Code* 파이프라인으로 배포를, CloudFormation·CDK로 인프라를 코드로 고정하는 방법">
+  <meta property="og:title" content="CI/CD와 개발자 도구 — CodePipeline·CDK·CloudFormation · AWS">
+  <meta property="og:description" content="Code* 파이프라인으로 배포를, CloudFormation·CDK로 인프라를 코드로 고정하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/cicd-developer-tools/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/aws/">AWS</a><span class="sep">›</span><span>CI/CD와 개발자 도구 — CodePipeline·CDK·CloudFormation</span></nav>
+    <article class="post">
+  <p class="part">AWS · 운영</p>
+  <h1>CI/CD와 개발자 도구 — CodePipeline·CDK·CloudFormation</h1>
+  <p class="summary">Code* 파이프라인으로 배포를, CloudFormation·CDK로 인프라를 코드로 고정하는 방법</p>
+  <div class="content">
+<p>수동 배포는 절차가 문서와 어긋나기 쉽고, 장애 시 이전 버전으로 돌아가는 경로가 명확하지 않으며, 인프라를 콘솔에서 손으로 만들면 어떤 설정이 언제 바뀌었는지 추적할 수 없다. AWS에서는 CodePipeline·CodeBuild·CodeDeploy가 배포 절차를, CloudFormation·CDK가 인프라 정의를 코드로 고정한다.</p>
+<h2>핵심 개념</h2>
+<h3>파이프라인 구성</h3>
+<p>CodePipeline은 Source → Build → Test → Manual Approval → Deploy 스테이지를 오케스트레이션하고, 스테이지 사이의 산출물은 S3 아티팩트 버킷으로 전달한다. 트리거는 저장소 push·S3 변경·ECR push 또는 수동 Release change다. GitHub·Bitbucket은 CodeConnections(구 CodeStar Connections)로 연결하며, CodeCommit은 2024년 7월부터 신규 제공이 중단되어 외부 Git 연결이 기본이다. Manual Approval은 SNS 알림 후 승인이 있어야 진행한다.</p>
+<p>CodeBuild는 <code>buildspec.yml</code>의 <code>phases</code>·<code>artifacts</code>·<code>cache</code>대로 빌드한다. 기본적으로 VPC 밖에서 실행되므로 프라이빗 리소스에 붙는 테스트는 VPC 설정이 필요하고, 비밀값은 <code>env.parameter-store</code>·<code>env.secrets-manager</code>로 참조한다.</p>
+<h3>CodeDeploy 배포 전략</h3>
+<p>CodeDeploy는 <code>appspec.yml</code>에 따라 EC2·Lambda·ECS에 배포한다. EC2는 파일 복사 위치와 훅(ApplicationStop → BeforeInstall → AfterInstall → ApplicationStart → ValidateService)을, Lambda는 별칭과 버전 전환에 BeforeAllowTraffic/AfterAllowTraffic 훅을, ECS는 새 태스크 정의와 로드밸런서 정보를 선언한다. 훅 실패나 CloudWatch 알람 발동 시 자동 롤백한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">대상</th>
+<th align="left">전략</th>
+<th align="left">동작</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">EC2</td>
+<td align="left">In-Place</td>
+<td align="left">기존 인스턴스 갱신, 다운타임 가능</td>
+</tr>
+<tr>
+<td align="left">EC2</td>
+<td align="left">Blue/Green</td>
+<td align="left">새 ASG 배포 후 ELB 전환, 즉시 롤백</td>
+</tr>
+<tr>
+<td align="left">Lambda·ECS</td>
+<td align="left">Canary</td>
+<td align="left">일부 트래픽을 일정 시간 보낸 뒤 100% 전환</td>
+</tr>
+<tr>
+<td align="left">Lambda·ECS</td>
+<td align="left">Linear</td>
+<td align="left">일정 간격으로 고정 비율씩 전환</td>
+</tr>
+<tr>
+<td align="left">Lambda·ECS</td>
+<td align="left">All-at-once</td>
+<td align="left">즉시 100% 전환</td>
+</tr>
+</tbody></table>
+<p>Canary·Linear는 Lambda 별칭 가중치 또는 ALB 리스너 가중치로 구현되므로 EC2에서는 선택할 수 없다.</p>
+<h3>CloudFormation과 CDK</h3>
+<p>CloudFormation은 YAML/JSON 템플릿(<code>Parameters</code>·<code>Resources</code>·<code>Outputs</code>)을 Stack 단위로 생성·갱신·삭제한다. <code>!Ref</code>·<code>!GetAtt</code>·<code>!Sub</code>·<code>!ImportValue</code>로 리소스를 연결하고, 모듈화는 Nested Stack, 다계정·다리전 배포는 StackSets를 쓴다. Change Set은 갱신 전 리소스 교체(Replacement) 여부를 보여 주고, Drift Detection은 콘솔에서 손으로 바꾼 리소스를 찾아낸다. CodePipeline의 Deploy 액션은 Stack 갱신을 직접 지원한다.</p>
+<p>CDK는 TypeScript·Python·Java로 인프라를 작성하고 <code>cdk synth</code>로 CloudFormation 템플릿을 만든다. Construct는 L1(<code>Cfn*</code>, CFN 1:1)·L2(기본값과 권한 헬퍼)·L3(다중 리소스 패턴) 세 계층이다. 실행 엔진은 CloudFormation이므로 실패 원인은 CFN 콘솔의 Stack 이벤트에서 본다.</p>
+<h3>자격 증명</h3>
+<p>CLI·SDK는 명령행 옵션 → 환경 변수 → <code>~/.aws/credentials</code> → <code>~/.aws/config</code> → 인스턴스 프로파일·태스크 역할·실행 역할 순으로 자격 증명을 찾는다. 배포된 코드는 역할을 자동으로 쓰므로 액세스 키를 코드에 넣지 않는다.</p>
+<h2>코드</h2>
+<p>Gradle 기반 Spring Boot 3.x 앱을 빌드해 부팅 가능한 jar를 아티팩트로 넘기는 <code>buildspec.yml</code>이다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">version:</span> <span class="hljs-number">0.2</span>
+
+<span class="hljs-attr">env:</span>
+  <span class="hljs-attr">secrets-manager:</span>
+    <span class="hljs-attr">DB_PASSWORD:</span> <span class="hljs-string">myapp/test-db:password</span>
+
+<span class="hljs-attr">phases:</span>
+  <span class="hljs-attr">install:</span>
+    <span class="hljs-attr">runtime-versions:</span>
+      <span class="hljs-attr">java:</span> <span class="hljs-string">corretto21</span>
+  <span class="hljs-attr">build:</span>
+    <span class="hljs-attr">commands:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">./gradlew</span> <span class="hljs-string">clean</span> <span class="hljs-string">bootJar</span> <span class="hljs-string">test</span> <span class="hljs-string">--no-daemon</span>
+  <span class="hljs-attr">post_build:</span>
+    <span class="hljs-attr">commands:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">cp</span> <span class="hljs-string">build/libs/*.jar</span> <span class="hljs-string">app.jar</span>
+
+<span class="hljs-attr">artifacts:</span>
+  <span class="hljs-attr">files:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">app.jar</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">appspec.yml</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">scripts/**/*</span>
+
+<span class="hljs-attr">cache:</span>
+  <span class="hljs-attr">paths:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">/root/.gradle/caches/**/*</span></code></pre>
+<p>EC2 In-Place 배포용 <code>appspec.yml</code>이다. <code>validate.sh</code>는 <code>curl -sf localhost:8080/actuator/health/readiness</code>의 종료 코드를 반환하고, 0이 아니면 롤백된다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">version:</span> <span class="hljs-number">0.0</span>
+<span class="hljs-attr">os:</span> <span class="hljs-string">linux</span>
+<span class="hljs-attr">files:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">source:</span> <span class="hljs-string">/</span>
+    <span class="hljs-attr">destination:</span> <span class="hljs-string">/opt/myapp</span>
+<span class="hljs-attr">hooks:</span>
+  <span class="hljs-attr">ApplicationStop:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">location:</span> <span class="hljs-string">scripts/stop.sh</span>
+      <span class="hljs-attr">timeout:</span> <span class="hljs-number">60</span>
+  <span class="hljs-attr">ApplicationStart:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">location:</span> <span class="hljs-string">scripts/start.sh</span>
+      <span class="hljs-attr">timeout:</span> <span class="hljs-number">120</span>
+  <span class="hljs-attr">ValidateService:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">location:</span> <span class="hljs-string">scripts/validate.sh</span>
+      <span class="hljs-attr">timeout:</span> <span class="hljs-number">180</span></code></pre>
+<p>Java CDK로 Lambda 함수와 Canary 배포 그룹을 선언하는 Stack이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> software.amazon.awscdk.Duration;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.Stack;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.StackProps;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.services.codedeploy.LambdaDeploymentConfig;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.services.codedeploy.LambdaDeploymentGroup;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.services.lambda.Alias;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.services.lambda.Code;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.services.lambda.Function;
+<span class="hljs-keyword">import</span> software.amazon.awscdk.services.lambda.Runtime;
+<span class="hljs-keyword">import</span> software.constructs.Construct;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderApiStack</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Stack</span> {
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderApiStack</span><span class="hljs-params">(Construct scope, String id, StackProps props)</span> {
+        <span class="hljs-built_in">super</span>(scope, id, props);
+
+        <span class="hljs-type">Function</span> <span class="hljs-variable">fn</span> <span class="hljs-operator">=</span> Function.Builder.create(<span class="hljs-built_in">this</span>, <span class="hljs-string">&quot;OrderFn&quot;</span>)
+                .runtime(Runtime.JAVA_21)
+                .handler(<span class="hljs-string">&quot;com.example.OrderHandler::handleRequest&quot;</span>)
+                .code(Code.fromAsset(<span class="hljs-string">&quot;build/libs/order-api.jar&quot;</span>))
+                .memorySize(<span class="hljs-number">1024</span>)
+                .timeout(Duration.seconds(<span class="hljs-number">15</span>))
+                .build();
+
+        <span class="hljs-type">Alias</span> <span class="hljs-variable">live</span> <span class="hljs-operator">=</span> Alias.Builder.create(<span class="hljs-built_in">this</span>, <span class="hljs-string">&quot;LiveAlias&quot;</span>)
+                .aliasName(<span class="hljs-string">&quot;live&quot;</span>)
+                .version(fn.getCurrentVersion())
+                .build();
+
+        LambdaDeploymentGroup.Builder.create(<span class="hljs-built_in">this</span>, <span class="hljs-string">&quot;CanaryGroup&quot;</span>)
+                .alias(live)
+                .deploymentConfig(LambdaDeploymentConfig.CANARY_10_PERCENT_10_MINUTES)
+                .build();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>CodeBuild 환경 변수에 비밀값 직접 기입.</strong> 빌드 로그에 평문으로 남는다. SSM·Secrets Manager 참조로 둔다.</li>
+<li><strong>EC2에 Canary를 기대하는 설계.</strong> 가중치 전환은 Lambda·ECS에서만 동작한다. EC2 무중단은 Blue/Green이며 전환 기간 인스턴스 비용이 두 배다.</li>
+<li><strong>Change Set 없이 update-stack 실행.</strong> Replacement를 유발하는 속성 변경은 기존 리소스를 삭제한다. 상태 저장 리소스에는 <code>DeletionPolicy: Retain</code>을 건다.</li>
+<li><strong>콘솔 수동 변경으로 인한 Drift.</strong> 다음 Stack 갱신이 변경을 되돌리거나 실패한다. 긴급 변경도 템플릿에 반영한다.</li>
+<li><strong>CDK 실패를 CDK 로그에서만 찾는 습관.</strong> 실제 원인은 CFN 콘솔의 Stack 이벤트에 있다. L2가 자동 생성하는 IAM 정책 범위도 <code>cdk diff</code>로 확인한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/aws/lambda-serverless-containers/">Lambda·SAM·Step Functions·ECS·Fargate</a></li>
+<li><a href="/notes/aws/cloudwatch-xray-monitoring/">CloudWatch·X-Ray·CloudTrail</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · CodePipeline, CodeDeploy, CloudFormation, CDK, Blue/Green</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/aws/multi-az-dr-migration/"><small>이전</small>Multi-AZ 아키텍처·DR·마이그레이션</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

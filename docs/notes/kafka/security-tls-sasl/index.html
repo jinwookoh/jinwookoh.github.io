@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인증 — TLS·SASL · Kafka</title>
+  <meta name="description" content="운영 표준은 SASL_SSL + SCRAM-SHA-512이며, TLS는 전송 보호와 브로커 신원, SASL은 클라이언트 신원을 맡는다.">
+  <meta property="og:title" content="인증 — TLS·SASL · Kafka">
+  <meta property="og:description" content="운영 표준은 SASL_SSL + SCRAM-SHA-512이며, TLS는 전송 보호와 브로커 신원, SASL은 클라이언트 신원을 맡는다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/security-tls-sasl/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>인증 — TLS·SASL</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 보안</p>
+  <h1>인증 — TLS·SASL</h1>
+  <p class="summary">운영 표준은 SASL_SSL + SCRAM-SHA-512이며, TLS는 전송 보호와 브로커 신원, SASL은 클라이언트 신원을 맡는다.</p>
+  <div class="content">
+<p>Kafka의 기본 리스너는 PLAINTEXT다. 네트워크에 닿는 누구든 아무 토픽이나 읽고 쓸 수 있고, 브로커 사이를 오가는 레코드가 그대로 노출된다. &quot;누가 붙었는가&quot;는 SASL 또는 클라이언트 인증서가, &quot;전송 구간이 안전한가&quot;는 TLS가 맡는다. 인가(ACL)는 이 둘이 확정한 principal 위에서 동작하므로 인증이 흔들리면 ACL도 의미를 잃는다.</p>
+<h2>핵심 개념</h2>
+<h3>security.protocol 네 가지</h3>
+<table>
+<thead>
+<tr>
+<th align="left">Protocol</th>
+<th align="left">인증</th>
+<th align="left">암호화</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">PLAINTEXT</td>
+<td align="left">없음</td>
+<td align="left">없음</td>
+<td align="left">로컬·학습</td>
+</tr>
+<tr>
+<td align="left">SSL</td>
+<td align="left">클라이언트 인증서(mTLS) 선택</td>
+<td align="left">TLS</td>
+<td align="left">인증서 기반 조직</td>
+</tr>
+<tr>
+<td align="left">SASL_PLAINTEXT</td>
+<td align="left">SASL</td>
+<td align="left">없음</td>
+<td align="left">신뢰 구간, 인증만</td>
+</tr>
+<tr>
+<td align="left">SASL_SSL</td>
+<td align="left">SASL</td>
+<td align="left">TLS</td>
+<td align="left">운영 표준</td>
+</tr>
+</tbody></table>
+<p>SSL 프로토콜은 클라이언트 신원을 <code>ssl.client.auth=required</code>일 때 인증서로 확인하고, SASL_SSL은 전송 보호를 TLS에, 신원 확인을 SASL에 나눠 맡긴다. 인터브로커 통신도 <code>security.inter.broker.protocol</code>로 같은 보호를 건다.</p>
+<h3>TLS — Keystore·Truststore·mTLS</h3>
+<p>Keystore는 자신의 private key와 인증서를, Truststore는 신뢰할 CA 인증서를 담는다. 브로커는 keystore로 신원을 증명하고 truststore로 상대를 검증하며, 모든 브로커와 클라이언트가 같은 CA를 truststore에 두는 구성이 표준이다. 인증서의 CN과 subjectAltName에는 브로커 hostname이 들어가야 한다. 클라이언트가 <code>ssl.endpoint.identification.algorithm=https</code>로 hostname 검증을 켰을 때 SAN 불일치는 핸드셰이크 실패로 이어진다.</p>
+<p><code>ssl.client.auth</code>는 <code>required</code>(mTLS 필수)·<code>requested</code>·<code>none</code> 세 값이다. mTLS에서는 클라이언트 인증서의 DN이 principal이 되며 <code>ssl.principal.mapping.rules</code>로 <code>CN=app-user-1,OU=...</code>를 <code>User:app-user-1</code>로 축약한다. 프로토콜은 TLSv1.3·1.2만 허용하고 cipher는 GCM 계열 AEAD로 제한한다.</p>
+<h3>SASL — 메커니즘 다섯 가지</h3>
+<p>SASL은 JAAS 위에서 동작하며 <code>sasl.jaas.config</code> 인라인 설정이 표준이다. 브로커는 <code>listener.name.&lt;listener&gt;.&lt;mechanism&gt;.sasl.jaas.config</code> 키로 리스너별 설정을 둔다.</p>
+<ul>
+<li><strong>PLAIN</strong> — 비밀번호를 그대로 전송하고 브로커 JAAS에 <code>user_&lt;name&gt;=&quot;...&quot;</code> 형식으로 모든 사용자를 평문 정의한다. 운영에서는 권장하지 않는다.</li>
+<li><strong>SCRAM-SHA-256/512</strong> — challenge-response로 비밀번호를 전송하지 않고 브로커는 salted hash만 보관한다. <code>kafka-configs.sh --entity-type users</code>로 자격 증명을 동적 관리하며 KRaft에서는 전 브로커에 즉시 전파된다. 운영 표준이며 SHA-512를 택한다.</li>
+<li><strong>GSSAPI</strong> — Kerberos. 기존 AD·KDC 인프라를 keytab과 principal로 활용한다. KDC 운영과 NTP 시각 동기화가 따라온다.</li>
+<li><strong>OAUTHBEARER</strong> — OAuth 2.0/OIDC 토큰 기반. 클라이언트는 login callback handler로 토큰을 받고 <code>sasl.login.refresh.*</code>에 따라 자동 갱신하며, 브로커는 server callback handler로 검증한다. 클라우드·SSO 환경의 표준이다.</li>
+<li><strong>AWS_MSK_IAM</strong> — MSK 전용. IAM role을 그대로 쓰지만 AWS 밖 클라이언트에서는 쓰기 어렵다.</li>
+</ul>
+<h2>코드</h2>
+<p>브로커에 SASL_SSL 리스너와 SCRAM-SHA-512, 인터브로커 보호를 설정한다.</p>
+<pre><code class="hljs language-properties"><span class="hljs-attr">listeners</span>=<span class="hljs-string">SASL_SSL://0.0.0.0:9093</span>
+<span class="hljs-attr">advertised.listeners</span>=<span class="hljs-string">SASL_SSL://broker-1.example.com:9093</span>
+<span class="hljs-attr">security.inter.broker.protocol</span>=<span class="hljs-string">SASL_SSL</span>
+<span class="hljs-attr">sasl.enabled.mechanisms</span>=<span class="hljs-string">SCRAM-SHA-512</span>
+<span class="hljs-attr">sasl.mechanism.inter.broker.protocol</span>=<span class="hljs-string">SCRAM-SHA-512</span>
+<span class="hljs-attr">listener.name.sasl_ssl.scram-sha-512.sasl.jaas.config</span>=<span class="hljs-string">\
+    org.apache.kafka.common.security.scram.ScramLoginModule required \
+    username=&quot;broker-admin&quot; password=&quot;${BROKER_ADMIN_PASSWORD}&quot;;</span>
+
+<span class="hljs-attr">ssl.keystore.location</span>=<span class="hljs-string">/etc/kafka/ssl/broker-1.keystore.jks</span>
+<span class="hljs-attr">ssl.keystore.password</span>=<span class="hljs-string">${KEYSTORE_PASSWORD}</span>
+<span class="hljs-attr">ssl.key.password</span>=<span class="hljs-string">${KEY_PASSWORD}</span>
+<span class="hljs-attr">ssl.truststore.location</span>=<span class="hljs-string">/etc/kafka/ssl/kafka.truststore.jks</span>
+<span class="hljs-attr">ssl.truststore.password</span>=<span class="hljs-string">${TRUSTSTORE_PASSWORD}</span>
+<span class="hljs-attr">ssl.enabled.protocols</span>=<span class="hljs-string">TLSv1.3,TLSv1.2</span>
+<span class="hljs-attr">ssl.client.auth</span>=<span class="hljs-string">none</span></code></pre>
+<p>애플리케이션 사용자를 SCRAM 자격 증명으로 등록한다.</p>
+<pre><code class="hljs language-bash">kafka-configs.sh --bootstrap-server broker-1.example.com:9093 \
+    --command-config admin.properties \
+    --alter --add-config <span class="hljs-string">&#x27;SCRAM-SHA-512=[iterations=8192,password=order-svc-pass]&#x27;</span> \
+    --entity-type <span class="hljs-built_in">users</span> --entity-name order-svc</code></pre>
+<p>Spring Boot 3.x 클라이언트는 자격 증명을 환경변수에서 주입하고 hostname 검증을 켠다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">bootstrap-servers:</span> <span class="hljs-string">broker-1.example.com:9093</span>
+    <span class="hljs-attr">properties:</span>
+      <span class="hljs-attr">security.protocol:</span> <span class="hljs-string">SASL_SSL</span>
+      <span class="hljs-attr">sasl.mechanism:</span> <span class="hljs-string">SCRAM-SHA-512</span>
+      <span class="hljs-attr">sasl.jaas.config:</span> <span class="hljs-string">&gt;
+        org.apache.kafka.common.security.scram.ScramLoginModule required
+        username=&quot;${KAFKA_USERNAME}&quot;
+        password=&quot;${KAFKA_PASSWORD}&quot;;
+</span>      <span class="hljs-attr">ssl.truststore.location:</span> <span class="hljs-string">/etc/kafka/ssl/kafka.truststore.jks</span>
+      <span class="hljs-attr">ssl.truststore.password:</span> <span class="hljs-string">${TRUSTSTORE_PASSWORD}</span>
+      <span class="hljs-attr">ssl.endpoint.identification.algorithm:</span> <span class="hljs-string">https</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>인증서 만료.</strong> 브로커 인증서가 만료되면 클라이언트와 인터브로커 연결이 한꺼번에 거부된다. 만료 30~60일 전 알림을 걸고 Vault PKI·ACME 같은 자동 발급 경로를 둔다. keystore·truststore 경로를 유지한 채 파일을 교체하거나 <code>kafka-configs.sh --alter</code>로 갱신하면 재시작 없이 반영된다.</li>
+<li><strong>PLAINTEXT 리스너 혼재.</strong> <code>listeners=PLAINTEXT://9092,SSL://9093</code>처럼 두 리스너를 열어두면 9092가 우회로가 된다. 마이그레이션이 끝나면 PLAINTEXT 리스너를 제거한다.</li>
+<li><strong>hostname 검증 비활성.</strong> <code>ssl.endpoint.identification.algorithm=</code>으로 비워두면 SAN 오류는 사라지지만 중간자 공격에 노출된다. 인증서 SAN을 고친다.</li>
+<li><strong>TLS 처리량 비용.</strong> TLS를 켜면 sendfile 기반 zero-copy가 무력화되고 처리량이 15~30% 떨어진다. TLSv1.3과 AES-NI 가속이 되는 GCM cipher로 부담을 줄인다.</li>
+<li><strong>자격 증명 평문 저장.</strong> properties에 박힌 비밀번호와 PLAIN의 JAAS 사용자 목록은 secret manager에서 환경변수로 주입한다. ZooKeeper 모드는 SCRAM 자격 증명이 ZK에 저장돼 ZK 인증까지 필요했으나 KRaft에서는 이 영역이 사라진다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/security-acl-multitenancy/">인가 — ACL과 Multi-tenancy</a></li>
+<li><a href="/notes/kafka/operations-kraft/">운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, TLS, SASL, SCRAM, mTLS</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/multi-datacenter-mirrormaker/"><small>이전</small>다중 데이터센터·Geo-Replication (MirrorMaker 2)</a>
+  <a class="next" href="/notes/kafka/security-acl-multitenancy/"><small>다음</small>인가 — ACL과 Multi-tenancy</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

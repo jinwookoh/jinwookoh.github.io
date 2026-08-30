@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A/B 테스트 베스트 프랙티스와 사례 · 실험과 분석</title>
+  <meta name="description" content="실험 코드를 안전하게 짜고, 결과를 트레이드오프까지 보고 판단하며, 종료 후 정리하는 실무 원칙과 사례">
+  <meta property="og:title" content="A/B 테스트 베스트 프랙티스와 사례 · 실험과 분석">
+  <meta property="og:description" content="실험 코드를 안전하게 짜고, 결과를 트레이드오프까지 보고 판단하며, 종료 후 정리하는 실무 원칙과 사례">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ab-test-best-practices-cases/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>A/B 테스트 베스트 프랙티스와 사례</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · A/B 테스트</p>
+  <h1>A/B 테스트 베스트 프랙티스와 사례</h1>
+  <p class="summary">실험 코드를 안전하게 짜고, 결과를 트레이드오프까지 보고 판단하며, 종료 후 정리하는 실무 원칙과 사례</p>
+  <div class="content">
+<p>실험 플랫폼과 통계 검정을 갖춰도 운영 원칙이 없으면 결과가 오염된다. 실험 플랫폼 장애 시 신규 변형이 강제 노출되고, 새로고침마다 사용자가 다른 그룹에 배정되며, 유의성이 잠깐 보인 시점에 조기 종료한 결과가 며칠 뒤 뒤집힌다. 종료된 실험 코드가 남아 분기 수가 누적되고, 주 지표만 보고 채택한 변형이 전체 구매율을 떨어뜨리는 경우도 흔하다. 이 글은 코드 설계 원칙, 지표 선택, 결과 해석 절차를 정리하고 이커머스 사례 다섯 개로 각 원칙이 어디에서 적용되는지 확인한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Original은 항상 else에 둔다.</strong> 실험 조회가 false나 null을 반환하는 모든 경우, 즉 플랫폼 장애, 타겟팅 불일치, 배정 실패, 실험 비활성화가 전부 기존 동작으로 떨어져야 한다. 신규 변형에서 결함이 발견되면 코드 수정 없이 실험만 끄면 롤백이 끝난다. Original을 if 조건에 두면 이 폴백이 성립하지 않는다.</p>
+<p><strong>실험 로직은 프레임워크와 분리한다.</strong> 그룹 배정과 변형 실행은 순수한 서비스 모듈에 두고, 상태 관리나 웹 계층은 그 결과를 받아 UI만 제어한다. 여러 페이지에서 같은 데이터를 바꾸는 실험(전역 상품명 변경 등)은 화면마다 처리하지 않고 데이터가 들어오는 API 계층에서 한 번 적용해 누락을 막는다.</p>
+<p><strong>배정은 한 번, 식별자는 영속.</strong> 그룹 배정은 세션 시작 시 1회만 수행하고 사용자 식별자는 영속 저장소에 보관한다. 매 요청마다 새 식별자를 만들면 재방문 추적이 불가능하고 같은 사용자가 여러 그룹을 오간다.</p>
+<p><strong>지표는 비즈니스 목표에서 역산한다.</strong> 상위 퍼널은 CTR과 상품 페이지 방문, 중간 퍼널은 장바구니 담기율, 하위 퍼널은 방문 간격 같은 단기 대리 지표를 쓴다. LTV나 재구매율은 측정에 6개월 이상 걸려 단기 실험에 부적합하고, 매출은 대형 주문 하나로 왜곡되므로 전환율 같은 안정 지표로 대체한다. 평균 장바구니 크기처럼 연속값을 직접 비교하기 어려우면 &quot;2개 이상 구매&quot; 같은 조건부 이진 이벤트로 변환한다. 주 지표 외에 감시 지표(전체 구매율, 이탈률)를 함께 추적한다.</p>
+<p><strong>종료 판단은 세 단계.</strong> 유의성 95% 이상, 그룹당 전환 100건 이상, 핵심 KPI 부작용 없음을 순서대로 확인한다. 하나라도 미달이면 대기하거나 Original을 유지한다. 주 지표가 올랐어도 감시 지표가 하락했다면 트레이드오프를 분석한 뒤 변형을 단순화해 재실험한다. 기간은 주중·주말을 모두 포함해 최소 2주, 세일·휴일 등 특수 기간은 피한다.</p>
+<p><strong>사례에서 확인되는 출발점 네 가지.</strong></p>
+<table>
+<thead>
+<tr>
+<th align="left">사례</th>
+<th align="left">출발점</th>
+<th align="left">주 지표</th>
+<th align="left">감시 지표·처리</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">슬라이딩 장바구니</td>
+<td align="left">사용성 문제</td>
+<td align="left">구매 전환율</td>
+<td align="left">장바구니 이탈률. 유의성 99%, 승리 후 코드 제거·기본값화</td>
+</tr>
+<tr>
+<td align="left">이미지 순서 반전</td>
+<td align="left">팀 직관</td>
+<td align="left">클릭률</td>
+<td align="left">결과와 무관하게 직관을 데이터로 검증</td>
+</tr>
+<tr>
+<td align="left">장바구니 모달 교차 판매</td>
+<td align="left">비즈니스 목표</td>
+<td align="left">2개 이상 구매 비율</td>
+<td align="left">전체 구매율 하락 시 트레이드오프 분석</td>
+</tr>
+<tr>
+<td align="left">긴 이미지 갤러리</td>
+<td align="left">데이터 분석</td>
+<td align="left">구매 전환율</td>
+<td align="left">이미지 3회 이상 조회 사용자 84% 전환은 상관, 인과는 실험으로 검증</td>
+</tr>
+<tr>
+<td align="left">결제 완료 투표</td>
+<td align="left">No Dead Ends</td>
+<td align="left">재방문 간격</td>
+<td align="left">백엔드 없이 MVP로 관심도 먼저 확인</td>
+</tr>
+</tbody></table>
+<p>재고 부족 배너 사례는 반복 개선의 예다. 진행률 표시줄, 재고 숫자 텍스트, 사이즈 선택 시 잔여 수량은 효과가 없거나 미미했고, 카테고리 페이지 탐색 단계에서 &quot;몇 개 남지 않음&quot;을 미리 노출한 네 번째 실험이 큰 매출 차이를 냈다. 같은 실험이라도 카테고리 카드는 모호한 표현, 상세 페이지는 구체 수량으로 컨텍스트별 UI를 달리한다. 실패한 세 번의 실험이 네 번째 가설의 근거가 된다.</p>
+<h2>코드</h2>
+<p>실험 조회를 순수 서비스로 분리하고, 조회 실패를 포함한 모든 예외 경로가 Original로 떨어지도록 한 장바구니 서비스다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CartService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ExperimentClient experiments;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> CartRepository carts;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> EventTracker tracker;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CartService</span><span class="hljs-params">(ExperimentClient experiments, CartRepository carts, EventTracker tracker)</span> {
+        <span class="hljs-built_in">this</span>.experiments = experiments;
+        <span class="hljs-built_in">this</span>.carts = carts;
+        <span class="hljs-built_in">this</span>.tracker = tracker;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">AddToCartResult</span> <span class="hljs-title function_">addToCart</span><span class="hljs-params">(String userId, <span class="hljs-type">long</span> productId)</span> {
+        <span class="hljs-type">Cart</span> <span class="hljs-variable">cart</span> <span class="hljs-operator">=</span> carts.addItem(userId, productId);
+
+        <span class="hljs-keyword">if</span> (experiments.isOn(<span class="hljs-string">&quot;show_cart_test&quot;</span>, userId)) {
+            tracker.track(userId, <span class="hljs-string">&quot;cart_opened&quot;</span>);
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AddToCartResult</span>(cart, <span class="hljs-literal">true</span>);   <span class="hljs-comment">// 변형: 장바구니 자동 열기</span>
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AddToCartResult</span>(cart, <span class="hljs-literal">false</span>);      <span class="hljs-comment">// Original: 기존 동작</span>
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ExperimentClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(ExperimentClient.class);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ExperimentClient</span><span class="hljs-params">(RestClient.Builder builder)</span> {
+        <span class="hljs-built_in">this</span>.restClient = builder.baseUrl(<span class="hljs-string">&quot;http://experiment-platform&quot;</span>).build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">isOn</span><span class="hljs-params">(String experiment, String userId)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">Assignment</span> <span class="hljs-variable">a</span> <span class="hljs-operator">=</span> restClient.get()
+                .uri(<span class="hljs-string">&quot;/assign/{exp}/{user}&quot;</span>, experiment, userId)
+                .retrieve()
+                .body(Assignment.class);
+            <span class="hljs-keyword">return</span> a != <span class="hljs-literal">null</span> &amp;&amp; a.active() &amp;&amp; <span class="hljs-string">&quot;variation&quot;</span>.equals(a.group());
+        } <span class="hljs-keyword">catch</span> (RestClientException e) {
+            log.warn(<span class="hljs-string">&quot;experiment lookup failed: {}&quot;</span>, experiment, e);
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;   <span class="hljs-comment">// 플랫폼 장애 시 Original</span>
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Assignment</span><span class="hljs-params">(String group, <span class="hljs-type">boolean</span> active)</span> {}
+}</code></pre>
+<p>교차 판매 모달 실험의 지표 기록이다. 주문 완료 시 주 이벤트와 함께 &quot;2개 이상 구매&quot; 이진 이벤트를 남겨 평균 장바구니 크기 대신 비율로 비교한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CheckoutService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orders;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> EventTracker tracker;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CheckoutService</span><span class="hljs-params">(OrderRepository orders, EventTracker tracker)</span> {
+        <span class="hljs-built_in">this</span>.orders = orders;
+        <span class="hljs-built_in">this</span>.tracker = tracker;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">submit</span><span class="hljs-params">(String userId, Cart cart)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orders.save(Order.from(userId, cart));
+        tracker.track(userId, <span class="hljs-string">&quot;purchase&quot;</span>);
+        <span class="hljs-keyword">if</span> (cart.items().size() &gt; <span class="hljs-number">1</span>) {
+            tracker.track(userId, <span class="hljs-string">&quot;multi_item_purchase&quot;</span>);
+        }
+        <span class="hljs-keyword">return</span> order;
+    }
+}</code></pre>
+<p>배정 로그를 집계할 때 새로고침으로 중복 기록된 사용자를 제거하는 분석 코드다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">BucketRow</span><span class="hljs-params">(String userId, String variation)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BucketAnalyzer</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Map</span>&lt;String, Long&gt; <span class="hljs-title function_">usersPerVariation</span><span class="hljs-params">(List&lt;BucketRow&gt; rows)</span> {
+        <span class="hljs-type">Map</span>&lt;String, String&gt; <span class="hljs-variable">firstAssignment</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LinkedHashMap</span>&lt;&gt;();
+        <span class="hljs-keyword">for</span> (BucketRow row : rows) {
+            firstAssignment.putIfAbsent(row.userId(), row.variation());
+        }
+        <span class="hljs-keyword">return</span> firstAssignment.values().stream()
+            .collect(Collectors.groupingBy(v -&gt; v, Collectors.counting()));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>조기 종료.</strong> 초기 며칠의 유의성은 표본이 작아 흔들린다. 그룹당 전환 100건과 2주라는 하한을 정해 두고, 대시보드를 매일 보더라도 판단은 사전에 정한 시점에만 한다.</li>
+<li><strong>한 번에 여러 변수 변경.</strong> 색상·문구·크기를 동시에 바꾸면 효과의 출처를 알 수 없다. 변수 하나씩 실험한 뒤 승리 요소를 조합한다.</li>
+<li><strong>종료 후 코드 미정리.</strong> 승리한 변형은 실험 분기를 제거하고 기본 동작으로 바꾼다. 패배한 변형은 코드를 삭제하되 결과와 학습을 문서화한다. 실험 목록은 알파벳순으로 유지해 수십 개가 되어도 찾을 수 있게 한다.</li>
+<li><strong>디바이스 타겟팅 오판.</strong> 마우스 오버 실험은 데스크톱 전용이어야 하는데 화면 너비로 판별하면 가로 모드 태블릿이 포함된다. User-Agent나 포인터 기능으로 판별한다.</li>
+<li><strong>실패 은닉과 HiPPO.</strong> 성공만 공유하면 같은 실패가 반복되고, 데이터 없는 의견 충돌은 직급으로 결정된다. 기간·그룹별 인원·지표 비교·유의성·핵심 KPI 변화·결정·다음 단계 일곱 항목을 고정 템플릿으로 공유하고, 실패한 실험도 동일하게 기록한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/ab-test-basics-design/">A/B 테스트 — 대조군·전환율·가설과 지표 설계</a></li>
+<li><a href="/notes/experimentation/ab-test-statistics/">A/B 테스트 통계 — 카이제곱·베이지안·다중 비교</a></li>
+<li><a href="/notes/experimentation/ab-test-system-implementation/">A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · A/B 테스트, Feature Flag, Cross-sell, No Dead Ends, MVP</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/ab-test-system-implementation/"><small>이전</small>A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현</a>
+  <a class="next" href="/notes/experimentation/statsig-overview-quickstart/"><small>다음</small>Statsig 개관과 SDK Quickstart</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

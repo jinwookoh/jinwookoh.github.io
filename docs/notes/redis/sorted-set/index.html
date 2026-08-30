@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sorted Set — 랭킹과 Rate Limiter · Redis</title>
+  <meta name="description" content="score가 붙은 집합 하나로 Top N 랭킹·순위 조회·Sliding Window Rate Limiter·우선순위 큐를 O(log N)에 처리한다">
+  <meta property="og:title" content="Sorted Set — 랭킹과 Rate Limiter · Redis">
+  <meta property="og:description" content="score가 붙은 집합 하나로 Top N 랭킹·순위 조회·Sliding Window Rate Limiter·우선순위 큐를 O(log N)에 처리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/sorted-set/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>Sorted Set — 랭킹과 Rate Limiter</span></nav>
+    <article class="post">
+  <p class="part">Redis · 데이터 타입</p>
+  <h1>Sorted Set — 랭킹과 Rate Limiter</h1>
+  <p class="summary">score가 붙은 집합 하나로 Top N 랭킹·순위 조회·Sliding Window Rate Limiter·우선순위 큐를 O(log N)에 처리한다</p>
+  <div class="content">
+<p>점수 순으로 정렬된 목록에서 &quot;내 순위&quot;를 구하려면 관계형 DB에서는 <code>SELECT COUNT(*) WHERE score &gt; :my_score</code> 같은 쿼리를 매번 실행해야 한다. 인덱스가 있어도 ms 단위이고, 점수가 초당 수천 번 갱신되는 리더보드나 인기 검색어라면 쓰기와 읽기가 서로를 잠그며 병목이 된다. &quot;최근 60초 동안 몇 번 호출했는가&quot;를 판정하는 rate limiter도 시간 범위 기준의 개수 세기와 오래된 기록 삭제를 원자적으로 처리할 저장소가 필요하다. Redis Sorted Set은 멤버마다 score를 붙여 항상 정렬 상태를 유지하는 자료구조로, 이 두 문제를 O(log N) 연산으로 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>Sorted Set은 Set의 정렬판이 아니라 <code>(member, score)</code> 쌍의 컬렉션이다. member는 중복이 없고, score는 double 값으로 갱신할 수 있다. 조회는 순위(rank)·점수 범위(score)·사전순(lex) 세 축으로 가능하며, score가 같은 멤버는 사전순으로 정렬된다.</p>
+<p>내부 구조는 크기에 따라 자동 전환된다. 작은 집합은 listpack으로 저장하고, <code>zset-max-listpack-entries</code>(기본 128)·<code>zset-max-listpack-value</code>(기본 64)를 넘으면 skiplist와 hashtable을 결합한 구조로 바뀐다. hashtable이 member→score 조회를 O(1)로, skiplist가 순위·범위 조회를 O(log N)으로 담당한다.</p>
+<p>자주 쓰는 명령은 <code>ZADD</code>(추가·갱신, <code>NX·XX·GT·LT·CH·INCR</code> 옵션), <code>ZRANGE</code>(범위 조회), <code>ZRANK</code>/<code>ZREVRANK</code>(0-based 순위), <code>ZSCORE</code>, <code>ZINCRBY</code>(원자적 증감), <code>ZCARD</code>, <code>ZPOPMIN</code>/<code>ZPOPMAX</code>, <code>ZREMRANGEBYSCORE</code>(점수 범위 삭제)다. <code>ZSCORE</code>·<code>ZCARD</code>는 O(1), 나머지는 O(log N), 범위 연산은 반환 개수 M이 더해져 O(log N + M)이다.</p>
+<p>Redis 6.2부터 <code>ZRANGE</code>가 <code>REV</code>·<code>BYSCORE</code>·<code>BYLEX</code>·<code>LIMIT</code> 옵션을 흡수했고 <code>ZREVRANGE</code>·<code>ZRANGEBYSCORE</code>·<code>ZRANGEBYLEX</code>는 deprecated 상태다. 점수 범위에서 <code>(</code>는 경계 제외, <code>-inf</code>·<code>+inf</code>는 무한대다.</p>
+<pre><code class="hljs language-bash">&gt; ZADD board 100 <span class="hljs-string">&quot;A&quot;</span> 200 <span class="hljs-string">&quot;B&quot;</span> 150 <span class="hljs-string">&quot;C&quot;</span>
+&gt; ZRANGE board 0 9 REV WITHSCORES        <span class="hljs-comment"># Top 10, 내림차순</span>
+&gt; ZRANGE board (150 +inf BYSCORE         <span class="hljs-comment"># 150 초과</span>
+&gt; ZREVRANK board <span class="hljs-string">&quot;C&quot;</span>                     <span class="hljs-comment"># 1</span>
+&gt; ZINCRBY board 50 <span class="hljs-string">&quot;A&quot;</span>                   <span class="hljs-comment"># 150</span></code></pre>
+<p>여러 Sorted Set을 합칠 때는 <code>ZUNIONSTORE</code>·<code>ZINTERSTORE</code>를 쓴다. 같은 member의 score는 기본 합산이며 <code>AGGREGATE MIN|MAX</code>와 <code>WEIGHTS</code>로 조정한다. 시간대별 키를 묶어 &quot;최근 3시간 trending&quot;을 만드는 데 쓴다.</p>
+<p>이 구조 위에서 네 가지 패턴이 반복된다. 랭킹은 <code>ZADD</code> + <code>ZRANGE REV</code> + <code>ZREVRANK</code>, trending은 <code>ZINCRBY</code> + 시간 prefix 키 + <code>EXPIRE</code>, sliding window rate limiter는 score에 timestamp를 넣고 <code>ZREMRANGEBYSCORE</code> + <code>ZCARD</code>, 우선순위 큐와 지연 큐는 score에 우선순위 또는 실행 예정 시각을 넣고 <code>ZPOPMIN</code> 또는 <code>ZRANGE BYSCORE</code>로 꺼낸다.</p>
+<h2>코드</h2>
+<p>Spring Data Redis의 <code>ZSetOperations</code>로 리더보드를 감싼 서비스. 점수 갱신·Top N·내 순위·주변 경쟁자 조회를 담당한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> app.ranking;
+
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.ZSetOperations;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Set;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LeaderboardService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">KEY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;leaderboard&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ZSetOperations&lt;String, String&gt; zset;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">LeaderboardService</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.zset = redis.opsForZSet();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">addScore</span><span class="hljs-params">(String userId, <span class="hljs-type">long</span> delta)</span> {
+        <span class="hljs-type">Double</span> <span class="hljs-variable">score</span> <span class="hljs-operator">=</span> zset.incrementScore(KEY, userId, delta);   <span class="hljs-comment">// ZINCRBY</span>
+        <span class="hljs-keyword">return</span> score == <span class="hljs-literal">null</span> ? <span class="hljs-number">0</span> : score;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;RankEntry&gt; <span class="hljs-title function_">topN</span><span class="hljs-params">(<span class="hljs-type">int</span> n)</span> {
+        Set&lt;ZSetOperations.TypedTuple&lt;String&gt;&gt; tuples =
+                zset.reverseRangeWithScores(KEY, <span class="hljs-number">0</span>, n - <span class="hljs-number">1</span>);       <span class="hljs-comment">// ZRANGE REV WITHSCORES</span>
+        <span class="hljs-keyword">return</span> tuples == <span class="hljs-literal">null</span> ? List.of() : tuples.stream()
+                .map(t -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">RankEntry</span>(t.getValue(), t.getScore()))
+                .toList();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">rankOf</span><span class="hljs-params">(String userId)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">rank</span> <span class="hljs-operator">=</span> zset.reverseRank(KEY, userId);                <span class="hljs-comment">// ZREVRANK, 0-based</span>
+        <span class="hljs-keyword">return</span> rank == <span class="hljs-literal">null</span> ? -<span class="hljs-number">1</span> : rank + <span class="hljs-number">1</span>;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-title function_">neighbors</span><span class="hljs-params">(String userId, <span class="hljs-type">double</span> margin)</span> {
+        <span class="hljs-type">Double</span> <span class="hljs-variable">my</span> <span class="hljs-operator">=</span> zset.score(KEY, userId);                      <span class="hljs-comment">// ZSCORE</span>
+        <span class="hljs-keyword">if</span> (my == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> Set.of();
+        <span class="hljs-keyword">return</span> zset.rangeByScore(KEY, my - margin, my + margin);  <span class="hljs-comment">// ZRANGE BYSCORE</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">RankEntry</span><span class="hljs-params">(String userId, Double score)</span> {}
+}</code></pre>
+<p>Sliding window rate limiter. 삭제·개수 확인·추가·TTL 설정을 Lua 스크립트 하나로 묶어 race condition을 없앤다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> app.ratelimit;
+
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.script.DefaultRedisScript;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.UUID;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SlidingWindowRateLimiter</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">SCRIPT</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&quot;&quot;
+            local key    = KEYS[1]
+            local now    = tonumber(ARGV[1])
+            local window = tonumber(ARGV[2])
+            local limit  = tonumber(ARGV[3])
+            local member = ARGV[4]
+            redis.call(&#x27;ZREMRANGEBYSCORE&#x27;, key, 0, now - window)
+            if redis.call(&#x27;ZCARD&#x27;, key) &gt;= limit then
+              return 0
+            end
+            redis.call(&#x27;ZADD&#x27;, key, now, member)
+            redis.call(&#x27;PEXPIRE&#x27;, key, window)
+            return 1
+            &quot;&quot;&quot;</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">DefaultRedisScript</span>&lt;Long&gt; <span class="hljs-variable">script</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DefaultRedisScript</span>&lt;&gt;(SCRIPT, Long.class);
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SlidingWindowRateLimiter</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-comment">/** windowMillis 동안 limit 회까지 허용. 허용 시 true. */</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">tryAcquire</span><span class="hljs-params">(String subject, <span class="hljs-type">long</span> windowMillis, <span class="hljs-type">int</span> limit)</span> {
+        <span class="hljs-type">long</span> <span class="hljs-variable">now</span> <span class="hljs-operator">=</span> System.currentTimeMillis();
+        <span class="hljs-type">String</span> <span class="hljs-variable">member</span> <span class="hljs-operator">=</span> now + <span class="hljs-string">&quot;:&quot;</span> + UUID.randomUUID();
+        <span class="hljs-type">Long</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> redis.execute(script,
+                List.of(<span class="hljs-string">&quot;rate:&quot;</span> + subject),
+                String.valueOf(now), String.valueOf(windowMillis),
+                String.valueOf(limit), member);
+        <span class="hljs-keyword">return</span> result != <span class="hljs-literal">null</span> &amp;&amp; result == <span class="hljs-number">1L</span>;
+    }
+}</code></pre>
+<p>위 limiter를 API에 적용하는 <code>HandlerInterceptor</code>. 차단 시 429를 반환한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> app.ratelimit;
+
+<span class="hljs-keyword">import</span> jakarta.servlet.http.HttpServletRequest;
+<span class="hljs-keyword">import</span> jakarta.servlet.http.HttpServletResponse;
+<span class="hljs-keyword">import</span> org.springframework.http.HttpStatus;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+<span class="hljs-keyword">import</span> org.springframework.web.servlet.HandlerInterceptor;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RateLimitInterceptor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">HandlerInterceptor</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> SlidingWindowRateLimiter limiter;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RateLimitInterceptor</span><span class="hljs-params">(SlidingWindowRateLimiter limiter)</span> {
+        <span class="hljs-built_in">this</span>.limiter = limiter;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">preHandle</span><span class="hljs-params">(HttpServletRequest req, HttpServletResponse res, Object handler)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">subject</span> <span class="hljs-operator">=</span> req.getHeader(<span class="hljs-string">&quot;X-Api-Key&quot;</span>) != <span class="hljs-literal">null</span>
+                ? req.getHeader(<span class="hljs-string">&quot;X-Api-Key&quot;</span>) : req.getRemoteAddr();
+        <span class="hljs-keyword">if</span> (limiter.tryAcquire(subject, <span class="hljs-number">60_000</span>, <span class="hljs-number">60</span>)) {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        }
+        res.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+        res.setHeader(<span class="hljs-string">&quot;Retry-After&quot;</span>, <span class="hljs-string">&quot;60&quot;</span>);
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Rate limiter의 member 충돌.</strong> <code>ZADD key now now</code>처럼 timestamp를 member로 쓰면 같은 밀리초의 요청이 하나로 합쳐져 카운트가 샌다. 요청마다 고유 suffix를 붙이고, 다중 인스턴스라면 시계 편차를 피해 <code>TIME</code> 명령으로 Redis 시각을 쓴다.</li>
+<li><strong>Rate limiter 메모리.</strong> 윈도우 안 요청 수만큼 member가 쌓인다. 분당 1만 회 같은 큰 한도라면 키 하나가 수 MB가 되므로, 정확도가 덜 중요하면 String 카운터 기반 sliding window counter나 token bucket을 고려한다.</li>
+<li><strong>동점 처리.</strong> score가 같으면 사전순이므로 &quot;먼저 도달한 사람이 상위&quot;는 자동으로 충족되지 않는다. <code>score = 점수 × 2^20 + (MAX_TS - timestamp)</code> 식으로 합성하되, double의 정수 정밀도 한계인 2^53을 넘지 않아야 한다.</li>
+<li><strong>범위 연산의 M.</strong> <code>LIMIT</code> 없이 넓은 범위를 조회하면 반환 개수가 그대로 지연이 되고, 큰 범위 삭제는 단일 스레드를 점유한다. 페이징과 <code>LIMIT</code>을 기본으로 둔다.</li>
+<li><strong>무한히 커지는 trending 키.</strong> 시간 prefix 키에 <code>EXPIRE</code>를 걸고, 주기적으로 <code>ZREMRANGEBYRANK key 0 -1001</code>로 하위를 잘라 상위 N만 유지한다.</li>
+<li><strong>Cluster의 집합 연산.</strong> <code>ZUNIONSTORE</code>·<code>ZINTERSTORE</code>는 모든 키가 같은 슬롯에 있어야 한다. <code>trending:{search}:12</code> 같은 hash tag로 맞추지 않으면 CROSSSLOT 오류가 난다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/list-set/">List·Set — 큐와 집합 연산</a></li>
+<li><a href="/notes/redis/lua-scripting-functions/">Lua Scripting과 Functions</a></li>
+<li><a href="/notes/redis/ttl-eviction-keyspace/">TTL·Eviction·Keyspace Notification</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, Sorted Set, ZADD, Rate Limiter, Leaderboard</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/list-set/"><small>이전</small>List·Set — 큐와 집합 연산</a>
+  <a class="next" href="/notes/redis/stream-pubsub/"><small>다음</small>Stream·Pub/Sub — 영속 로그와 실시간 전파</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

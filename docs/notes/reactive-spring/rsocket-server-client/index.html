@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RSocket — 서버·클라이언트·메타데이터 라우팅 · Reactive Spring</title>
+  <meta name="description" content="Spring에서 @MessageMapping 서버와 RSocketRequester 클라이언트를 만들고 라우트·인증·trace를 Composite Metadata로 싣는 방법">
+  <meta property="og:title" content="RSocket — 서버·클라이언트·메타데이터 라우팅 · Reactive Spring">
+  <meta property="og:description" content="Spring에서 @MessageMapping 서버와 RSocketRequester 클라이언트를 만들고 라우트·인증·trace를 Composite Metadata로 싣는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/rsocket-server-client/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>RSocket — 서버·클라이언트·메타데이터 라우팅</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · RSocket</p>
+  <h1>RSocket — 서버·클라이언트·메타데이터 라우팅</h1>
+  <p class="summary">Spring에서 @MessageMapping 서버와 RSocketRequester 클라이언트를 만들고 라우트·인증·trace를 Composite Metadata로 싣는 방법</p>
+  <div class="content">
+<p>RSocket 프로토콜은 프레임과 네 가지 Interaction Model만 정의한다. 요청이 어느 핸들러로 가는지, 인증 토큰을 어디에 실을지는 프로토콜 밖의 일이다. 직접 구현하면 라우트 파싱·인코더·연결 관리 코드가 서비스마다 중복되고, 양쪽 규약이 어긋나는 순간 통신이 깨진다. Spring의 <code>@MessageMapping</code>과 <code>RSocketRequester</code>는 이 규약을 메타데이터 MIME Type 기준으로 표준화한다.</p>
+<h2>핵심 개념</h2>
+<h3>서버 — 반환 타입이 Interaction Model을 정한다</h3>
+<p><code>spring-boot-starter-rsocket</code>과 <code>spring.rsocket.server.port</code>만으로 서버가 뜬다. 핸들러는 <code>@Controller</code> 클래스의 <code>@MessageMapping</code> 메서드이며, 모델은 입력·반환 타입에서 추론된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">시그니처</th>
+<th align="left">Interaction Model</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>Mono&lt;T&gt;</code> 반환</td>
+<td align="left">Request-Response</td>
+</tr>
+<tr>
+<td align="left"><code>Mono&lt;Void&gt;</code> 반환</td>
+<td align="left">Fire-and-Forget</td>
+</tr>
+<tr>
+<td align="left">단일 입력, <code>Flux&lt;T&gt;</code> 반환</td>
+<td align="left">Request-Stream</td>
+</tr>
+<tr>
+<td align="left"><code>Flux&lt;In&gt;</code> 입력, <code>Flux&lt;Out&gt;</code> 반환</td>
+<td align="left">Channel</td>
+</tr>
+</tbody></table>
+<p>라우트 구분자는 <code>/</code>가 아니라 <code>.</code>이다. <code>user.{id}</code> 패턴 변수는 <code>@DestinationVariable</code>로 받고, <code>admin.**</code> 와일드카드와 클래스 레벨 prefix도 지원한다. 애노테이션 없는 인자가 페이로드, <code>@Header</code>가 메타데이터 단일 항목, <code>@Headers</code>가 전체 Map, <code>RSocketRequester</code> 인자가 현재 연결의 상대방을 호출하는 핸들이다.</p>
+<p>예외는 <code>@MessageExceptionHandler</code>(컨트롤러)와 <code>@ControllerAdvice</code>(전역)로 잡는다. 핸들러의 반환값은 정상 응답이 되고, 핸들러가 없으면 ERROR 프레임으로 내려간다. SETUP 프레임은 <code>@ConnectMapping</code>이 받으며, 인증은 여기서 한 번만 검증한다.</p>
+<h3>클라이언트 — RSocketRequester는 싱글턴</h3>
+<p>Spring Boot는 <code>RSocketStrategies</code>가 반영된 <code>RSocketRequester.Builder</code>를 자동 구성한다. <code>tcp(host, port)</code> 또는 <code>websocket(URI)</code>로 만든 requester는 첫 요청 시점에 연결을 연다. <code>retrieveMono</code>가 Request-Response, <code>retrieveFlux</code>가 Request-Stream과 Channel(입력이 <code>Flux</code>일 때), <code>send</code>가 Fire-and-Forget에 대응한다.</p>
+<p>requester는 연결 하나와 그 위의 다중화 스트림을 감싸므로 Bean으로 재사용하고, <code>rsocketConnector(c -&gt; c.reconnect(Retry...))</code>로 끊긴 연결을 같은 인스턴스가 다시 열게 한다. 클라이언트가 자신의 <code>@MessageMapping</code> 컨트롤러를 <code>RSocketMessageHandler.responder()</code>로 acceptor에 등록하면 서버가 클라이언트 라우트를 호출하는 양방향 RPC가 된다.</p>
+<h3>메타데이터 — MIME Type 기반 Composite</h3>
+<p>HTTP 헤더가 키-값 목록인 것과 달리 RSocket 메타데이터는 MIME Type이 종류를 식별한다. 라우트는 <code>message/x.rsocket.routing.v0</code>, 인증은 <code>message/x.rsocket.authentication.v0</code>, Zipkin trace는 <code>message/x.rsocket.tracing-zipkin.v0</code>이며, 한 프레임에 여러 항목을 실으려면 <code>message/x.rsocket.composite-metadata.v0</code>로 묶는다. Spring Boot의 기본값이 이 Composite이다.</p>
+<p><code>route()</code>는 routing 항목을 자동으로 추가하고, <code>.metadata(value, mimeType)</code> 호출마다 항목이 더해진다. 커스텀 항목을 서버 <code>@Header</code>로 꺼내려면 <code>RSocketStrategies</code>의 <code>metadataExtractorRegistry</code>에 MIME Type과 추출 이름을 등록해야 한다.</p>
+<h2>코드</h2>
+<p>라우트 패턴·예외 처리·SETUP 인증을 포함한 서버 컨트롤러.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Controller</span>
+<span class="hljs-meta">@MessageMapping(&quot;user&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserRepository userRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> TokenService tokenService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserController</span><span class="hljs-params">(UserRepository userRepository, TokenService tokenService)</span> {
+        <span class="hljs-built_in">this</span>.userRepository = userRepository;
+        <span class="hljs-built_in">this</span>.tokenService = tokenService;
+    }
+
+    <span class="hljs-meta">@ConnectMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">onConnect</span><span class="hljs-params">(RSocketRequester requester, <span class="hljs-meta">@Payload</span> String token)</span> {
+        <span class="hljs-keyword">return</span> tokenService.verify(token)
+            .switchIfEmpty(Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">AuthenticationException</span>(<span class="hljs-string">&quot;invalid setup token&quot;</span>)))
+            .then();
+    }
+
+    <span class="hljs-meta">@MessageMapping(&quot;{id}&quot;)</span>                                   <span class="hljs-comment">// user.{id}</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;User&gt; <span class="hljs-title function_">get</span><span class="hljs-params">(<span class="hljs-meta">@DestinationVariable</span> String id,
+                          <span class="hljs-meta">@Header(&quot;tenant&quot;)</span> String tenant)</span> {
+        <span class="hljs-keyword">return</span> userRepository.findByIdAndTenant(id, tenant)
+            .switchIfEmpty(Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">UserNotFoundException</span>(id)));
+    }
+
+    <span class="hljs-meta">@MessageMapping(&quot;watch&quot;)</span>                                  <span class="hljs-comment">// user.watch</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;UserEvent&gt; <span class="hljs-title function_">watch</span><span class="hljs-params">(UserFilter filter)</span> {
+        <span class="hljs-keyword">return</span> userRepository.streamEvents(filter);
+    }
+
+    <span class="hljs-meta">@MessageMapping(&quot;sync&quot;)</span>                                   <span class="hljs-comment">// user.sync — Channel</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;SyncAck&gt; <span class="hljs-title function_">sync</span><span class="hljs-params">(Flux&lt;SyncCommand&gt; commands)</span> {
+        <span class="hljs-keyword">return</span> commands.flatMap(userRepository::apply);
+    }
+
+    <span class="hljs-meta">@MessageExceptionHandler(UserNotFoundException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;ErrorResponse&gt; <span class="hljs-title function_">handleNotFound</span><span class="hljs-params">(UserNotFoundException e)</span> {
+        <span class="hljs-keyword">return</span> Mono.just(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ErrorResponse</span>(<span class="hljs-string">&quot;NOT_FOUND&quot;</span>, e.getMessage()));
+    }
+}</code></pre>
+<p>커스텀 메타데이터 추출과 인증 인코더 등록. 서버와 클라이언트 양쪽에 같은 설정이 필요하다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RSocketStrategiesConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">RSocketStrategiesCustomizer</span> <span class="hljs-title function_">rsocketStrategiesCustomizer</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> strategies -&gt; strategies
+            .encoder(<span class="hljs-keyword">new</span> <span class="hljs-title class_">SimpleAuthenticationEncoder</span>())
+            .metadataExtractorRegistry(registry -&gt;
+                registry.metadataToExtract(MimeTypeUtils.TEXT_PLAIN, String.class, <span class="hljs-string">&quot;tenant&quot;</span>));
+    }
+}</code></pre>
+<p>재연결·keepalive·SETUP 페이로드를 설정한 싱글턴 requester로 네 가지 모델을 호출하는 클라이언트.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RSocketRequester requester;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserClient</span><span class="hljs-params">(RSocketRequester.Builder builder,
+                      <span class="hljs-meta">@Value(&quot;${user-service.setup-token}&quot;)</span> String setupToken)</span> {
+        <span class="hljs-built_in">this</span>.requester = builder
+            .setupData(setupToken)
+            .rsocketConnector(connector -&gt; connector
+                .keepAlive(Duration.ofSeconds(<span class="hljs-number">20</span>), Duration.ofSeconds(<span class="hljs-number">90</span>))
+                .reconnect(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(<span class="hljs-number">1</span>))
+                    .maxBackoff(Duration.ofSeconds(<span class="hljs-number">30</span>))))
+            .tcp(<span class="hljs-string">&quot;user-service&quot;</span>, <span class="hljs-number">7000</span>);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;User&gt; <span class="hljs-title function_">get</span><span class="hljs-params">(String id, String tenant)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;user.{id}&quot;</span>, id)
+            .metadata(tenant, MimeTypeUtils.TEXT_PLAIN)
+            .retrieveMono(User.class)
+            .timeout(Duration.ofSeconds(<span class="hljs-number">5</span>));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;UserEvent&gt; <span class="hljs-title function_">watch</span><span class="hljs-params">(UserFilter filter)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;user.watch&quot;</span>)
+            .data(filter)
+            .retrieveFlux(UserEvent.class);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;SyncAck&gt; <span class="hljs-title function_">sync</span><span class="hljs-params">(Flux&lt;SyncCommand&gt; commands)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;user.sync&quot;</span>)
+            .data(commands)
+            .retrieveFlux(SyncAck.class);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">audit</span><span class="hljs-params">(AuditEvent event)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;audit.log&quot;</span>)
+            .data(event)
+            .send();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>시그니처 불일치는 컴파일 타임에 잡히지 않는다.</strong> 서버가 <code>Flux</code>인데 클라이언트가 <code>retrieveMono</code>를 쓰면 첫 요소 이후 취소된다. 라우트별 모델을 문서화해야 한다.</li>
+<li><strong>requester를 요청마다 생성하면 연결 비용이 폭발한다.</strong> 매번 TCP 연결과 SETUP 핸드셰이크가 발생한다. Bean 하나로 두고 <code>dispose()</code>는 종료 시에만 부른다.</li>
+<li><strong>RSocket에는 요청 타임아웃이 없다.</strong> keepalive는 연결 생존만 확인하므로 요청마다 Reactor <code>timeout()</code>을 붙인다.</li>
+<li><strong>메타데이터는 평문이다.</strong> 인증 토큰이 프레임에 그대로 실리므로 <code>spring.rsocket.server.ssl</code> 또는 mTLS 없이는 노출된다.</li>
+<li><strong>커스텀 메타데이터는 extractor 등록이 없으면 조용히 사라진다.</strong> 서버 <code>@Header</code>가 null이 되며 에러는 나지 않는다. <code>RSocketStrategies</code> 설정은 공유 모듈로 관리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/rsocket-concepts/">RSocket — 개념·프레임·Interaction Model</a></li>
+<li><a href="/notes/reactive-spring/rsocket-security-lb-testing/">RSocket — 보안·로드 밸런싱·테스트</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · RSocket, MessageMapping, RSocketRequester, Composite Metadata, Spring Boot</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/rsocket-concepts/"><small>이전</small>RSocket — 개념·프레임·Interaction Model</a>
+  <a class="next" href="/notes/reactive-spring/rsocket-security-lb-testing/"><small>다음</small>RSocket — 보안·로드 밸런싱·테스트</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

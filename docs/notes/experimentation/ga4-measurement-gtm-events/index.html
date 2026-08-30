@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>측정 구현 — gtag·GTM·이벤트·전자상거래 · 실험과 분석</title>
+  <meta name="description" content="gtag·GTM·Measurement Protocol의 역할을 나누고, 표준 이름과 items 구조로 전자상거래 퍼널을 깨지지 않게 구현한다">
+  <meta property="og:title" content="측정 구현 — gtag·GTM·이벤트·전자상거래 · 실험과 분석">
+  <meta property="og:description" content="gtag·GTM·Measurement Protocol의 역할을 나누고, 표준 이름과 items 구조로 전자상거래 퍼널을 깨지지 않게 구현한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ga4-measurement-gtm-events/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>측정 구현 — gtag·GTM·이벤트·전자상거래</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · GA4</p>
+  <h1>측정 구현 — gtag·GTM·이벤트·전자상거래</h1>
+  <p class="summary">gtag·GTM·Measurement Protocol의 역할을 나누고, 표준 이름과 items 구조로 전자상거래 퍼널을 깨지지 않게 구현한다</p>
+  <div class="content">
+<p>gtag.js를 페이지에 직접 박으면 이벤트를 추가할 때마다 배포가 필요하고, GTM에 dataLayer push만 쌓고 트리거·태그를 연결하지 않으면 보고서가 빈다. 결제 웹훅이나 환불처럼 브라우저가 없는 시점의 전환은 클라이언트 측정으로 잡히지 않는다. 전자상거래 이벤트는 items 구조가 어긋나거나 transaction_id가 빠지면 퍼널과 매출 집계가 틀어진다.</p>
+<h2>핵심 개념</h2>
+<h3>측정 경로</h3>
+<p>gtag.js는 페이지 코드에 직접 넣고, GTM은 대시보드에서 태그를 관리하며, Firebase SDK는 모바일 앱, Measurement Protocol은 서버가 직접 보낸다. 규모가 커지면 웹은 GTM, 앱은 Firebase, 서버는 Measurement Protocol이 맡고 한 속성의 서로 다른 스트림으로 모인다. gtag.js와 GTM을 한 페이지에 같이 두면 이벤트가 중복되므로 하나만 택한다. <code>gtag()</code>는 <code>dataLayer.push</code>를 감싼 함수다.</p>
+<h3>GTM 구성</h3>
+<p>GTM 작업은 무엇을(Tag), 언제(Trigger), 어떤 값으로(Variable) 실행할지 정하는 일이다. Google Tag가 Measurement ID(<code>G-XXXX</code>)로 속성에 연결하고 All Pages 트리거로 page_view를 만들며, GA4 Event 태그는 이 Google Tag를 참조해야 전송 대상이 정해진다. 컨테이너 ID(<code>GTM-XXXX</code>)와는 다른 값이다.</p>
+<p>코드가 <code>dataLayer.push({event: &#39;add_to_cart&#39;, ...})</code>를 호출하면 같은 이름의 Custom Event 트리거가 반응하고 Data Layer Variable이 함께 push된 값을 태그 매개변수로 넘긴다. 변경은 Workspace → Preview → Submit → Publish를 거쳐야 라이브에 반영되며, Preview 상태에서만 GA4 DebugView에 이벤트가 실시간으로 보인다.</p>
+<h3>이벤트 계층과 이름</h3>
+<p>자동 수집(first_visit·session_start·page_view·user_engagement)은 측정 코드만 있으면 발생하고, 향상된 측정(scroll·outbound click·site search·video·file download)은 데이터 스트림 토글로 켜지므로 GTM에서 다시 만들지 않는다. 나머지가 커스텀 이벤트다.</p>
+<p>이벤트 이름은 소문자·언더스코어·40자 이내이며, 매개변수는 <code>item_id</code>, <code>price</code>, <code>currency</code>처럼 표준 이름을 써야 전자상거래 보고서가 활성화된다. 매개변수는 이벤트 한 건에만 붙고, user_properties는 이후 모든 이벤트에 따라붙는다. 값은 HTML <code>data-*</code> 속성에서 읽는 편이 DOM 텍스트 추출보다 마크업 변경에 강하다.</p>
+<h3>전자상거래</h3>
+<p>퍼널은 view_item_list → select_item → view_item → add_to_cart → begin_checkout → purchase 순서이며, 모든 이벤트가 같은 <code>items</code> 배열을 공유하며 <code>item_id</code>·<code>item_name</code>만 필수이고 <code>item_variant</code>·<code>index</code>를 채울수록 분석이 깊어진다. items를 만드는 함수는 하나만 두고 재사용한다. 매 push 직전 <code>dataLayer.push({ecommerce: null})</code>로 이전 items가 섞이는 것을 막고, purchase에는 문자열 <code>transaction_id</code>를 넣어 새로고침 중복을 제거한다.</p>
+<h3>Measurement Protocol</h3>
+<p><code>POST /mp/collect?measurement_id=...&amp;api_secret=...</code>로 서버가 직접 이벤트를 보낸다. 페이로드의 <code>client_id</code>가 브라우저 GA 쿠키 값과 일치해야 같은 사용자로 결합되므로, <code>gtag(&#39;get&#39;, id, &#39;client_id&#39;, cb)</code>로 꺼내 서버에 저장해 둔다. <code>/debug/mp/collect</code>는 payload 오류를 <code>validationMessages</code>로 돌려준다. 클라이언트 SDK를 보완하는 수단이지 대체하지 않는다.</p>
+<h2>코드</h2>
+<p>페이지 측 dataLayer push. <code>data-*</code> 속성에서 값을 읽어 push한다.</p>
+<pre><code class="hljs language-html"><span class="hljs-tag">&lt;<span class="hljs-name">button</span> <span class="hljs-attr">class</span>=<span class="hljs-string">&quot;add-to-cart&quot;</span> <span class="hljs-attr">data-item-id</span>=<span class="hljs-string">&quot;SKU-001&quot;</span> <span class="hljs-attr">data-item-name</span>=<span class="hljs-string">&quot;Blue T-Shirt&quot;</span> <span class="hljs-attr">data-price</span>=<span class="hljs-string">&quot;29000&quot;</span>&gt;</span>담기<span class="hljs-tag">&lt;/<span class="hljs-name">button</span>&gt;</span>
+<span class="hljs-tag">&lt;<span class="hljs-name">script</span>&gt;</span><span class="language-javascript">
+  <span class="hljs-variable language_">window</span>.<span class="hljs-property">dataLayer</span> = <span class="hljs-variable language_">window</span>.<span class="hljs-property">dataLayer</span> || [];
+  <span class="hljs-variable language_">document</span>.<span class="hljs-title function_">addEventListener</span>(<span class="hljs-string">&#x27;click&#x27;</span>, <span class="hljs-function">(<span class="hljs-params">e</span>) =&gt;</span> {
+    <span class="hljs-keyword">const</span> btn = e.<span class="hljs-property">target</span>.<span class="hljs-title function_">closest</span>(<span class="hljs-string">&#x27;.add-to-cart&#x27;</span>);
+    <span class="hljs-keyword">if</span> (!btn) <span class="hljs-keyword">return</span>;
+    <span class="hljs-keyword">const</span> price = <span class="hljs-title class_">Number</span>(btn.<span class="hljs-property">dataset</span>.<span class="hljs-property">price</span>);
+    <span class="hljs-variable language_">window</span>.<span class="hljs-property">dataLayer</span>.<span class="hljs-title function_">push</span>({ <span class="hljs-attr">ecommerce</span>: <span class="hljs-literal">null</span> });
+    <span class="hljs-variable language_">window</span>.<span class="hljs-property">dataLayer</span>.<span class="hljs-title function_">push</span>({
+      <span class="hljs-attr">event</span>: <span class="hljs-string">&#x27;add_to_cart&#x27;</span>,
+      <span class="hljs-attr">ecommerce</span>: {
+        <span class="hljs-attr">currency</span>: <span class="hljs-string">&#x27;KRW&#x27;</span>, <span class="hljs-attr">value</span>: price,
+        <span class="hljs-attr">items</span>: [{ <span class="hljs-attr">item_id</span>: btn.<span class="hljs-property">dataset</span>.<span class="hljs-property">itemId</span>, <span class="hljs-attr">item_name</span>: btn.<span class="hljs-property">dataset</span>.<span class="hljs-property">itemName</span>, price, <span class="hljs-attr">quantity</span>: <span class="hljs-number">1</span> }]
+      }
+    });
+  });
+</span><span class="hljs-tag">&lt;/<span class="hljs-name">script</span>&gt;</span></code></pre>
+<p>Spring Boot 3.x의 Measurement Protocol 클라이언트. 운영 프로필이 아니면 검증 엔드포인트를 먼저 호출한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Ga4MeasurementClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String measurementId;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String apiSecret;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">boolean</span> production;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Ga4MeasurementClient</span><span class="hljs-params">(RestClient.Builder builder,
+                                <span class="hljs-meta">@Value(&quot;${ga4.measurement-id}&quot;)</span> String measurementId,
+                                <span class="hljs-meta">@Value(&quot;${ga4.api-secret}&quot;)</span> String apiSecret,
+                                Environment env)</span> {
+        <span class="hljs-built_in">this</span>.restClient = builder.baseUrl(<span class="hljs-string">&quot;https://www.google-analytics.com&quot;</span>).build();
+        <span class="hljs-built_in">this</span>.measurementId = measurementId;
+        <span class="hljs-built_in">this</span>.apiSecret = apiSecret;
+        <span class="hljs-built_in">this</span>.production = env.matchesProfiles(<span class="hljs-string">&quot;prod&quot;</span>);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">sendPurchase</span><span class="hljs-params">(String clientId, String userId, Order order)</span> {
+        <span class="hljs-type">List</span>&lt;Map&lt;String, Object&gt;&gt; <span class="hljs-variable">items</span> <span class="hljs-operator">=</span> order.lines().stream()
+            .map(l -&gt; Map.&lt;String, Object&gt;of(
+                <span class="hljs-string">&quot;item_id&quot;</span>, l.sku(), <span class="hljs-string">&quot;item_name&quot;</span>, l.name(),
+                <span class="hljs-string">&quot;price&quot;</span>, l.unitPrice(), <span class="hljs-string">&quot;quantity&quot;</span>, l.quantity()))
+            .toList();
+        <span class="hljs-type">Map</span>&lt;String, Object&gt; <span class="hljs-variable">payload</span> <span class="hljs-operator">=</span> Map.of(
+            <span class="hljs-string">&quot;client_id&quot;</span>, clientId,
+            <span class="hljs-string">&quot;user_id&quot;</span>, userId,
+            <span class="hljs-string">&quot;events&quot;</span>, List.of(Map.of(
+                <span class="hljs-string">&quot;name&quot;</span>, <span class="hljs-string">&quot;purchase&quot;</span>,
+                <span class="hljs-string">&quot;params&quot;</span>, Map.of(
+                    <span class="hljs-string">&quot;transaction_id&quot;</span>, order.id(),
+                    <span class="hljs-string">&quot;value&quot;</span>, order.total(),
+                    <span class="hljs-string">&quot;currency&quot;</span>, <span class="hljs-string">&quot;KRW&quot;</span>,
+                    <span class="hljs-string">&quot;items&quot;</span>, items))));
+        <span class="hljs-keyword">if</span> (!production) {
+            validate(payload);
+        }
+        post(<span class="hljs-string">&quot;/mp/collect&quot;</span>, payload).toBodilessEntity();
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">validate</span><span class="hljs-params">(Map&lt;String, Object&gt; payload)</span> {
+        <span class="hljs-type">JsonNode</span> <span class="hljs-variable">messages</span> <span class="hljs-operator">=</span> post(<span class="hljs-string">&quot;/debug/mp/collect&quot;</span>, payload)
+            .body(JsonNode.class).path(<span class="hljs-string">&quot;validationMessages&quot;</span>);
+        <span class="hljs-keyword">if</span> (messages.isArray() &amp;&amp; !messages.isEmpty()) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;GA4 validation failed: &quot;</span> + messages);
+        }
+    }
+
+    <span class="hljs-keyword">private</span> RestClient.<span class="hljs-type">ResponseSpec</span> <span class="hljs-title function_">post</span><span class="hljs-params">(String path, Map&lt;String, Object&gt; payload)</span> {
+        <span class="hljs-keyword">return</span> restClient.post()
+            .uri(b -&gt; b.path(path)
+                .queryParam(<span class="hljs-string">&quot;measurement_id&quot;</span>, measurementId)
+                .queryParam(<span class="hljs-string">&quot;api_secret&quot;</span>, apiSecret).build())
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(payload)
+            .retrieve();
+    }
+}</code></pre>
+<p>브라우저의 client_id를 서버에 저장하는 엔드포인트. 로그인 직후 한 번 호출한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/analytics&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ClientIdController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ClientIdRepository repository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ClientIdController</span><span class="hljs-params">(ClientIdRepository repository)</span> {
+        <span class="hljs-built_in">this</span>.repository = repository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">ClientIdRequest</span><span class="hljs-params">(@NotBlank String clientId)</span> {}
+
+    <span class="hljs-meta">@PostMapping(&quot;/client-id&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ResponseEntity</span>&lt;Void&gt; <span class="hljs-title function_">save</span><span class="hljs-params">(<span class="hljs-meta">@AuthenticationPrincipal</span> UserDetails user,
+                                     <span class="hljs-meta">@Valid</span> <span class="hljs-meta">@RequestBody</span> ClientIdRequest request)</span> {
+        repository.upsert(user.getUsername(), request.clientId());
+        <span class="hljs-keyword">return</span> ResponseEntity.noContent().build();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>SPA의 page_view 누락.</strong> 라우트가 바뀌어도 페이지가 다시 로드되지 않아 자동 page_view가 한 번만 남는다. 라우터 훅에서 수동 전송하거나 GTM의 History Change 트리거를 쓴다.</li>
+<li><strong>폼 제출과 변수 빈 값.</strong> Form Submission 트리거는 <code>Wait for Tags</code>를 켜지 않으면 리디렉션 직전에 이벤트가 유실된다. 트리거 미발동의 대부분은 조건 값이 비어 있거나 대소문자·후행 슬래시가 다른 경우이므로 Preview의 Variables 탭에서 실제 값부터 확인한다.</li>
+<li><strong>비동기 상품 조회의 순서 역전.</strong> 상품 정보를 API로 가져와 push하면 빠른 연속 클릭에서 응답 순서가 뒤바뀐다. 요청 카운터로 최신 응답만 처리하고 같은 상품은 캐시한다.</li>
+<li><strong>비밀값과 식별자.</strong> <code>api_secret</code>은 서버 환경 변수에만 둔다. 서버 hit는 사용자 IP가 없어 지역이 서버 위치로 찍히므로 IP 오버라이드가 필요하다. User ID에는 PII 대신 해시된 식별자만 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/ga4-data-model/">GA4 데이터 모델 — 이벤트·세션·사용자</a></li>
+<li><a href="/notes/experimentation/ga4-conversions-reports/">전환·잠재고객·보고서·탐색</a></li>
+<li><a href="/notes/experimentation/ga4-bigquery-api-privacy/">BigQuery Export·API·운영과 Privacy</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · GA4, Google Tag Manager, dataLayer, Measurement Protocol, ecommerce</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/ga4-data-model/"><small>이전</small>GA4 데이터 모델 — 이벤트·세션·사용자</a>
+  <a class="next" href="/notes/experimentation/ga4-conversions-reports/"><small>다음</small>전환·잠재고객·보고서·탐색</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

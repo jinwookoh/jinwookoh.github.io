@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>데이터베이스와 테이블 만들기 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="CREATE DATABASE와 CREATE TABLE의 표준 옵션, 제약 설계, 운영에서 안전하게 만들고 지우는 절차를 정리한다.">
+  <meta property="og:title" content="데이터베이스와 테이블 만들기 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="CREATE DATABASE와 CREATE TABLE의 표준 옵션, 제약 설계, 운영에서 안전하게 만들고 지우는 절차를 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/create-database-table/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>데이터베이스와 테이블 만들기</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · 시작</p>
+  <h1>데이터베이스와 테이블 만들기</h1>
+  <p class="summary">CREATE DATABASE와 CREATE TABLE의 표준 옵션, 제약 설계, 운영에서 안전하게 만들고 지우는 절차를 정리한다.</p>
+  <div class="content">
+<p>설치 직후 클러스터에는 <code>postgres</code>, <code>template0</code>, <code>template1</code> 세 데이터베이스만 있다. 여기에 애플리케이션 테이블을 직접 만들고 슈퍼유저로 접속하면 프로젝트 간 격리가 없고, 앱의 버그가 클러스터 전체 권한으로 실행된다. 인코딩과 로케일은 DB를 다시 만들지 않는 한 바꿀 수 없다. 기본 키·NOT NULL·CHECK 없는 테이블은 잘못된 데이터를 거부하지 못하고 정합성 검사가 애플리케이션 코드에 흩어진다. 처음 만들 때 옵션과 제약을 명시적으로 결정해야 한다.</p>
+<h2>핵심 개념</h2>
+<h3>계층 구조와 격리</h3>
+<p>PostgreSQL은 Cluster → Database → Schema → Table 네 단계로 객체를 조직한다. 프로젝트마다 데이터베이스를 하나 만들며, 같은 클러스터 안의 데이터베이스는 서로 격리되어 다른 DB의 테이블을 직접 조회할 수 없고 권한과 설정도 DB 단위로 분리된다.</p>
+<h3>CREATE DATABASE와 템플릿</h3>
+<p><code>CREATE DATABASE</code>는 기존 데이터베이스를 복사하는 방식으로 동작한다. 기본 원본은 <code>template1</code>이며, 여기에 추가된 객체는 이후 만드는 모든 DB에 복제된다. <code>template0</code>은 수정되지 않는 빈 템플릿이어서 다른 인코딩·로케일을 지정할 때 필수이고 깨끗한 시작을 위해서도 명시한다. <code>TEMPLATE original_db</code>로 임의의 DB를 복제할 수도 있으며, 원본에 다른 세션이 없어야 한다. 대용량·원격 복제는 <code>pg_dump -Fc</code>와 <code>pg_restore</code>를 쓴다.</p>
+<p>주요 옵션은 다음과 같다.</p>
+<table>
+<thead>
+<tr>
+<th>옵션</th>
+<th>역할</th>
+<th>권장값</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>OWNER</code></td>
+<td>소유자</td>
+<td>앱 전용 역할</td>
+</tr>
+<tr>
+<td><code>ENCODING</code></td>
+<td>인코딩</td>
+<td><code>UTF8</code></td>
+</tr>
+<tr>
+<td><code>LC_COLLATE</code> / <code>LC_CTYPE</code></td>
+<td>정렬 / 문자 분류</td>
+<td><code>ko_KR.UTF-8</code> 또는 <code>C</code></td>
+</tr>
+<tr>
+<td><code>TEMPLATE</code></td>
+<td>복제 원본</td>
+<td><code>template0</code></td>
+</tr>
+<tr>
+<td><code>CONNECTION LIMIT</code></td>
+<td>동시 접속 상한</td>
+<td>유한값</td>
+</tr>
+<tr>
+<td><code>ALLOW_CONNECTIONS</code></td>
+<td>접속 허용</td>
+<td>유지보수 시 <code>FALSE</code></td>
+</tr>
+</tbody></table>
+<p><code>createdb</code>와 <code>dropdb</code>는 같은 SQL을 실행하는 OS 명령이다. <code>ALTER DATABASE ... SET</code>으로 <code>timezone</code>, <code>search_path</code>, <code>work_mem</code> 같은 파라미터를 DB 단위로 바꿀 수 있다.</p>
+<h3>CREATE TABLE과 제약</h3>
+<p><code>CREATE TABLE</code>은 DDL의 핵심으로, 컬럼마다 타입과 제약을 선언한다. 자주 쓰는 타입은 <code>BIGINT GENERATED ALWAYS AS IDENTITY</code>(자동 증가 정수), <code>TEXT</code>, <code>BOOLEAN</code>, <code>TIMESTAMPTZ</code>, <code>DATE</code>, <code>NUMERIC(p,s)</code>, <code>JSONB</code>다. <code>BIGSERIAL</code>도 동작하지만 SQL 표준인 IDENTITY 컬럼이 시퀀스 권한 면에서 명확하다. 문자열은 <code>VARCHAR(N)</code> 대신 <code>TEXT</code>를 쓰고 길이 제한은 <code>CHECK</code>로 건다. 두 타입의 저장 방식과 성능은 같다.</p>
+<p>제약은 여섯 가지다. <code>NOT NULL</code>은 값 누락을 거부하고, <code>UNIQUE</code>는 중복을 막으며 인덱스를 자동 생성한다. <code>PRIMARY KEY</code>는 둘을 합친 행 식별자로 테이블당 하나다. <code>DEFAULT</code>는 값이 생략됐을 때 채워지고, <code>CHECK</code>는 조건식 위반을 거부하며, <code>REFERENCES</code>는 다른 테이블의 키를 참조해 참조 무결성을 보장한다.</p>
+<h2>코드</h2>
+<p>앱 전용 역할을 만들고 그 역할 소유로 데이터베이스를 생성한 뒤 DB 단위 설정을 지정하는 표준 절차다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE</span> ROLE appuser <span class="hljs-keyword">WITH</span> LOGIN PASSWORD <span class="hljs-string">&#x27;strongpass&#x27;</span>;
+
+<span class="hljs-keyword">CREATE</span> DATABASE myappdb
+    <span class="hljs-keyword">WITH</span> OWNER            <span class="hljs-operator">=</span> appuser
+         ENCODING         <span class="hljs-operator">=</span> <span class="hljs-string">&#x27;UTF8&#x27;</span>
+         LC_COLLATE       <span class="hljs-operator">=</span> <span class="hljs-string">&#x27;ko_KR.UTF-8&#x27;</span>
+         LC_CTYPE         <span class="hljs-operator">=</span> <span class="hljs-string">&#x27;ko_KR.UTF-8&#x27;</span>
+         TEMPLATE         <span class="hljs-operator">=</span> template0
+         CONNECTION LIMIT <span class="hljs-operator">=</span> <span class="hljs-number">100</span>;
+
+<span class="hljs-keyword">ALTER</span> DATABASE myappdb <span class="hljs-keyword">SET</span> timezone <span class="hljs-operator">=</span> <span class="hljs-string">&#x27;Asia/Seoul&#x27;</span>;
+
+<span class="hljs-comment">-- 접속 전환과 확인</span>
+\c myappdb appuser
+\l</code></pre>
+<p>여섯 제약이 모두 들어간 테이블 정의다. <code>IF NOT EXISTS</code>로 반복 실행해도 안전하다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE TABLE</span> IF <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">EXISTS</span> users (
+    id         <span class="hljs-type">BIGINT</span> GENERATED ALWAYS <span class="hljs-keyword">AS</span> <span class="hljs-keyword">IDENTITY</span> <span class="hljs-keyword">PRIMARY KEY</span>,
+    name       TEXT <span class="hljs-keyword">NOT NULL</span>,
+    email      TEXT <span class="hljs-keyword">UNIQUE</span>,
+    created_at TIMESTAMPTZ <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> NOW(),
+    updated_at TIMESTAMPTZ <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> NOW()
+);
+
+<span class="hljs-keyword">CREATE TABLE</span> IF <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">EXISTS</span> orders (
+    id         <span class="hljs-type">BIGINT</span> GENERATED ALWAYS <span class="hljs-keyword">AS</span> <span class="hljs-keyword">IDENTITY</span> <span class="hljs-keyword">PRIMARY KEY</span>,
+    user_id    <span class="hljs-type">BIGINT</span> <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">REFERENCES</span> users(id),
+    amount     <span class="hljs-type">NUMERIC</span>(<span class="hljs-number">12</span>, <span class="hljs-number">2</span>) <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">CHECK</span> (amount <span class="hljs-operator">&gt;=</span> <span class="hljs-number">0</span>),
+    status     TEXT <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-string">&#x27;PENDING&#x27;</span>
+                   <span class="hljs-keyword">CHECK</span> (status <span class="hljs-keyword">IN</span> (<span class="hljs-string">&#x27;PENDING&#x27;</span>, <span class="hljs-string">&#x27;PAID&#x27;</span>, <span class="hljs-string">&#x27;CANCELED&#x27;</span>, <span class="hljs-string">&#x27;SHIPPED&#x27;</span>, <span class="hljs-string">&#x27;DELIVERED&#x27;</span>)),
+    created_at TIMESTAMPTZ <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> NOW(),
+    updated_at TIMESTAMPTZ <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> NOW()
+);
+
+<span class="hljs-keyword">ALTER TABLE</span> users <span class="hljs-keyword">ADD</span> <span class="hljs-keyword">COLUMN</span> nickname TEXT;
+<span class="hljs-keyword">ALTER TABLE</span> users <span class="hljs-keyword">ALTER</span> <span class="hljs-keyword">COLUMN</span> email <span class="hljs-keyword">SET</span> <span class="hljs-keyword">NOT NULL</span>;
+
+\d users</code></pre>
+<p><code>users</code> 테이블에 대응하는 Spring Boot 3.x JPA 엔티티다. <code>IDENTITY</code> 전략은 키 생성을 DB에 맡기고, <code>@Generated</code>와 <code>insertable = false</code>로 <code>created_at</code>의 DB DEFAULT를 그대로 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.persistence.*;
+<span class="hljs-keyword">import</span> org.hibernate.annotations.Generated;
+<span class="hljs-keyword">import</span> org.hibernate.generator.EventType;
+<span class="hljs-keyword">import</span> java.time.OffsetDateTime;
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;users&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">User</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@Column(nullable = false)</span>
+    <span class="hljs-keyword">private</span> String name;
+
+    <span class="hljs-meta">@Column(unique = true)</span>
+    <span class="hljs-keyword">private</span> String email;
+
+    <span class="hljs-meta">@Generated(event = EventType.INSERT)</span>
+    <span class="hljs-meta">@Column(name = &quot;created_at&quot;, insertable = false, updatable = false)</span>
+    <span class="hljs-keyword">private</span> OffsetDateTime createdAt;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">User</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">User</span><span class="hljs-params">(String name, String email)</span> {
+        <span class="hljs-built_in">this</span>.name = name;
+        <span class="hljs-built_in">this</span>.email = email;
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://localhost:5432/myappdb</span>
+    <span class="hljs-attr">username:</span> <span class="hljs-string">appuser</span>
+    <span class="hljs-attr">password:</span> <span class="hljs-string">${DB_PASSWORD}</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">hibernate:</span>
+      <span class="hljs-attr">ddl-auto:</span> <span class="hljs-string">validate</span></code></pre>
+<p><code>ddl-auto</code>는 <code>validate</code>로 두어 엔티티와 테이블이 어긋나면 기동에 실패하게 하고, 스키마 변경은 Flyway로 관리한다.</p>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>인코딩·로케일은 되돌릴 수 없다.</strong> <code>SQL_ASCII</code>로 만든 DB는 덤프 후 새 DB에 복원해야 한다. <code>ko_KR.UTF-8</code> 콜레이션은 <code>C</code>보다 비교 비용이 크고 LIKE 접두 검색에 B-Tree 인덱스가 쓰이지 않으므로, <code>C</code> 로케일에 컬럼별 COLLATE를 얹는 선택도 검토한다.</li>
+<li><strong>DROP DATABASE는 접속이 있으면 실패하고 취소할 수 없다.</strong> 자기 자신에게 접속한 채로는 지울 수 없어 <code>\c postgres</code>로 옮긴 뒤 실행하고, 다른 세션은 <code>pg_terminate_backend(pid)</code>로 끊거나 <code>ALLOW_CONNECTIONS = FALSE</code>로 차단한다. 백업 확인 후 운영 시간 외에 실행한다.</li>
+<li><strong>CONNECTION LIMIT 기본값은 무제한이다.</strong> 한 DB가 커넥션을 모두 점유하면 다른 DB까지 접속 불가가 된다. 커넥션 풀 합계보다 약간 큰 값으로 상한을 둔다.</li>
+<li><strong>큰 테이블의 ALTER TABLE은 락을 잡는다.</strong> <code>ALTER COLUMN ... TYPE</code>이나 <code>NOT NULL</code> 추가는 테이블 전체를 다시 쓰거나 검사하며 쓰기가 막힌다. 상수 DEFAULT 컬럼 추가는 즉시 끝나므로, 변경별 락 수준을 확인하고 필요하면 <code>pg_repack</code>이나 단계적 마이그레이션으로 나눈다.</li>
+<li><strong><code>idle in transaction</code> 세션이 DDL을 대기시킨다.</strong> 열어 둔 트랜잭션이 있으면 ALTER와 DROP이 락을 기다리고 뒤따르는 쿼리까지 막힌다. <code>pg_stat_activity</code>에서 오래된 세션을 정리하고 DDL 전에 <code>lock_timeout</code>을 설정한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/install-psql/">설치와 psql 접속</a></li>
+<li><a href="/notes/postgresql/ddl-tables-constraints/">DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</a></li>
+<li><a href="/notes/postgresql/roles-security/">사용자·역할·권한</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, CREATE DATABASE, CREATE TABLE, DDL, 제약</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/install-psql/"><small>이전</small>설치와 psql 접속</a>
+  <a class="next" href="/notes/postgresql/sql-basics-syntax/"><small>다음</small>SQL 기초 — 어휘 구조와 문법</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

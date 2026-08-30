@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quickstart — Docker Compose·첫 요청·Kibana Dev Tools · Elasticsearch</title>
+  <meta name="description" content="Docker Compose로 ES와 Kibana를 띄우고 색인·조회·검색 한 사이클을 curl과 Dev Tools로 돌린다">
+  <meta property="og:title" content="Quickstart — Docker Compose·첫 요청·Kibana Dev Tools · Elasticsearch">
+  <meta property="og:description" content="Docker Compose로 ES와 Kibana를 띄우고 색인·조회·검색 한 사이클을 curl과 Dev Tools로 돌린다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/quickstart/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Quickstart — Docker Compose·첫 요청·Kibana Dev Tools</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 기초</p>
+  <h1>Quickstart — Docker Compose·첫 요청·Kibana Dev Tools</h1>
+  <p class="summary">Docker Compose로 ES와 Kibana를 띄우고 색인·조회·검색 한 사이클을 curl과 Dev Tools로 돌린다</p>
+  <div class="content">
+<p>Inverted Index와 Shard 구조를 글로만 이해하면 검색 DSL, Mapping, ILM 같은 뒤쪽 주제가 추상적으로 남는다. 문서 한 건을 직접 색인하고 <code>_search</code> 응답에 점수와 함께 돌아오는 것을 확인해야 개념이 API 동작과 연결된다. 문제는 그 앞의 환경 설정이다. Elasticsearch 8.x는 기본으로 보안과 HTTPS가 켜져 있고, 커널 파라미터·JVM heap·포트 충돌에서 첫 요청 전에 시간을 잃기 쉽다. single-node와 보안 비활성이라는 학습 전용 조합으로 마찰을 줄인 뒤 curl과 Kibana Dev Tools로 첫 사이클을 돌린다.</p>
+<h2>핵심 개념</h2>
+<h3>사전 조건</h3>
+<p>Docker 엔진에 메모리 4GB 이상을 할당한다. 기본값 2GB에서는 컨테이너가 OOMKilled로 종료되기 쉽다. Linux 호스트는 <code>vm.max_map_count</code>가 262144 이상이어야 한다. segment 파일을 mmap으로 매핑하면서 이 값을 요구하며, 기본값 65530인 배포판에서는 bootstrap check 실패로 기동하지 못한다. <code>sysctl -w</code>로 적용하고 <code>/etc/sysctl.conf</code>에 남긴다. macOS와 Windows는 Docker Desktop VM이 처리한다.</p>
+<h3>Compose 옵션의 의미</h3>
+<p><code>discovery.type=single-node</code>는 마스터 선출 없이 노드 한 대로 클러스터를 구성하며, development mode가 켜져 bootstrap check가 완화된다. <code>xpack.security.enabled=false</code>는 8.x 기본 활성인 인증·HTTPS·자동 비밀번호 생성을 끈다. <code>ES_JAVA_OPTS=-Xms1g -Xmx1g</code>는 JVM heap 고정이며 운영 기준은 컨테이너 메모리의 50%, 31GB 이하다. <code>bootstrap.memory_lock</code>과 <code>ulimits.memlock</code>은 heap이 swap으로 밀려 응답이 초 단위로 악화되는 것을 막는다.</p>
+<h3><code>_cat</code> API와 health 상태</h3>
+<p><code>_cat</code> 엔드포인트 묶음은 JSON 대신 텍스트 표를 반환하는 진단용 API로, <code>?v</code>를 붙이면 헤더가 출력된다. health status의 green은 모든 primary와 replica shard가 할당된 상태, yellow는 replica만 미할당된 상태, red는 primary 일부가 미할당되어 해당 데이터의 읽기·쓰기가 불가능한 상태다. single-node에서 replica가 1인 인덱스는 yellow가 되며, 학습 환경에서는 정상이다.</p>
+<h3>첫 색인과 Dynamic Mapping</h3>
+<p>인덱스 없이 <code>PUT /my-index/_doc/1</code>로 문서를 넣으면 인덱스가 생성되고 필드 타입이 추론된다. 문자열은 <code>text</code>와 <code>keyword</code> 서브필드의 multi-field로, 날짜 형식 문자열은 <code>date</code>로 잡힌다. 응답의 <code>result: created</code>와 <code>_version: 1</code>이 성공 신호다. 조회 응답의 <code>_source</code>에는 원본 JSON이 저장되어 있고, 검색은 별도의 Inverted Index를 사용한다. <code>match</code> 쿼리의 <code>_score</code>는 BM25가 계산한 값이다.</p>
+<h3>Kibana Dev Tools</h3>
+<p><code>http://localhost:5601</code>에서 Management → Dev Tools로 들어가면 에디터와 응답 창으로 나뉜 Console이 열린다. HTTP 메서드·경로·본문만 쓰면 호스트·헤더·인증은 Kibana가 붙인다. Ctrl+Enter(macOS는 Cmd+Enter)로 실행, Ctrl+/로 줄 주석, Ctrl+I로 JSON 정렬이다. Request History가 최근 요청을 보존하고 Copy as cURL이 curl 명령으로 변환한다.</p>
+<h2>코드</h2>
+<p>ES 8.15와 Kibana를 함께 띄우는 compose 파일이다. Kibana는 healthcheck 통과 뒤 시작한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">services:</span>
+  <span class="hljs-attr">elasticsearch:</span>
+    <span class="hljs-attr">image:</span> <span class="hljs-string">docker.elastic.co/elasticsearch/elasticsearch:8.15.0</span>
+    <span class="hljs-attr">container_name:</span> <span class="hljs-string">es-quickstart</span>
+    <span class="hljs-attr">environment:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">discovery.type=single-node</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">xpack.security.enabled=false</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">xpack.security.http.ssl.enabled=false</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">ES_JAVA_OPTS=-Xms1g</span> <span class="hljs-string">-Xmx1g</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">bootstrap.memory_lock=true</span>
+    <span class="hljs-attr">ulimits:</span>
+      <span class="hljs-attr">memlock:</span>
+        <span class="hljs-attr">soft:</span> <span class="hljs-number">-1</span>
+        <span class="hljs-attr">hard:</span> <span class="hljs-number">-1</span>
+      <span class="hljs-attr">nofile:</span>
+        <span class="hljs-attr">soft:</span> <span class="hljs-number">65536</span>
+        <span class="hljs-attr">hard:</span> <span class="hljs-number">65536</span>
+    <span class="hljs-attr">ports:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;9200:9200&quot;</span>
+    <span class="hljs-attr">volumes:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">es-data:/usr/share/elasticsearch/data</span>
+    <span class="hljs-attr">healthcheck:</span>
+      <span class="hljs-attr">test:</span> [<span class="hljs-string">&quot;CMD-SHELL&quot;</span>, <span class="hljs-string">&quot;curl -fs http://localhost:9200/_cluster/health || exit 1&quot;</span>]
+      <span class="hljs-attr">interval:</span> <span class="hljs-string">10s</span>
+      <span class="hljs-attr">timeout:</span> <span class="hljs-string">5s</span>
+      <span class="hljs-attr">retries:</span> <span class="hljs-number">10</span>
+
+  <span class="hljs-attr">kibana:</span>
+    <span class="hljs-attr">image:</span> <span class="hljs-string">docker.elastic.co/kibana/kibana:8.15.0</span>
+    <span class="hljs-attr">container_name:</span> <span class="hljs-string">kibana-quickstart</span>
+    <span class="hljs-attr">environment:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">ELASTICSEARCH_HOSTS=http://elasticsearch:9200</span>
+    <span class="hljs-attr">ports:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-string">&quot;5601:5601&quot;</span>
+    <span class="hljs-attr">depends_on:</span>
+      <span class="hljs-attr">elasticsearch:</span>
+        <span class="hljs-attr">condition:</span> <span class="hljs-string">service_healthy</span>
+
+<span class="hljs-attr">volumes:</span>
+  <span class="hljs-attr">es-data:</span></code></pre>
+<p><code>docker compose up -d</code> 후 healthy를 확인하고 상태 점검·색인·조회·검색 사이클을 curl로 보낸다.</p>
+<pre><code class="hljs language-bash">curl -s <span class="hljs-string">&quot;http://localhost:9200/_cat/health?v&quot;</span>
+curl -s <span class="hljs-string">&quot;http://localhost:9200/_cat/nodes?v&quot;</span>
+curl -s <span class="hljs-string">&quot;http://localhost:9200/_cat/indices?v&quot;</span>
+
+curl -s -X PUT <span class="hljs-string">&quot;http://localhost:9200/my-index/_doc/1&quot;</span> \
+  -H <span class="hljs-string">&#x27;Content-Type: application/json&#x27;</span> \
+  -d <span class="hljs-string">&#x27;{&quot;title&quot;:&quot;Elasticsearch 입문&quot;,&quot;tags&quot;:[&quot;search&quot;,&quot;lucene&quot;],&quot;published_at&quot;:&quot;2026-05-19&quot;}&#x27;</span>
+
+curl -s <span class="hljs-string">&quot;http://localhost:9200/my-index/_doc/1?pretty&quot;</span>
+curl -s <span class="hljs-string">&quot;http://localhost:9200/my-index/_mapping?pretty&quot;</span>
+
+curl -s -X POST <span class="hljs-string">&quot;http://localhost:9200/my-index/_search?pretty&quot;</span> \
+  -H <span class="hljs-string">&#x27;Content-Type: application/json&#x27;</span> \
+  -d <span class="hljs-string">&#x27;{&quot;query&quot;:{&quot;match&quot;:{&quot;title&quot;:&quot;입문&quot;}}}&#x27;</span></code></pre>
+<p>같은 사이클을 Spring Boot 3.x에서 공식 Java 클라이언트로 보내는 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">EsConfig</span> {
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ElasticsearchClient</span> <span class="hljs-title function_">elasticsearchClient</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">RestClient</span> <span class="hljs-variable">rest</span> <span class="hljs-operator">=</span> RestClient.builder(<span class="hljs-keyword">new</span> <span class="hljs-title class_">HttpHost</span>(<span class="hljs-string">&quot;localhost&quot;</span>, <span class="hljs-number">9200</span>, <span class="hljs-string">&quot;http&quot;</span>)).build();
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ElasticsearchClient</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RestClientTransport</span>(rest, <span class="hljs-keyword">new</span> <span class="hljs-title class_">JacksonJsonpMapper</span>()));
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Article</span><span class="hljs-params">(String title, List&lt;String&gt; tags, String publishedAt)</span> {}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">QuickstartService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">healthStatus</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-keyword">return</span> client.cluster().health().status().jsonValue();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">index</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">var</span> <span class="hljs-variable">res</span> <span class="hljs-operator">=</span> client.index(i -&gt; i.index(<span class="hljs-string">&quot;my-index&quot;</span>).id(<span class="hljs-string">&quot;1&quot;</span>)
+                .document(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Article</span>(<span class="hljs-string">&quot;Elasticsearch 입문&quot;</span>, List.of(<span class="hljs-string">&quot;search&quot;</span>, <span class="hljs-string">&quot;lucene&quot;</span>), <span class="hljs-string">&quot;2026-05-19&quot;</span>)));
+        <span class="hljs-comment">// res.result() == Result.Created, res.version() == 1</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Article&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(String keyword)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">var</span> <span class="hljs-variable">res</span> <span class="hljs-operator">=</span> client.search(s -&gt; s.index(<span class="hljs-string">&quot;my-index&quot;</span>)
+                .query(q -&gt; q.match(m -&gt; m.field(<span class="hljs-string">&quot;title&quot;</span>).query(keyword))), Article.class);
+        <span class="hljs-keyword">return</span> res.hits().hits().stream().map(Hit::source).toList();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>JVM heap과 컨테이너 한도의 불일치.</strong> <code>-Xmx2g</code>인데 Docker 한도가 2GB면 off-heap과 mmap이 합산되어 OOMKilled가 반복된다. 한도는 heap의 2배 이상으로 잡는다.</li>
+<li><strong>Kibana가 <code>localhost:9200</code>을 바라보는 설정.</strong> 컨테이너 안에서 localhost는 Kibana 자신이다. <code>ELASTICSEARCH_HOSTS</code>는 compose 서비스 이름으로 지정한다.</li>
+<li><strong>보안 비활성 옵션 누락.</strong> 8.x는 옵션 없이 띄우면 자체 서명 인증서로 HTTPS를 강제하고 <code>http://</code> 요청은 empty reply나 401로 실패한다. 운영은 활성 상태에서 정식 CA 인증서와 계정 비밀번호를 설정한다.</li>
+<li><strong>포트 충돌.</strong> 9200·5601이 점유되어 있으면 <code>address already in use</code>로 실패한다. <code>lsof -i :9200</code>으로 확인하고 호스트 포트만 <code>9201:9200</code>처럼 바꾼다.</li>
+<li><strong>학습 조합을 운영에 옮기는 경우.</strong> single-node는 quorum이 없어 split-brain을 막지 못하고, named volume 하나로는 디스크 iops를 통제할 수 없다. 운영은 master-eligible 3대 이상, NVMe bind mount, <code>nofile</code> 65536 이상이 기본이다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/what-is-elasticsearch/">Elasticsearch란 — Index·Document·Shard·Replica</a></li>
+<li><a href="/notes/elasticsearch/index-management-ilm/">Index 관리·ILM·Rollover</a></li>
+<li><a href="/notes/elasticsearch/kibana-cloud-opensearch-iac/">Kibana·Elastic Cloud·OpenSearch·IaC</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Kibana, Docker Compose, Dev Tools, curl</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/lucene-internals/"><small>이전</small>Lucene 내부 — Segment·역색인·Posting List</a>
+  <a class="next" href="/notes/elasticsearch/index-management-ilm/"><small>다음</small>Index 관리·ILM·Rollover</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

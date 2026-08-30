@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>확률 기초와 기술통계 · 실험과 분석</title>
+  <meta name="description" content="실험 결과를 읽기 전에 알아야 할 중심·산포 측도와 조건부 확률·베이즈 정리를 정리한다">
+  <meta property="og:title" content="확률 기초와 기술통계 · 실험과 분석">
+  <meta property="og:description" content="실험 결과를 읽기 전에 알아야 할 중심·산포 측도와 조건부 확률·베이즈 정리를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/probability-descriptive-stats/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>확률 기초와 기술통계</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · 통계 기초</p>
+  <h1>확률 기초와 기술통계</h1>
+  <p class="summary">실험 결과를 읽기 전에 알아야 할 중심·산포 측도와 조건부 확률·베이즈 정리를 정리한다</p>
+  <div class="content">
+<p>A/B 테스트 결과를 평균 전환율 하나로 판단하면 이상치 몇 개가 결론을 뒤집는다. 산포를 보지 않으면 두 집단의 차이가 실제 효과인지 잡음인지 구분할 수 없고, 조건부 확률을 다루지 못하면 &quot;유의하다&quot;는 결과가 얼마나 믿을 만한지 계산할 수 없다. 기술통계는 데이터를 요약하는 도구이고, 확률은 그 요약이 우연일 가능성을 재는 도구다. 이후 가설 검정·신뢰구간·베이지안 A/B 테스트는 전부 이 두 가지 위에 올라간다.</p>
+<h2>핵심 개념</h2>
+<h3>중심 측도 — 평균·중앙값·최빈값</h3>
+<p>평균은 모든 값의 합을 개수로 나눈 값이며, 데이터의 균형점이다. 중앙값은 정렬 후 정중앙 값이고, 짝수 개일 때는 가운데 두 값의 평균을 취한다. 최빈값은 가장 자주 나타나는 값이며 없을 수도 있고 둘 이상일 수도 있다.</p>
+<p>셋을 따로 두는 이유는 무너지는 지점이 다르기 때문이다. {1, 2, 3}에 1000이 추가되면 평균은 251.5로 튀지만 중앙값은 2.5에 머문다. 평균은 이상치에 민감하고 중앙값은 강건하다. 소득·거래 금액·응답 시간처럼 꼬리가 긴 데이터는 중앙값이 대표값으로 적합하다.</p>
+<p>분포 모양도 세 값의 순서로 읽는다. 대칭 분포에서는 평균 = 중앙값 = 최빈값이고, 오른쪽 꼬리가 긴 우편향에서는 평균 &gt; 중앙값 &gt; 최빈값, 좌편향에서는 부등호가 반대다. 평균은 꼬리 방향으로 끌려간다.</p>
+<h3>산포 측도 — 범위·IQR·분산·표준편차</h3>
+<table>
+<thead>
+<tr>
+<th align="left">측도</th>
+<th align="left">정의</th>
+<th align="left">약점</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">범위</td>
+<td align="left">최댓값 − 최솟값</td>
+<td align="left">끝값 두 개에만 의존</td>
+</tr>
+<tr>
+<td align="left">IQR</td>
+<td align="left">Q₃ − Q₁ (가운데 50%)</td>
+<td align="left">분포 전체 모양은 반영하지 못함</td>
+</tr>
+<tr>
+<td align="left">분산</td>
+<td align="left">편차 제곱의 평균</td>
+<td align="left">단위가 제곱이라 해석이 어려움</td>
+</tr>
+<tr>
+<td align="left">표준편차</td>
+<td align="left">분산의 제곱근</td>
+<td align="left">이상치에 민감</td>
+</tr>
+</tbody></table>
+<p>표본 분산은 n이 아니라 n−1로 나눈다. 표본 평균을 기준으로 편차를 계산하면 모집단 분산을 과소 추정하는데, n−1로 나누면 이 편향이 보정된다(베셀 보정). 모집단 전체를 가진 경우에만 N으로 나눈다.</p>
+<p>데이터 변환 시 통계량의 변화는 규칙적이다. 모든 값에 상수 k를 더하면 평균·중앙값·최빈값은 k만큼 이동하고 범위·IQR·분산·표준편차는 변하지 않는다. 모든 값에 k를 곱하면 평균·중앙값·범위·IQR·표준편차는 k배, 분산만 k²배가 된다.</p>
+<p>박스 플롯에서 이상치는 Q₁ − 1.5×IQR 미만 또는 Q₃ + 1.5×IQR 초과로 정의한다.</p>
+<p>z-점수 z = (x − μ) / σ 는 값이 평균에서 표준편차의 몇 배 떨어져 있는지를 나타낸다. 단위가 다른 분포를 같은 척도로 비교할 수 있게 하며, 이후 검정통계량의 기본 형태가 된다.</p>
+<h3>확률의 기본 법칙</h3>
+<p>확률은 원하는 결과 수를 표본공간 크기로 나눈 값이며 0 이상 1 이하다. 시행을 반복하면 실험적 확률은 이론적 확률로 수렴한다(대수의 법칙). 이 법칙은 장기 평균에 관한 진술이며 개별 시행을 보정하지 않는다.</p>
+<ul>
+<li>덧셈 법칙: P(A ∪ B) = P(A) + P(B) − P(A ∩ B). 두 사건이 동시에 일어날 수 없는 배반 사건이면 교집합 항이 0이 된다.</li>
+<li>곱셈 법칙: P(A ∩ B) = P(A) × P(B|A). 독립 사건이면 P(B|A) = P(B)로 단순 곱이 된다.</li>
+<li>조건부 확률: P(A|B) = P(A ∩ B) / P(B). B라는 정보가 주어졌을 때 A의 확률이다.</li>
+<li>여사건: P(Aᶜ) = 1 − P(A). &quot;적어도 하나&quot; 형태의 문제는 여사건으로 푸는 편이 짧다.</li>
+</ul>
+<p>독립의 기준은 확률의 크기가 아니라 한 사건이 다른 사건의 확률을 바꾸는지 여부다.</p>
+<h3>베이즈 정리와 전체 확률의 법칙</h3>
+<p>베이즈 정리는 새 증거 B를 관측한 뒤 가설 A의 확률을 갱신한다.</p>
+<p>P(A|B) = P(B|A) × P(A) / P(B)</p>
+<p>P(A)는 사전 확률, P(B|A)는 우도, P(A|B)는 사후 확률이다. 분모 P(B)는 전체 확률의 법칙 P(B) = Σ P(B|Aᵢ) × P(Aᵢ)로 구하며, B가 일어나는 모든 경로를 합산해야 한다. 계산이 가장 자주 틀리는 자리가 이 분모다.</p>
+<p>공정한 주사위와 6이 50% 확률로 나오는 편향 주사위 중 하나를 무작위로 골라 굴렸더니 6이 나왔다고 하자. P(6) = 1/2 × 1/2 + 1/6 × 1/2 = 1/3이고, P(편향|6) = (1/2 × 1/2) / (1/3) = 3/4다. 증거 하나로 사전 확률 50%가 사후 확률 75%로 갱신된다. 베이지안 A/B 테스트는 이 갱신을 전환 데이터에 반복 적용하는 방식이다.</p>
+<h2>코드</h2>
+<p>표본 평균·중앙값·표본 표준편차·IQR과 1.5×IQR 기준 이상치를 계산하는 Java 21 유틸리티다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.Arrays;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DescriptiveStats</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Summary</span><span class="hljs-params">(<span class="hljs-type">double</span> mean, <span class="hljs-type">double</span> median, <span class="hljs-type">double</span> sampleStdDev,
+                          <span class="hljs-type">double</span> q1, <span class="hljs-type">double</span> q3, <span class="hljs-type">double</span> iqr, List&lt;Double&gt; outliers)</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Summary</span> <span class="hljs-title function_">of</span><span class="hljs-params">(<span class="hljs-type">double</span>[] raw)</span> {
+        <span class="hljs-type">double</span>[] <span class="hljs-variable">x</span> <span class="hljs-operator">=</span> raw.clone();
+        Arrays.sort(x);
+        <span class="hljs-type">int</span> <span class="hljs-variable">n</span> <span class="hljs-operator">=</span> x.length;
+
+        <span class="hljs-type">double</span> <span class="hljs-variable">mean</span> <span class="hljs-operator">=</span> Arrays.stream(x).average().orElseThrow();
+        <span class="hljs-type">double</span> <span class="hljs-variable">ss</span> <span class="hljs-operator">=</span> Arrays.stream(x).map(v -&gt; (v - mean) * (v - mean)).sum();
+        <span class="hljs-type">double</span> <span class="hljs-variable">sampleStdDev</span> <span class="hljs-operator">=</span> Math.sqrt(ss / (n - <span class="hljs-number">1</span>));   <span class="hljs-comment">// 베셀 보정</span>
+
+        <span class="hljs-type">double</span> <span class="hljs-variable">median</span> <span class="hljs-operator">=</span> medianOf(x, <span class="hljs-number">0</span>, n);
+        <span class="hljs-type">double</span> <span class="hljs-variable">q1</span> <span class="hljs-operator">=</span> medianOf(x, <span class="hljs-number">0</span>, n / <span class="hljs-number">2</span>);
+        <span class="hljs-type">double</span> <span class="hljs-variable">q3</span> <span class="hljs-operator">=</span> medianOf(x, (n + <span class="hljs-number">1</span>) / <span class="hljs-number">2</span>, n);          <span class="hljs-comment">// 홀수면 중앙값 제외</span>
+        <span class="hljs-type">double</span> <span class="hljs-variable">iqr</span> <span class="hljs-operator">=</span> q3 - q1;
+
+        <span class="hljs-type">double</span> <span class="hljs-variable">low</span> <span class="hljs-operator">=</span> q1 - <span class="hljs-number">1.5</span> * iqr, high = q3 + <span class="hljs-number">1.5</span> * iqr;
+        <span class="hljs-type">List</span>&lt;Double&gt; <span class="hljs-variable">outliers</span> <span class="hljs-operator">=</span> Arrays.stream(x).boxed()
+                .filter(v -&gt; v &lt; low || v &gt; high).toList();
+
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Summary</span>(mean, median, sampleStdDev, q1, q3, iqr, outliers);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">double</span> <span class="hljs-title function_">medianOf</span><span class="hljs-params">(<span class="hljs-type">double</span>[] sorted, <span class="hljs-type">int</span> from, <span class="hljs-type">int</span> to)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">len</span> <span class="hljs-operator">=</span> to - from;
+        <span class="hljs-type">int</span> <span class="hljs-variable">mid</span> <span class="hljs-operator">=</span> from + len / <span class="hljs-number">2</span>;
+        <span class="hljs-keyword">return</span> (len % <span class="hljs-number">2</span> == <span class="hljs-number">0</span>) ? (sorted[mid - <span class="hljs-number">1</span>] + sorted[mid]) / <span class="hljs-number">2</span> : sorted[mid];
+    }
+}</code></pre>
+<p>전체 확률의 법칙으로 분모를 구한 뒤 베이즈 정리를 적용하는 코드다. 가설별 사전 확률과 우도를 배열로 받아 사후 확률 벡터를 돌려준다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Bayes</span> {
+
+    <span class="hljs-comment">/** priors[i] = P(H_i), likelihoods[i] = P(E | H_i). 반환값은 P(H_i | E). */</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">double</span>[] <span class="hljs-title function_">posterior</span><span class="hljs-params">(<span class="hljs-type">double</span>[] priors, <span class="hljs-type">double</span>[] likelihoods)</span> {
+        <span class="hljs-keyword">if</span> (priors.length != likelihoods.length) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;priors and likelihoods must align&quot;</span>);
+        }
+        <span class="hljs-type">double</span> <span class="hljs-variable">evidence</span> <span class="hljs-operator">=</span> <span class="hljs-number">0.0</span>;                              <span class="hljs-comment">// P(E) = Σ P(E|H_i) P(H_i)</span>
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; priors.length; i++) {
+            evidence += likelihoods[i] * priors[i];
+        }
+        <span class="hljs-type">double</span>[] <span class="hljs-variable">post</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">double</span>[priors.length];
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; priors.length; i++) {
+            post[i] = likelihoods[i] * priors[i] / evidence;
+        }
+        <span class="hljs-keyword">return</span> post;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-comment">// H0 = 편향 주사위, H1 = 공정 주사위, E = 6이 나옴</span>
+        <span class="hljs-type">double</span>[] <span class="hljs-variable">post</span> <span class="hljs-operator">=</span> posterior(<span class="hljs-keyword">new</span> <span class="hljs-title class_">double</span>[]{<span class="hljs-number">0.5</span>, <span class="hljs-number">0.5</span>}, <span class="hljs-keyword">new</span> <span class="hljs-title class_">double</span>[]{<span class="hljs-number">0.5</span>, <span class="hljs-number">1.0</span> / <span class="hljs-number">6</span>});
+        System.out.printf(<span class="hljs-string">&quot;P(편향 | 6) = %.3f%n&quot;</span>, post[<span class="hljs-number">0</span>]);   <span class="hljs-comment">// 0.750</span>
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>평균 응답 시간·평균 주문 금액은 이상치 몇 건에 좌우된다. 꼬리가 긴 지표는 중앙값이나 p95와 함께 보고하고, 실험 지표로 쓸 때는 윈저화나 상한 절단을 적용한 뒤 그 기준을 실험 전에 고정한다.</li>
+<li>사분위수 계산 방식이 라이브러리마다 다르다. 위 코드의 방식과 NumPy·Pandas·SQL의 <code>percentile_cont</code>는 같은 데이터에서 다른 Q₁·Q₃를 내놓을 수 있으므로, 대시보드와 배치 집계의 계산 규칙을 하나로 맞춰야 한다.</li>
+<li>표본 분산을 N으로 나누는 구현이 섞이면 표준오차가 작게 나와 유의성이 과장된다. 통계 라이브러리의 기본값(<code>ddof</code>)을 확인하고 팀 공통 유틸리티에서 n−1을 강제한다.</li>
+<li>분산 계산을 단일 패스로 구현할 때 합과 제곱합을 따로 누적하면 큰 값에서 부동소수점 상쇄로 음수 분산이 나올 수 있다. 데이터가 크면 Welford 알고리즘이나 <code>DoubleSummaryStatistics</code> 기반 두 패스 계산을 쓴다.</li>
+<li>베이즈 갱신에서 사전 확률을 0으로 두면 어떤 증거가 와도 사후 확률이 0에 고정된다. 초기 전환율 추정에는 약한 사전 분포를 두고, 우도 곱이 언더플로되지 않도록 로그 공간에서 누적한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/distributions-hypothesis-testing/">확률 분포·가설 검정·신뢰구간</a></li>
+<li><a href="/notes/experimentation/regression-anova-chisquare/">회귀·ANOVA·카이제곱</a></li>
+<li><a href="/notes/experimentation/ab-test-statistics/">A/B 테스트 통계 — 카이제곱·베이지안·다중 비교</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · 기술통계, 표준편차, 조건부 확률, 베이즈 정리, z-점수</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/experimentation/distributions-hypothesis-testing/"><small>다음</small>확률 분포·가설 검정·신뢰구간</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

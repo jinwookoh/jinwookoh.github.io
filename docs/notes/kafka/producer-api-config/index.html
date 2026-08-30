@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Producer API와 설정 · Kafka</title>
+  <meta name="description" content="send() 세 가지 패턴과 Serializer·Interceptor, acks·idempotence·batch·timeout 설정의 상호작용을 정리한다">
+  <meta property="og:title" content="Producer API와 설정 · Kafka">
+  <meta property="og:description" content="send() 세 가지 패턴과 Serializer·Interceptor, acks·idempotence·batch·timeout 설정의 상호작용을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/producer-api-config/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Producer API와 설정</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 클라이언트</p>
+  <h1>Producer API와 설정</h1>
+  <p class="summary">send() 세 가지 패턴과 Serializer·Interceptor, acks·idempotence·batch·timeout 설정의 상호작용을 정리한다</p>
+  <div class="content">
+<p><code>producer.send(record)</code> 한 줄 뒤에는 응답을 어떻게 받을지, 어떤 형식으로 직렬화할지, 실패 시 재시도할지, 몇 건을 모아 보낼지에 대한 결정이 숨어 있다. 이를 기본값에 맡기면 처리량이 나오지 않거나 중복·유실이 생기거나, 재시도가 끝나기 전에 timeout으로 실패한다. 설정끼리 조건부로 얽혀 있어 API와 설정을 함께 봐야 한다.</p>
+<h2>핵심 개념</h2>
+<h3>생성과 send() 패턴</h3>
+<p>필수 설정은 <code>bootstrap.servers</code>, <code>key.serializer</code>, <code>value.serializer</code> 세 가지다. broker를 여러 개 적어야 하나가 내려가도 fallback된다. <code>KafkaProducer</code>는 thread-safe하므로 애플리케이션 전체에서 인스턴스 하나를 공유한다.</p>
+<p><code>send()</code>는 반환값을 무시하는 fire-and-forget, <code>get()</code>으로 블로킹하는 Future 동기 대기, 결과를 Callback으로 받는 비동기 방식 세 가지로 쓴다. 동기 대기는 batch가 한 건씩 나가 처리량이 떨어지므로 Callback을 쓴다. <code>ProducerRecord</code>는 topic과 value가 필수이고 partition·timestamp·key·headers는 선택이며, 같은 key는 같은 partition으로 간다.</p>
+<h3>Serializer·Partitioner·Interceptor</h3>
+<p>String은 단순 문자열, ByteArray는 이미 직렬화된 바이트를 보낼 때 쓴다. 스키마 진화가 필요한 대규모 환경은 Avro와 Schema Registry 조합이 표준이고, 개발 편의가 우선이면 Spring Kafka의 <code>JsonSerializer</code>를 쓴다. Serializer를 바꾸면 기존 consumer의 읽기가 실패하므로 포맷 전환은 Schema Registry의 호환성 검사 아래에서 진행한다.</p>
+<p>기본 partitioner는 key 없는 레코드를 batch 단위로 같은 partition에 붙이는 sticky 방식이며, 3.3부터 <code>partitioner.adaptive.partitioning.enable=true</code>가 기본이라 느린 partition을 피한다. <code>interceptor.classes</code>로 등록하는 <code>ProducerInterceptor</code>는 <code>onSend</code>와 <code>onAcknowledgement</code> 훅으로 trace header 주입과 메트릭 수집을 맡는다.</p>
+<h3>신뢰성 설정의 연쇄</h3>
+<p><code>acks=all</code>은 ISR 전체의 확인을 기다리고, <code>enable.idempotence=true</code>는 broker가 sequence number로 중복을 걸러낸다. 3.0부터 idempotence가 기본 true인데 <code>acks=all</code>, <code>retries&gt;0</code>, <code>max.in.flight.requests.per.connection&lt;=5</code>가 모두 만족될 때만 유효하다. 명시적으로 켠 채 조건을 깨면 <code>ConfigException</code>이 나고, 기본값 상태에서 깨면 조용히 꺼진다. <code>retries</code>는 사실상 무한이며 실제 상한은 send부터 최종 ACK까지의 총 시간인 <code>delivery.timeout.ms</code>(120초)가 정한다. 개별 요청은 <code>request.timeout.ms</code>(30초)로 끊고, 재시도 간격은 <code>retry.backoff.ms</code>부터 지수적으로 늘어난다. <code>acks=all</code>은 broker의 <code>min.insync.replicas</code>가 2 이상일 때 의미가 있다.</p>
+<h3>Batching과 메모리</h3>
+<p><code>batch.size</code>(16KB)는 partition별 batch 버퍼이고 <code>linger.ms</code>(0)는 batch가 차지 않아도 기다릴 시간이다. 실시간은 0<del>5ms, 균형은 5</del>20ms, 처리량 우선은 50~100ms를 잡는다. <code>buffer.memory</code>(32MB)가 가득 차면 <code>send()</code>가 <code>max.block.ms</code>(60초)까지 블로킹된다. <code>compression.type</code>은 기본 none이지만 운영에서는 zstd가 균형이 좋고, 압축은 batch 단위라 <code>linger.ms</code>를 주면 압축률도 오른다. <code>client.id</code>는 broker 로그와 메트릭에 찍히므로 서비스 이름으로 둔다.</p>
+<h2>코드</h2>
+<p>KafkaProducer를 직접 생성해 Callback으로 전송하고 try-with-resources로 close를 보장한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.KafkaProducer;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.ProducerConfig;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.ProducerRecord;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.errors.RetriableException;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.serialization.StringSerializer;
+
+<span class="hljs-keyword">import</span> java.util.Properties;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderProducer</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">Properties</span> <span class="hljs-variable">props</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Properties</span>();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, <span class="hljs-string">&quot;kafka1:9092,kafka2:9092,kafka3:9092&quot;</span>);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.ACKS_CONFIG, <span class="hljs-string">&quot;all&quot;</span>);
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, <span class="hljs-literal">true</span>);
+        props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, <span class="hljs-string">&quot;zstd&quot;</span>);
+        props.put(ProducerConfig.LINGER_MS_CONFIG, <span class="hljs-number">10</span>);
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG, <span class="hljs-number">32768</span>);
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, <span class="hljs-string">&quot;order-service&quot;</span>);
+
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">KafkaProducer</span>&lt;String, String&gt; <span class="hljs-variable">producer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">KafkaProducer</span>&lt;&gt;(props)) {
+            <span class="hljs-type">var</span> <span class="hljs-variable">record</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ProducerRecord</span>&lt;&gt;(<span class="hljs-string">&quot;orders&quot;</span>, <span class="hljs-string">&quot;order-1001&quot;</span>, <span class="hljs-string">&quot;{\&quot;amount\&quot;:12000}&quot;</span>);
+            record.headers().add(<span class="hljs-string">&quot;trace-id&quot;</span>, <span class="hljs-string">&quot;abc123&quot;</span>.getBytes());
+
+            producer.send(record, (metadata, exception) -&gt; {
+                <span class="hljs-keyword">if</span> (exception == <span class="hljs-literal">null</span>) {
+                    System.out.printf(<span class="hljs-string">&quot;sent %s p=%d offset=%d%n&quot;</span>,
+                            metadata.topic(), metadata.partition(), metadata.offset());
+                } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (exception <span class="hljs-keyword">instanceof</span> RetriableException) {
+                    System.err.println(<span class="hljs-string">&quot;retry exhausted: &quot;</span> + exception.getMessage());
+                } <span class="hljs-keyword">else</span> {
+                    System.err.println(<span class="hljs-string">&quot;non-retriable, route to DLQ: &quot;</span> + exception.getMessage());
+                }
+            });
+        }
+    }
+}</code></pre>
+<p>trace header를 붙이고 실패를 세는 ProducerInterceptor다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.ProducerInterceptor;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.ProducerRecord;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.RecordMetadata;
+
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.UUID;
+<span class="hljs-keyword">import</span> java.util.concurrent.atomic.LongAdder;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TraceInterceptor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ProducerInterceptor</span>&lt;String, String&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">LongAdder</span> <span class="hljs-variable">failures</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LongAdder</span>();
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProducerRecord</span>&lt;String, String&gt; <span class="hljs-title function_">onSend</span><span class="hljs-params">(ProducerRecord&lt;String, String&gt; record)</span> {
+        <span class="hljs-keyword">if</span> (record.headers().lastHeader(<span class="hljs-string">&quot;trace-id&quot;</span>) == <span class="hljs-literal">null</span>) {
+            record.headers().add(<span class="hljs-string">&quot;trace-id&quot;</span>, UUID.randomUUID().toString().getBytes());
+        }
+        <span class="hljs-keyword">return</span> record;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onAcknowledgement</span><span class="hljs-params">(RecordMetadata metadata, Exception exception)</span> {
+        <span class="hljs-keyword">if</span> (exception != <span class="hljs-literal">null</span>) {
+            failures.increment();
+        }
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">close</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">configure</span><span class="hljs-params">(Map&lt;String, ?&gt; configs)</span> {}
+}</code></pre>
+<p>Spring Boot 3.x 설정과 <code>KafkaTemplate</code> 예제다. <code>send()</code>는 <code>CompletableFuture</code>를 반환한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">bootstrap-servers:</span> <span class="hljs-string">kafka1:9092,kafka2:9092,kafka3:9092</span>
+    <span class="hljs-attr">producer:</span>
+      <span class="hljs-attr">client-id:</span> <span class="hljs-string">order-service</span>
+      <span class="hljs-attr">key-serializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringSerializer</span>
+      <span class="hljs-attr">value-serializer:</span> <span class="hljs-string">org.springframework.kafka.support.serializer.JsonSerializer</span>
+      <span class="hljs-attr">acks:</span> <span class="hljs-string">all</span>
+      <span class="hljs-attr">compression-type:</span> <span class="hljs-string">zstd</span>
+      <span class="hljs-attr">batch-size:</span> <span class="hljs-string">32KB</span>
+      <span class="hljs-attr">buffer-memory:</span> <span class="hljs-string">64MB</span>
+      <span class="hljs-attr">properties:</span>
+        <span class="hljs-attr">enable.idempotence:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">linger.ms:</span> <span class="hljs-number">10</span>
+        <span class="hljs-attr">request.timeout.ms:</span> <span class="hljs-number">30000</span>
+        <span class="hljs-attr">delivery.timeout.ms:</span> <span class="hljs-number">120000</span></code></pre>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.kafka.core.KafkaTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEventPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, OrderEvent&gt; kafkaTemplate;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderEventPublisher</span><span class="hljs-params">(KafkaTemplate&lt;String, OrderEvent&gt; kafkaTemplate)</span> {
+        <span class="hljs-built_in">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">publish</span><span class="hljs-params">(OrderEvent event)</span> {
+        kafkaTemplate.send(<span class="hljs-string">&quot;orders&quot;</span>, event.orderId(), event)
+                .whenComplete((result, ex) -&gt; {
+                    <span class="hljs-keyword">if</span> (ex != <span class="hljs-literal">null</span>) {
+                        <span class="hljs-comment">// 재시도가 끝난 뒤의 최종 실패. DLQ 전송이나 알림으로 연결한다.</span>
+                        <span class="hljs-keyword">return</span>;
+                    }
+                    <span class="hljs-type">var</span> <span class="hljs-variable">meta</span> <span class="hljs-operator">=</span> result.getRecordMetadata();
+                    <span class="hljs-comment">// meta.partition(), meta.offset() 으로 전송 위치를 기록한다.</span>
+                });
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>close()</code>나 <code>flush()</code> 없이 프로세스가 끝나면 마지막 batch가 버퍼에서 사라진다. try-with-resources로 묶거나 Spring 컨테이너 종료 훅에 맡긴다.</li>
+<li><code>delivery.timeout.ms</code>가 재시도 횟수와 backoff의 곱보다 작으면 재시도가 남아 있어도 timeout으로 먼저 실패한다. timeout 값들을 함께 설계한다.</li>
+<li><code>max.request.size</code>(1MB)를 넘는 메시지는 <code>RecordTooLargeException</code>으로 즉시 실패하며 재시도되지 않는다. 대용량은 외부 저장소에 두고 키만 보낸다.</li>
+<li><code>buffer.memory</code>가 작으면 <code>send()</code>가 블로킹되어 애플리케이션 스레드가 묶인다. <code>buffer-available-bytes</code> 메트릭을 JMX로 확인한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/producer-internals/">Producer 동작 원리 — 파티션 선택·ACK·멱등성</a></li>
+<li><a href="/notes/kafka/delivery-semantics-transactions/">전달 보증 — at-most·at-least·exactly-once와 트랜잭션</a></li>
+<li><a href="/notes/kafka/consumer-api-config/">Consumer API와 설정</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, KafkaProducer, Serializer, idempotence, KafkaTemplate</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/log-compaction-tiered-storage/"><small>이전</small>Log Compaction·Tiered Storage</a>
+  <a class="next" href="/notes/kafka/consumer-api-config/"><small>다음</small>Consumer API와 설정</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

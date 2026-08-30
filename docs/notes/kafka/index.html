@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kafka · Notes</title>
+  <meta name="description" content="이벤트 스트리밍의 기본 개념부터 설계 원리·클라이언트·운영·보안·Connect·Streams·Spring 통합까지.">
+  <meta property="og:title" content="Kafka · Notes">
+  <meta property="og:description" content="이벤트 스트리밍의 기본 개념부터 설계 원리·클라이언트·운영·보안·Connect·Streams·Spring 통합까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Kafka</span></nav>
+    <header class="series-head"><h1>Kafka</h1><p>이벤트 스트리밍의 기본 개념부터 설계 원리·클라이언트·운영·보안·Connect·Streams·Spring 통합까지.</p><p class="count">28편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/kafka/what-is-kafka/"><span class="n">1</span><span class="t">Kafka란 — 이벤트 스트리밍과 활용 영역</span><span class="s">Kafka는 소비 후에도 보존되는 분산 커밋 로그이며, 시스템 간 데이터 통합과 이벤트 스트리밍의 허브 역할을 한다</span></a></li>
+<li><a href="/notes/kafka/quickstart-cli/"><span class="n">2</span><span class="t">Quickstart — 설치·CLI·첫 메시지</span><span class="s">KRaft 단일 노드를 띄우고 kafka-topics·console-producer·consumer·consumer-groups로 메시지 흐름과 lag를 직접 확인한다</span></a></li>
+<li><a href="/notes/kafka/topic-partition-offset-segment/"><span class="n">3</span><span class="t">Topic·Partition·Offset·Segment</span><span class="s">Kafka 데이터 구조 4계층이 어떻게 순서 보장·병렬 처리·보존 정책을 결정하는지 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>설계와 내부</h2><ol class="toc"><li><a href="/notes/kafka/design-philosophy/"><span class="n">4</span><span class="t">설계 철학 — 왜 디스크·배치·Zero-Copy인가</span><span class="s">Kafka가 디스크를 1급 저장소로 쓰면서도 빠른 이유를 순차 I/O·페이지 캐시·배치·sendfile로 설명한다</span></a></li>
+<li><a href="/notes/kafka/producer-internals/"><span class="n">5</span><span class="t">Producer 동작 원리 — 파티션 선택·ACK·멱등성</span><span class="s">Producer가 파티션을 고르고 ACK를 기다리고 중복을 걸러내는 과정을 설정 단위로 따라가며, 안전한 기본 조합을 정한다.</span></a></li>
+<li><a href="/notes/kafka/consumer-internals-rebalance/"><span class="n">6</span><span class="t">Consumer 동작 원리 — Pull·Group·Offset·Rebalance</span><span class="s">Consumer가 Pull로 읽고 offset 하나로 위치를 기록하며, 그룹 단위로 파티션을 나눠 갖고 재분배하는 원리를 정리한다</span></a></li>
+<li><a href="/notes/kafka/delivery-semantics-transactions/"><span class="n">7</span><span class="t">전달 보증 — at-most·at-least·exactly-once와 트랜잭션</span><span class="s">세 가지 전달 보증의 차이와 멱등 프로듀서·트랜잭션·read_committed로 Kafka 내부 exactly-once가 성립하는 원리를 정리한다</span></a></li>
+<li><a href="/notes/kafka/replication-isr/"><span class="n">8</span><span class="t">Replication — ISR·리더 선출·Unclean</span><span class="s">ISR 전원 복제가 committed의 기준이며, RF=3·min.insync.replicas=2·acks=all 조합이 손실 없는 failover를 만든다.</span></a></li>
+<li><a href="/notes/kafka/network-layer-message-format/"><span class="n">9</span><span class="t">내부 구현 — Network Layer·Message Format</span><span class="s">브로커가 수만 연결을 소수 스레드로 받는 NIO 구조와, wire·디스크가 공유하는 RecordBatch v2 포맷을 정리한다</span></a></li>
+<li><a href="/notes/kafka/log-compaction-tiered-storage/"><span class="n">10</span><span class="t">Log Compaction·Tiered Storage</span><span class="s">시간 기반 retention 의 두 대안 — key 별 최신 값만 남기는 compaction 과 오래된 segment 를 객체 저장소로 내리는 tiered storage</span></a></li></ol></section>
+<section class="part-group"><h2>클라이언트</h2><ol class="toc"><li><a href="/notes/kafka/producer-api-config/"><span class="n">11</span><span class="t">Producer API와 설정</span><span class="s">send() 세 가지 패턴과 Serializer·Interceptor, acks·idempotence·batch·timeout 설정의 상호작용을 정리한다</span></a></li>
+<li><a href="/notes/kafka/consumer-api-config/"><span class="n">12</span><span class="t">Consumer API와 설정</span><span class="s">poll 루프·commit 방식·Rebalance 대응·seek과 그 동작을 좌우하는 설정을 한 번에 정리한다</span></a></li>
+<li><a href="/notes/kafka/admin-client/"><span class="n">13</span><span class="t">Admin Client — API 5종 개관과 관리 작업</span><span class="s">Kafka 5가지 API의 분담을 정리하고, Admin Client로 Topic·Consumer Group·ACL을 코드로 관리하는 방법을 다룬다.</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/kafka/broker-topic-config/"><span class="n">14</span><span class="t">Broker·Topic 설정</span><span class="s">Broker 기본값과 Topic 단위 override의 관계, 운영에서 실제로 손대는 설정과 적용 시점을 정리한다</span></a></li>
+<li><a href="/notes/kafka/operations-kraft/"><span class="n">15</span><span class="t">운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</span><span class="s">Topic CRUD·파티션 재할당·무중단 재시작·KRaft 컨트롤러 쿼럼까지, 클러스터를 멈추지 않고 바꾸는 운영 절차를 정리한다.</span></a></li>
+<li><a href="/notes/kafka/monitoring-performance/"><span class="n">16</span><span class="t">Monitoring·Hardware·성능 튜닝</span><span class="s">무엇을 관측하고, 어떤 하드웨어 위에 올리고, 어느 목표를 위해 어느 노브를 돌릴지를 하나로 묶는다</span></a></li>
+<li><a href="/notes/kafka/troubleshooting/"><span class="n">17</span><span class="t">장애 대응</span><span class="s">URP·Offline Partition·TimeoutException·Lag·리밸런스 루프를 증상에서 원인, 복구 조치까지 잇는 진단 절차를 정리한다.</span></a></li>
+<li><a href="/notes/kafka/multi-datacenter-mirrormaker/"><span class="n">18</span><span class="t">다중 데이터센터·Geo-Replication (MirrorMaker 2)</span><span class="s">DC마다 로컬 클러스터를 두고 MirrorMaker 2로 복제하는 이유와 DR 시 오프셋 변환 방식을 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>보안</h2><ol class="toc"><li><a href="/notes/kafka/security-tls-sasl/"><span class="n">19</span><span class="t">인증 — TLS·SASL</span><span class="s">운영 표준은 SASL_SSL + SCRAM-SHA-512이며, TLS는 전송 보호와 브로커 신원, SASL은 클라이언트 신원을 맡는다.</span></a></li>
+<li><a href="/notes/kafka/security-acl-multitenancy/"><span class="n">20</span><span class="t">인가 — ACL과 Multi-tenancy</span><span class="s">인증된 principal에게 PREFIXED ACL과 Quota를 팀 단위로 묶어 부여해야 공유 클러스터가 유지된다</span></a></li></ol></section>
+<section class="part-group"><h2>Connect</h2><ol class="toc"><li><a href="/notes/kafka/connect-architecture-operations/"><span class="n">21</span><span class="t">Connect — 아키텍처·Distributed Mode·운영</span><span class="s">Worker·Connector·Task 3계층과 내부 토픽 3개가 Connect 클러스터를 이루며, 운영은 REST API와 DLQ로 수렴한다</span></a></li>
+<li><a href="/notes/kafka/connect-connectors-smt-custom/"><span class="n">22</span><span class="t">Connect — Connector·SMT·커스텀 개발</span><span class="s">Pre-built Connector 설정·Converter 짝 맞춤·SMT 체인으로 대부분을 해결하고, 없는 시스템만 SourceTask·SinkTask로 직접 구현한다</span></a></li></ol></section>
+<section class="part-group"><h2>Streams</h2><ol class="toc"><li><a href="/notes/kafka/streams-intro-concepts/"><span class="n">23</span><span class="t">Streams — 입문과 핵심 개념</span><span class="s">Kafka Streams는 별도 클러스터 없는 클라이언트 라이브러리이며, Topology·Task·State Store·EOS가 파티션 위에서 맞물리는 구조를 정리한다.</span></a></li>
+<li><a href="/notes/kafka/streams-dsl-processor-state/"><span class="n">24</span><span class="t">Streams — DSL·Processor API·상태 저장</span><span class="s">DSL로 변환·집계·조인·윈도우를 선언하고, 시간 기반 작업과 복잡한 상태 조작은 Processor API로 내려가며, 저장된 상태는 Interactive Queries로 외부에 노출한다.</span></a></li>
+<li><a href="/notes/kafka/streams-testing-operations/"><span class="n">25</span><span class="t">Streams — 테스트와 운영</span><span class="s">TopologyTestDriver로 토폴로지를 검증하고, 예외 핸들러·standby·reset 도구로 Streams 앱을 운영하는 방법</span></a></li></ol></section>
+<section class="part-group"><h2>Spring과 패턴</h2><ol class="toc"><li><a href="/notes/kafka/spring-kafka/"><span class="n">26</span><span class="t">Spring Kafka — 배치·에러·트랜잭션·테스트</span><span class="s">KafkaTemplate과 @KafkaListener 위에 배치 리스너·DefaultErrorHandler·@RetryableTopic·KafkaTransactionManager·Testcontainers를 얹는 방법</span></a></li>
+<li><a href="/notes/kafka/spring-cloud-stream-reactor/"><span class="n">27</span><span class="t">Spring Cloud Stream·StreamBridge·Reactor Kafka</span><span class="s">함수형 빈 바인딩·StreamBridge 동적 발행·Reactor Kafka 백프레셔 파이프라인을 언제 어떻게 쓰는지 정리한다</span></a></li>
+<li><a href="/notes/kafka/event-patterns-outbox-saga/"><span class="n">28</span><span class="t">이벤트 패턴 — Outbox·Saga·Fan-out</span><span class="s">DB와 Kafka를 한 트랜잭션에 묶을 수 없을 때 Outbox·Saga·Fan-out이 원자성과 일관성을 어떻게 대신 보장하는가</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

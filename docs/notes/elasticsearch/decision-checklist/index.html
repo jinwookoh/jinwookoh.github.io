@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>마무리 — 결정 트리와 체크리스트 · Elasticsearch</title>
+  <meta name="description" content="Elasticsearch 도입 여부와 배포 형태를 결정하는 질문 순서, 운영 30일 점검 항목, 반복되는 사고 유형을 한 페이지로 정리한다.">
+  <meta property="og:title" content="마무리 — 결정 트리와 체크리스트 · Elasticsearch">
+  <meta property="og:description" content="Elasticsearch 도입 여부와 배포 형태를 결정하는 질문 순서, 운영 30일 점검 항목, 반복되는 사고 유형을 한 페이지로 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/decision-checklist/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>마무리 — 결정 트리와 체크리스트</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 통합과 클라우드</p>
+  <h1>마무리 — 결정 트리와 체크리스트</h1>
+  <p class="summary">Elasticsearch 도입 여부와 배포 형태를 결정하는 질문 순서, 운영 30일 점검 항목, 반복되는 사고 유형을 한 페이지로 정리한다.</p>
+  <div class="content">
+<p>Elasticsearch는 검색·로그·관측·벡터를 하나의 엔진으로 처리할 수 있지만, 그만큼 도입 판단과 초기 설정에서 갈림길이 많다. 기준 없이 도입하면 RDBMS FULLTEXT로 충분한 규모에 클러스터 운영비를 지불하거나, 규모가 커진 뒤 Dynamic Mapping·샤드 수·Snapshot 같은 초기 결정을 되돌리지 못해 재색인을 반복하게 된다. 도입 결정 트리, 운영 30일 체크리스트, 반복 사고 유형 세 가지로 정리한다.</p>
+<h2>핵심 개념</h2>
+<p>도입 결정은 여섯 개 질문을 순서대로 답하면 배포 형태까지 정해진다.</p>
+<ol>
+<li>검색·로그·관측·벡터 중 하나라도 필요한가. 아니면 PostgreSQL·Redis·Kafka로 충분하다.</li>
+<li>데이터 규모는 어느 정도인가. 10만 행 미만, QPS 10 미만이면 PostgreSQL tsvector나 MySQL FULLTEXT가 운영비 대비 유리하다.</li>
+<li>주 용도는 무엇인가. 풀텍스트 검색이면 ES와 Nori, 로그·관측이면 ES와 Beats·Logstash·Kibana, 벡터·RAG면 dense_vector·kNN·hybrid search가 표준이다. 둘 이상이 섞이면 검색 클러스터와 로그 클러스터를 분리한다.</li>
+<li>라이선스와 클라우드 환경은 어떠한가. AWS 단일 환경에 Apache 2.0이 필요하면 AWS OpenSearch Service, 멀티 클라우드거나 Elastic 최신 기능이 필요하면 Elastic Cloud, 온프레미스면 자체 운영이며 Kubernetes 환경이면 ECK를 쓴다.</li>
+<li>벡터 검색만 사용하는가. 100만 벡터 미만이고 검색·로그와 함께 쓰면 ES가 유리하다. 벡터만 1억 개 이상이면 Qdrant·Milvus·Weaviate 같은 전용 Vector DB가 앞선다.</li>
+<li>매니지드와 자체 운영 중 무엇인가. DevOps 인력이 2명 미만이면 Elastic Cloud Serverless 또는 OpenSearch Serverless, 인력이 있고 비용에 민감하면 ECK, 온프레미스가 강제되면 Terraform·Helm·ECK Operator로 자체 운영한다.</li>
+</ol>
+<p>운영 30일 체크리스트는 시점별로 나눈다.</p>
+<table>
+<thead>
+<tr>
+<th>시점</th>
+<th>영역</th>
+<th>핵심 항목</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D+1</td>
+<td>클러스터</td>
+<td>master-eligible 3대와 data 2대 이상 분리, <code>cluster.initial_master_nodes</code> 명시, heap은 메모리의 50% 이하이며 31GB 이하, <code>cluster.name</code> 고유 지정</td>
+</tr>
+<tr>
+<td>D+3</td>
+<td>인덱스</td>
+<td>모든 인덱스를 alias 뒤에 배치, <code>dynamic: strict</code>, <code>total_fields.limit</code> 설정, 시계열은 ILM과 Rollover, shard 당 10~50GB 기준</td>
+</tr>
+<tr>
+<td>D+7</td>
+<td>보안</td>
+<td>xpack.security 활성화, 빌트인 계정 비밀번호 교체, transport·http TLS, 애플리케이션별 API key와 role 분리</td>
+</tr>
+<tr>
+<td>D+14</td>
+<td>관측</td>
+<td><code>_cluster/health</code>·<code>_nodes/stats</code> 수집, slow log 임계값, red·디스크 20% 미만·heap 75% 초과 알림</td>
+</tr>
+<tr>
+<td>D+21</td>
+<td>백업</td>
+<td>Snapshot Repository 등록, SLM 정책, 보존 기간 차등, 복구 리허설로 RTO 측정</td>
+</tr>
+<tr>
+<td>D+30</td>
+<td>튜닝</td>
+<td>request cache 적중률, circuit breaker 빈도, thread pool rejected, Nori 사용자 사전, alias 전환 절차 문서화</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>D+3 항목을 인덱스 템플릿으로 고정한다. alias·strict mapping·필드 수 제한·ILM 정책을 한 번에 적용한다.</p>
+<pre><code class="hljs language-json">PUT _index_template/logs-app
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;index_patterns&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;logs-app-*&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;template&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;settings&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;number_of_shards&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">3</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;number_of_replicas&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;index.mapping.total_fields.limit&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1000</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;index.lifecycle.name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;logs-30d&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;index.lifecycle.rollover_alias&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;logs-app&quot;</span>
+    <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;mappings&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;dynamic&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;strict&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;properties&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">&quot;@timestamp&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;date&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;level&quot;</span><span class="hljs-punctuation">:</span>      <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;keyword&quot;</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">&quot;message&quot;</span><span class="hljs-punctuation">:</span>    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;text&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;analyzer&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;nori&quot;</span> <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>Spring Boot 3.x에서 클러스터 상태와 alias 존재 여부를 확인하는 HealthIndicator다. <code>elasticsearch-java</code> 클라이언트를 사용한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.HealthStatus;
+<span class="hljs-keyword">import</span> org.springframework.boot.actuate.health.Health;
+<span class="hljs-keyword">import</span> org.springframework.boot.actuate.health.HealthIndicator;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SearchClusterHealthIndicator</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">HealthIndicator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SearchClusterHealthIndicator</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Health</span> <span class="hljs-title function_">health</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">var</span> <span class="hljs-variable">health</span> <span class="hljs-operator">=</span> client.cluster().health();
+            <span class="hljs-type">boolean</span> <span class="hljs-variable">aliasExists</span> <span class="hljs-operator">=</span> client.indices()
+                    .existsAlias(a -&gt; a.name(<span class="hljs-string">&quot;logs-app&quot;</span>)).value();
+
+            <span class="hljs-keyword">if</span> (health.status() == HealthStatus.Red || !aliasExists) {
+                <span class="hljs-keyword">return</span> Health.down()
+                        .withDetail(<span class="hljs-string">&quot;status&quot;</span>, health.status().jsonValue())
+                        .withDetail(<span class="hljs-string">&quot;aliasExists&quot;</span>, aliasExists)
+                        .build();
+            }
+            <span class="hljs-keyword">return</span> Health.up()
+                    .withDetail(<span class="hljs-string">&quot;status&quot;</span>, health.status().jsonValue())
+                    .withDetail(<span class="hljs-string">&quot;unassignedShards&quot;</span>, health.unassignedShards())
+                    .build();
+        } <span class="hljs-keyword">catch</span> (Exception e) {
+            <span class="hljs-keyword">return</span> Health.down(e).build();
+        }
+    }
+}</code></pre>
+<p>대량 색인 구간에서 <code>BulkIngester</code> 앞뒤로 <code>refresh_interval</code>을 조정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">reindexAll</span><span class="hljs-params">(List&lt;Product&gt; products)</span> <span class="hljs-keyword">throws</span> IOException {
+    client.indices().putSettings(s -&gt; s.index(<span class="hljs-string">&quot;products-v2&quot;</span>)
+            .settings(x -&gt; x.refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;-1&quot;</span>))));
+    <span class="hljs-keyword">try</span> (<span class="hljs-type">BulkIngester</span>&lt;Void&gt; <span class="hljs-variable">ingester</span> <span class="hljs-operator">=</span> BulkIngester.of(b -&gt; b
+            .client(client).maxOperations(<span class="hljs-number">1000</span>).flushInterval(<span class="hljs-number">5</span>, TimeUnit.SECONDS))) {
+        <span class="hljs-keyword">for</span> (Product p : products) {
+            ingester.add(op -&gt; op.index(i -&gt; i.index(<span class="hljs-string">&quot;products-v2&quot;</span>).id(p.id()).document(p)));
+        }
+    }
+    client.indices().putSettings(s -&gt; s.index(<span class="hljs-string">&quot;products-v2&quot;</span>)
+            .settings(x -&gt; x.refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;1s&quot;</span>))));
+    client.indices().refresh(r -&gt; r.index(<span class="hljs-string">&quot;products-v2&quot;</span>));
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Mapping Explosion.</strong> Dynamic Mapping을 켠 채 임의 키 JSON을 색인하면 필드 수가 폭증해 cluster state와 heap을 잠식한다. <code>dynamic: strict</code>와 <code>total_fields.limit</code>으로 막고, 구조를 알 수 없는 데이터는 <code>flattened</code> 타입에 넣는다.</li>
+<li><strong>샤드 수 극단 설계.</strong> Primary Shard 1개는 수평 확장이 막히고, 수백 개는 shard 오버헤드로 heap을 소모한다. shard 당 10~50GB를 기준으로 잡고 시계열은 Rollover로 통제한다.</li>
+<li><strong>Deep Pagination.</strong> <code>from + size</code>로 깊은 페이지를 요청하면 모든 shard가 <code>from + size</code> 만큼 정렬한 뒤 coordinating 노드가 다시 합친다. <code>search_after</code>와 PIT 조합으로 대체한다.</li>
+<li><strong>fielddata 폭증.</strong> <code>text</code> 필드에 정렬·집계를 걸면 fielddata가 heap에 올라와 circuit breaker가 발동한다. 정렬·집계는 <code>keyword</code> sub-field에서만 수행한다.</li>
+<li><strong>Red 상태와 Split-brain.</strong> Primary Shard 미할당은 <code>_cluster/allocation/explain</code>으로 확인하며 대부분 디스크 watermark가 원인이다. master-eligible 3대와 quorum voting이 있어야 파티션 시 master가 둘로 갈리지 않는다.</li>
+<li><strong>Snapshot 부재.</strong> 인덱스를 잘못 삭제했을 때 복구 수단이 없는 사고가 반복된다. SLM으로 자동화하고 복구 리허설로 RTO를 실측한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/index-management-ilm/">Index 관리·ILM·Rollover</a></li>
+<li><a href="/notes/elasticsearch/cluster-operations-shard-allocation/">클러스터 운영과 Shard Allocation</a></li>
+<li><a href="/notes/elasticsearch/performance-tuning/">성능 튜닝</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, OpenSearch, 결정 트리, 운영 체크리스트, ILM</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/kibana-cloud-opensearch-iac/"><small>이전</small>Kibana·Elastic Cloud·OpenSearch·IaC</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

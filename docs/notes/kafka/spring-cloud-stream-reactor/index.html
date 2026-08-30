@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spring Cloud Stream·StreamBridge·Reactor Kafka · Kafka</title>
+  <meta name="description" content="함수형 빈 바인딩·StreamBridge 동적 발행·Reactor Kafka 백프레셔 파이프라인을 언제 어떻게 쓰는지 정리한다">
+  <meta property="og:title" content="Spring Cloud Stream·StreamBridge·Reactor Kafka · Kafka">
+  <meta property="og:description" content="함수형 빈 바인딩·StreamBridge 동적 발행·Reactor Kafka 백프레셔 파이프라인을 언제 어떻게 쓰는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/spring-cloud-stream-reactor/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Spring Cloud Stream·StreamBridge·Reactor Kafka</span></nav>
+    <article class="post">
+  <p class="part">Kafka · Spring과 패턴</p>
+  <h1>Spring Cloud Stream·StreamBridge·Reactor Kafka</h1>
+  <p class="summary">함수형 빈 바인딩·StreamBridge 동적 발행·Reactor Kafka 백프레셔 파이프라인을 언제 어떻게 쓰는지 정리한다</p>
+  <div class="content">
+<p><code>@KafkaListener</code>와 <code>KafkaTemplate</code>으로 직접 붙이면 코드가 Kafka 설정과 토픽 이름에 고정된다. 브로커를 바꾸려면 리스너를 다시 짜야 하고, 목적지를 런타임에 정하는 라우팅은 토픽 수만큼 빈을 늘리는 방식으로밖에 표현하지 못한다. WebFlux 서비스에서는 <code>poll()</code> 루프의 블로킹 처리가 이벤트 루프 스레드를 점유하고, 소비가 처리보다 빠르면 백프레셔 없이 메모리가 늘어난다. Spring Cloud Stream은 메시징 추상화로, StreamBridge는 동적 목적지로, Reactor Kafka는 논블로킹과 백프레셔로 각각의 문제를 다룬다.</p>
+<h2>핵심 개념</h2>
+<p>Spring Cloud Stream(SCS)에서 <strong>Binder</strong>는 메시징 시스템과의 연결 구현체이고, <strong>Binding</strong>은 그 Binder가 만들어 주는 개별 입출력 채널이다. 코드는 Binding만 알고 Binder는 설정이 결정한다.</p>
+<p>코드는 Spring Cloud Function 위에서 함수형 인터페이스 빈으로 작성한다. <code>Supplier&lt;T&gt;</code>는 출력 채널만, <code>Consumer&lt;T&gt;</code>는 입력 채널만, <code>Function&lt;T, R&gt;</code>은 둘 다 가진다. 바인딩 이름은 <code>&lt;빈이름&gt;-&lt;in|out&gt;-&lt;인덱스&gt;</code> 규칙으로 생성되며 인덱스는 0부터다. 빈 이름이 바인딩 이름의 접두사이므로 빈 이름을 바꾸면 YAML도 함께 바뀌어야 한다. 활성화할 함수는 <code>spring.cloud.function.definition</code>에 세미콜론으로 나열한다. <code>Function&lt;Flux&lt;T&gt;, Flux&lt;R&gt;&gt;</code> 형태로 등록하면 Binder가 Flux 전체를 한 번 넘기고 파이프라인 안에서 백프레셔가 동작한다.</p>
+<p><strong>StreamBridge</strong>는 함수형 빈이 고정 destination에 묶이는 한계를 푼다. <code>send(destination, payload)</code>로 목적지를 런타임에 결정하며, 컨테이너 빈이므로 주입해서 쓴다. 함수형 빈의 반환값은 정적 라우팅, StreamBridge 호출은 동적 라우팅이고 둘을 한 빈에서 섞어도 된다. <code>send()</code>는 동기 호출이라 리액티브 흐름에서는 <code>doOnNext</code> 같은 부수 효과 자리에 둔다.</p>
+<p><strong>Reactor Kafka</strong>는 Kafka 클라이언트를 <code>KafkaReceiver</code>와 <code>KafkaSender</code>로 감싼 라이브러리다. <code>receive()</code>가 <code>Flux&lt;ReceiverRecord&gt;</code>를 반환하고, <code>receiverOffset().acknowledge()</code>로 처리 완료를 표시하면 <code>commitInterval</code>·<code>commitBatchSize</code> 주기에 배치 커밋된다. <code>commit()</code>은 즉시 커밋한다. 다운스트림이 요청한 만큼만 레코드를 밀어내므로 <code>flatMap</code>의 동시성 값이 곧 소비 페이스가 된다. <code>KafkaSender.send()</code>는 <code>SenderResult</code>를 돌려주며 <code>exception()</code>이 null이면 성공이다.</p>
+<h2>코드</h2>
+<p>Function 빈과 바인딩 설정이다. 토픽과 group은 YAML이 정하고 코드는 변환만 담당한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderFunctions</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Function</span>&lt;Flux&lt;OrderEvent&gt;, Flux&lt;PaymentEvent&gt;&gt; <span class="hljs-title function_">orderToPayment</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> orders -&gt; orders
+            .flatMap(order -&gt; Mono.fromCallable(() -&gt; validate(order)), <span class="hljs-number">8</span>)
+            .map(order -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentEvent</span>(order.orderId(), order.amount()));
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">cloud:</span>
+    <span class="hljs-attr">function:</span>
+      <span class="hljs-attr">definition:</span> <span class="hljs-string">orderToPayment</span>
+    <span class="hljs-attr">stream:</span>
+      <span class="hljs-attr">bindings:</span>
+        <span class="hljs-attr">orderToPayment-in-0:</span>
+          <span class="hljs-attr">destination:</span> <span class="hljs-string">order-events</span>
+          <span class="hljs-attr">group:</span> <span class="hljs-string">payment-service</span>
+        <span class="hljs-attr">orderToPayment-out-0:</span>
+          <span class="hljs-attr">destination:</span> <span class="hljs-string">payment-events</span>
+      <span class="hljs-attr">kafka:</span>
+        <span class="hljs-attr">binder:</span>
+          <span class="hljs-attr">brokers:</span> <span class="hljs-string">localhost:9092</span>
+        <span class="hljs-attr">bindings:</span>
+          <span class="hljs-attr">orderToPayment-in-0:</span>
+            <span class="hljs-attr">consumer:</span>
+              <span class="hljs-attr">enable-dlq:</span> <span class="hljs-literal">true</span>
+              <span class="hljs-attr">dlq-name:</span> <span class="hljs-string">order-events.dlt</span></code></pre>
+<p>StreamBridge로 콘텐츠 기반 라우팅을 구현한 Consumer다. 헤더는 <code>Message&lt;T&gt;</code>로 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderRouter</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Consumer</span>&lt;Message&lt;OrderEvent&gt;&gt; <span class="hljs-title function_">routeOrder</span><span class="hljs-params">(StreamBridge bridge)</span> {
+        <span class="hljs-keyword">return</span> message -&gt; {
+            <span class="hljs-type">OrderEvent</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> message.getPayload();
+            <span class="hljs-type">String</span> <span class="hljs-variable">destination</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">switch</span> (order.type()) {
+                <span class="hljs-keyword">case</span> PRIORITY -&gt; <span class="hljs-string">&quot;priority-orders&quot;</span>;
+                <span class="hljs-keyword">case</span> BULK -&gt; <span class="hljs-string">&quot;bulk-orders&quot;</span>;
+                <span class="hljs-keyword">case</span> STANDARD -&gt; <span class="hljs-string">&quot;standard-orders&quot;</span>;
+            };
+            bridge.send(destination, MessageBuilder.withPayload(order)
+                .copyHeaders(message.getHeaders())
+                .setHeader(<span class="hljs-string">&quot;routed-at&quot;</span>, Instant.now().toString())
+                .build());
+        };
+    }
+}</code></pre>
+<p>Reactor Kafka로 읽기·처리·발행·ack를 한 파이프라인에 묶은 예다. <code>ReceiverOffset</code>을 <code>SenderRecord</code>의 correlation metadata로 실어 보내고 발행 결과를 받은 뒤 ack한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderPipeline</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaReceiver&lt;String, OrderEvent&gt; receiver;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaSender&lt;String, PaymentEvent&gt; sender;
+    <span class="hljs-keyword">private</span> Disposable subscription;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderPipeline</span><span class="hljs-params">(ReceiverOptions&lt;String, OrderEvent&gt; ro,
+                         SenderOptions&lt;String, PaymentEvent&gt; so)</span> {
+        <span class="hljs-built_in">this</span>.receiver = KafkaReceiver.create(
+            ro.subscription(List.of(<span class="hljs-string">&quot;order-events&quot;</span>))
+              .commitInterval(Duration.ofSeconds(<span class="hljs-number">5</span>))
+              .commitBatchSize(<span class="hljs-number">100</span>));
+        <span class="hljs-built_in">this</span>.sender = KafkaSender.create(so);
+    }
+
+    <span class="hljs-meta">@PostConstruct</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">start</span><span class="hljs-params">()</span> {
+        subscription = receiver.receive()
+            .groupBy(record -&gt; record.partition())
+            .flatMap(group -&gt; group.concatMap(record -&gt;
+                process(record.value()).map(payment -&gt; SenderRecord.create(
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">ProducerRecord</span>&lt;&gt;(<span class="hljs-string">&quot;payment-events&quot;</span>, record.key(), payment),
+                    record.receiverOffset()))))
+            .as(sender::send)
+            .doOnNext(result -&gt; {
+                <span class="hljs-keyword">if</span> (result.exception() == <span class="hljs-literal">null</span>) {
+                    result.correlationMetadata().acknowledge();
+                }
+            })
+            .subscribe();
+    }
+
+    <span class="hljs-meta">@PreDestroy</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">stop</span><span class="hljs-params">()</span> {
+        subscription.dispose();
+        sender.close();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>group 누락은 anonymous consumer가 된다.</strong> <code>group</code>이 없으면 기동마다 새 그룹 ID를 받아 오프셋이 이어지지 않는다. 운영 바인딩은 group을 명시하고 <code>auto.offset.reset</code>도 의도에 맞게 고정한다.</li>
+<li><strong>Reactive Kafka Binder와 Reactor Kafka는 Kafka 트랜잭션을 지원하지 않는다.</strong> <code>transaction-id-prefix</code>는 일반 Kafka Binder에서만 동작한다. 리액티브 스택에서 DB 반영과 발행을 원자적으로 묶어야 하면 Outbox 패턴을 쓴다.</li>
+<li><strong><code>flatMap</code> 동시성은 반드시 명시한다.</strong> 기본값이 사실상 무제한이라 백프레셔가 무력화된다. 순서가 필요하면 <code>concatMap</code>, 파티션 내 순서만 필요하면 <code>groupBy(partition)</code> 뒤 <code>concatMap</code>을 쓰고, 병렬 처리 시 재전달 중복에 대비해 처리를 멱등하게 만든다.</li>
+<li><strong>ack는 발행 성공 이후에 한다.</strong> 처리 직후 ack하고 발행이 실패하면 메시지가 유실된다. 발행 실패 시 ack를 건너뛰어야 재처리로 이어져 at-least-once가 유지된다. SCS 수동 ack 모드에서도 <code>KafkaHeaders.ACKNOWLEDGMENT</code>를 꺼내 같은 순서를 지킨다.</li>
+<li><strong>이기종 소비자와 <code>__TypeId__</code> 헤더.</strong> SCS의 JSON 변환기는 Java 클래스명을 헤더에 싣는다. Go·Python 소비자와 연동할 때는 <code>use-native-encoding: true</code>와 표준 serializer로 우회하고, Java 소비자는 <code>spring.json.trusted.packages</code>를 제한해 임의 클래스 역직렬화를 막는다. <code>enable-dlq</code>를 켜지 않으면 <code>max-attempts</code> 재시도 후에도 실패 메시지가 파티션을 막고, StreamBridge로 사용자별 토픽을 만들면 메타데이터 부담이 커지므로 사용자 단위 분리는 <code>partition-key-expression</code>으로 파티션에 맡긴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/spring-kafka/">Spring Kafka — 배치·에러·트랜잭션·테스트</a></li>
+<li><a href="/notes/kafka/event-patterns-outbox-saga/">이벤트 패턴 — Outbox·Saga·Fan-out</a></li>
+<li><a href="/notes/kafka/delivery-semantics-transactions/">전달 보증 — at-most·at-least·exactly-once와 트랜잭션</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Cloud Stream, StreamBridge, Reactor Kafka, Binder, Backpressure</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/spring-kafka/"><small>이전</small>Spring Kafka — 배치·에러·트랜잭션·테스트</a>
+  <a class="next" href="/notes/kafka/event-patterns-outbox-saga/"><small>다음</small>이벤트 패턴 — Outbox·Saga·Fan-out</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

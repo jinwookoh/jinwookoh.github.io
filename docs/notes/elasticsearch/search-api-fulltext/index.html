@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search API와 Full-text 쿼리 · Elasticsearch</title>
+  <meta name="description" content="_search 요청의 공통 뼈대와 analyzer를 거쳐 BM25로 점수를 매기는 full-text 쿼리 패밀리를 정리한다">
+  <meta property="og:title" content="Search API와 Full-text 쿼리 · Elasticsearch">
+  <meta property="og:description" content="_search 요청의 공통 뼈대와 analyzer를 거쳐 BM25로 점수를 매기는 full-text 쿼리 패밀리를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/search-api-fulltext/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Search API와 Full-text 쿼리</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 검색</p>
+  <h1>Search API와 Full-text 쿼리</h1>
+  <p class="summary">_search 요청의 공통 뼈대와 analyzer를 거쳐 BM25로 점수를 매기는 full-text 쿼리 패밀리를 정리한다</p>
+  <div class="content">
+<p>색인과 매핑을 갖춰도 검색 요청의 구조를 모르면 기본값 10건만 돌아오는 응답, 1만 건을 넘는 페이징 에러, <code>text</code> 필드 정렬 오류가 반복된다. <code>term</code> 쿼리로 자연어 문장을 검색하면 입력이 색인 토큰과 그대로 비교되어 아무것도 맞지 않는다. 자연어 검색은 입력을 분석기에 통과시켜 토큰으로 비교하고 관련도로 정렬하는 full-text 쿼리가 맡는다.</p>
+<h2>핵심 개념</h2>
+<h3><code>_search</code> 요청의 뼈대</h3>
+<p>검색 요청은 <code>GET|POST /&lt;index&gt;/_search</code>로 보낸다. 인덱스 자리에는 <code>logs-*</code> 같은 와일드카드도 들어간다. URI 검색(<code>?q=field:value</code>)은 디버깅 용도이고, 실제 코드는 JSON body 검색을 쓴다. GET에 body를 싣지 못하는 클라이언트가 있으므로 POST로 통일한다.</p>
+<p>body의 공통 키는 <code>query</code>(검색 조건, 기본 <code>match_all</code>), <code>size</code>/<code>from</code>(기본 10/0), <code>sort</code>(기본 <code>_score</code> 내림차순, <code>_doc</code>이 가장 싼 정렬 키), <code>_source</code>(반환 필드, <code>includes/excludes</code>·<code>false</code> 가능), <code>track_total_hits</code>(기본 10,000까지만 정확히 세며 <code>true</code>면 전체를 센다), <code>timeout</code>(초과 시 부분 결과와 <code>timed_out: true</code>)이다. 응답은 <code>took</code>, <code>hits.total</code>(<code>value</code>와 <code>eq</code>/<code>gte</code> 관계), <code>hits.max_score</code>, <code>hits.hits</code>로 구성된다.</p>
+<p><code>from + size</code>는 <code>index.max_result_window</code>(10,000)를 넘을 수 없다. 모든 샤드가 <code>from + size</code> 건을 coordinating 노드로 보내 다시 합쳐야 하므로 깊은 페이지일수록 비용이 비선형으로 는다. 깊은 페이징은 <code>search_after</code>와 PIT를 쓴다.</p>
+<h3>Full-text 쿼리와 점수</h3>
+<p>full-text 쿼리는 입력을 필드의 search analyzer로 분석한 뒤 토큰끼리 비교하므로, 같은 쿼리라도 analyzer에 따라 결과가 달라진다. 색인·검색 analyzer는 <code>search_analyzer</code>로 의도적으로 분리하지 않는 한 동일해야 한다.</p>
+<p>점수는 BM25로 계산한다. 단어 빈도(TF)가 높을수록, 희귀한 단어(IDF)일수록 점수가 오르고, 문서가 평균보다 길수록 내려간다. <code>explain: true</code>로 과정을 확인한다. 가중치는 쿼리 시점 boost(<code>title^3</code>)로만 조정하며 index-time boost는 폐기되었다.</p>
+<ul>
+<li><code>match</code> — 단일 필드 자연어 검색. <code>operator</code>(기본 <code>or</code>), <code>minimum_should_match</code>(<code>&quot;75%&quot;</code>), <code>fuzziness</code>(<code>AUTO</code>는 글자 수에 따라 편집 거리 0·1·2)가 핵심 옵션이다.</li>
+<li><code>match_phrase</code> — position 정보로 토큰 순서와 인접성을 검사한다. <code>slop</code>으로 허용 간격을 준다.</li>
+<li><code>match_phrase_prefix</code> · <code>match_bool_prefix</code> — 마지막 토큰만 prefix 매칭. <code>max_expansions</code>(기본 50)가 후보 상한.</li>
+<li><code>multi_match</code> — 여러 필드를 한 번에 검색하며 <code>type</code>이 본체다. <code>best_fields</code>(기본, 최고 점수 필드 채택, <code>tie_breaker</code>로 나머지 반영), <code>most_fields</code>(점수 합산, multi-field analyzer 검색), <code>cross_fields</code>(여러 필드를 하나로 취급), <code>phrase</code>, <code>phrase_prefix</code>, <code>bool_prefix</code>.</li>
+<li><code>query_string</code> — Lucene 문법 전체를 노출한다. 문법 위반 시 400 에러가 나므로 내부 도구용이다.</li>
+<li><code>simple_query_string</code> — <code>+</code>, <code>-</code>, <code>&quot;...&quot;</code>, <code>~N</code>만 허용하고 문법 오류를 무시한다. 사용자 노출이 가능하다.</li>
+<li><code>intervals</code> — 순서·간격·조건부 토큰을 정밀하게 표현한다.</li>
+</ul>
+<h2>코드</h2>
+<p>Java API Client로 상품 목록을 검색한다. <code>multi_match</code>에 boost를 주고 <code>_source</code>·정렬·timeout·페이징 상한을 명시한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.search;
+
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.SortOrder;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.SearchResponse;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductSearchService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-variable">MAX_RESULT_WINDOW</span> <span class="hljs-operator">=</span> <span class="hljs-number">10_000</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductSearchService</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">SearchResponse</span>&lt;ProductSummary&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(String keyword, <span class="hljs-type">int</span> page, <span class="hljs-type">int</span> size)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">int</span> <span class="hljs-variable">from</span> <span class="hljs-operator">=</span> page * size;
+        <span class="hljs-keyword">if</span> (from + size &gt; MAX_RESULT_WINDOW) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;page window exceeds &quot;</span> + MAX_RESULT_WINDOW);
+        }
+        <span class="hljs-keyword">return</span> client.search(s -&gt; s
+                .index(<span class="hljs-string">&quot;products&quot;</span>)
+                .query(q -&gt; q.multiMatch(m -&gt; m
+                        .query(keyword)
+                        .fields(<span class="hljs-string">&quot;title^3&quot;</span>, <span class="hljs-string">&quot;brand^2&quot;</span>, <span class="hljs-string">&quot;description&quot;</span>)
+                        .type(TextQueryType.BestFields)
+                        .tieBreaker(<span class="hljs-number">0.3</span>)
+                        .minimumShouldMatch(<span class="hljs-string">&quot;75%&quot;</span>)))
+                .from(from)
+                .size(size)
+                .sort(so -&gt; so.score(sc -&gt; sc.order(SortOrder.Desc)))
+                .sort(so -&gt; so.field(f -&gt; f.field(<span class="hljs-string">&quot;created_at&quot;</span>).order(SortOrder.Desc)))
+                .source(src -&gt; src.filter(f -&gt; f.includes(List.of(<span class="hljs-string">&quot;title&quot;</span>, <span class="hljs-string">&quot;price&quot;</span>, <span class="hljs-string">&quot;thumbnail&quot;</span>))))
+                .timeout(<span class="hljs-string">&quot;1s&quot;</span>),
+            ProductSummary.class);
+    }
+}</code></pre>
+<p>어구 검색은 nori 환경에서 slop을 1~2로 두고, 전체 건수를 표시할 때만 <code>trackTotalHits</code>를 켠다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">SearchResponse</span>&lt;ProductSummary&gt; <span class="hljs-title function_">searchPhrase</span><span class="hljs-params">(String phrase)</span> <span class="hljs-keyword">throws</span> IOException {
+    <span class="hljs-keyword">return</span> client.search(s -&gt; s
+            .index(<span class="hljs-string">&quot;products&quot;</span>)
+            .query(q -&gt; q.matchPhrase(m -&gt; m
+                    .field(<span class="hljs-string">&quot;title&quot;</span>)
+                    .query(phrase)
+                    .slop(<span class="hljs-number">2</span>)))
+            .trackTotalHits(t -&gt; t.enabled(<span class="hljs-literal">true</span>))
+            .size(<span class="hljs-number">20</span>),
+        ProductSummary.class);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>text</code> 필드 정렬은 fielddata 오류로 실패한다.</strong> fielddata는 힙을 크게 먹어 기본으로 막혀 있다. <code>title.keyword</code> multi-field를 두고 keyword로 정렬한다.</li>
+<li><strong><code>_source</code> 전체 반환은 대역폭을 잠식한다.</strong> 목록용과 상세용 검색을 분리해 목록은 필요한 필드만 받는다.</li>
+<li><strong><code>operator</code> 기본값 <code>or</code>는 정밀도를 떨어뜨린다.</strong> 카테고리 내 검색은 <code>and</code>, 전체 검색은 <code>minimum_should_match</code> 75~80%처럼 화면별로 정한다.</li>
+<li><strong><code>fuzziness</code>와 prefix 매칭은 비싸다.</strong> 후보 토큰을 확장하므로 대형 인덱스에서 응답이 수십 배 느려진다. fuzziness는 자유 입력에만 쓰고, 짧은 prefix 자동완성은 completion suggester로 옮긴다.</li>
+<li><strong><code>query_string</code>에 사용자 입력을 직접 넣지 않는다.</strong> <code>:</code>나 <code>(</code>가 섞이면 파싱 에러가 난다. 사용자 입력은 <code>match</code>·<code>multi_match</code>, 연산자가 필요하면 <code>simple_query_string</code>을 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/analyzer-korean/">Analyzer와 한국어 분석 (Nori)</a></li>
+<li><a href="/notes/elasticsearch/term-compound-queries/">Term-level·Compound 쿼리</a></li>
+<li><a href="/notes/elasticsearch/search-features-suggesters/">검색 기능 — highlight·페이징·Suggester</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Search API, match, multi_match, BM25</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/document-modeling-reindex/"><small>이전</small>검색 문서 모델링과 무중단 재색인</a>
+  <a class="next" href="/notes/elasticsearch/term-compound-queries/"><small>다음</small>Term-level·Compound 쿼리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

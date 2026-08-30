@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DDL 깊이 — CREATE TABLE·파티션·제약·외래 키 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="대용량 테이블은 파티션·IDENTITY·제약·외래 키를 DDL 단계에서 함께 설계해야 운영 중 다운타임 없이 무결성을 지킬 수 있다.">
+  <meta property="og:title" content="DDL 깊이 — CREATE TABLE·파티션·제약·외래 키 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="대용량 테이블은 파티션·IDENTITY·제약·외래 키를 DDL 단계에서 함께 설계해야 운영 중 다운타임 없이 무결성을 지킬 수 있다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/ddl-tables-constraints/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · DDL과 DML</p>
+  <h1>DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</h1>
+  <p class="summary">대용량 테이블은 파티션·IDENTITY·제약·외래 키를 DDL 단계에서 함께 설계해야 운영 중 다운타임 없이 무결성을 지킬 수 있다.</p>
+  <div class="content">
+<p>컬럼 이름과 타입만 나열해 테이블을 만들면 데이터가 수천만 행을 넘기는 순간 문제가 드러난다. 오래된 로그를 지우는 DELETE가 몇 시간을 돌고, 외래 키 없는 주문 테이블에는 고아 행이 쌓이며, 애플리케이션 검증만 믿던 가격 컬럼에 음수가 들어간다. 뒤늦게 제약을 추가하면 전체 검증 락이 걸려 서비스가 멈춘다. 파티션·제약·외래 키를 DDL 단계에서 함께 설계하면 이 비용을 대부분 피할 수 있다.</p>
+<h2>핵심 개념</h2>
+<p>PostgreSQL은 DDL이 트랜잭션 안에서 동작한다. ALTER TABLE과 CREATE INDEX를 하나의 BEGIN·COMMIT으로 묶고 실패 시 ROLLBACK할 수 있다는 점이 일부 DDL이 암묵 커밋되는 MySQL과의 차이다.</p>
+<h3>기본 키 생성 — IDENTITY</h3>
+<p>자동 증가 정수는 <code>BIGSERIAL</code>과 <code>GENERATED ... AS IDENTITY</code>로 만든다. BIGSERIAL은 시퀀스를 별도 객체로 노출하는 PostgreSQL 고유 방식이고, IDENTITY는 SQL 표준으로 시퀀스가 컬럼에 종속된다. <code>ALWAYS</code>는 직접 값을 넣을 때 <code>OVERRIDING SYSTEM VALUE</code>를 요구하고, <code>BY DEFAULT</code>는 명시한 값을 받는다. 신규 스키마는 IDENTITY로 통일한다.</p>
+<h3>파티션 테이블</h3>
+<p>대용량 테이블은 하나의 논리 테이블을 여러 물리 파티션으로 나눈다.</p>
+<table>
+<thead>
+<tr>
+<th>방식</th>
+<th>기준</th>
+<th>적합한 데이터</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RANGE</td>
+<td>연속 값의 구간</td>
+<td>시계열 로그·주문·이벤트</td>
+</tr>
+<tr>
+<td>LIST</td>
+<td>열거된 값</td>
+<td>국가·카테고리</td>
+</tr>
+<tr>
+<td>HASH</td>
+<td>해시 나머지</td>
+<td>균등 분산이 필요한 경우</td>
+</tr>
+</tbody></table>
+<p>시간 기준 RANGE가 가장 흔하다. WHERE 절에 파티션 키가 있으면 해당 파티션만 스캔하고, 오래된 데이터는 <code>DROP TABLE</code>이나 <code>DETACH PARTITION</code> 한 문장으로 제거한다. 단 PRIMARY KEY와 UNIQUE는 파티션 키를 반드시 포함해야 한다.</p>
+<h3>UNLOGGED·TEMPORARY·복제 생성</h3>
+<p><code>UNLOGGED TABLE</code>은 WAL을 기록하지 않아 쓰기가 빠르지만 크래시 시 내용이 비워지고 복제도 되지 않는다. <code>TEMPORARY TABLE</code>은 현재 세션에서만 보이고 세션 종료 시 사라진다. <code>CREATE TABLE ... AS SELECT</code>는 제약·인덱스를 복사하지 않으므로 구조 복제에는 <code>LIKE t1 INCLUDING ALL</code>을 쓴다.</p>
+<h3>제약</h3>
+<p>제약은 NOT NULL·UNIQUE·PRIMARY KEY·FOREIGN KEY·CHECK·EXCLUDE 여섯 가지다. CHECK는 한 행 안의 조건을 검증하며 IMMUTABLE 또는 STABLE 함수만 허용된다. 다른 행이나 테이블을 참조하는 검증은 트리거로 구현한다. EXCLUDE는 PostgreSQL 고유 제약으로, 같은 방에 기간이 겹치는 예약처럼 &quot;겹치는 범위 금지&quot;를 GiST 인덱스로 강제하며 등호 비교에는 <code>btree_gist</code> 확장이 필요하다.</p>
+<p>DEFERRABLE은 검증 시점을 커밋 시점으로 미룬다. <code>NOT DEFERRABLE</code>이 기본이며 문장마다 검증하고, <code>DEFERRABLE INITIALLY IMMEDIATE</code>는 <code>SET CONSTRAINTS ALL DEFERRED</code>로 지연할 수 있으며, <code>INITIALLY DEFERRED</code>는 처음부터 커밋 시점에 검증한다. 서로를 참조하는 두 테이블에 함께 INSERT하는 순환 참조 처리에 필요하다.</p>
+<h3>외래 키</h3>
+<p>외래 키는 자식 테이블의 값이 부모 테이블에 존재함을 DB가 보장한다. 부모 삭제 시 동작은 ON DELETE로 정한다. <code>NO ACTION</code>이 기본으로 자식이 있으면 삭제를 거부하며 지연 검증이 가능하고, <code>RESTRICT</code>는 같은 거부지만 즉시 검증한다. <code>CASCADE</code>는 자식을 함께 삭제하고, <code>SET NULL</code>은 자식 컬럼을 NULL로 바꾸며(NOT NULL 컬럼에는 사용 불가), <code>SET DEFAULT</code>는 기본값으로 바꾼다. 외래 키 컬럼에는 인덱스가 자동 생성되지 않는다.</p>
+<p>큰 테이블에 제약을 사후 추가할 때는 <code>NOT VALID</code>로 새 행에만 즉시 적용한 뒤 <code>VALIDATE CONSTRAINT</code>로 기존 행을 검증한다.</p>
+<h2>코드</h2>
+<p>월별 RANGE 파티션 주문 테이블. 파티션 키를 포함한 복합 기본 키·IDENTITY·CHECK·외래 키·외래 키 인덱스를 함께 선언한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE TABLE</span> orders (
+    id          <span class="hljs-type">BIGINT</span> GENERATED ALWAYS <span class="hljs-keyword">AS</span> <span class="hljs-keyword">IDENTITY</span>,
+    user_id     <span class="hljs-type">BIGINT</span> <span class="hljs-keyword">NOT NULL</span>,
+    amount      <span class="hljs-type">INTEGER</span> <span class="hljs-keyword">NOT NULL</span>,
+    status      TEXT <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-string">&#x27;PENDING&#x27;</span>,
+    created_at  TIMESTAMPTZ <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> now(),
+    <span class="hljs-keyword">PRIMARY KEY</span> (id, created_at),
+    <span class="hljs-keyword">CONSTRAINT</span> chk_orders_amount <span class="hljs-keyword">CHECK</span> (amount <span class="hljs-operator">&gt;=</span> <span class="hljs-number">0</span>),
+    <span class="hljs-keyword">CONSTRAINT</span> chk_orders_status
+        <span class="hljs-keyword">CHECK</span> (status <span class="hljs-keyword">IN</span> (<span class="hljs-string">&#x27;PENDING&#x27;</span>, <span class="hljs-string">&#x27;PAID&#x27;</span>, <span class="hljs-string">&#x27;SHIPPED&#x27;</span>, <span class="hljs-string">&#x27;CANCELED&#x27;</span>)),
+    <span class="hljs-keyword">CONSTRAINT</span> fk_orders_user <span class="hljs-keyword">FOREIGN KEY</span> (user_id)
+        <span class="hljs-keyword">REFERENCES</span> users (id) <span class="hljs-keyword">ON</span> <span class="hljs-keyword">DELETE</span> <span class="hljs-keyword">NO</span> ACTION
+) <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">BY</span> <span class="hljs-keyword">RANGE</span> (created_at);
+
+<span class="hljs-keyword">CREATE TABLE</span> orders_2026_08 <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">OF</span> orders
+    <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">VALUES</span> <span class="hljs-keyword">FROM</span> (<span class="hljs-string">&#x27;2026-08-01&#x27;</span>) <span class="hljs-keyword">TO</span> (<span class="hljs-string">&#x27;2026-09-01&#x27;</span>);
+<span class="hljs-keyword">CREATE TABLE</span> orders_2026_09 <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">OF</span> orders
+    <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">VALUES</span> <span class="hljs-keyword">FROM</span> (<span class="hljs-string">&#x27;2026-09-01&#x27;</span>) <span class="hljs-keyword">TO</span> (<span class="hljs-string">&#x27;2026-10-01&#x27;</span>);
+
+<span class="hljs-keyword">CREATE</span> INDEX idx_orders_user_id <span class="hljs-keyword">ON</span> orders (user_id);</code></pre>
+<p>EXCLUDE로 예약 기간 겹침을 막고, 큰 테이블에 CHECK를 무중단으로 추가한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE</span> EXTENSION IF <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">EXISTS</span> btree_gist;
+
+<span class="hljs-keyword">CREATE TABLE</span> bookings (
+    id       <span class="hljs-type">BIGINT</span> GENERATED ALWAYS <span class="hljs-keyword">AS</span> <span class="hljs-keyword">IDENTITY</span> <span class="hljs-keyword">PRIMARY KEY</span>,
+    room_id  <span class="hljs-type">BIGINT</span> <span class="hljs-keyword">NOT NULL</span>,
+    <span class="hljs-keyword">period</span>   TSTZRANGE <span class="hljs-keyword">NOT NULL</span>,
+    canceled <span class="hljs-type">BOOLEAN</span> <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-literal">false</span>,
+    EXCLUDE <span class="hljs-keyword">USING</span> GIST (room_id <span class="hljs-keyword">WITH</span> <span class="hljs-operator">=</span>, <span class="hljs-keyword">period</span> <span class="hljs-keyword">WITH</span> <span class="hljs-operator">&amp;&amp;</span>)
+        <span class="hljs-keyword">WHERE</span> (<span class="hljs-keyword">NOT</span> canceled)
+);
+
+<span class="hljs-keyword">ALTER TABLE</span> products
+    <span class="hljs-keyword">ADD CONSTRAINT</span> chk_products_price <span class="hljs-keyword">CHECK</span> (price <span class="hljs-operator">&gt;=</span> <span class="hljs-number">0</span>) <span class="hljs-keyword">NOT</span> VALID;
+<span class="hljs-keyword">ALTER TABLE</span> products VALIDATE <span class="hljs-keyword">CONSTRAINT</span> chk_products_price;</code></pre>
+<p>JPA 엔티티의 외래 키 매핑. <code>@Min</code> 같은 Bean Validation은 DB CHECK로 생성되지 않으므로 DDL은 별도로 관리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.persistence.*;
+<span class="hljs-keyword">import</span> jakarta.validation.constraints.Min;
+<span class="hljs-keyword">import</span> org.hibernate.annotations.OnDelete;
+<span class="hljs-keyword">import</span> org.hibernate.annotations.OnDeleteAction;
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;,
+       indexes = @Index(name = &quot;idx_orders_user_id&quot;, columnList = &quot;user_id&quot;))</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@ManyToOne(fetch = FetchType.LAZY, optional = false)</span>
+    <span class="hljs-meta">@JoinColumn(name = &quot;user_id&quot;, nullable = false,
+                foreignKey = @ForeignKey(name = &quot;fk_orders_user&quot;))</span>
+    <span class="hljs-meta">@OnDelete(action = OnDeleteAction.NO_ACTION)</span>
+    <span class="hljs-keyword">private</span> User user;
+
+    <span class="hljs-meta">@Min(0)</span>
+    <span class="hljs-meta">@Column(nullable = false)</span>
+    <span class="hljs-keyword">private</span> Integer amount;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Order</span><span class="hljs-params">()</span> {}
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>파티션 키 없는 유니크 제약.</strong> 파티션 테이블의 PRIMARY KEY·UNIQUE는 파티션 키를 포함해야 하므로 <code>id</code> 단독 유일성을 DB가 보장하지 못한다. 전역 유일성은 IDENTITY 시퀀스나 애플리케이션 발급 UUID에 의존한다.</li>
+<li><strong>외래 키 컬럼 인덱스 누락.</strong> 부모 행을 삭제할 때마다 자식 테이블을 풀스캔하며 큰 테이블에서는 락과 실행 시간이 폭주한다. 외래 키를 선언하면 인덱스를 같이 만든다.</li>
+<li><strong>CASCADE 남용.</strong> 사용자 한 명을 지웠는데 주문 수만 건이 사라지는 사고는 대부분 ON DELETE CASCADE에서 나온다. order_items처럼 부모 없이 의미가 없는 의존 객체에만 쓴다.</li>
+<li><strong>UNLOGGED를 운영 데이터에 사용.</strong> 크래시 한 번으로 테이블 전체가 비워지고, 복제본에도 전달되지 않는다.</li>
+<li><strong>운영 테이블에 제약 직접 추가.</strong> <code>ADD CONSTRAINT</code>는 기존 행 전체를 검증하는 동안 ACCESS EXCLUSIVE 락을 잡는다. NOT VALID 후 VALIDATE CONSTRAINT는 SHARE UPDATE EXCLUSIVE 락만 잡아 읽기·쓰기가 계속된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/partitioning-sharding/">파티셔닝과 샤딩</a></li>
+<li><a href="/notes/postgresql/create-database-table/">데이터베이스와 테이블 만들기</a></li>
+<li><a href="/notes/postgresql/update-delete-hot-bloat-vacuum/">UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, DDL, PARTITION, CONSTRAINT, FOREIGN KEY</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/views-window-functions/"><small>이전</small>뷰·윈도우 함수·고급 SQL</a>
+  <a class="next" href="/notes/postgresql/insert-bulk-copy-upsert/"><small>다음</small>INSERT 깊이 — Bulk·COPY·UPSERT</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

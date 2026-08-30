@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>성능 튜닝 · Elasticsearch</title>
+  <meta name="description" content="Heap·Thread Pool·Cache·Fielddata·Circuit Breaker 다섯 자리를 측정 기반으로 조정해 응답 시간과 색인 처리량을 끌어올린다">
+  <meta property="og:title" content="성능 튜닝 · Elasticsearch">
+  <meta property="og:description" content="Heap·Thread Pool·Cache·Fielddata·Circuit Breaker 다섯 자리를 측정 기반으로 조정해 응답 시간과 색인 처리량을 끌어올린다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/performance-tuning/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>성능 튜닝</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 운영</p>
+  <h1>성능 튜닝</h1>
+  <p class="summary">Heap·Thread Pool·Cache·Fielddata·Circuit Breaker 다섯 자리를 측정 기반으로 조정해 응답 시간과 색인 처리량을 끌어올린다</p>
+  <div class="content">
+<p>응답이 느려지거나 처리량이 나오지 않을 때 원인은 대부분 다섯 자리에 몰려 있다. Heap 크기가 맞지 않아 GC pause가 길어지고, Thread Pool 대기열이 차서 요청이 거절되며, 캐시가 동작하지 않아 같은 필터가 매번 재계산되고, text 필드 집계가 Fielddata를 Heap에 올리며, 그 끝에서 Circuit Breaker가 요청을 끊는다. <code>_nodes/stats</code>·<code>_cat/thread_pool</code>·Profile API로 병목을 확인한 뒤 변수 하나만 바꾸고 다시 측정한다.</p>
+<h2>핵심 개념</h2>
+<h3>JVM Heap</h3>
+<p>Heap은 물리 RAM의 50%까지만 할당하고 나머지는 Lucene 세그먼트를 mmap으로 읽는 OS Page Cache에 남긴다. 또 JVM은 Heap이 32GB 미만일 때만 Compressed Oops로 포인터를 압축하므로 상한은 31GB 이하로 두고, 더 필요하면 노드 수를 늘린다. <code>Xms</code>와 <code>Xmx</code>는 같은 값으로 고정하며, 지정하지 않으면 8.x가 RAM의 50%(최대 31GB)를 자동으로 잡는다.</p>
+<h3>Thread Pool</h3>
+<p>요청 종류별로 별도 풀을 운영해 검색 부하가 색인을 막지 못하게 한다. <code>search</code> 풀은 <code>int(CPU × 3 / 2) + 1</code>에 queue 1,000, <code>write</code> 풀은 CPU 수에 queue 10,000이 기본이다. queue가 차면 <code>EsRejectedExecutionException</code>(HTTP 429)이 발생한다. 대응은 bulk 크기 축소, 동시성 축소, refresh_interval 연장, 노드 추가 순서이고 queue 확대는 마지막 수단이다.</p>
+<h3>Query Cache와 Request Cache</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Query Cache</th>
+<th>Request Cache</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>단위</td>
+<td>노드</td>
+<td>샤드</td>
+</tr>
+<tr>
+<td>대상</td>
+<td>filter context의 term·range 등 비-scoring 쿼리</td>
+<td><code>size=0</code> 집계 요청</td>
+</tr>
+<tr>
+<td>기본 크기</td>
+<td>Heap 10%</td>
+<td>Heap 1%</td>
+</tr>
+</tbody></table>
+<p><code>bool.must</code>의 쿼리는 score 계산 때문에 캐시되지 않고 <code>bool.filter</code>의 쿼리만 캐시된다. Request Cache는 더 이상 쓰이지 않는 시간 기반 인덱스의 대시보드 집계에서 적중률이 높다.</p>
+<h3>Fielddata와 doc_values</h3>
+<p>text 필드에 <code>fielddata: true</code>를 켜면 역색인을 검색 시점에 뒤집어 Heap에 올리므로 데이터에 비례해 메모리가 소진된다. 집계·정렬이 필요한 필드는 <code>keyword</code>로 매핑하고, 색인 시점에 디스크에 저장돼 Page Cache가 관리하는 doc_values를 쓴다. <code>text</code>와 <code>keyword</code> 서브필드를 함께 두는 multi-field가 표준이다.</p>
+<h3>Circuit Breaker</h3>
+<p>메모리 폭주 직전에 요청을 거절해 프로세스를 살리는 방어선이다. <code>parent</code>(Heap 95%) 아래 <code>fielddata</code>(40%)·<code>request</code>(60%)·<code>in_flight_requests</code>·<code>accounting</code>이 있다. <code>circuit_breaking_exception</code>이 보이면 원인 breaker부터 본다. fielddata면 매핑, request면 대형 집계, in_flight_requests면 bulk 크기가 의심 대상이다. 한도 상향은 마지막 선택이다.</p>
+<h3>색인·검색 체크리스트</h3>
+<p>쓰기는 refresh_interval을 30s 이상으로 늘리거나 일회성 bulk 동안 <code>-1</code>로 끄고, 초기 적재 시 replica를 0으로 두었다가 복구하며, bulk 한 건을 5~15MB로 유지한다. 읽기는 <code>track_total_hits</code>를 <code>false</code>나 임계값으로 두고, <code>_source</code>를 필요한 필드로 제한하며, <code>preference</code>로 같은 사용자를 같은 복제본에 라우팅한다.</p>
+<h2>코드</h2>
+<p>대량 적재 전후로 replica·refresh를 조정하고 끝에 force_merge를 실행하는 서비스. <code>ElasticsearchClient</code>(elasticsearch-java)를 주입받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.indices.IndexSettings;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BulkLoadWindow</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">BulkLoadWindow</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">open</span><span class="hljs-params">(String index)</span> <span class="hljs-keyword">throws</span> IOException {
+        client.indices().putSettings(r -&gt; r.index(index)
+                .settings(IndexSettings.of(s -&gt; s
+                        .numberOfReplicas(<span class="hljs-string">&quot;0&quot;</span>)
+                        .refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;-1&quot;</span>)))));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">close</span><span class="hljs-params">(String index)</span> <span class="hljs-keyword">throws</span> IOException {
+        client.indices().putSettings(r -&gt; r.index(index)
+                .settings(IndexSettings.of(s -&gt; s
+                        .numberOfReplicas(<span class="hljs-string">&quot;1&quot;</span>)
+                        .refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;30s&quot;</span>)))));
+        client.indices().forcemerge(r -&gt; r.index(index).maxNumSegments(<span class="hljs-number">1L</span>));
+    }
+}</code></pre>
+<p><code>BulkIngester</code>로 bulk 크기와 동시성을 고정하는 빈. 10MB 또는 5,000건 단위로 묶어 <code>write</code> 풀 rejection과 <code>in_flight_requests</code> breaker를 피한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._helpers.bulk.BulkIngester;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+
+<span class="hljs-keyword">import</span> java.util.concurrent.TimeUnit;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BulkIngesterConfig</span> {
+
+    <span class="hljs-meta">@Bean(destroyMethod = &quot;close&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">BulkIngester</span>&lt;Void&gt; <span class="hljs-title function_">bulkIngester</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-keyword">return</span> BulkIngester.of(b -&gt; b
+                .client(client)
+                .maxOperations(<span class="hljs-number">5_000</span>)
+                .maxSize(<span class="hljs-number">10L</span> * <span class="hljs-number">1024</span> * <span class="hljs-number">1024</span>)
+                .maxConcurrentRequests(<span class="hljs-number">4</span>)
+                .flushInterval(<span class="hljs-number">1</span>, TimeUnit.SECONDS));
+    }
+}</code></pre>
+<p>검색 비용을 줄인 조회. 필터를 <code>filter</code> 절에 두고, 총합 계산을 끄고, <code>_source</code>를 제한하며, 사용자 ID를 <code>preference</code>로 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.SearchResponse;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductSearchService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductSearchService</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">SearchResponse</span>&lt;ProductDoc&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(String keyword, String brand, <span class="hljs-type">long</span> minPrice, String userId)</span>
+            <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-keyword">return</span> client.search(s -&gt; s
+                .index(<span class="hljs-string">&quot;products&quot;</span>)
+                .preference(userId)
+                .trackTotalHits(t -&gt; t.enabled(<span class="hljs-literal">false</span>))
+                .source(src -&gt; src.filter(f -&gt; f.includes(List.of(<span class="hljs-string">&quot;id&quot;</span>, <span class="hljs-string">&quot;title&quot;</span>, <span class="hljs-string">&quot;price&quot;</span>))))
+                .query(q -&gt; q.bool(b -&gt; b
+                        .must(m -&gt; m.match(mt -&gt; mt.field(<span class="hljs-string">&quot;title&quot;</span>).query(keyword)))
+                        .filter(f -&gt; f.term(t -&gt; t.field(<span class="hljs-string">&quot;brand&quot;</span>).value(brand)))
+                        .filter(f -&gt; f.range(r -&gt; r.number(n -&gt; n.field(<span class="hljs-string">&quot;price&quot;</span>).gte((<span class="hljs-type">double</span>) minPrice)))))),
+                ProductDoc.class);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Heap 48GB의 역설.</strong> Heap을 32GB 넘게 잡으면 Compressed Oops가 꺼지고 Page Cache도 줄어 오히려 느려진다. 30~31GB로 낮추고 부족분은 노드 추가로 푼다.</li>
+<li><strong>queue 확대로 rejection 감추기.</strong> <code>thread_pool.write.queue_size</code>를 키우면 429는 사라지지만 대기 요청이 Heap에 쌓여 OOM으로 이어진다.</li>
+<li><strong>운영 중 force_merge.</strong> I/O와 CPU를 동시에 점유해 검색 응답이 수십 초로 늘어난다. 쓰기가 끝난 인덱스에만 실행한다.</li>
+<li><strong>text 필드 terms 집계.</strong> Fielddata breaker가 걸린다. <code>fielddata: true</code> 대신 <code>.keyword</code> 서브필드로 집계 대상을 바꾼다.</li>
+<li><strong>deep pagination.</strong> <code>from: 100000</code>이면 각 샤드가 10만 건 이상을 정렬한다. <code>search_after</code>나 PIT로 전환한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/document-crud-bulk-reindex/">Document CRUD·Bulk·Reindex·Versioning</a></li>
+<li><a href="/notes/elasticsearch/mapping-field-types/">Mapping과 Field Type</a></li>
+<li><a href="/notes/elasticsearch/cluster-operations-shard-allocation/">클러스터 운영과 Shard Allocation</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, JVM Heap, Thread Pool, Query Cache, Circuit Breaker</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/snapshot-security/"><small>이전</small>Snapshot·Restore와 보안 (RBAC)</a>
+  <a class="next" href="/notes/elasticsearch/spring-data-elasticsearch/"><small>다음</small>Spring Data Elasticsearch</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

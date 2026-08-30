@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KMS·SSM·Secrets Manager — 암호화와 비밀 관리 · AWS</title>
+  <meta name="description" content="KMS 봉투 암호화로 데이터를 잠그고, 설정은 Parameter Store에, 회전이 필요한 자격 증명은 Secrets Manager에 둔다.">
+  <meta property="og:title" content="KMS·SSM·Secrets Manager — 암호화와 비밀 관리 · AWS">
+  <meta property="og:description" content="KMS 봉투 암호화로 데이터를 잠그고, 설정은 Parameter Store에, 회전이 필요한 자격 증명은 Secrets Manager에 둔다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/kms-secrets-security/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/aws/">AWS</a><span class="sep">›</span><span>KMS·SSM·Secrets Manager — 암호화와 비밀 관리</span></nav>
+    <article class="post">
+  <p class="part">AWS · 기초와 보안</p>
+  <h1>KMS·SSM·Secrets Manager — 암호화와 비밀 관리</h1>
+  <p class="summary">KMS 봉투 암호화로 데이터를 잠그고, 설정은 Parameter Store에, 회전이 필요한 자격 증명은 Secrets Manager에 둔다.</p>
+  <div class="content">
+<p>DB 비밀번호를 환경 변수나 설정 파일에 평문으로 두면 값을 바꿀 때마다 재배포가 필요하고, 누가 언제 읽었는지 추적할 수 없으며, 유출 시 즉시 교체할 수단이 없다. 암호화 키를 애플리케이션이 코드와 같은 저장소에 들고 있는 구조도 마찬가지다. AWS는 이 문제를 키 관리(KMS)와 비밀 저장(Parameter Store·Secrets Manager)으로 분리해 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>암호화 3방식</h3>
+<p>전송 중 암호화(TLS)는 도착 후 서버가 평문을 본다. 서버 측 암호화(SSE)는 AWS가 저장 시점에 암호화한다. 클라이언트 측 암호화(CSE)는 전송 전에 고객이 암호화하므로 AWS는 평문을 볼 수 없다.</p>
+<h3>KMS 키 종류</h3>
+<table>
+<thead>
+<tr>
+<th align="left">키</th>
+<th align="left">관리 주체</th>
+<th align="left">비용</th>
+<th align="left">특징</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">AWS Owned</td>
+<td align="left">AWS</td>
+<td align="left">무료</td>
+<td align="left">서비스 내부용, 사용자에게 보이지 않음</td>
+</tr>
+<tr>
+<td align="left">AWS Managed (<code>aws/rds</code> 등)</td>
+<td align="left">AWS</td>
+<td align="left">무료</td>
+<td align="left">해당 서비스 전용, 키 정책 수정 불가</td>
+</tr>
+<tr>
+<td align="left">Customer Managed</td>
+<td align="left">고객</td>
+<td align="left">월 $1</td>
+<td align="left">키 정책·회전·삭제 직접 제어</td>
+</tr>
+<tr>
+<td align="left">Imported (BYOK)</td>
+<td align="left">고객</td>
+<td align="left">월 $1</td>
+<td align="left">외부 키 재료 반입, 자동 회전 불가</td>
+</tr>
+</tbody></table>
+<p>일반 데이터 암호화는 대칭 키(AES-256)를 쓴다. 비대칭 키(RSA·ECC)는 서명 검증이나 외부 시스템이 공개 키로 암호화하는 경우에 한정된다. 모든 KMS API 호출은 CloudTrail에 기록된다.</p>
+<h3>키 회전</h3>
+<p>AWS Managed Key는 매년 자동 회전되고 주기를 바꿀 수 없다. Customer Managed Key는 90일~2,560일(기본 1년) 주기의 자동 회전과 온디맨드 회전이 가능하다. Imported Key는 새 키를 만들고 별칭(Alias)을 옮기는 수동 회전만 된다. 회전 후에도 이전 키 재료는 유지되어 기존 암호문은 계속 복호화된다.</p>
+<h3>봉투 암호화</h3>
+<p>KMS의 <code>Encrypt</code>는 4KB 이하만 직접 암호화한다. 그 이상은 봉투 암호화를 쓴다. <code>GenerateDataKey</code>가 평문 DEK와 암호화된 DEK를 함께 반환하면, 평문 DEK로 데이터를 로컬에서 암호화한 뒤 폐기하고 암호화된 DEK를 암호문 옆에 저장한다. 복호화는 암호화된 DEK를 <code>Decrypt</code>에 넘겨 평문 DEK를 되찾는 순서다. 암호문 blob에 키 정보가 들어 있어 <code>Decrypt</code>에 키 ID를 줄 필요는 없다. S3 SSE-KMS와 AWS Encryption SDK 모두 내부적으로 이 패턴을 쓴다.</p>
+<h3>키 정책과 교차 계정</h3>
+<p>키 정책은 키에 직접 붙으며 IAM 정책과 별도로 평가된다. 키 정책이 허용하지 않으면 IAM 정책이 아무리 넓어도 키를 쓸 수 없다. 교차 계정 접근은 키 정책에 대상 계정을 명시해야 하며 AWS Managed Key로는 불가능하므로, EBS 스냅샷이나 AMI를 다른 계정과 공유하려면 Customer Managed Key로 암호화한다. Multi-Region Key는 Primary와 Replica가 같은 Key ID와 키 재료를 공유해 리전 간 재암호화 없이 복호화되지만 키 정책은 리전별로 독립이다.</p>
+<h3>Parameter Store와 Secrets Manager</h3>
+<table>
+<thead>
+<tr>
+<th align="left">비교</th>
+<th align="left">Parameter Store</th>
+<th align="left">Secrets Manager</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">용도</td>
+<td align="left">설정 값 + 비밀</td>
+<td align="left">비밀 전용</td>
+</tr>
+<tr>
+<td align="left">계층 구조</td>
+<td align="left"><code>/app/prod/db-url</code> 경로 기반</td>
+<td align="left">없음</td>
+</tr>
+<tr>
+<td align="left">자동 회전</td>
+<td align="left">미지원</td>
+<td align="left">Lambda 기반 지원</td>
+</tr>
+<tr>
+<td align="left">RDS·Aurora·Redshift 통합</td>
+<td align="left">수동</td>
+<td align="left">기본 통합 (DB 암호 동시 갱신)</td>
+</tr>
+<tr>
+<td align="left">최대 크기</td>
+<td align="left">4KB (Standard) / 8KB (Advanced)</td>
+<td align="left">64KB</td>
+</tr>
+<tr>
+<td align="left">다중 리전 복제</td>
+<td align="left">미지원</td>
+<td align="left">지원</td>
+</tr>
+<tr>
+<td align="left">비용</td>
+<td align="left">Standard 무료, Advanced 파라미터당 월 $0.05</td>
+<td align="left">비밀당 월 $0.40 + API 1만 건당 $0.05</td>
+</tr>
+</tbody></table>
+<p>SecureString은 KMS로 암호화되며 읽으려면 <code>ssm:GetParameter</code>와 <code>kms:Decrypt</code>가 모두 필요하다. Secrets Manager의 회전은 지정 주기(기본 30일)마다 Lambda가 새 비밀번호를 만들어 DB와 비밀 값을 함께 갱신하며, 기본 통합되지 않은 서드파티 자격 증명은 회전 Lambda를 직접 작성한다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x에서 AWS SDK for Java 2.x로 Secrets Manager의 DB 자격 증명을 읽어 DataSource를 구성한다. 자격 증명은 JSON(<code>username</code>·<code>password</code>) 형태다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> com.fasterxml.jackson.databind.JsonNode;
+<span class="hljs-keyword">import</span> com.fasterxml.jackson.databind.ObjectMapper;
+<span class="hljs-keyword">import</span> com.zaxxer.hikari.HikariDataSource;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
+
+<span class="hljs-keyword">import</span> javax.sql.DataSource;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DataSourceConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">DataSource</span> <span class="hljs-title function_">dataSource</span><span class="hljs-params">(SecretsManagerClient client, ObjectMapper mapper)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">String</span> <span class="hljs-variable">json</span> <span class="hljs-operator">=</span> client.getSecretValue(
+                GetSecretValueRequest.builder().secretId(<span class="hljs-string">&quot;myapp/prod/db&quot;</span>).build()
+        ).secretString();
+        <span class="hljs-type">JsonNode</span> <span class="hljs-variable">secret</span> <span class="hljs-operator">=</span> mapper.readTree(json);
+
+        <span class="hljs-type">HikariDataSource</span> <span class="hljs-variable">ds</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HikariDataSource</span>();
+        ds.setJdbcUrl(<span class="hljs-string">&quot;jdbc:postgresql://db.internal:5432/app&quot;</span>);
+        ds.setUsername(secret.get(<span class="hljs-string">&quot;username&quot;</span>).asText());
+        ds.setPassword(secret.get(<span class="hljs-string">&quot;password&quot;</span>).asText());
+        <span class="hljs-keyword">return</span> ds;
+    }
+}</code></pre>
+<p>Parameter Store의 SecureString을 복호화해 읽는다. <code>withDecryption(true)</code>가 없으면 암호문이 그대로 반환된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.ssm.SsmClient;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.ssm.model.GetParameterRequest;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ParameterReader</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> SsmClient ssm;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ParameterReader</span><span class="hljs-params">(SsmClient ssm)</span> {
+        <span class="hljs-built_in">this</span>.ssm = ssm;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">secure</span><span class="hljs-params">(String name)</span> {
+        <span class="hljs-keyword">return</span> ssm.getParameter(GetParameterRequest.builder()
+                .name(name)
+                .withDecryption(<span class="hljs-literal">true</span>)
+                .build()).parameter().value();
+    }
+}</code></pre>
+<p>4KB를 넘는 데이터를 KMS 봉투 암호화로 처리한다. 평문 DEK는 사용 직후 지우고, 암호화된 DEK를 암호문과 함께 저장한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> software.amazon.awssdk.core.SdkBytes;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.kms.KmsClient;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.kms.model.DataKeySpec;
+<span class="hljs-keyword">import</span> software.amazon.awssdk.services.kms.model.GenerateDataKeyResponse;
+
+<span class="hljs-keyword">import</span> javax.crypto.Cipher;
+<span class="hljs-keyword">import</span> javax.crypto.spec.GCMParameterSpec;
+<span class="hljs-keyword">import</span> javax.crypto.spec.SecretKeySpec;
+<span class="hljs-keyword">import</span> java.security.SecureRandom;
+<span class="hljs-keyword">import</span> java.util.Arrays;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Envelope</span><span class="hljs-params">(<span class="hljs-type">byte</span>[] encryptedKey, <span class="hljs-type">byte</span>[] iv, <span class="hljs-type">byte</span>[] ciphertext)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">EnvelopeEncryptor</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KmsClient kms;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String keyId;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">EnvelopeEncryptor</span><span class="hljs-params">(KmsClient kms, String keyId)</span> {
+        <span class="hljs-built_in">this</span>.kms = kms;
+        <span class="hljs-built_in">this</span>.keyId = keyId;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Envelope</span> <span class="hljs-title function_">encrypt</span><span class="hljs-params">(<span class="hljs-type">byte</span>[] plaintext)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">GenerateDataKeyResponse</span> <span class="hljs-variable">dk</span> <span class="hljs-operator">=</span> kms.generateDataKey(b -&gt; b.keyId(keyId).keySpec(DataKeySpec.AES_256));
+        <span class="hljs-type">byte</span>[] <span class="hljs-variable">plainKey</span> <span class="hljs-operator">=</span> dk.plaintext().asByteArray();
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">byte</span>[] <span class="hljs-variable">iv</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">byte</span>[<span class="hljs-number">12</span>];
+            <span class="hljs-keyword">new</span> <span class="hljs-title class_">SecureRandom</span>().nextBytes(iv);
+            <span class="hljs-type">Cipher</span> <span class="hljs-variable">cipher</span> <span class="hljs-operator">=</span> Cipher.getInstance(<span class="hljs-string">&quot;AES/GCM/NoPadding&quot;</span>);
+            cipher.init(Cipher.ENCRYPT_MODE, <span class="hljs-keyword">new</span> <span class="hljs-title class_">SecretKeySpec</span>(plainKey, <span class="hljs-string">&quot;AES&quot;</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">GCMParameterSpec</span>(<span class="hljs-number">128</span>, iv));
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Envelope</span>(dk.ciphertextBlob().asByteArray(), iv, cipher.doFinal(plaintext));
+        } <span class="hljs-keyword">finally</span> {
+            Arrays.fill(plainKey, (<span class="hljs-type">byte</span>) <span class="hljs-number">0</span>);
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">byte</span>[] <span class="hljs-title function_">decrypt</span><span class="hljs-params">(Envelope env)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">byte</span>[] <span class="hljs-variable">plainKey</span> <span class="hljs-operator">=</span> kms.decrypt(b -&gt; b.ciphertextBlob(SdkBytes.fromByteArray(env.encryptedKey())))
+                .plaintext().asByteArray();
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">Cipher</span> <span class="hljs-variable">cipher</span> <span class="hljs-operator">=</span> Cipher.getInstance(<span class="hljs-string">&quot;AES/GCM/NoPadding&quot;</span>);
+            cipher.init(Cipher.DECRYPT_MODE, <span class="hljs-keyword">new</span> <span class="hljs-title class_">SecretKeySpec</span>(plainKey, <span class="hljs-string">&quot;AES&quot;</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">GCMParameterSpec</span>(<span class="hljs-number">128</span>, env.iv()));
+            <span class="hljs-keyword">return</span> cipher.doFinal(env.ciphertext());
+        } <span class="hljs-keyword">finally</span> {
+            Arrays.fill(plainKey, (<span class="hljs-type">byte</span>) <span class="hljs-number">0</span>);
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>권한이 둘 다 필요하다.</strong> SecureString 읽기 실패의 대부분은 <code>kms:Decrypt</code>를 빠뜨린 경우다. Secrets Manager도 고객 관리 키로 암호화했다면 <code>secretsmanager:GetSecretValue</code>에 더해 키의 <code>kms:Decrypt</code>가 필요하다.</li>
+<li><strong>매 요청마다 비밀을 읽지 않는다.</strong> Secrets Manager API는 건당 과금이고 호출 한도가 있다. 기동 시 읽어 캐시하고 인증 실패 시에만 다시 읽는다.</li>
+<li><strong>회전 후 커넥션 풀.</strong> DB 암호가 바뀌면 열린 커넥션은 유지되지만 새 커넥션은 실패한다. 인증 오류를 감지해 비밀을 재조회하고 풀을 재구성해야 무중단이 된다.</li>
+<li><strong>키 정책을 비우면 잠긴다.</strong> 키 정책에 계정 root나 관리자 주체를 빠뜨리면 아무도 키를 관리할 수 없다. 키 삭제는 최소 7일 대기 기간이 있어 되돌리기 어렵다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/aws/iam-sts-cognito/">IAM·STS·Cognito — 사용자·역할·정책</a></li>
+<li><a href="/notes/aws/s3-basics-security/">S3 — 버킷·버전 관리·암호화·버킷 정책</a></li>
+<li><a href="/notes/aws/rds-aurora-dynamodb/">RDS·Aurora·DynamoDB</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · KMS, Secrets Manager, Parameter Store, Envelope Encryption</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/aws/iam-sts-cognito/"><small>이전</small>IAM·STS·Cognito — 사용자·역할·정책</a>
+  <a class="next" href="/notes/aws/ec2-ebs-efs/"><small>다음</small>EC2·EBS·EFS</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

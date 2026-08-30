@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lucene 내부 — Segment·역색인·Posting List · Elasticsearch</title>
+  <meta name="description" content="샤드 안의 Lucene이 Segment·역색인·Posting List·Doc Values를 어떻게 쌓고 읽는지, refresh·flush·merge가 왜 갈리는지 정리한다.">
+  <meta property="og:title" content="Lucene 내부 — Segment·역색인·Posting List · Elasticsearch">
+  <meta property="og:description" content="샤드 안의 Lucene이 Segment·역색인·Posting List·Doc Values를 어떻게 쌓고 읽는지, refresh·flush·merge가 왜 갈리는지 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/lucene-internals/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Lucene 내부 — Segment·역색인·Posting List</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 기초</p>
+  <h1>Lucene 내부 — Segment·역색인·Posting List</h1>
+  <p class="summary">샤드 안의 Lucene이 Segment·역색인·Posting List·Doc Values를 어떻게 쌓고 읽는지, refresh·flush·merge가 왜 갈리는지 정리한다.</p>
+  <div class="content">
+<p>색인한 문서가 곧바로 검색에 잡히지 않는 이유, refresh 간격을 줄였더니 디스크 IO가 치솟는 이유, text 필드 정렬이 heap을 터뜨리는 이유는 모두 Elasticsearch 아래의 Apache Lucene 저장 구조에서 나온다. 샤드 하나는 Lucene 인덱스 하나이며, 그 저장 구조를 모르면 위 증상을 설정값 조정으로만 돌려막게 된다.</p>
+<h2>핵심 개념</h2>
+<h3>Segment — 불변 단위</h3>
+<p>Lucene이 디스크에 쓰는 기본 단위는 Segment로, 역색인·Doc Values·stored fields를 한 세트로 갖는 독립된 작은 인덱스다. 한 번 쓰인 Segment는 수정되지 않고, 새 문서는 새 Segment에 들어가며, 기존 문서 수정은 삭제 표시 후 새 버전을 쓰는 append-only 방식이다. 덕분에 검색은 잠금 없이 진행된다.</p>
+<p>색인 요청은 먼저 메모리 버퍼에 쌓인다. 기본 1초 간격의 <strong>refresh</strong>가 버퍼를 새 Segment로 닫으면 검색 가능해진다. 이것이 near real-time 검색의 실체다. <strong>flush</strong>는 별개로, Segment를 fsync로 영구화하고 translog를 비운다. refresh는 가시성, flush는 내구성을 담당한다.</p>
+<p>모든 쿼리가 Segment 수만큼 순회하므로 Lucene은 백그라운드 <strong>merge</strong>로 작은 Segment를 합치고, 이때 삭제 문서가 실제로 제거된다. <code>_forcemerge</code>는 이를 수동으로 강제하며 쓰기가 끝난 인덱스에서만 의미가 있다.</p>
+<h3>역색인 — Term Dictionary와 Posting List</h3>
+<p>역색인은 &quot;term → 등장 문서 ID 목록&quot; 매핑이다. <strong>Term Dictionary</strong>는 고유 term의 정렬 사전으로 FST로 압축되고, <strong>Posting List</strong>는 각 term에 매달린 정렬된 문서 ID 목록이다. AND 쿼리는 교집합, OR 쿼리는 합집합으로 풀린다. Posting List에 frequency·position·offset을 어디까지 기록할지는 <code>index_options</code>가 정한다.</p>
+<table>
+<thead>
+<tr>
+<th>index_options</th>
+<th>기록 항목</th>
+<th>가능한 기능</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>docs</code></td>
+<td>doc id</td>
+<td>존재 여부. keyword 기본값</td>
+</tr>
+<tr>
+<td><code>freqs</code></td>
+<td>+ frequency</td>
+<td>BM25 스코어링</td>
+</tr>
+<tr>
+<td><code>positions</code></td>
+<td>+ position</td>
+<td>match_phrase. text 기본값</td>
+</tr>
+<tr>
+<td><code>offsets</code></td>
+<td>+ offset</td>
+<td>빠른 highlighting</td>
+</tr>
+</tbody></table>
+<p>문서 ID는 delta 인코딩 후 블록 단위 비트 패킹(FOR·PFOR-Delta)으로 저장된다. text 필드는 analyzer를 거쳐 토큰 단위로, keyword 필드는 값 전체가 하나의 term으로 색인되므로 text는 부분 일치에, keyword는 정확 일치·정렬·집계에 맞다. 스코어링은 Lucene 6.0부터 BM25가 기본이다.</p>
+<h3>Analyzer — 세 단계 파이프라인</h3>
+<p>text 필드의 토큰은 Analyzer가 결정한다. <strong>Character filter</strong>(<code>html_strip</code>)가 문자열을 전처리하고, 정확히 하나의 <strong>Tokenizer</strong>(<code>standard</code>, <code>nori_tokenizer</code>)가 토큰으로 나누며, <strong>Token filter</strong>(<code>lowercase</code>, <code>stop</code>, <code>synonym</code>)가 순서대로 가공한다. 색인과 검색 양쪽에 같은 파이프라인이 적용되어야 term이 일치하며, edge n-gram 자동완성처럼 의도적으로 다르게 둘 때만 <code>search_analyzer</code>를 분리한다.</p>
+<h3>Doc Values — 문서 → 필드 값</h3>
+<p>역색인은 &quot;term → 문서&quot; 방향에만 빠르다. 정렬·집계·스크립트처럼 &quot;문서 → 필드 값&quot;을 읽기 위해 Lucene은 필드 값을 문서 ID 순으로 나열한 컬럼 지향 파일인 Doc Values를 둔다. keyword·numeric·date·boolean·geo_point는 기본으로 켜져 있고 text는 꺼져 있다. text 필드를 정렬·집계에 쓰면 fielddata가 JVM heap에 역색인을 뒤집어 올려 OOM의 원인이 된다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x에서 Elasticsearch Java API Client를 빈으로 등록한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ElasticsearchConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ElasticsearchClient</span> <span class="hljs-title function_">elasticsearchClient</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">RestClient</span> <span class="hljs-variable">restClient</span> <span class="hljs-operator">=</span> RestClient.builder(
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">HttpHost</span>(<span class="hljs-string">&quot;localhost&quot;</span>, <span class="hljs-number">9200</span>, <span class="hljs-string">&quot;http&quot;</span>)).build();
+        <span class="hljs-type">RestClientTransport</span> <span class="hljs-variable">transport</span> <span class="hljs-operator">=</span>
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">RestClientTransport</span>(restClient, <span class="hljs-keyword">new</span> <span class="hljs-title class_">JacksonJsonpMapper</span>());
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ElasticsearchClient</span>(transport);
+    }
+}</code></pre>
+<p>Posting List 기록 범위를 매핑에서 명시하고, 정렬용 keyword sub-field를 함께 둔다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductIndexService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductIndexService</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">createIndex</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+        client.indices().create(c -&gt; c
+            .index(<span class="hljs-string">&quot;products&quot;</span>)
+            .settings(s -&gt; s.refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;30s&quot;</span>)))
+            .mappings(m -&gt; m
+                .properties(<span class="hljs-string">&quot;title&quot;</span>, p -&gt; p.text(t -&gt; t
+                    .analyzer(<span class="hljs-string">&quot;standard&quot;</span>)
+                    .indexOptions(IndexOptions.Positions)
+                    .fields(<span class="hljs-string">&quot;raw&quot;</span>, f -&gt; f.keyword(k -&gt; k))))
+                .properties(<span class="hljs-string">&quot;body&quot;</span>, p -&gt; p.text(t -&gt; t
+                    .indexOptions(IndexOptions.Offsets)))
+                .properties(<span class="hljs-string">&quot;sku&quot;</span>, p -&gt; p.keyword(k -&gt; k
+                    .indexOptions(IndexOptions.Docs)))
+                .properties(<span class="hljs-string">&quot;price&quot;</span>, p -&gt; p.long_(l -&gt; l))));
+    }
+}</code></pre>
+<p>대량 색인 동안 refresh를 끄고 끝나면 복원하며, Segment 수를 확인한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">bulkWithRefreshDisabled</span><span class="hljs-params">(Runnable bulkJob)</span> <span class="hljs-keyword">throws</span> IOException {
+    client.indices().putSettings(s -&gt; s.index(<span class="hljs-string">&quot;products&quot;</span>)
+        .settings(x -&gt; x.refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;-1&quot;</span>))));
+    <span class="hljs-keyword">try</span> {
+        bulkJob.run();
+    } <span class="hljs-keyword">finally</span> {
+        client.indices().putSettings(s -&gt; s.index(<span class="hljs-string">&quot;products&quot;</span>)
+            .settings(x -&gt; x.refreshInterval(t -&gt; t.time(<span class="hljs-string">&quot;30s&quot;</span>))));
+        client.indices().refresh(r -&gt; r.index(<span class="hljs-string">&quot;products&quot;</span>));
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">segmentCount</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+    <span class="hljs-keyword">return</span> client.indices().segments(s -&gt; s.index(<span class="hljs-string">&quot;products&quot;</span>))
+        .indices().get(<span class="hljs-string">&quot;products&quot;</span>).shards().values().stream()
+        .flatMap(List::stream)
+        .mapToLong(sh -&gt; sh.segments().size())
+        .sum();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>refresh_interval 단축.</strong> 100ms 단위로 내리면 작은 Segment가 폭증해 merge 부하와 검색 지연이 함께 오른다. 로그성 인덱스는 30s~60s가 표준이고, 대량 bulk 중에는 <code>-1</code>로 껐다가 복원한다.</li>
+<li><strong>쓰기가 살아 있는 인덱스에 force merge.</strong> 대용량 IO가 노드를 장시간 점유하고, 합쳐진 거대 Segment는 자동 merge 후보에서 빠져 삭제 문서가 회수되지 않는다. ILM warm 단계처럼 읽기 전용이 보장된 시점에 자동화한다.</li>
+<li><strong>Segment 수천 개 누적.</strong> <code>ulimit -n</code> 한도에 걸리거나 P99 지연이 급등한다. 시간 데이터는 인덱스를 기간별로 나눈다.</li>
+<li><strong>text 필드 정렬·집계.</strong> <code>title.raw</code> 같은 keyword sub-field로 보낸다. <code>doc_values: false</code>는 정렬·집계가 없다고 확신하는 필드에만 적용하며, 되돌리려면 재색인이 필요하다.</li>
+<li><strong>색인·검색 analyzer 불일치.</strong> 색인에만 lowercase가 있으면 결과가 0건이 된다. 매핑에 <code>analyzer</code> 하나만 지정해 통일한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/what-is-elasticsearch/">Elasticsearch란 — Index·Document·Shard·Replica</a></li>
+<li><a href="/notes/elasticsearch/mapping-field-types/">Mapping과 Field Type</a></li>
+<li><a href="/notes/elasticsearch/analyzer-korean/">Analyzer와 한국어 분석 (Nori)</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Lucene, Inverted Index, Segment, Doc Values</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/what-is-elasticsearch/"><small>이전</small>Elasticsearch란 — Index·Document·Shard·Replica</a>
+  <a class="next" href="/notes/elasticsearch/quickstart/"><small>다음</small>Quickstart — Docker Compose·첫 요청·Kibana Dev Tools</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elasticsearch · Notes</title>
+  <meta name="description" content="분산 검색 엔진의 핵심 개념·Lucene 내부·매핑과 분석기·Query DSL·집계·벡터 검색·수집·클러스터 운영·Spring 통합까지.">
+  <meta property="og:title" content="Elasticsearch · Notes">
+  <meta property="og:description" content="분산 검색 엔진의 핵심 개념·Lucene 내부·매핑과 분석기·Query DSL·집계·벡터 검색·수집·클러스터 운영·Spring 통합까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Elasticsearch</span></nav>
+    <header class="series-head"><h1>Elasticsearch</h1><p>분산 검색 엔진의 핵심 개념·Lucene 내부·매핑과 분석기·Query DSL·집계·벡터 검색·수집·클러스터 운영·Spring 통합까지.</p><p class="count">22편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/elasticsearch/what-is-elasticsearch/"><span class="n">1</span><span class="t">Elasticsearch란 — Index·Document·Shard·Replica</span><span class="s">Elasticsearch는 Lucene 위의 분산 검색 엔진이며, Index·Document·Shard·Replica·Mapping 다섯 단위로 데이터를 나누고 복제한다.</span></a></li>
+<li><a href="/notes/elasticsearch/lucene-internals/"><span class="n">2</span><span class="t">Lucene 내부 — Segment·역색인·Posting List</span><span class="s">샤드 안의 Lucene이 Segment·역색인·Posting List·Doc Values를 어떻게 쌓고 읽는지, refresh·flush·merge가 왜 갈리는지 정리한다.</span></a></li>
+<li><a href="/notes/elasticsearch/quickstart/"><span class="n">3</span><span class="t">Quickstart — Docker Compose·첫 요청·Kibana Dev Tools</span><span class="s">Docker Compose로 ES와 Kibana를 띄우고 색인·조회·검색 한 사이클을 curl과 Dev Tools로 돌린다</span></a></li></ol></section>
+<section class="part-group"><h2>인덱스와 매핑</h2><ol class="toc"><li><a href="/notes/elasticsearch/index-management-ilm/"><span class="n">4</span><span class="t">Index 관리·ILM·Rollover</span><span class="s">인덱스는 생성 시점에 핵심 설정이 고정되므로 alias·template·ILM으로 갈아끼우는 구조를 처음부터 만든다</span></a></li>
+<li><a href="/notes/elasticsearch/document-crud-bulk-reindex/"><span class="n">5</span><span class="t">Document CRUD·Bulk·Reindex·Versioning</span><span class="s">Elasticsearch 문서 쓰기는 near-realtime·불변 세그먼트·낙관적 동시성 제어 위에서 Bulk 단위로 설계해야 한다</span></a></li>
+<li><a href="/notes/elasticsearch/mapping-field-types/"><span class="n">6</span><span class="t">Mapping과 Field Type</span><span class="s">Mapping은 한 번 색인되면 타입을 바꿀 수 없으므로 strict·multi-field·타입 명시를 처음부터 잡아야 한다</span></a></li>
+<li><a href="/notes/elasticsearch/analyzer-korean/"><span class="n">7</span><span class="t">Analyzer와 한국어 분석 (Nori)</span><span class="s">text 필드가 역색인에 들어가기까지의 3단계 분석 파이프라인과, 한국어 검색에서 Nori 토크나이저를 어떻게 구성해야 하는지 정리한다.</span></a></li>
+<li><a href="/notes/elasticsearch/document-modeling-reindex/"><span class="n">8</span><span class="t">검색 문서 모델링과 무중단 재색인</span><span class="s">필드 타입은 용도에서 결정하고, 매핑 변경은 alias 전환과 증분 색인으로 다운타임 없이 반영한다</span></a></li></ol></section>
+<section class="part-group"><h2>검색</h2><ol class="toc"><li><a href="/notes/elasticsearch/search-api-fulltext/"><span class="n">9</span><span class="t">Search API와 Full-text 쿼리</span><span class="s">_search 요청의 공통 뼈대와 analyzer를 거쳐 BM25로 점수를 매기는 full-text 쿼리 패밀리를 정리한다</span></a></li>
+<li><a href="/notes/elasticsearch/term-compound-queries/"><span class="n">10</span><span class="t">Term-level·Compound 쿼리</span><span class="s">정확 일치 조건은 bool.filter에, 점수가 필요한 풀텍스트만 must·should에 두는 이유와 조립 규칙</span></a></li>
+<li><a href="/notes/elasticsearch/search-features-suggesters/"><span class="n">11</span><span class="t">검색 기능 — highlight·페이징·Suggester</span><span class="s">깊은 페이지는 PIT + search_after, 자동완성은 completion 필드, 오타 교정은 term·phrase suggester로 분담한다</span></a></li></ol></section>
+<section class="part-group"><h2>집계와 고급 검색</h2><ol class="toc"><li><a href="/notes/elasticsearch/aggregations-metric-bucket/"><span class="n">12</span><span class="t">집계 — Metric·Bucket</span><span class="s">Metric은 숫자 하나를 계산하고 Bucket은 문서를 묶는다. 근사값 집계와 size·time_zone 함정을 정리한다.</span></a></li>
+<li><a href="/notes/elasticsearch/aggregations-pipeline/"><span class="n">13</span><span class="t">집계 — Pipeline</span><span class="s">Metric·Bucket 집계 결과 위에 변화량·이동 평균·누적·필터·정렬을 한 요청 안에서 얹는 방법과 buckets_path 규칙</span></a></li>
+<li><a href="/notes/elasticsearch/vector-search-knn/"><span class="n">14</span><span class="t">Vector Search·kNN</span><span class="s">dense_vector·HNSW·kNN 절로 별도 벡터 DB 없이 의미 검색을 구성하고 RRF로 BM25와 결합한다</span></a></li>
+<li><a href="/notes/elasticsearch/rag-hybrid-search/"><span class="n">15</span><span class="t">RAG·Hybrid Search</span><span class="s">BM25와 kNN을 RRF로 결합하고 reranker로 다시 정렬해 LLM에 넘기는 RAG 검색 단계를 Elasticsearch 한 쿼리로 구성한다</span></a></li></ol></section>
+<section class="part-group"><h2>수집</h2><ol class="toc"><li><a href="/notes/elasticsearch/ingest-pipeline-collectors/"><span class="n">16</span><span class="t">Ingest Pipeline과 수집기 (Logstash·Beats·Fluentd)</span><span class="s">색인 전 가공은 ES 안의 Ingest Pipeline이 맡고, 수집·전송은 Beats·Fluent Bit·Logstash·Vector 중 규모에 맞게 고른다</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/elasticsearch/cluster-operations-shard-allocation/"><span class="n">17</span><span class="t">클러스터 운영과 Shard Allocation</span><span class="s">master 정족수·rolling restart·decommission 절차와 awareness·filtering·watermark로 샤드 배치를 제어하는 방법</span></a></li>
+<li><a href="/notes/elasticsearch/snapshot-security/"><span class="n">18</span><span class="t">Snapshot·Restore와 보안 (RBAC)</span><span class="s">Replica는 백업이 아니다. S3 Repository·SLM으로 시점 백업을 자동화하고, API Key·Role·FLS/DLS·TLS로 접근을 통제한다.</span></a></li>
+<li><a href="/notes/elasticsearch/performance-tuning/"><span class="n">19</span><span class="t">성능 튜닝</span><span class="s">Heap·Thread Pool·Cache·Fielddata·Circuit Breaker 다섯 자리를 측정 기반으로 조정해 응답 시간과 색인 처리량을 끌어올린다</span></a></li></ol></section>
+<section class="part-group"><h2>통합과 클라우드</h2><ol class="toc"><li><a href="/notes/elasticsearch/spring-data-elasticsearch/"><span class="n">20</span><span class="t">Spring Data Elasticsearch</span><span class="s">단순 CRUD는 Repository, 복잡한 검색·집계는 Operations와 NativeQuery로 나누는 Spring 통합 기준을 정리한다</span></a></li>
+<li><a href="/notes/elasticsearch/kibana-cloud-opensearch-iac/"><span class="n">21</span><span class="t">Kibana·Elastic Cloud·OpenSearch·IaC</span><span class="s">Kibana로 데이터를 보고, Elastic Cloud와 AWS OpenSearch 중 하나를 고르고, 클러스터를 코드로 관리하는 기준</span></a></li>
+<li><a href="/notes/elasticsearch/decision-checklist/"><span class="n">22</span><span class="t">마무리 — 결정 트리와 체크리스트</span><span class="s">Elasticsearch 도입 여부와 배포 형태를 결정하는 질문 순서, 운영 30일 점검 항목, 반복되는 사고 유형을 한 페이지로 정리한다.</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

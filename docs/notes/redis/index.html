@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Redis · Notes</title>
+  <meta name="description" content="인메모리 데이터 구조 서버의 자료형·명령·캐싱과 락 패턴·영속성과 고가용성·보안·확장 모듈까지.">
+  <meta property="og:title" content="Redis · Notes">
+  <meta property="og:description" content="인메모리 데이터 구조 서버의 자료형·명령·캐싱과 락 패턴·영속성과 고가용성·보안·확장 모듈까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Redis</span></nav>
+    <header class="series-head"><h1>Redis</h1><p>인메모리 데이터 구조 서버의 자료형·명령·캐싱과 락 패턴·영속성과 고가용성·보안·확장 모듈까지.</p><p class="count">18편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/redis/what-is-redis/"><span class="n">1</span><span class="t">Redis란 — 역할 분담과 CLI 첫걸음</span><span class="s">Redis는 PostgreSQL을 대체하지 않는 인메모리 키-값 계층이며, 단일 스레드 atomic 명령이 핵심 가치다.</span></a></li></ol></section>
+<section class="part-group"><h2>데이터 타입</h2><ol class="toc"><li><a href="/notes/redis/data-types-overview/"><span class="n">2</span><span class="t">데이터 타입 개관</span><span class="s">Redis 데이터 타입 13종의 용도를 매핑하고, 읽기·쓰기 패턴에 따라 어떤 타입을 골라야 하는지 정리한다.</span></a></li>
+<li><a href="/notes/redis/string-hash/"><span class="n">3</span><span class="t">String·Hash — 값 캐싱과 객체 저장</span><span class="s">String은 값 하나·카운터·비트맵·락에, Hash는 부분 갱신이 잦은 flat 객체에 쓴다</span></a></li>
+<li><a href="/notes/redis/list-set/"><span class="n">4</span><span class="t">List·Set — 큐와 집합 연산</span><span class="s">List는 양 끝 O(1)의 큐, Set은 O(1) 멤버십과 집합 연산 — 언제 어느 쪽을 쓰고 어디서 무너지는가</span></a></li>
+<li><a href="/notes/redis/sorted-set/"><span class="n">5</span><span class="t">Sorted Set — 랭킹과 Rate Limiter</span><span class="s">score가 붙은 집합 하나로 Top N 랭킹·순위 조회·Sliding Window Rate Limiter·우선순위 큐를 O(log N)에 처리한다</span></a></li>
+<li><a href="/notes/redis/stream-pubsub/"><span class="n">6</span><span class="t">Stream·Pub/Sub — 영속 로그와 실시간 전파</span><span class="s">손실이 허용되는 실시간 신호는 Pub/Sub, 재처리와 ACK가 필요한 이벤트는 Stream Consumer Group으로 처리한다</span></a></li></ol></section>
+<section class="part-group"><h2>명령과 스크립트</h2><ol class="toc"><li><a href="/notes/redis/ttl-eviction-keyspace/"><span class="n">7</span><span class="t">TTL·Eviction·Keyspace Notification</span><span class="s">키 수명은 TTL, 메모리 한계는 maxmemory-policy, 만료 후속 처리는 Keyspace Notification이 맡되 각각의 정확성 한계를 안다</span></a></li>
+<li><a href="/notes/redis/pipelining-transactions/"><span class="n">8</span><span class="t">Pipelining·Transaction·WATCH</span><span class="s">Pipelining은 왕복을 줄이고 MULTI/EXEC는 격리만 보장한다. 롤백은 없고 조건부 갱신은 WATCH 재시도로 푼다.</span></a></li>
+<li><a href="/notes/redis/lua-scripting-functions/"><span class="n">9</span><span class="t">Lua Scripting과 Functions</span><span class="s">조건부 로직을 서버 안에서 원자적으로 묶는 EVAL과, 그 휘발성·익명성을 없앤 Redis 7 Functions의 사용법과 함정</span></a></li></ol></section>
+<section class="part-group"><h2>패턴</h2><ol class="toc"><li><a href="/notes/redis/caching-patterns-stampede/"><span class="n">10</span><span class="t">캐싱 패턴 — Cache-Aside·스탬피드·Hot Key</span><span class="s">캐시 읽기·쓰기 패턴 4종을 비교하고, 동시 만료 폭주와 단일 키 쏠림을 락·조기 갱신·지터·키 분산으로 막는 방법을 정리한다.</span></a></li>
+<li><a href="/notes/redis/distributed-lock-redlock/"><span class="n">11</span><span class="t">분산 락 — SET NX와 Redlock</span><span class="s">단일 인스턴스 SET NX 락이 보장하는 것과 못 하는 것, Redlock의 quorum 모델과 fencing token이 필요한 경계를 정리한다.</span></a></li>
+<li><a href="/notes/redis/secondary-index-fanout-id/"><span class="n">12</span><span class="t">Secondary Index·Fanout·분산 ID</span><span class="s">키-값 모델에서 속성 조회·팔로워 피드·충돌 없는 ID를 자료구조 조합으로 풀어내는 세 가지 패턴</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/redis/persistence-rdb-aof/"><span class="n">13</span><span class="t">Persistence — RDB·AOF·Hybrid</span><span class="s">RDB 스냅샷·AOF 로그·Hybrid의 RPO/RTO 트레이드오프와 fsync 정책, fork 비용을 기준으로 영속화 옵션을 고른다.</span></a></li>
+<li><a href="/notes/redis/replication-sentinel/"><span class="n">14</span><span class="t">Replication과 Sentinel</span><span class="s">비동기 복제로 읽기를 분산하고 Sentinel의 quorum 합의로 master 장애를 자동 승격하는 원리와 함정</span></a></li>
+<li><a href="/notes/redis/cluster-consistent-hashing/"><span class="n">15</span><span class="t">Cluster와 일관된 해싱</span><span class="s">단일 인스턴스의 메모리·쓰기 한계를 넘기 위한 샤딩 — 해시 링과 16384 슬롯이 키 이동을 최소화하는 원리</span></a></li>
+<li><a href="/notes/redis/security-acl-tls/"><span class="n">16</span><span class="t">보안 — ACL·TLS</span><span class="s">default 사용자 잠금과 ACL 최소 권한, 그리고 클라이언트·복제·클러스터 버스까지 TLS로 닫는 방법</span></a></li>
+<li><a href="/notes/redis/memory-clients/"><span class="n">17</span><span class="t">메모리 최적화와 클라이언트 (Jedis·Lettuce)</span><span class="s">인코딩 임계값과 키 오버헤드로 메모리를 줄이고, 연결 모델 차이로 Jedis와 Lettuce를 고르는 기준을 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>확장 모듈</h2><ol class="toc"><li><a href="/notes/redis/modules-json-search-ts-vector/"><span class="n">18</span><span class="t">확장 모듈 — JSON·Search·TimeSeries·Vector</span><span class="s">기본 자료구조로 흉내내던 문서·검색·시계열·벡터 워크로드를 Redis 모듈이 어떻게 1급으로 처리하는지 정리한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

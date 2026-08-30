@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ItemReader·ItemWriter 인터페이스와 구현체 카탈로그 · Spring Batch</title>
+  <meta name="description" content="read()의 null 종료·forward-only 계약과 write(Chunk)의 멱등성 책임을 기준으로 표준 구현체를 고르는 법">
+  <meta property="og:title" content="ItemReader·ItemWriter 인터페이스와 구현체 카탈로그 · Spring Batch">
+  <meta property="og:description" content="read()의 null 종료·forward-only 계약과 write(Chunk)의 멱등성 책임을 기준으로 표준 구현체를 고르는 법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/reader-writer-interfaces/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>ItemReader·ItemWriter 인터페이스와 구현체 카탈로그</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Reader·Processor·Writer</p>
+  <h1>ItemReader·ItemWriter 인터페이스와 구현체 카탈로그</h1>
+  <p class="summary">read()의 null 종료·forward-only 계약과 write(Chunk)의 멱등성 책임을 기준으로 표준 구현체를 고르는 법</p>
+  <div class="content">
+<p>입출력을 소스별로 따로 짜면 CSV 파서, JDBC 커서, Kafka 컨슈머가 각자 다른 종료 조건과 재시작 규칙을 갖게 되고, Step의 skip·retry 로직이 그 차이를 흡수하지 못한다. Spring Batch는 읽기와 쓰기를 메서드 하나짜리 인터페이스로 고정하고 그 위에 표준 구현체를 제공한다.</p>
+<h2>핵심 개념</h2>
+<h3>ItemReader의 read() 계약</h3>
+<p><code>ItemReader&lt;T&gt;</code>는 <code>T read()</code> 하나만 가진다. 호출 한 번이 item 하나를 돌려주고 더 이상 없으면 <code>null</code>을 반환한다. <code>null</code>이 Step 종료 신호이므로 0건 조회에서도 예외를 던지지 않는다.</p>
+<p>Reader는 forward-only다. JMS·Kafka 같은 transactional 소스는 rollback 시 같은 item을 다시 read하지만, 파일·DB cursor는 그렇지 않으므로 <code>ItemStream</code>으로 <code>ExecutionContext</code>에 위치를 저장하고 재시작 시 <code>open()</code>에서 복원한다.</p>
+<h3>ItemWriter의 write(Chunk) 계약</h3>
+<p><code>ItemWriter&lt;T&gt;</code>는 <code>void write(Chunk&lt;? extends T&gt; items)</code> 하나를 가진다. commit-interval만큼 모인 묶음을 한 트랜잭션 안에서 처리한다. 빈 chunk로도 호출되므로 <code>isEmpty()</code> 가드가 필요하다.</p>
+<p><code>write()</code>가 예외를 던지면 chunk가 rollback되고 retry가 같은 묶음으로 다시 호출한다. 외부 API 호출이나 파일 append는 되돌아가지 않으므로 Writer는 멱등해야 한다. UPSERT와 idempotency key를 쓴다.</p>
+<h3>Delegate Pattern과 Step 등록</h3>
+<p><code>.reader()</code>·<code>.writer()</code>에 직접 넘긴 객체는 <code>ItemStream</code>을 구현했을 때 자동 등록된다. wrapper 안의 delegate는 Step이 알지 못해 <code>open</code>·<code>update</code>·<code>close</code>가 호출되지 않으므로 <code>.stream(delegate)</code>로 명시 등록한다. delegate의 <code>ItemStream</code> 호출을 내부에서 전파하는 표준 wrapper는 예외다.</p>
+<h3>표준 구현체 카탈로그</h3>
+<table>
+<thead>
+<tr>
+<th align="left">범주</th>
+<th align="left">Reader</th>
+<th align="left">Writer</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">File</td>
+<td align="left"><code>FlatFileItemReader</code>, <code>StaxEventItemReader</code></td>
+<td align="left"><code>FlatFileItemWriter</code>, <code>StaxEventItemWriter</code></td>
+</tr>
+<tr>
+<td align="left">DB</td>
+<td align="left"><code>JdbcCursorItemReader</code>, <code>JdbcPagingItemReader</code></td>
+<td align="left"><code>JdbcBatchItemWriter</code>, <code>JpaItemWriter</code></td>
+</tr>
+<tr>
+<td align="left">Messaging</td>
+<td align="left"><code>KafkaItemReader</code>, <code>JmsItemReader</code></td>
+<td align="left"><code>KafkaItemWriter</code>, <code>JmsItemWriter</code></td>
+</tr>
+<tr>
+<td align="left">Decorator</td>
+<td align="left"><code>SynchronizedItemStreamReader</code></td>
+<td align="left"><code>CompositeItemWriter</code>, <code>ClassifierCompositeItemWriter</code>, <code>MultiResourceItemWriter</code></td>
+</tr>
+</tbody></table>
+<p>cursor Reader는 connection 하나로 row를 스트리밍해 메모리 점유가 낮지만 timeout 위험이 있고, paging Reader는 page마다 connection을 반납해 장시간 실행에 안전하다. <code>JdbcBatchItemWriter</code>는 chunk 전체를 한 batch로 보내고, <code>JpaItemWriter</code>는 <code>merge()</code>를 건별로 호출한다. Decorator는 기존 구현체에 한 겹을 더해 thread-safety·파일 분할·라우팅을 맡는다.</p>
+<h2>코드</h2>
+<p>재시작 가능한 custom Reader. <code>setName()</code>이 <code>ExecutionContext</code> key의 prefix가 된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ResumableListReader</span>&lt;T&gt; <span class="hljs-keyword">extends</span> <span class="hljs-title class_">ItemStreamSupport</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemReader</span>&lt;T&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">INDEX_KEY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;index&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> List&lt;T&gt; items;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> <span class="hljs-variable">index</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ResumableListReader</span><span class="hljs-params">(List&lt;T&gt; items)</span> {
+        <span class="hljs-built_in">this</span>.items = items;
+        setName(<span class="hljs-string">&quot;listReader&quot;</span>);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">open</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-built_in">super</span>.open(context);
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> getExecutionContextKey(INDEX_KEY);
+        <span class="hljs-keyword">if</span> (context.containsKey(key)) {
+            index = context.getInt(key);
+        }
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-built_in">super</span>.update(context);
+        context.putInt(getExecutionContextKey(INDEX_KEY), index);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">T</span> <span class="hljs-title function_">read</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> index &lt; items.size() ? items.get(index++) : <span class="hljs-literal">null</span>;
+    }
+}</code></pre>
+<p>멱등 Writer. UPSERT가 retry 시 중복 INSERT를 막고, 외부 API Writer는 idempotency key를 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">JdbcBatchItemWriter</span>&lt;Customer&gt; <span class="hljs-title function_">customerWriter</span><span class="hljs-params">(DataSource dataSource)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcBatchItemWriterBuilder</span>&lt;Customer&gt;()
+        .dataSource(dataSource)
+        .sql(<span class="hljs-string">&quot;&quot;&quot;
+            INSERT INTO customers (id, name, email)
+            VALUES (:id, :name, :email)
+            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email
+            &quot;&quot;&quot;</span>)
+        .beanMapped()
+        .build();
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ExternalApiWriter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemWriter</span>&lt;Notification&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApiClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ExternalApiWriter</span><span class="hljs-params">(ApiClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">write</span><span class="hljs-params">(Chunk&lt;? extends Notification&gt; items)</span> {
+        <span class="hljs-keyword">if</span> (items.isEmpty()) {
+            <span class="hljs-keyword">return</span>;
+        }
+        <span class="hljs-keyword">for</span> (Notification n : items) {
+            client.send(n.id(), n);   <span class="hljs-comment">// id 를 idempotency key 로 사용</span>
+        }
+    }
+}</code></pre>
+<p>Decorator 조합. DB 라우팅과 thread-safe 파일 Writer를 <code>CompositeItemWriter</code>로 묶는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">ClassifierCompositeItemWriter</span>&lt;Order&gt; <span class="hljs-title function_">dbRouter</span><span class="hljs-params">(
+        JdbcBatchItemWriter&lt;Order&gt; regularWriter,
+        JdbcBatchItemWriter&lt;Order&gt; priorityWriter)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ClassifierCompositeItemWriterBuilder</span>&lt;Order&gt;()
+        .classifier(order -&gt; order.priority() ? priorityWriter : regularWriter)
+        .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">SynchronizedItemStreamWriter</span>&lt;Order&gt; <span class="hljs-title function_">auditWriter</span><span class="hljs-params">(FlatFileItemWriter&lt;Order&gt; fileWriter)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SynchronizedItemStreamWriterBuilder</span>&lt;Order&gt;()
+        .delegate(fileWriter)
+        .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">CompositeItemWriter</span>&lt;Order&gt; <span class="hljs-title function_">orderWriter</span><span class="hljs-params">(
+        ClassifierCompositeItemWriter&lt;Order&gt; dbRouter,
+        SynchronizedItemStreamWriter&lt;Order&gt; auditWriter)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">CompositeItemWriterBuilder</span>&lt;Order&gt;()
+        .delegates(List.of(dbRouter, auditWriter))
+        .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">orderStep</span><span class="hljs-params">(JobRepository jobRepository, PlatformTransactionManager txManager,
+                      ItemReader&lt;Order&gt; orderReader, CompositeItemWriter&lt;Order&gt; orderWriter)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;orderStep&quot;</span>, jobRepository)
+        .&lt;Order, Order&gt;chunk(<span class="hljs-number">100</span>, txManager)
+        .reader(orderReader)
+        .writer(orderWriter)
+        .build();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Reader의 thread-safety.</strong> <code>FlatFileItemReader</code>·<code>JdbcCursorItemReader</code>는 multi-threaded Step에서 <code>SynchronizedItemStreamReader</code>로 감싸거나 partitioning으로 바꾼다.</li>
+<li><strong>Cursor connection timeout.</strong> <code>JdbcCursorItemReader</code>는 Step 종료까지 connection을 붙들어 idle timeout에 걸린다.</li>
+<li><strong>CompositeItemWriter의 부분 실패.</strong> 파일 delegate가 실패하면 chunk는 rollback되지만 파일 기록은 남는다. 파일 출력은 Step을 분리한다.</li>
+<li><strong>JpaItemWriter의 batch insert.</strong> <code>hibernate.jdbc.batch_size</code> 설정과 <code>SEQUENCE</code> ID 전략일 때만 JDBC batch가 동작한다.</li>
+<li><strong>Classifier의 default branch.</strong> classifier가 <code>null</code>을 돌려주면 NPE가 나므로 default delegate를 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/database-reader-writer/">Database Reader·Writer — Cursor vs Paging</a></li>
+<li><a href="/notes/spring-batch/scaling-partitioning/">Scaling — Multi-thread·Partitioning·Remote Chunking</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, ItemReader, ItemWriter, Delegate Pattern, CompositeItemWriter</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/transaction-attributes-repeat/"><small>이전</small>트랜잭션 속성과 Repeat</a>
+  <a class="next" href="/notes/spring-batch/flat-file-reader-writer/"><small>다음</small>Flat File Reader·Writer</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

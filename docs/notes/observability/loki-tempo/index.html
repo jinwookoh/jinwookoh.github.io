@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loki·LogQL과 Tempo·TraceQL · 관측성</title>
+  <meta name="description" content="Loki와 Tempo는 인덱스를 최소화하고 object storage에 저장해 비용을 낮추며, trace_id로 세 신호를 잇는다">
+  <meta property="og:title" content="Loki·LogQL과 Tempo·TraceQL · 관측성">
+  <meta property="og:description" content="Loki와 Tempo는 인덱스를 최소화하고 object storage에 저장해 비용을 낮추며, trace_id로 세 신호를 잇는다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/loki-tempo/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/observability/">관측성</a><span class="sep">›</span><span>Loki·LogQL과 Tempo·TraceQL</span></nav>
+    <article class="post">
+  <p class="part">관측성 · 수집과 저장</p>
+  <h1>Loki·LogQL과 Tempo·TraceQL</h1>
+  <p class="summary">Loki와 Tempo는 인덱스를 최소화하고 object storage에 저장해 비용을 낮추며, trace_id로 세 신호를 잇는다</p>
+  <div class="content">
+<p>메트릭은 에러율이 튀었다는 사실만 알려 준다. 어떤 요청이 어디서 왜 실패했는지는 로그와 트레이스가 답하는데, 로그를 Elasticsearch에 전문 인덱싱하거나 모든 span을 저장하면 비용이 감당되지 않는다. Loki와 Tempo는 인덱스를 최소화하고 압축 데이터를 object storage에 두는 같은 설계로 이 문제에 답한다.</p>
+<h2>핵심 개념</h2>
+<h3>Loki — label만 인덱싱한다</h3>
+<p>Loki는 로그 본문을 인덱싱하지 않는다. label 집합만 TSDB 인덱스에 올리고, 같은 label 조합의 로그 묶음을 stream이라 부른다. 로그는 압축된 chunk로 S3·GCS에 저장되고, 검색은 label로 stream을 좁힌 뒤 chunk를 스캔한다.</p>
+<p>label에는 정적 메타데이터만 둔다. request_id·user_id를 label로 쓰면 stream이 폭증해 Prometheus의 cardinality 장애와 같은 일이 난다. 동적 값은 로그 라인에 남기고 parser로 꺼낸다. 수집 agent는 Promtail 대신 Alloy가 권장이며, 배포 모드는 100GB/일 미만이면 Single Binary, 5TB/일까지는 Simple Scalable, 그 이상은 Microservices다.</p>
+<h3>LogQL — 파이프라인으로 좁히고 시계열로 바꾼다</h3>
+<p>표현식은 stream selector로 시작해 파이프 단계를 거친다. line filter(<code>|=</code>, <code>!=</code>, <code>|~</code>, <code>!~</code>)가 원문을 거르고, parser(<code>| json</code>, <code>| logfmt</code>, <code>| pattern</code>)가 field를 추출하며, label filter(<code>| status &gt;= 500</code>)가 그 field를 비교한다. <code>rate</code>·<code>count_over_time</code>을 감싸면 로그가 시계열이 되어 alert rule에서 Prometheus metric처럼 쓰인다.</p>
+<h3>Tempo와 TraceQL</h3>
+<p>trace는 한 요청의 전체 경로이고, span은 그 안의 작업 단위로 trace_id·parent_span_id·service.name·duration·status를 가진다. Tempo는 OTLP·Jaeger·Zipkin을 수신하며 신규 계측은 OpenTelemetry를 쓴다. 압축 block을 object storage에 두고, trace_id 직접 조회는 즉시 끝나며 조건 검색은 bloom filter로 후보 block을 거른 뒤 스캔한다.</p>
+<p>TraceQL은 <code>{ resource.service.name = &quot;api&quot; &amp;&amp; span.http.status_code = 500 }</code>처럼 attribute를 필터하고 <code>| avg(duration) &gt; 500ms</code> 같은 aggregate를 붙인다. 차별점은 구조 연산자다. <code>&gt;</code>는 직접 자식, <code>&gt;&gt;</code>는 후손, <code>~</code>는 형제 관계를 뜻해 &quot;frontend가 호출한 db span 중 느린 것&quot;처럼 흐름 자체를 조건으로 건다.</p>
+<h3>세 신호를 잇는 장치</h3>
+<p>Tempo의 Metric Generator는 trace에서 RED metric(<code>traces_spanmetrics_*</code>)과 호출 관계 metric(<code>traces_service_graph_*</code>)을 만들어 Prometheus로 보내고, Grafana는 이를 Service Graph로 그린다. Exemplar는 histogram sample에 trace_id를 붙여 p99 그래프의 점에서 trace로 이동하게 한다. Loki의 Derived Field는 로그의 trace_id를 Tempo 링크로 바꾸고, Tempo의 Trace to logs는 span에서 같은 trace_id의 로그를 연다.</p>
+<p>sampling은 tail 방식을 쓴다. head sampling은 에러 trace도 같은 비율로 버리지만, tail sampling은 trace가 끝난 뒤 에러·느린 trace를 전부 남기고 정상 trace만 일부 남긴다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x에서 Micrometer Tracing을 OTLP로 보내고 로그에 trace_id를 넣는 설정이다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">management:</span>
+  <span class="hljs-attr">tracing:</span>
+    <span class="hljs-attr">sampling:</span>
+      <span class="hljs-attr">probability:</span> <span class="hljs-number">1.0</span>        <span class="hljs-comment"># sampling 결정은 Collector의 tail sampling에 맡긴다</span>
+  <span class="hljs-attr">otlp:</span>
+    <span class="hljs-attr">tracing:</span>
+      <span class="hljs-attr">endpoint:</span> <span class="hljs-string">http://otel-collector:4318/v1/traces</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">health,prometheus</span>
+
+<span class="hljs-attr">logging:</span>
+  <span class="hljs-attr">pattern:</span>
+    <span class="hljs-attr">level:</span> <span class="hljs-string">&quot;%5p [${spring.application.name},trace_id=%X{traceId:-},span_id=%X{spanId:-}]&quot;</span></code></pre>
+<p>HTTP 자동 계측 위에 비즈니스 경계에만 span을 추가한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> io.micrometer.observation.Observation;
+<span class="hljs-keyword">import</span> io.micrometer.observation.ObservationRegistry;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ObservationRegistry registry;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentClient paymentClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(ObservationRegistry registry,
+                        PaymentClient paymentClient,
+                        OrderRepository orderRepository)</span> {
+        <span class="hljs-built_in">this</span>.registry = registry;
+        <span class="hljs-built_in">this</span>.paymentClient = paymentClient;
+        <span class="hljs-built_in">this</span>.orderRepository = orderRepository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">create</span><span class="hljs-params">(OrderRequest request)</span> {
+        <span class="hljs-keyword">return</span> Observation.createNotStarted(<span class="hljs-string">&quot;order.create&quot;</span>, registry)
+            .lowCardinalityKeyValue(<span class="hljs-string">&quot;order.currency&quot;</span>, request.currency())
+            .observe(() -&gt; {
+                <span class="hljs-type">PaymentResult</span> <span class="hljs-variable">payment</span> <span class="hljs-operator">=</span> Observation
+                    .createNotStarted(<span class="hljs-string">&quot;order.payment&quot;</span>, registry)
+                    .observe(() -&gt; paymentClient.charge(request));
+                <span class="hljs-keyword">return</span> orderRepository.save(Order.of(request, payment.transactionId()));
+            });
+    }
+}</code></pre>
+<p>OTel Collector는 tail sampling으로 에러·느린 trace를 보존하고 민감 attribute를 지운 뒤 Tempo로 보낸다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">receivers:</span>
+  <span class="hljs-attr">otlp:</span>
+    <span class="hljs-attr">protocols:</span>
+      <span class="hljs-attr">grpc:</span> { <span class="hljs-attr">endpoint:</span> <span class="hljs-number">0.0</span><span class="hljs-number">.0</span><span class="hljs-number">.0</span><span class="hljs-string">:4317</span> }
+      <span class="hljs-attr">http:</span> { <span class="hljs-attr">endpoint:</span> <span class="hljs-number">0.0</span><span class="hljs-number">.0</span><span class="hljs-number">.0</span><span class="hljs-string">:4318</span> }
+
+<span class="hljs-attr">processors:</span>
+  <span class="hljs-attr">batch:</span>
+    <span class="hljs-attr">timeout:</span> <span class="hljs-string">10s</span>
+  <span class="hljs-attr">tail_sampling:</span>
+    <span class="hljs-attr">decision_wait:</span> <span class="hljs-string">10s</span>
+    <span class="hljs-attr">policies:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">errors</span>
+        <span class="hljs-attr">type:</span> <span class="hljs-string">status_code</span>
+        <span class="hljs-attr">status_code:</span> { <span class="hljs-attr">status_codes:</span> [<span class="hljs-string">ERROR</span>] }
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">slow</span>
+        <span class="hljs-attr">type:</span> <span class="hljs-string">latency</span>
+        <span class="hljs-attr">latency:</span> { <span class="hljs-attr">threshold_ms:</span> <span class="hljs-number">1000</span> }
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">baseline</span>
+        <span class="hljs-attr">type:</span> <span class="hljs-string">probabilistic</span>
+        <span class="hljs-attr">probabilistic:</span> { <span class="hljs-attr">sampling_percentage:</span> <span class="hljs-number">5</span> }
+  <span class="hljs-attr">attributes/redact:</span>
+    <span class="hljs-attr">actions:</span>
+      <span class="hljs-bullet">-</span> { <span class="hljs-attr">key:</span> <span class="hljs-string">user.email</span>, <span class="hljs-attr">action:</span> <span class="hljs-string">delete</span> }
+      <span class="hljs-bullet">-</span> { <span class="hljs-attr">key:</span> <span class="hljs-string">http.request.body</span>, <span class="hljs-attr">action:</span> <span class="hljs-string">delete</span> }
+
+<span class="hljs-attr">exporters:</span>
+  <span class="hljs-attr">otlp/tempo:</span>
+    <span class="hljs-attr">endpoint:</span> <span class="hljs-string">tempo:4317</span>
+    <span class="hljs-attr">tls:</span> { <span class="hljs-attr">insecure:</span> <span class="hljs-literal">true</span> }
+
+<span class="hljs-attr">service:</span>
+  <span class="hljs-attr">pipelines:</span>
+    <span class="hljs-attr">traces:</span>
+      <span class="hljs-attr">receivers:</span> [<span class="hljs-string">otlp</span>]
+      <span class="hljs-attr">processors:</span> [<span class="hljs-string">batch</span>, <span class="hljs-string">tail_sampling</span>, <span class="hljs-string">attributes/redact</span>]
+      <span class="hljs-attr">exporters:</span> [<span class="hljs-string">otlp/tempo</span>]</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>LogQL 단계 순서가 성능을 결정한다.</strong> selector는 app까지 좁히고, line filter는 매칭이 적은 패턴을 먼저 두며, <code>| json</code> parser는 양을 줄인 뒤 마지막에 건다.</li>
+<li><strong>retention은 compactor가 켜져야 실제로 삭제된다.</strong> <code>retention_period</code>만 두고 <code>compactor.retention_enabled: true</code>를 빼면 저장소가 끝없이 커진다.</li>
+<li><strong>Metric Generator의 dimension이 cardinality를 만든다.</strong> service × operation × status에 dimension을 더할수록 시계열이 곱으로 늘어나므로 실제로 쓰는 것만 남긴다.</li>
+<li><strong>service.name이 흔들리면 Service Graph와 Trace to logs가 끊긴다.</strong> <code>spring.application.name</code>을 배포 설정에서 일원화한다.</li>
+<li><strong>PII는 저장 전에 지운다.</strong> 이메일·카드번호는 Alloy stage와 Collector의 attributes processor에서 걸러야 object storage에 남지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/observability/three-pillars-lgtm/">관측성 3 pillar와 LGTM 스택·Micrometer facade</a></li>
+<li><a href="/notes/observability/prometheus-promql/">Prometheus와 PromQL</a></li>
+<li><a href="/notes/observability/iac-cloud-opentelemetry/">IaC·Cloud·OpenTelemetry 연동</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Loki, LogQL, Tempo, TraceQL, OpenTelemetry</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/observability/prometheus-promql/"><small>이전</small>Prometheus와 PromQL</a>
+  <a class="next" href="/notes/observability/grafana-dashboards/"><small>다음</small>Grafana Dashboard·Panel·Variable</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

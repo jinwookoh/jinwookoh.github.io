@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream·Pub/Sub — 영속 로그와 실시간 전파 · Redis</title>
+  <meta name="description" content="손실이 허용되는 실시간 신호는 Pub/Sub, 재처리와 ACK가 필요한 이벤트는 Stream Consumer Group으로 처리한다">
+  <meta property="og:title" content="Stream·Pub/Sub — 영속 로그와 실시간 전파 · Redis">
+  <meta property="og:description" content="손실이 허용되는 실시간 신호는 Pub/Sub, 재처리와 ACK가 필요한 이벤트는 Stream Consumer Group으로 처리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/stream-pubsub/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>Stream·Pub/Sub — 영속 로그와 실시간 전파</span></nav>
+    <article class="post">
+  <p class="part">Redis · 데이터 타입</p>
+  <h1>Stream·Pub/Sub — 영속 로그와 실시간 전파</h1>
+  <p class="summary">손실이 허용되는 실시간 신호는 Pub/Sub, 재처리와 ACK가 필요한 이벤트는 Stream Consumer Group으로 처리한다</p>
+  <div class="content">
+<p>서버 인스턴스가 여러 대로 늘어나면 캐시 무효화, 사용자 알림, 주문 이벤트 후속 처리를 인스턴스 간에 전달해야 한다. List를 큐로 쓰면 한 메시지가 한 워커에게만 가고, LPOP 직후 워커가 죽으면 메시지가 사라지며, 여러 서비스가 같은 이벤트를 각자 받는 구조도 만들 수 없다. Redis는 이 자리에 두 도구를 둔다. Pub/Sub는 저장 없이 즉시 전파하고, Stream은 추가 전용 로그에 쌓아 Consumer Group으로 나눠 처리한다.</p>
+<h2>핵심 개념</h2>
+<h3>Pub/Sub — 저장하지 않는 전파</h3>
+<p><code>PUBLISH channel message</code>는 그 순간 해당 채널을 <code>SUBSCRIBE</code>하고 있는 클라이언트에게만 메시지를 보낸다. 반환값은 받은 구독자 수이며 0이면 아무도 받지 못한 채 사라진 것이다. 서버가 메시지를 저장하지 않으므로 재처리·ACK·과거 조회가 불가능하다. <code>PSUBSCRIBE news.*</code>처럼 와일드카드 패턴 구독이 가능하고, <code>PUBSUB CHANNELS</code>·<code>NUMSUB</code>로 상태를 확인한다. 구독 모드 연결은 구독 관련 명령과 PING·QUIT 외의 일반 명령을 거부하므로 발행용 연결과 분리한다.</p>
+<p>Cluster에서는 전통 Pub/Sub가 어느 노드에 구독자가 있는지 모르기 때문에 모든 노드로 broadcast하며, 노드 수에 비례해 비용이 커진다. Redis 7의 Sharded Pub/Sub(<code>SPUBLISH</code>·<code>SSUBSCRIBE</code>)는 채널 이름의 슬롯을 계산해 해당 shard 안에서만 메시지를 흘린다. 비용이 일정해지는 대신 구독자가 같은 shard에 연결되어야 하고 패턴 구독은 지원하지 않는다.</p>
+<h3>Stream — 추가 전용 로그</h3>
+<p><code>XADD key * field value ...</code>는 항목을 로그 끝에 붙이고 <code>&lt;밀리초&gt;-&lt;시퀀스&gt;</code> 형식의 단조 증가 ID를 돌려준다. <code>XRANGE key - +</code>로 범위를 조회하고 <code>XREAD BLOCK 0 STREAMS key $</code>로 새 항목을 기다린다. <code>0</code>은 처음부터, <code>$</code>는 현재 이후만을 뜻한다. 필드 값은 문자열만 저장되므로 객체는 JSON으로 직렬화한다.</p>
+<p><code>XREAD</code>로 여러 인스턴스가 같은 스트림을 읽으면 전부가 같은 메시지를 처리한다. 부하를 나누려면 Consumer Group을 만든다.</p>
+<ol>
+<li><code>XGROUP CREATE key group $ MKSTREAM</code> — 그룹 생성. <code>$</code>는 생성 이후, <code>0</code>은 처음부터 소비한다.</li>
+<li><code>XREADGROUP GROUP group consumer COUNT 10 STREAMS key &gt;</code> — <code>&gt;</code>는 그룹의 누구에게도 전달되지 않은 항목만 가져온다. 항목은 한 소비자에게만 배정되며 동시에 PEL(Pending Entries List)에 등록된다.</li>
+<li><code>XACK key group id</code> — 처리 완료를 알리고 PEL에서 제거한다.</li>
+<li><code>XPENDING key group</code> — 미ACK 항목을 확인한다. <code>XAUTOCLAIM key group consumer 30000 0-0</code>은 30초 이상 ACK되지 않은 항목을 다른 소비자로 넘긴다.</li>
+</ol>
+<p>죽은 워커의 항목을 회수해 다시 처리하므로 at-least-once가 성립한다. 그룹이 여러 개면 각 그룹이 같은 메시지를 독립적으로 받는다.</p>
+<h3>세 도구의 보장 수준</h3>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left">Pub/Sub</th>
+<th align="left">List</th>
+<th align="left">Stream</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">영속성</td>
+<td align="left">없음</td>
+<td align="left">있음</td>
+<td align="left">있음</td>
+</tr>
+<tr>
+<td align="left">재처리</td>
+<td align="left">불가</td>
+<td align="left">LMOVE 패턴으로 보완</td>
+<td align="left">가능</td>
+</tr>
+<tr>
+<td align="left">다중 소비자 그룹</td>
+<td align="left">각자 SUBSCRIBE</td>
+<td align="left">불가</td>
+<td align="left">가능</td>
+</tr>
+<tr>
+<td align="left">그룹 내 부하 분산</td>
+<td align="left">불가</td>
+<td align="left">BLPOP 경합</td>
+<td align="left">가능</td>
+</tr>
+<tr>
+<td align="left">ACK·워커 사망 복구</td>
+<td align="left">없음</td>
+<td align="left">없음</td>
+<td align="left">XACK·XAUTOCLAIM</td>
+</tr>
+</tbody></table>
+<p>Stream은 Kafka와 로그·Consumer Group·ACK 모델이 같지만, Kafka는 디스크 기반이라 TB 단위 보존과 파티션 자동 분산을 제공하고 Stream은 메모리 기반이라 <code>MAXLEN</code> 트림이 필수다. 이미 Redis가 있고 소~중규모면 Stream, 영구 보존과 대용량 처리량이 결정적이면 Kafka를 택한다.</p>
+<h2>코드</h2>
+<p><code>StringRedisTemplate</code>으로 주문 이벤트를 발행하고 <code>MAXLEN ~ 10000</code> 근사 트림을 함께 건다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.RecordId;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.StreamRecords;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEventPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">STREAM</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;orders:stream&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderEventPublisher</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">RecordId</span> <span class="hljs-title function_">publish</span><span class="hljs-params">(<span class="hljs-type">long</span> orderId, <span class="hljs-type">long</span> amount, <span class="hljs-type">long</span> userId)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">record</span> <span class="hljs-operator">=</span> StreamRecords.newRecord()
+                .in(STREAM)
+                .ofMap(Map.of(
+                        <span class="hljs-string">&quot;order_id&quot;</span>, String.valueOf(orderId),
+                        <span class="hljs-string">&quot;amount&quot;</span>, String.valueOf(amount),
+                        <span class="hljs-string">&quot;user&quot;</span>, String.valueOf(userId)));
+        <span class="hljs-type">RecordId</span> <span class="hljs-variable">id</span> <span class="hljs-operator">=</span> redis.opsForStream().add(record);
+        redis.opsForStream().trim(STREAM, <span class="hljs-number">10_000</span>, <span class="hljs-literal">true</span>);
+        <span class="hljs-keyword">return</span> id;
+    }
+}</code></pre>
+<p>Consumer Group 소비자. 기동 시 그룹을 만들고(<code>BUSYGROUP</code>은 무시), <code>&gt;</code>로 읽어 처리 후 ACK하며, 별도 스케줄에서 30초 이상 방치된 항목을 회수한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.data.redis.RedisSystemException;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.Consumer;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.MapRecord;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.ReadOffset;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.StreamOffset;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.stream.StreamReadOptions;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.scheduling.annotation.Scheduled;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-keyword">import</span> jakarta.annotation.PostConstruct;
+<span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEventConsumer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">STREAM</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;orders:stream&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">GROUP</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;order-workers&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">consumerName</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;worker-&quot;</span> + System.getenv().getOrDefault(<span class="hljs-string">&quot;HOSTNAME&quot;</span>, <span class="hljs-string">&quot;local&quot;</span>);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderEventConsumer</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-meta">@PostConstruct</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">createGroup</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">try</span> {
+            redis.opsForStream().createGroup(STREAM, ReadOffset.latest(), GROUP);
+        } <span class="hljs-keyword">catch</span> (RedisSystemException e) {
+            <span class="hljs-keyword">if</span> (e.getMessage() == <span class="hljs-literal">null</span> || !e.getMessage().contains(<span class="hljs-string">&quot;BUSYGROUP&quot;</span>)) {
+                <span class="hljs-keyword">throw</span> e;
+            }
+        }
+    }
+
+    <span class="hljs-meta">@Scheduled(fixedDelay = 500)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">consume</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">List</span>&lt;MapRecord&lt;String, Object, Object&gt;&gt; <span class="hljs-variable">records</span> <span class="hljs-operator">=</span> redis.opsForStream().read(
+                Consumer.from(GROUP, consumerName),
+                StreamReadOptions.empty().count(<span class="hljs-number">10</span>).block(Duration.ofSeconds(<span class="hljs-number">2</span>)),
+                StreamOffset.create(STREAM, ReadOffset.lastConsumed()));
+        <span class="hljs-keyword">if</span> (records == <span class="hljs-literal">null</span>) {
+            <span class="hljs-keyword">return</span>;
+        }
+        <span class="hljs-keyword">for</span> (MapRecord&lt;String, Object, Object&gt; record : records) {
+            handle(record.getValue());
+            redis.opsForStream().acknowledge(STREAM, GROUP, record.getId());
+        }
+    }
+
+    <span class="hljs-meta">@Scheduled(fixedDelay = 10_000)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">reclaimStale</span><span class="hljs-params">()</span> {
+        redis.execute((org.springframework.data.redis.core.RedisCallback&lt;Void&gt;) conn -&gt; {
+            conn.streamCommands().xClaim(
+                    STREAM.getBytes(), GROUP, consumerName,
+                    org.springframework.data.redis.connection.RedisStreamCommands.XClaimOptions
+                            .minIdle(Duration.ofSeconds(<span class="hljs-number">30</span>))
+                            .ids(pendingIds()));
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+        });
+    }
+
+    <span class="hljs-keyword">private</span> org.springframework.data.redis.connection.stream.<span class="hljs-type">RecordId</span>[] <span class="hljs-title function_">pendingIds</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">pending</span> <span class="hljs-operator">=</span> redis.opsForStream().pending(STREAM, GROUP,
+                org.springframework.data.domain.Range.unbounded(), <span class="hljs-number">50</span>);
+        <span class="hljs-keyword">return</span> pending.stream()
+                .filter(p -&gt; p.getElapsedTimeSinceLastDelivery().compareTo(Duration.ofSeconds(<span class="hljs-number">30</span>)) &gt; <span class="hljs-number">0</span>)
+                .map(p -&gt; p.getId())
+                .toArray(org.springframework.data.redis.connection.stream.RecordId[]::<span class="hljs-keyword">new</span>);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">handle</span><span class="hljs-params">(Map&lt;Object, Object&gt; fields)</span> {
+        <span class="hljs-comment">// 주문 처리 로직. 예외를 던지면 ACK되지 않아 PEL에 남고 reclaimStale이 회수한다.</span>
+    }
+}</code></pre>
+<p>Pub/Sub 구독은 <code>RedisMessageListenerContainer</code>에 리스너를 등록한다. 컨테이너가 전용 연결을 잡으므로 일반 명령용 템플릿과 충돌하지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.connection.RedisConnectionFactory;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.listener.PatternTopic;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.listener.RedisMessageListenerContainer;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CacheInvalidationConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">RedisMessageListenerContainer</span> <span class="hljs-title function_">listenerContainer</span><span class="hljs-params">(RedisConnectionFactory factory,
+                                                    LocalCacheInvalidator invalidator)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">container</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RedisMessageListenerContainer</span>();
+        container.setConnectionFactory(factory);
+        container.addMessageListener(
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">MessageListenerAdapter</span>(invalidator, <span class="hljs-string">&quot;onMessage&quot;</span>),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">PatternTopic</span>(<span class="hljs-string">&quot;cache:invalidate:*&quot;</span>));
+        <span class="hljs-keyword">return</span> container;
+    }
+}</code></pre>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LocalCacheInvalidator</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onMessage</span><span class="hljs-params">(String key, String pattern)</span> {
+        <span class="hljs-comment">// key = 무효화할 캐시 키. 각 인스턴스가 자기 로컬 캐시에서 제거한다.</span>
+    }
+}</code></pre>
+<p>발행은 <code>redis.convertAndSend(&quot;cache:invalidate:user&quot;, &quot;user:42&quot;)</code>로 한다.</p>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>ACK 누락은 PEL을 키운다. <code>XPENDING</code> 개수를 지표로 내보내고, 반복 실패 항목은 delivery count를 보고 dead letter 스트림으로 옮긴다.</li>
+<li>Stream은 자동으로 줄지 않는다. <code>XADD</code>마다 <code>MAXLEN ~ N</code>을 붙이거나 <code>MINID</code>로 시간 기반 보존을 건다. <code>~</code> 없는 정확한 트림은 매 호출마다 비용이 붙는다.</li>
+<li>그룹을 만든 스트림에 <code>XREAD</code>를 섞으면 그 항목은 PEL에 기록되지 않아 중복 처리가 난다. <code>XREADGROUP</code>만 쓴다.</li>
+<li>Pub/Sub 구독자가 느리면 출력 버퍼가 <code>client-output-buffer-limit pubsub</code>(기본 32mb hard, 8mb soft, 60초)를 넘는 순간 연결이 끊기고 그 사이 발행분은 복구되지 않는다.</li>
+<li>Cluster에서 대량 발행이면 Sharded Pub/Sub로 옮기되, Keyspace Notification은 전통 Pub/Sub만 지원하고 클라이언트의 <code>SSUBSCRIBE</code> 지원 여부를 확인한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/list-set/">List·Set — 큐와 집합 연산</a></li>
+<li><a href="/notes/redis/ttl-eviction-keyspace/">TTL·Eviction·Keyspace Notification</a></li>
+<li><a href="/notes/redis/cluster-consistent-hashing/">Cluster와 일관된 해싱</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, Stream, Pub/Sub, Consumer Group, XREADGROUP</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/sorted-set/"><small>이전</small>Sorted Set — 랭킹과 Rate Limiter</a>
+  <a class="next" href="/notes/redis/ttl-eviction-keyspace/"><small>다음</small>TTL·Eviction·Keyspace Notification</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

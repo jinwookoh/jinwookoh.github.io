@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>다중 데이터센터·Geo-Replication (MirrorMaker 2) · Kafka</title>
+  <meta name="description" content="DC마다 로컬 클러스터를 두고 MirrorMaker 2로 복제하는 이유와 DR 시 오프셋 변환 방식을 정리한다.">
+  <meta property="og:title" content="다중 데이터센터·Geo-Replication (MirrorMaker 2) · Kafka">
+  <meta property="og:description" content="DC마다 로컬 클러스터를 두고 MirrorMaker 2로 복제하는 이유와 DR 시 오프셋 변환 방식을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/multi-datacenter-mirrormaker/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>다중 데이터센터·Geo-Replication (MirrorMaker 2)</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 운영</p>
+  <h1>다중 데이터센터·Geo-Replication (MirrorMaker 2)</h1>
+  <p class="summary">DC마다 로컬 클러스터를 두고 MirrorMaker 2로 복제하는 이유와 DR 시 오프셋 변환 방식을 정리한다.</p>
+  <div class="content">
+<p>단일 클러스터는 데이터센터 하나가 내려가면 그대로 멈춘다. 그렇다고 브로커를 두 데이터센터에 나눠 한 클러스터로 묶으면 모든 쓰기가 WAN 왕복을 기다리고, <code>min.insync.replicas</code> 충족 여부가 원격 링크 상태에 좌우된다. 링크가 끊기면 양쪽 모두 쓰기가 막힌다. 다중 데이터센터 운영은 분할 내성이 강제된 상황에서 일관성과 가용성 중 무엇을 양보할지 정하고, 그 선택을 복제 구조로 구현하는 문제다.</p>
+<h2>핵심 개념</h2>
+<h3>Local Cluster + Mirror</h3>
+<p>권장 구조는 데이터센터마다 독립된 Kafka 클러스터를 두고, 애플리케이션은 자기 지역 클러스터만 읽고 쓰며, 클러스터 사이의 동기화는 별도 복제 프로세스가 맡는 형태다. WAN 장애가 로컬 쓰기에 영향을 주지 않고 지연도 로컬 수준으로 유지된다. 대가는 복제 지연이며, DC 간 데이터는 최종적 일관성만 보장된다.</p>
+<p>Stretched Cluster는 같은 메트로 안의 AZ처럼 왕복 지연이 10ms 안쪽일 때만 성립한다. <code>broker.rack</code>에 AZ를 지정하면 레플리카가 AZ별로 분산되어 AZ 하나가 죽어도 ISR이 유지된다.</p>
+<h3>배치 전략</h3>
+<table>
+<thead>
+<tr>
+<th>전략</th>
+<th>흐름</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Active-Passive</td>
+<td>primary → dr 단방향</td>
+<td>DR. 가장 단순하고 일반적</td>
+</tr>
+<tr>
+<td>Active-Active</td>
+<td>양방향 복제, 양쪽 모두 트래픽 처리</td>
+<td>지역별 로컬 서비스. 토픽 네이밍과 중복 처리 설계 필요</td>
+</tr>
+<tr>
+<td>Aggregate</td>
+<td>여러 로컬 → 집계 클러스터 단방향</td>
+<td>글로벌 분석·ML 학습</td>
+</tr>
+<tr>
+<td>Stretched</td>
+<td>단일 클러스터 + rack awareness</td>
+<td>같은 리전 Multi-AZ</td>
+</tr>
+</tbody></table>
+<h3>MirrorMaker 2 구조</h3>
+<p>MirrorMaker 2(MM2)는 Kafka Connect 위에서 동작하는 커넥터 세 개의 묶음이다. 구 MirrorMaker가 못 하던 컨슈머 오프셋 추적, 토픽 설정·ACL 동기화, 양방향 복제 루프 차단을 지원한다.</p>
+<ul>
+<li><strong>MirrorSourceConnector</strong>: 소스 토픽의 레코드를 파티션 1:1로 타깃에 복제한다. 키·값·타임스탬프·헤더를 그대로 옮기고 토픽 설정과 ACL도 동기화한다.</li>
+<li><strong>MirrorCheckpointConnector</strong>: 소스 컨슈머 그룹의 커밋 오프셋을 타깃 토픽의 대응 오프셋으로 변환해 <code>&lt;source&gt;.checkpoints.internal</code>에 기록한다. <code>sync.group.offsets.enabled=true</code>면 타깃의 <code>__consumer_offsets</code>에도 주기적으로 반영한다.</li>
+<li><strong>MirrorHeartbeatConnector</strong>: <code>heartbeats</code> 토픽에 주기적으로 레코드를 보내 복제 경로의 생존과 지연을 측정하게 한다.</li>
+</ul>
+<p><code>connect-mirror-maker.sh</code> 전용 모드는 같은 설정 파일을 여러 노드에서 실행하면 태스크를 나누고 장애 노드의 작업을 인수한다. 기존 Connect 클러스터가 있으면 REST API로 커넥터를 등록해도 된다.</p>
+<h3>토픽 네이밍과 루프 방지</h3>
+<p>기본 <code>DefaultReplicationPolicy</code>는 타깃 토픽 이름에 소스 클러스터 별칭을 접두어로 붙여 <code>primary</code>의 <code>orders</code>가 <code>primary.orders</code>가 된다. MirrorSourceConnector는 접두어로 원산지를 식별해 이미 복제된 토픽을 다시 복제하지 않으므로 Active-Active에서도 레코드가 왕복하지 않는다. <code>IdentityReplicationPolicy</code>는 접두어가 없어 DR 시 같은 토픽 이름으로 갈아탈 수 있지만 루프 차단 근거가 사라지므로 단방향에서만 쓴다.</p>
+<h3>WAN 환경 설정</h3>
+<p>TCP 버퍼(<code>socket.send.buffer.bytes</code>, <code>socket.receive.buffer.bytes</code>)를 대역폭 × RTT로 계산해 키우고, 프로듀서의 <code>linger.ms</code>·<code>batch.size</code>를 늘려 왕복 횟수를 줄인다. Stretched 구성이라면 <code>replica.lag.time.max.ms</code>도 WAN 지연에 맞춰 조정한다.</p>
+<h2>코드</h2>
+<p>Active-Passive DR용 MM2 설정. 전용 모드에서 이 파일 하나로 세 커넥터가 모두 기동된다.</p>
+<pre><code class="hljs language-properties"><span class="hljs-attr">clusters</span> = <span class="hljs-string">primary, dr</span>
+<span class="hljs-attr">primary.bootstrap.servers</span> = <span class="hljs-string">kafka-dc1:9092</span>
+<span class="hljs-attr">dr.bootstrap.servers</span> = <span class="hljs-string">kafka-dc2:9092</span>
+
+<span class="hljs-attr">primary-&gt;dr.enabled</span> = <span class="hljs-string">true</span>
+<span class="hljs-attr">primary-&gt;dr.topics</span> = <span class="hljs-string">orders, payments, users.*</span>
+<span class="hljs-attr">primary-&gt;dr.replication.factor</span> = <span class="hljs-string">3</span>
+<span class="hljs-attr">primary-&gt;dr.tasks.max</span> = <span class="hljs-string">10</span>
+
+<span class="hljs-attr">primary-&gt;dr.sync.topic.configs.enabled</span> = <span class="hljs-string">true</span>
+<span class="hljs-attr">primary-&gt;dr.sync.topic.acls.enabled</span> = <span class="hljs-string">true</span>
+<span class="hljs-attr">primary-&gt;dr.sync.group.offsets.enabled</span> = <span class="hljs-string">true</span>
+<span class="hljs-attr">primary-&gt;dr.sync.group.offsets.interval.seconds</span> = <span class="hljs-string">30</span>
+<span class="hljs-attr">primary-&gt;dr.emit.checkpoints.interval.seconds</span> = <span class="hljs-string">30</span>
+
+<span class="hljs-attr">primary-&gt;dr.replication.policy.class</span> = <span class="hljs-string">org.apache.kafka.connect.mirror.IdentityReplicationPolicy</span></code></pre>
+<pre><code class="hljs language-bash">bin/connect-mirror-maker.sh mm2.properties</code></pre>
+<p>DR 클러스터로 전환될 때 체크포인트 토픽에서 변환된 오프셋을 읽어 그룹에 커밋하는 Spring Boot 3.x 서비스.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.consumer.OffsetAndMetadata;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.TopicPartition;
+<span class="hljs-keyword">import</span> org.apache.kafka.connect.mirror.RemoteClusterUtils;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> java.util.HashMap;
+<span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DrOffsetMigrator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Map&lt;String, Object&gt; drClientProps;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DrOffsetMigrator</span><span class="hljs-params">(org.springframework.boot.autoconfigure.kafka.KafkaProperties props)</span> {
+        <span class="hljs-built_in">this</span>.drClientProps = <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashMap</span>&lt;&gt;(props.buildConsumerProperties(<span class="hljs-literal">null</span>));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Map</span>&lt;TopicPartition, OffsetAndMetadata&gt; <span class="hljs-title function_">migrate</span><span class="hljs-params">(String groupId)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">Map</span>&lt;TopicPartition, OffsetAndMetadata&gt; <span class="hljs-variable">translated</span> <span class="hljs-operator">=</span>
+                RemoteClusterUtils.translateOffsets(
+                        drClientProps, <span class="hljs-string">&quot;primary&quot;</span>, groupId, Duration.ofSeconds(<span class="hljs-number">10</span>));
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">var</span> <span class="hljs-variable">consumer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">org</span>.apache.kafka.clients.consumer.KafkaConsumer&lt;<span class="hljs-type">byte</span>[], <span class="hljs-type">byte</span>[]&gt;(
+                drClientProps)) {
+            consumer.commitSync(translated);
+        }
+        <span class="hljs-keyword">return</span> translated;
+    }
+}</code></pre>
+<p>리스너가 붙기 전에 오프셋을 반영하는 <code>ApplicationRunner</code>. 실패 시 기동을 중단한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.boot.ApplicationArguments;
+<span class="hljs-keyword">import</span> org.springframework.boot.ApplicationRunner;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DrFailoverRunner</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ApplicationRunner</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> DrOffsetMigrator migrator;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DrFailoverRunner</span><span class="hljs-params">(DrOffsetMigrator migrator)</span> {
+        <span class="hljs-built_in">this</span>.migrator = migrator;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">run</span><span class="hljs-params">(ApplicationArguments args)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">if</span> (args.containsOption(<span class="hljs-string">&quot;dr-failover&quot;</span>)) {
+            <span class="hljs-type">var</span> <span class="hljs-variable">offsets</span> <span class="hljs-operator">=</span> migrator.migrate(<span class="hljs-string">&quot;order-workers&quot;</span>);
+            <span class="hljs-keyword">if</span> (offsets.isEmpty()) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;translated offsets are empty; checkpoint topic missing&quot;</span>);
+            }
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>오프셋 변환은 근사치다.</strong> 체크포인트는 주기적으로 기록되므로 마지막 체크포인트와 장애 시점 사이의 레코드는 재처리된다. at-least-once만 보장되며 컨슈머 쪽 멱등 처리가 전제다.</li>
+<li><strong>Active-Active에서의 중복.</strong> 로컬 토픽과 상대 접두어 토픽을 하나의 스트림으로 합쳐 소비하면 같은 이벤트가 두 번 보일 수 있다. 원산지 DC를 네이밍과 ACL로 고정하고, 소비 측은 접두어 패턴 구독(<code>.*orders</code>)과 키 기준 중복 제거를 함께 설계한다.</li>
+<li><strong><code>refresh.topics.enabled</code> 기본값.</strong> 소스에 새 토픽이 생기면 패턴에 맞는 한 자동으로 복제가 시작된다. 테스트용 토픽까지 WAN을 타지 않도록 허용 목록을 명시한다.</li>
+<li><strong>MM2 워커의 가용성과 자격증명.</strong> 워커는 최소 3개를 띄우고 소스와 타깃 양쪽의 자격증명을 모두 보유해야 한다. 한쪽 인증이 갱신되면 복제가 조용히 멈추므로 <code>heartbeats</code> 수신과 <code>record-age-ms-avg</code>에 경보를 건다.</li>
+<li><strong>WAN 비용과 DR 훈련.</strong> 복제 바이트가 곧 리전 간 전송 요금이므로 압축을 켜고 복제 대상 토픽을 최소화한다. DNS 전환, 오프셋 반영, 복구 후 역방향 복제까지 반복 훈련하지 않은 DR 구성은 장애 당일에 처음 검증된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/replication-isr/">Replication — ISR·리더 선출·Unclean</a></li>
+<li><a href="/notes/kafka/troubleshooting/">장애 대응</a></li>
+<li><a href="/notes/kafka/connect-architecture-operations/">Connect — 아키텍처·Distributed Mode·운영</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, MirrorMaker 2, Geo-Replication, Multi-Datacenter, Disaster Recovery</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/troubleshooting/"><small>이전</small>장애 대응</a>
+  <a class="next" href="/notes/kafka/security-tls-sasl/"><small>다음</small>인증 — TLS·SASL</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

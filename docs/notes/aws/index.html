@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AWS · Notes</title>
+  <meta name="description" content="IAM·컴퓨트·스토리지·네트워크·데이터베이스·메시징·서버리스·보안·모니터링·DR·CI/CD를 서비스 선택 기준 중심으로.">
+  <meta property="og:title" content="AWS · Notes">
+  <meta property="og:description" content="IAM·컴퓨트·스토리지·네트워크·데이터베이스·메시징·서버리스·보안·모니터링·DR·CI/CD를 서비스 선택 기준 중심으로.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>AWS</span></nav>
+    <header class="series-head"><h1>AWS</h1><p>IAM·컴퓨트·스토리지·네트워크·데이터베이스·메시징·서버리스·보안·모니터링·DR·CI/CD를 서비스 선택 기준 중심으로.</p><p class="count">15편</p></header>
+<section class="part-group"><h2>기초와 보안</h2><ol class="toc"><li><a href="/notes/aws/iam-sts-cognito/"><span class="n">1</span><span class="t">IAM·STS·Cognito — 사용자·역할·정책</span><span class="s">AWS 권한은 정책 평가 순서·역할 수임·PassRole·Cognito 두 풀의 역할 분담을 알아야 안전하게 설계할 수 있다.</span></a></li>
+<li><a href="/notes/aws/kms-secrets-security/"><span class="n">2</span><span class="t">KMS·SSM·Secrets Manager — 암호화와 비밀 관리</span><span class="s">KMS 봉투 암호화로 데이터를 잠그고, 설정은 Parameter Store에, 회전이 필요한 자격 증명은 Secrets Manager에 둔다.</span></a></li></ol></section>
+<section class="part-group"><h2>컴퓨트와 스토리지</h2><ol class="toc"><li><a href="/notes/aws/ec2-ebs-efs/"><span class="n">3</span><span class="t">EC2·EBS·EFS</span><span class="s">EC2 인스턴스 선택·구매 옵션·생명주기와 EBS·EFS·Instance Store를 워크로드 기준으로 고르는 규칙을 정리한다.</span></a></li>
+<li><a href="/notes/aws/elb-autoscaling/"><span class="n">4</span><span class="t">ELB와 Auto Scaling</span><span class="s">ALB·NLB·GWLB의 선택 기준과 ASG 스케일링 정책·Lifecycle Hook을 하나의 자가 치유 구조로 묶는다.</span></a></li>
+<li><a href="/notes/aws/s3-basics-security/"><span class="n">5</span><span class="t">S3 — 버킷·버전 관리·암호화·버킷 정책</span><span class="s">S3 버킷의 평면 키 구조와 버전 관리, 4종 서버 측 암호화, IAM·버킷 정책·BPA의 평가 순서를 정리한다</span></a></li>
+<li><a href="/notes/aws/s3-performance-lifecycle-replication/"><span class="n">6</span><span class="t">S3 — 멀티파트·라이프사이클·복제</span><span class="s">대용량 객체를 병렬로 올리고, 시간에 따라 자동으로 옮기고 지우며, 다른 버킷에 비동기 복제하는 S3 운영 축을 정리한다.</span></a></li>
+<li><a href="/notes/aws/s3-advanced-cloudfront/"><span class="n">7</span><span class="t">S3 — Object Lock·Access Points·CloudFront·Lambda 통합</span><span class="s">삭제 불가 보존, 버킷 하나에 여러 접근 경로, CDN 뒤로 버킷 숨기기, 업로드 이벤트 자동 처리를 S3 위에 어떻게 얹는가</span></a></li></ol></section>
+<section class="part-group"><h2>네트워크와 데이터</h2><ol class="toc"><li><a href="/notes/aws/vpc-networking/"><span class="n">8</span><span class="t">VPC·CloudFront·API Gateway</span><span class="s">VPC 경계 설계부터 CloudFront 캐싱, API Gateway 인증·스로틀링, Route 53 라우팅까지 트래픽 경로를 정리한다</span></a></li>
+<li><a href="/notes/aws/rds-aurora-dynamodb/"><span class="n">9</span><span class="t">RDS·Aurora·DynamoDB</span><span class="s">관계형은 RDS·Aurora, 키-값 대규모 조회는 DynamoDB로 나누고 복제·캐시·키 설계 함정을 정리한다</span></a></li>
+<li><a href="/notes/aws/analytics-athena/"><span class="n">10</span><span class="t">분석 — Athena·Glue·Kinesis</span><span class="s">S3에 쌓인 로그를 옮기지 않고 SQL로 분석하고, Glue로 스키마와 포맷을 정리하고, Kinesis로 실시간 수집하는 파이프라인의 구성 원칙</span></a></li></ol></section>
+<section class="part-group"><h2>서버리스와 통합</h2><ol class="toc"><li><a href="/notes/aws/sqs-sns-messaging/"><span class="n">11</span><span class="t">SQS·SNS·Kinesis 메시징</span><span class="s">큐·Pub/Sub·스트림·이벤트 버스를 언제 고르고, 중복·순서·유실을 어디서 막는지 정리한다</span></a></li>
+<li><a href="/notes/aws/lambda-serverless-containers/"><span class="n">12</span><span class="t">Lambda·SAM·Step Functions·ECS·Fargate</span><span class="s">코드를 함수로 올릴지 컨테이너로 올릴지 가르는 기준과, 각 선택에서 부딪히는 동시성·권한·시간 제한을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/aws/cloudwatch-xray-monitoring/"><span class="n">13</span><span class="t">CloudWatch·X-Ray·CloudTrail</span><span class="s">성능 지표는 CloudWatch, 요청 경로는 X-Ray, API 호출 기록은 CloudTrail로 역할을 나눠 운영 가시성을 확보한다.</span></a></li>
+<li><a href="/notes/aws/multi-az-dr-migration/"><span class="n">14</span><span class="t">Multi-AZ 아키텍처·DR·마이그레이션</span><span class="s">단일 장애점을 제거하는 Multi-AZ 설계 원칙과 RPO·RTO 기준의 DR 4전략, DMS·MGN·Snowball 마이그레이션 조합을 정리한다</span></a></li>
+<li><a href="/notes/aws/cicd-developer-tools/"><span class="n">15</span><span class="t">CI/CD와 개발자 도구 — CodePipeline·CDK·CloudFormation</span><span class="s">Code* 파이프라인으로 배포를, CloudFormation·CDK로 인프라를 코드로 고정하는 방법</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

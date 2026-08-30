@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RSocket — 개념·프레임·Interaction Model · Reactive Spring</title>
+  <meta name="description" content="RSocket이 단일 연결 위에서 REQUEST_N 백프레셔와 4가지 Interaction Model로 서비스 간 통신을 처리하는 원리">
+  <meta property="og:title" content="RSocket — 개념·프레임·Interaction Model · Reactive Spring">
+  <meta property="og:description" content="RSocket이 단일 연결 위에서 REQUEST_N 백프레셔와 4가지 Interaction Model로 서비스 간 통신을 처리하는 원리">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/rsocket-concepts/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>RSocket — 개념·프레임·Interaction Model</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · RSocket</p>
+  <h1>RSocket — 개념·프레임·Interaction Model</h1>
+  <p class="summary">RSocket이 단일 연결 위에서 REQUEST_N 백프레셔와 4가지 Interaction Model로 서비스 간 통신을 처리하는 원리</p>
+  <div class="content">
+<p>서비스 간 통신을 HTTP로만 구성하면 스트리밍과 양방향 통신에서 한계가 드러난다. HTTP/2는 애플리케이션 수준의 흐름 제어가 없고, WebSocket은 메시지에 의미가 없어 수신 측이 처리하지 못해도 송신 측은 계속 보낸다. gRPC는 HTTP/2 흐름 제어에 기대므로 Reactive Streams의 <code>request(n)</code>과 직접 연결되지 않는다. 서버가 10만 건을 스트리밍하는데 클라이언트가 느리면 메모리가 쌓이다 OOM이 난다. RSocket은 Reactive Streams 명세를 프로토콜 수준으로 끌어올려 이 문제를 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>RSocket은 Reactive Streams 위에 정의된 바이너리 메시징 프로토콜이다. 전송 계층은 분리되어 TCP가 일반적이며, 브라우저 환경은 WebSocket, 초저지연은 Aeron(UDP)을 쓴다.</p>
+<h3>연결과 스트림</h3>
+<p>클라이언트는 연결 시작 시 SETUP 프레임을 한 번 보낸다. keepalive 간격, lifetime, MIME 타입, resume token, 인증 정보가 여기에 담긴다. 이후 하나의 연결 위에 여러 스트림이 Stream ID로 구분되어 동시에 흐르며, HTTP/2 다중화와 달리 스트림마다 요청·응답·취소·흐름 제어의 의미가 프로토콜에 정의되어 있다. 연결이 끊기면 resume token으로 재연결해 끊어진 지점부터 이어갈 수 있다.</p>
+<h3>프레임 구조</h3>
+<p>프레임이 데이터 단위다. 헤더 6바이트(Stream ID 4바이트 + Type과 Flags 2바이트) 뒤에 선택적인 Metadata와 Data가 따른다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">프레임</th>
+<th align="left">역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">SETUP</td>
+<td align="left">연결 시작, 연결당 한 번</td>
+</tr>
+<tr>
+<td align="left">REQUEST_*</td>
+<td align="left">4가지 모델의 요청 (RESPONSE·FNF·STREAM·CHANNEL)</td>
+</tr>
+<tr>
+<td align="left">PAYLOAD</td>
+<td align="left">데이터 전달</td>
+</tr>
+<tr>
+<td align="left">REQUEST_N</td>
+<td align="left">N개 더 받을 수 있음을 통보</td>
+</tr>
+<tr>
+<td align="left">CANCEL / ERROR / KEEPALIVE</td>
+<td align="left">취소 / 에러 / 연결 유지</td>
+</tr>
+</tbody></table>
+<p>핵심은 REQUEST_N이다. <code>Subscription.request(n)</code>이 그대로 프레임으로 전송되어, 클라이언트가 REQUEST_N(10)을 보내면 서버는 10개만 보내고 다음 REQUEST_N을 기다린다. 흐름 제어가 TCP 윈도우가 아니라 프로토콜 의미론 안에서 이뤄진다는 점이 다른 프로토콜과의 결정적 차이다.</p>
+<h3>4가지 Interaction Model</h3>
+<table>
+<thead>
+<tr>
+<th align="left">모델</th>
+<th align="center">입력</th>
+<th align="center">출력</th>
+<th align="left">Spring 시그니처</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Request-Response</td>
+<td align="center">1</td>
+<td align="center">1</td>
+<td align="left"><code>Mono&lt;T&gt;</code></td>
+</tr>
+<tr>
+<td align="left">Fire-and-Forget</td>
+<td align="center">1</td>
+<td align="center">0</td>
+<td align="left"><code>Mono&lt;Void&gt;</code></td>
+</tr>
+<tr>
+<td align="left">Request-Stream</td>
+<td align="center">1</td>
+<td align="center">N</td>
+<td align="left"><code>Flux&lt;T&gt;</code></td>
+</tr>
+<tr>
+<td align="left">Channel</td>
+<td align="center">N</td>
+<td align="center">N</td>
+<td align="left"><code>Flux&lt;T&gt;</code> → <code>Flux&lt;R&gt;</code></td>
+</tr>
+</tbody></table>
+<p>Request-Response는 HTTP와 같은 1:1이다. Fire-and-Forget은 응답이 없어 로깅·메트릭처럼 유실을 감수할 수 있는 곳에 쓴다. Request-Stream은 시세·로그 스트리밍처럼 SSE가 쓰이던 자리를 백프레셔를 갖춘 채 대체한다. Channel은 양쪽이 Flux를 주고받는 N:N 모델로 채팅·협업 편집에 쓴다. gRPC의 4가지 스트리밍 모드와 1:1로 대응하지만, 백프레셔가 프로토콜 표준이고 Reactive 타입과 직접 매핑된다는 점이 다르다.</p>
+<p>한 라우트는 한 모델만 가진다. <code>@MessageMapping</code> 메서드가 <code>Mono</code>를 반환하면 Request-Response 또는 Fire-and-Forget, <code>Flux</code>를 반환하면 Request-Stream 또는 Channel로 동작하며, 같은 연결 위에 4개 모델이 공존한다.</p>
+<p>스키마는 강제하지 않고 JSON·Protobuf·CBOR를 인코더로 선택한다. 공개 API는 gRPC, 브라우저는 WebSocket, WebFlux 기반 내부 통신은 RSocket으로 계층별로 섞어 쓴다.</p>
+<h2>코드</h2>
+<p><code>spring-boot-starter-rsocket</code>을 추가하면 <code>RSocketRequester.Builder</code>와 서버 설정이 자동 구성된다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">rsocket:</span>
+    <span class="hljs-attr">server:</span>
+      <span class="hljs-attr">port:</span> <span class="hljs-number">7000</span>
+      <span class="hljs-attr">transport:</span> <span class="hljs-string">tcp</span></code></pre>
+<p>한 컨트롤러에 4가지 모델을 모두 선언한다. 반환 타입과 파라미터 타입이 모델을 결정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Controller</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TradingController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderService orderService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PriceService priceService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ChatRoom chatRoom;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TradingController</span><span class="hljs-params">(OrderService orderService,
+                             PriceService priceService,
+                             ChatRoom chatRoom)</span> {
+        <span class="hljs-built_in">this</span>.orderService = orderService;
+        <span class="hljs-built_in">this</span>.priceService = priceService;
+        <span class="hljs-built_in">this</span>.chatRoom = chatRoom;
+    }
+
+    <span class="hljs-comment">// Request-Response: 1 -&gt; 1</span>
+    <span class="hljs-meta">@MessageMapping(&quot;order.place&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;OrderResult&gt; <span class="hljs-title function_">place</span><span class="hljs-params">(Order order)</span> {
+        <span class="hljs-keyword">return</span> orderService.place(order);
+    }
+
+    <span class="hljs-comment">// Fire-and-Forget: 1 -&gt; 0</span>
+    <span class="hljs-meta">@MessageMapping(&quot;event.log&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">log</span><span class="hljs-params">(LogEvent event)</span> {
+        <span class="hljs-keyword">return</span> orderService.audit(event);
+    }
+
+    <span class="hljs-comment">// Request-Stream: 1 -&gt; N</span>
+    <span class="hljs-meta">@MessageMapping(&quot;price.{symbol}&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Price&gt; <span class="hljs-title function_">prices</span><span class="hljs-params">(<span class="hljs-meta">@DestinationVariable</span> String symbol)</span> {
+        <span class="hljs-keyword">return</span> priceService.stream(symbol);
+    }
+
+    <span class="hljs-comment">// Channel: N -&gt; N</span>
+    <span class="hljs-meta">@MessageMapping(&quot;chat.{room}&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;ChatMessage&gt; <span class="hljs-title function_">chat</span><span class="hljs-params">(<span class="hljs-meta">@DestinationVariable</span> String room,
+                                  Flux&lt;ChatMessage&gt; incoming)</span> {
+        <span class="hljs-keyword">return</span> incoming
+                .flatMap(msg -&gt; chatRoom.publish(room, msg))
+                .thenMany(chatRoom.subscribe(room));
+    }
+}</code></pre>
+<p>클라이언트는 자동 구성된 <code>RSocketRequester.Builder</code>로 연결하고 모델별로 <code>retrieveMono</code>·<code>send</code>·<code>retrieveFlux</code>를 호출한다. <code>flatMap</code>의 동시성 값이 REQUEST_N으로 전달된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TradingClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RSocketRequester requester;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TradingClient</span><span class="hljs-params">(RSocketRequester.Builder builder)</span> {
+        <span class="hljs-built_in">this</span>.requester = builder.tcp(<span class="hljs-string">&quot;localhost&quot;</span>, <span class="hljs-number">7000</span>);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;OrderResult&gt; <span class="hljs-title function_">place</span><span class="hljs-params">(Order order)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;order.place&quot;</span>)
+                .data(order)
+                .retrieveMono(OrderResult.class);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">log</span><span class="hljs-params">(LogEvent event)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;event.log&quot;</span>)
+                .data(event)
+                .send();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Price&gt; <span class="hljs-title function_">watch</span><span class="hljs-params">(String symbol)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;price.{symbol}&quot;</span>, symbol)
+                .retrieveFlux(Price.class)
+                .flatMap(<span class="hljs-built_in">this</span>::persist, <span class="hljs-number">4</span>);   <span class="hljs-comment">// REQUEST_N(4)로 서버 페이스 제한</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;ChatMessage&gt; <span class="hljs-title function_">join</span><span class="hljs-params">(String room, Flux&lt;ChatMessage&gt; outgoing)</span> {
+        <span class="hljs-keyword">return</span> requester.route(<span class="hljs-string">&quot;chat.{room}&quot;</span>, room)
+                .data(outgoing)
+                .retrieveFlux(ChatMessage.class);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Mono</span>&lt;Price&gt; <span class="hljs-title function_">persist</span><span class="hljs-params">(Price price)</span> {
+        <span class="hljs-keyword">return</span> Mono.just(price);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Fire-and-Forget은 전달을 보장하지 않는다.</strong> 유실이 허용되지 않으면 Request-Response로 ack를 받거나 영속 메시지 큐를 쓴다.</li>
+<li><strong>SETUP은 연결당 한 번이다.</strong> MIME 타입·인증 정보는 연결 시점에 고정되므로, 토큰 갱신처럼 연결 중 바뀌는 값은 요청별 메타데이터로 보낸다.</li>
+<li><strong>에러는 ERROR 프레임으로 전달되며 예외 타입이 보존되지 않는다.</strong> 서버의 <code>RuntimeException</code>은 클라이언트에서 <code>ApplicationErrorException</code>으로 도착하므로 비즈니스 에러는 페이로드에 코드를 담는다.</li>
+<li><strong>백프레셔는 구독자가 요청량을 제한해야 동작한다.</strong> <code>subscribe()</code>만 호출하면 무제한 요청이 되어 REQUEST_N이 의미를 잃는다. <code>flatMap(fn, concurrency)</code>·<code>limitRate</code>·<code>BaseSubscriber</code>로 명시한다.</li>
+<li><strong>TCP 전송은 HTTP 인프라를 통과하지 못한다.</strong> L7 로드 밸런서를 재사용하려면 WebSocket 전송을 택한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/backpressure/">Backpressure</a></li>
+<li><a href="/notes/reactive-spring/rsocket-server-client/">RSocket — 서버·클라이언트·메타데이터 라우팅</a></li>
+<li><a href="/notes/reactive-spring/grpc-concepts-protobuf/">gRPC — 개념·HTTP/2·Protobuf</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · RSocket, Reactive Streams, Backpressure, Interaction Model, Spring Boot</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/reactive-redis-advanced/"><small>이전</small>리액티브 Redis — 캐싱·Pub/Sub·트랜잭션·성능</a>
+  <a class="next" href="/notes/reactive-spring/rsocket-server-client/"><small>다음</small>RSocket — 서버·클라이언트·메타데이터 라우팅</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

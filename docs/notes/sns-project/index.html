@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>실전 프로젝트 — SNS 마이크로서비스 · Notes</title>
+  <meta name="description" content="Spring Boot 기반 SNS를 마이크로서비스로 설계하고 인증·동시성·이벤트·검색·파일 업로드를 실제 구성으로 풀어낸 기록.">
+  <meta property="og:title" content="실전 프로젝트 — SNS 마이크로서비스 · Notes">
+  <meta property="og:description" content="Spring Boot 기반 SNS를 마이크로서비스로 설계하고 인증·동시성·이벤트·검색·파일 업로드를 실제 구성으로 풀어낸 기록.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/sns-project/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>실전 프로젝트 — SNS 마이크로서비스</span></nav>
+    <header class="series-head"><h1>실전 프로젝트 — SNS 마이크로서비스</h1><p>Spring Boot 기반 SNS를 마이크로서비스로 설계하고 인증·동시성·이벤트·검색·파일 업로드를 실제 구성으로 풀어낸 기록.</p><p class="count">5편</p></header>
+<section class="part-group"><h2>아키텍처</h2><ol class="toc"><li><a href="/notes/sns-project/microservices-architecture/"><span class="n">1</span><span class="t">서비스 분해와 아키텍처</span><span class="s">SNS를 서비스 4개로 나누고 Database-per-Service·Gateway·Kafka·Healthcheck로 묶는 기준을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>인증</h2><ol class="toc"><li><a href="/notes/sns-project/gateway-jwt-oauth2/"><span class="n">2</span><span class="t">API Gateway·JWT·OAuth2 인증</span><span class="s">게이트웨이 한 곳에서 JWT를 검증하고 User Service가 토큰 발급·OAuth2 매핑을 맡는 stateless 인증 구조를 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>서비스</h2><ol class="toc"><li><a href="/notes/sns-project/post-service-distributed-lock/"><span class="n">3</span><span class="t">게시물 서비스 — Redisson 분산 락과 동시성</span><span class="s">락은 트랜잭션 바깥에, 외부 시스템 갱신은 afterCommit 안에 두어야 게시글 중복 생성과 유령 데이터를 막을 수 있다.</span></a></li></ol></section>
+<section class="part-group"><h2>데이터와 검색</h2><ol class="toc"><li><a href="/notes/sns-project/kafka-outbox-redis-patterns/"><span class="n">4</span><span class="t">Kafka 이벤트 흐름·Outbox·Redis 활용 패턴</span><span class="s">DB 커밋과 Kafka 발행을 Outbox·Debezium으로 묶고, Redis 하나로 캐시·랭킹·블랙리스트·락을 나눠 맡긴다</span></a></li>
+<li><a href="/notes/sns-project/elasticsearch-s3/"><span class="n">5</span><span class="t">Elasticsearch 검색과 S3 업로드</span><span class="s">DB를 진실의 원천으로 두고 검색 인덱싱과 파일 업로드를 트랜잭션 바깥으로 분리하는 방법</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

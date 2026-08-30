@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streams — 입문과 핵심 개념 · Kafka</title>
+  <meta name="description" content="Kafka Streams는 별도 클러스터 없는 클라이언트 라이브러리이며, Topology·Task·State Store·EOS가 파티션 위에서 맞물리는 구조를 정리한다.">
+  <meta property="og:title" content="Streams — 입문과 핵심 개념 · Kafka">
+  <meta property="og:description" content="Kafka Streams는 별도 클러스터 없는 클라이언트 라이브러리이며, Topology·Task·State Store·EOS가 파티션 위에서 맞물리는 구조를 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/streams-intro-concepts/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Streams — 입문과 핵심 개념</span></nav>
+    <article class="post">
+  <p class="part">Kafka · Streams</p>
+  <h1>Streams — 입문과 핵심 개념</h1>
+  <p class="summary">Kafka Streams는 별도 클러스터 없는 클라이언트 라이브러리이며, Topology·Task·State Store·EOS가 파티션 위에서 맞물리는 구조를 정리한다.</p>
+  <div class="content">
+<p>Kafka 토픽의 이벤트를 필터링·집계·조인해 다른 토픽으로 내보내야 할 때, Consumer API로 직접 구현하면 파티션 재분배·상태 복구·정확히 한 번 처리를 손으로 짜야 하고, Spark Streaming·Flink를 쓰면 별도 클러스터 운영과 잡 제출이라는 인프라 부담이 따라온다. Kafka Streams는 이 사이를 메운다. Kafka 클러스터만 있으면 되는 클라이언트 라이브러리로, 의존성 하나로 분산·내결함성·exactly-once를 갖춘 스트림 처리를 얻는다.</p>
+<h2>핵심 개념</h2>
+<h3>라이브러리 모델</h3>
+<p>애플리케이션 프로세스 안에서 동작하며, 입력과 출력이 모두 Kafka 토픽이라는 전제 위에서 파티션 분산과 consumer group 재분배를 그대로 활용한다. Kafka 밖의 DB·HTTP는 Connect와 결합해야 하고, 수천 노드 규모의 배치·ML 워크로드는 Spark·Flink 영역이다.</p>
+<h3>KStream·KTable과 duality</h3>
+<p>KStream은 append-only 레코드 스트림으로 같은 키의 이벤트를 각각 독립된 사실로 취급한다. KTable은 changelog 스트림으로 키별 최신 값만 의미를 가진다. KStream을 <code>groupByKey</code> 후 집계하면 KTable이 되고, <code>toStream()</code>으로 변경 이력을 다시 스트림으로 꺼낸다.</p>
+<h3>Topology → SubTopology → Task → Thread → Instance</h3>
+<p>DSL 코드는 Source → Processor → Sink 노드로 이루어진 topology를 정의한다. <code>groupBy</code>처럼 키를 바꾸는 연산은 내부 repartition 토픽에 쓰고 다시 읽으므로 topology는 그 지점에서 SubTopology로 나뉜다. Task는 SubTopology 하나와 입력 파티션 하나의 조합이며 자기 파티션과 자기 state store만 갖는 격리된 실행 단위다. 총 task 수는 SubTopology 수 × 입력 파티션 수다. 한 인스턴스 안에서는 <code>num.stream.threads</code>개의 스레드가 task를 나눠 실행하고, 인스턴스를 추가하면 cooperative 재분배로 task가 옮겨간다. 스케일 상한은 파티션 수다.</p>
+<h3>State store와 changelog</h3>
+<p>count·aggregate·join은 상태가 필요하다. 기본 store는 RocksDB로 로컬 디스크에 두고, 모든 변경은 <code>&lt;application.id&gt;-&lt;store&gt;-changelog</code> 내부 토픽에 기록되어 재시작 시 replay로 복구한다. <code>num.standby.replicas</code>를 1 이상으로 두면 다른 인스턴스가 같은 state를 미리 따라가 failover 시 복구 대기가 사라진다. <code>application.id</code>는 consumer group id·내부 토픽 prefix·state 디렉토리 이름으로 쓰이므로 클러스터 안에서 유일해야 한다.</p>
+<h3>Time semantics와 exactly-once</h3>
+<p>발생 시각(event time), 브로커 append 시각(ingestion time), 처리 시점(processing time) 중 windowing은 event time을 기준으로 해야 순서가 뒤바뀐 이벤트를 올바르게 다룬다. value 안의 비즈니스 시각을 쓰려면 <code>TimestampExtractor</code>를 구현한다. task가 관측한 최대 timestamp가 stream time이며 window 종료와 grace period를 이 값으로 판단한다.</p>
+<p><code>processing.guarantee=exactly_once_v2</code> 한 줄로 트랜잭션 producer, <code>read_committed</code> consumer, state store·changelog·출력 토픽의 원자적 커밋이 함께 켜진다. V2는 스레드 단위로 producer를 공유하며 브로커 3.0 이상이 필요하다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x 설정. Streams 전용 옵션은 <code>properties</code> 아래에 넣는다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">bootstrap-servers:</span> <span class="hljs-string">localhost:9092</span>
+    <span class="hljs-attr">streams:</span>
+      <span class="hljs-attr">application-id:</span> <span class="hljs-string">wordcount-app</span>
+      <span class="hljs-attr">properties:</span>
+        <span class="hljs-attr">default.key.serde:</span> <span class="hljs-string">org.apache.kafka.common.serialization.Serdes$StringSerde</span>
+        <span class="hljs-attr">default.value.serde:</span> <span class="hljs-string">org.apache.kafka.common.serialization.Serdes$StringSerde</span>
+        <span class="hljs-attr">default.timestamp.extractor:</span> <span class="hljs-string">com.example.streams.OccurredAtExtractor</span>
+        <span class="hljs-attr">processing.guarantee:</span> <span class="hljs-string">exactly_once_v2</span>
+        <span class="hljs-attr">num.stream.threads:</span> <span class="hljs-number">2</span>
+        <span class="hljs-attr">num.standby.replicas:</span> <span class="hljs-number">1</span>
+        <span class="hljs-attr">replication.factor:</span> <span class="hljs-number">3</span></code></pre>
+<p>WordCount topology. <code>@EnableKafkaStreams</code>가 <code>StreamsBuilder</code>를 주입하고 <code>KafkaStreams</code> 생명주기를 관리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableKafkaStreams</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">WordCountTopology</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">KStream</span>&lt;String, String&gt; <span class="hljs-title function_">wordCount</span><span class="hljs-params">(StreamsBuilder builder)</span> {
+        <span class="hljs-type">KStream</span>&lt;String, String&gt; <span class="hljs-variable">lines</span> <span class="hljs-operator">=</span> builder.stream(<span class="hljs-string">&quot;streams-input&quot;</span>,
+                Consumed.with(Serdes.String(), Serdes.String()));
+
+        lines.flatMapValues(line -&gt; Arrays.asList(line.toLowerCase().split(<span class="hljs-string">&quot;\\W+&quot;</span>)))
+             .filter((key, word) -&gt; !word.isBlank())
+             .groupBy((key, word) -&gt; word, Grouped.with(Serdes.String(), Serdes.String()))
+             .count(Materialized.as(<span class="hljs-string">&quot;word-count-store&quot;</span>))
+             .toStream()
+             .to(<span class="hljs-string">&quot;streams-output&quot;</span>, Produced.with(Serdes.String(), Serdes.Long()));
+
+        <span class="hljs-keyword">return</span> lines;
+    }
+}</code></pre>
+<p>이벤트 본문의 발생 시각을 event time으로 쓰는 extractor.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OccurredAtExtractor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">TimestampExtractor</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">extract</span><span class="hljs-params">(ConsumerRecord&lt;Object, Object&gt; record, <span class="hljs-type">long</span> partitionTime)</span> {
+        <span class="hljs-keyword">if</span> (record.value() <span class="hljs-keyword">instanceof</span> OrderEvent event) {
+            <span class="hljs-keyword">return</span> event.occurredAt().toEpochMilli();
+        }
+        <span class="hljs-keyword">return</span> partitionTime;
+    }
+}</code></pre>
+<p>기동 시 topology를 로그로 남겨 SubTopology 경계를 확인한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TopologyLogger</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ApplicationRunner</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(TopologyLogger.class);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StreamsBuilderFactoryBean factoryBean;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TopologyLogger</span><span class="hljs-params">(StreamsBuilderFactoryBean factoryBean)</span> {
+        <span class="hljs-built_in">this</span>.factoryBean = factoryBean;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">run</span><span class="hljs-params">(ApplicationArguments args)</span> {
+        log.info(<span class="hljs-string">&quot;{}&quot;</span>, factoryBean.getTopology().describe());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>파티션 수가 스케일 상한이다.</strong> 입력 파티션 수를 넘는 인스턴스는 유휴 상태로 남는다. 예상 인스턴스 수의 4~8배로 파티션을 잡는다.</li>
+<li><strong><code>application.id</code> 변경은 state 재빌드다.</strong> 내부 토픽·state 디렉토리 이름이 바뀌어 처음부터 다시 쌓는다.</li>
+<li><strong>changelog RF와 standby 기본값은 복구를 길게 만든다.</strong> RF 1은 브로커 한 대 손실로 state를 잃을 수 있고, standby 0이면 인스턴스 교체마다 changelog 전체를 다시 읽는다. 운영은 RF 3, standby 1 이상으로 둔다.</li>
+<li><strong>Serde 누락은 런타임에야 드러난다.</strong> <code>count()</code> 결과를 <code>Produced.with</code> 없이 내보내면 기본 String Serde가 <code>ClassCastException</code>을 던진다.</li>
+<li><strong>스레드와 디스크는 호스트 자원에 맞춘다.</strong> <code>num.stream.threads</code>가 CPU 코어를 넘으면 context switch 비용만 늘고, RocksDB state는 데이터 크기에 비례해 디스크를 점유한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/consumer-internals-rebalance/">Consumer 동작 원리 — Pull·Group·Offset·Rebalance</a></li>
+<li><a href="/notes/kafka/delivery-semantics-transactions/">전달 보증 — at-most·at-least·exactly-once와 트랜잭션</a></li>
+<li><a href="/notes/kafka/streams-dsl-processor-state/">Streams — DSL·Processor API·상태 저장</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka Streams, KStream, KTable, Topology, State Store</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/connect-connectors-smt-custom/"><small>이전</small>Connect — Connector·SMT·커스텀 개발</a>
+  <a class="next" href="/notes/kafka/streams-dsl-processor-state/"><small>다음</small>Streams — DSL·Processor API·상태 저장</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lua Scripting과 Functions · Redis</title>
+  <meta name="description" content="조건부 로직을 서버 안에서 원자적으로 묶는 EVAL과, 그 휘발성·익명성을 없앤 Redis 7 Functions의 사용법과 함정">
+  <meta property="og:title" content="Lua Scripting과 Functions · Redis">
+  <meta property="og:description" content="조건부 로직을 서버 안에서 원자적으로 묶는 EVAL과, 그 휘발성·익명성을 없앤 Redis 7 Functions의 사용법과 함정">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/lua-scripting-functions/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>Lua Scripting과 Functions</span></nav>
+    <article class="post">
+  <p class="part">Redis · 명령과 스크립트</p>
+  <h1>Lua Scripting과 Functions</h1>
+  <p class="summary">조건부 로직을 서버 안에서 원자적으로 묶는 EVAL과, 그 휘발성·익명성을 없앤 Redis 7 Functions의 사용법과 함정</p>
+  <div class="content">
+<p>MULTI/EXEC는 명령을 묶어 격리해 줄 뿐, &quot;GET한 값이 이 UUID와 같을 때만 DEL한다&quot; 같은 조건 분기를 담지 못한다. WATCH를 쓰면 재시도 루프가 애플리케이션에 남고, 분산 락 해제나 슬라이딩 윈도우 rate limiter처럼 읽고 판단하고 쓰는 작업은 클라이언트 왕복 사이에 다른 요청이 끼어든다. Redis는 이 문제를 서버 안에서 Lua 코드를 한 명령처럼 실행하는 EVAL로 풀고, Redis 7부터는 스크립트를 이름 있는 영속 라이브러리로 관리하는 Functions를 추가했다.</p>
+<h2>핵심 개념</h2>
+<p>EVAL의 시그니처는 <code>EVAL &lt;script&gt; &lt;numkeys&gt; &lt;key...&gt; &lt;arg...&gt;</code>다. 앞쪽 numkeys개는 Lua 안에서 <code>KEYS[]</code>, 나머지는 <code>ARGV[]</code>로 들어온다. 둘을 분리하는 이유는 Cluster 라우팅이다. 서버는 <code>KEYS[]</code>만 보고 해시 슬롯을 계산하므로, 키 이름을 <code>ARGV[]</code>로 넘기면 단일 인스턴스에서는 동작해도 Cluster에서는 잘못된 노드로 가거나 CROSSSLOT 에러가 난다.</p>
+<p>스크립트 안에서 Redis 명령은 <code>redis.call</code>로 호출하며, 에러가 나면 스크립트 전체가 중단된다. <code>redis.pcall</code>은 에러를 <code>{err = &quot;...&quot;}</code> 테이블로 돌려주어 진행을 계속한다. 반환값은 Integer는 number, Bulk string은 string, Multi-bulk는 table, nil은 false로 변환된다.</p>
+<p>스크립트는 통째로 하나의 명령으로 실행되어 다른 클라이언트의 명령이 끼어들지 못한다. <code>redis.call</code> 사이에 조건문을 넣어도 원자성이 유지된다는 점이 MULTI/EXEC와의 결정적 차이다.</p>
+<p><code>SCRIPT LOAD</code>로 등록하면 SHA1이 반환되고 이후 <code>EVALSHA &lt;sha&gt;</code>로 호출한다. 캐시는 메모리에만 있어 재시작이나 <code>SCRIPT FLUSH</code> 뒤에는 NOSCRIPT 에러가 나며, 클라이언트는 이때 EVAL로 다시 보낸다. Spring Data Redis와 Lettuce는 이 폴백을 내장하고 있다.</p>
+<p>Functions는 이 모델의 운영상 약점을 겨냥한다. 라이브러리 단위로 등록하고, RDB·AOF에 함께 저장되어 재시작 후에도 남으며, replica에도 라이브러리 자체가 복제된다. 식별자는 SHA1이 아니라 함수 이름이고, 라이브러리는 통째로 원자적으로 교체된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left">EVAL/EVALSHA</th>
+<th align="left">Functions</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">식별</td>
+<td align="left">SHA1</td>
+<td align="left">라이브러리·함수 이름</td>
+</tr>
+<tr>
+<td align="left">영속성</td>
+<td align="left">메모리 캐시, 재시작 시 소실</td>
+<td align="left">RDB·AOF에 저장</td>
+</tr>
+<tr>
+<td align="left">replica</td>
+<td align="left">실행 결과만 복제</td>
+<td align="left">라이브러리 자체 복제</td>
+</tr>
+<tr>
+<td align="left">갱신 단위</td>
+<td align="left">스크립트 하나</td>
+<td align="left">라이브러리 전체 원자 교체</td>
+</tr>
+<tr>
+<td align="left">호출</td>
+<td align="left"><code>EVAL</code>, <code>EVALSHA</code></td>
+<td align="left"><code>FCALL</code>, <code>FCALL_RO</code></td>
+</tr>
+<tr>
+<td align="left">지원 버전</td>
+<td align="left">전 버전</td>
+<td align="left">Redis 7.0 이상</td>
+</tr>
+</tbody></table>
+<p>라이브러리 소스는 첫 줄 <code>#!lua name=&lt;lib&gt;</code>로 이름을 선언하고 <code>redis.register_function</code>으로 함수를 등록한다. 함수 인자는 <code>keys</code>, <code>args</code> 두 테이블로 EVAL의 <code>KEYS[]</code>·<code>ARGV[]</code>와 역할이 같다. 쓰기를 하지 않는 함수에 <code>flags = {&#39;no-writes&#39;}</code>를 붙이면 <code>FCALL_RO</code>로 호출할 수 있고 replica로 라우팅된다. 관리 명령은 <code>FUNCTION LOAD [REPLACE]</code>, <code>LIST</code>, <code>DELETE</code>, <code>FLUSH</code>, <code>DUMP</code>/<code>RESTORE</code>, <code>STATS</code>다. 두 모델은 공존하므로 기존 EVAL 코드를 한꺼번에 옮길 필요는 없다.</p>
+<h2>코드</h2>
+<p>Spring Data Redis의 <code>RedisScript</code>로 분산 락 해제 스크립트를 실행한다. EVALSHA 실패 시 EVAL 폴백은 라이브러리가 담당한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LockReleaser</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RedisScript</span>&lt;Long&gt; <span class="hljs-variable">UNLOCK</span> <span class="hljs-operator">=</span> RedisScript.of(<span class="hljs-string">&quot;&quot;&quot;
+            if redis.call(&#x27;GET&#x27;, KEYS[1]) == ARGV[1] then
+                return redis.call(&#x27;DEL&#x27;, KEYS[1])
+            end
+            return 0
+            &quot;&quot;&quot;</span>, Long.class);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">LockReleaser</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">release</span><span class="hljs-params">(String lockKey, String token)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">deleted</span> <span class="hljs-operator">=</span> redis.execute(UNLOCK, List.of(lockKey), token);
+        <span class="hljs-keyword">return</span> deleted != <span class="hljs-literal">null</span> &amp;&amp; deleted == <span class="hljs-number">1L</span>;
+    }
+}</code></pre>
+<p>Sorted Set 기반 슬라이딩 윈도우 rate limiter다. 현재 시각은 클라이언트가 <code>ARGV</code>로 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SlidingWindowLimiter</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RedisScript</span>&lt;Long&gt; <span class="hljs-variable">ALLOW</span> <span class="hljs-operator">=</span> RedisScript.of(<span class="hljs-string">&quot;&quot;&quot;
+            local now = tonumber(ARGV[1])
+            local window = tonumber(ARGV[2])
+            local limit = tonumber(ARGV[3])
+            redis.call(&#x27;ZREMRANGEBYSCORE&#x27;, KEYS[1], 0, now - window)
+            if redis.call(&#x27;ZCARD&#x27;, KEYS[1]) &gt;= limit then
+                return 0
+            end
+            redis.call(&#x27;ZADD&#x27;, KEYS[1], now, now .. &#x27;-&#x27; .. ARGV[4])
+            redis.call(&#x27;PEXPIRE&#x27;, KEYS[1], window)
+            return 1
+            &quot;&quot;&quot;</span>, Long.class);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SlidingWindowLimiter</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">allow</span><span class="hljs-params">(String userId, <span class="hljs-type">long</span> windowMs, <span class="hljs-type">int</span> limit)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">ok</span> <span class="hljs-operator">=</span> redis.execute(ALLOW, List.of(<span class="hljs-string">&quot;rate:{&quot;</span> + userId + <span class="hljs-string">&quot;}&quot;</span>),
+                String.valueOf(System.currentTimeMillis()),
+                String.valueOf(windowMs),
+                String.valueOf(limit),
+                UUID.randomUUID().toString());
+        <span class="hljs-keyword">return</span> ok != <span class="hljs-literal">null</span> &amp;&amp; ok == <span class="hljs-number">1L</span>;
+    }
+}</code></pre>
+<p>같은 로직을 Functions 라이브러리로 옮기고 Lettuce의 <code>functionLoad</code>·<code>fcall</code>로 등록·호출한다. 등록은 기동 시 한 번, <code>REPLACE</code>로 멱등하게 수행한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LockFunctions</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">LIBRARY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&quot;&quot;
+            #!lua name=locklib
+            redis.register_function(&#x27;unlock&#x27;, function(keys, args)
+                if redis.call(&#x27;GET&#x27;, keys[1]) == args[1] then
+                    return redis.call(&#x27;DEL&#x27;, keys[1])
+                end
+                return 0
+            end)
+            redis.register_function{
+                function_name = &#x27;lock_owner&#x27;,
+                callback = function(keys, args)
+                    return redis.call(&#x27;GET&#x27;, keys[1])
+                end,
+                flags = {&#x27;no-writes&#x27;}
+            }
+            &quot;&quot;&quot;</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RedisCommands&lt;String, String&gt; cmd;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">LockFunctions</span><span class="hljs-params">(StatefulRedisConnection&lt;String, String&gt; connection)</span> {
+        <span class="hljs-built_in">this</span>.cmd = connection.sync();
+    }
+
+    <span class="hljs-meta">@PostConstruct</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">load</span><span class="hljs-params">()</span> {
+        cmd.functionLoad(LIBRARY, <span class="hljs-literal">true</span>);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">release</span><span class="hljs-params">(String lockKey, String token)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">deleted</span> <span class="hljs-operator">=</span> cmd.fcall(<span class="hljs-string">&quot;unlock&quot;</span>, ScriptOutputType.INTEGER,
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[]{lockKey}, token);
+        <span class="hljs-keyword">return</span> deleted != <span class="hljs-literal">null</span> &amp;&amp; deleted == <span class="hljs-number">1L</span>;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">owner</span><span class="hljs-params">(String lockKey)</span> {
+        <span class="hljs-keyword">return</span> cmd.fcallReadOnly(<span class="hljs-string">&quot;lock_owner&quot;</span>, ScriptOutputType.VALUE,
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[]{lockKey});
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>스크립트는 메인 스레드를 점유한다. 실행이 <code>busy-reply-threshold</code>(기본 5,000ms, Redis 7 이전 이름은 <code>lua-time-limit</code>)를 넘으면 다른 클라이언트는 BUSY 응답을 받는다. <code>SCRIPT KILL</code>·<code>FUNCTION KILL</code>은 쓰기를 시작하지 않은 스크립트에만 통하고, 그 뒤에는 <code>SHUTDOWN NOSAVE</code>밖에 없다.</li>
+<li>Cluster에서는 한 스크립트가 만지는 모든 키가 같은 슬롯에 있어야 한다. <code>rate:{user42}</code>처럼 hash tag로 슬롯을 고정하고, 키 이름을 <code>ARGV</code>에 숨겨 검사를 우회하지 않는다.</li>
+<li><code>TIME</code>, <code>SRANDMEMBER</code>, <code>SPOP</code> 같은 비결정적 명령을 스크립트 안에서 호출하면 replica와 AOF 재생 결과가 달라질 수 있다. 시각이나 난수는 클라이언트가 <code>ARGV</code>로 넘긴다.</li>
+<li>EVALSHA만 쓰는 코드는 <code>SCRIPT FLUSH</code>, 재시작, replica 승격 뒤 NOSCRIPT로 실패한다. 폴백이 내장된 클라이언트를 쓰거나 Functions로 옮긴다. Functions는 Redis 7.0 이상, Lettuce 6.2 이상·Jedis 5 이상이 필요하다.</li>
+<li>Lua 엔진은 5.1이라 <code>goto</code>와 <code>bit32</code>가 없고 I/O·OS 모듈은 차단된다. 디버거가 없어 <code>redis.log</code>가 유일한 출력 수단이므로, 조건 분기가 있는 스크립트는 Testcontainers로 Redis를 띄워 테스트로 검증한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/pipelining-transactions/">Pipelining·Transaction·WATCH</a></li>
+<li><a href="/notes/redis/sorted-set/">Sorted Set — 랭킹과 Rate Limiter</a></li>
+<li><a href="/notes/redis/distributed-lock-redlock/">분산 락 — SET NX와 Redlock</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, Lua, EVAL, Redis Functions, FCALL</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/pipelining-transactions/"><small>이전</small>Pipelining·Transaction·WATCH</a>
+  <a class="next" href="/notes/redis/caching-patterns-stampede/"><small>다음</small>캐싱 패턴 — Cache-Aside·스탬피드·Hot Key</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

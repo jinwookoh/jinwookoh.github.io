@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GraphQL — 리액티브 통합과 Subscription · Reactive Spring</title>
+  <meta name="description" content="Spring for GraphQL은 Mono/Flux 반환을 그대로 처리하며, Subscription은 Flux 하나와 Sinks·Pub/Sub 조합으로 실시간 스트림이 된다">
+  <meta property="og:title" content="GraphQL — 리액티브 통합과 Subscription · Reactive Spring">
+  <meta property="og:description" content="Spring for GraphQL은 Mono/Flux 반환을 그대로 처리하며, Subscription은 Flux 하나와 Sinks·Pub/Sub 조합으로 실시간 스트림이 된다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/graphql-reactive-subscriptions/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>GraphQL — 리액티브 통합과 Subscription</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · GraphQL</p>
+  <h1>GraphQL — 리액티브 통합과 Subscription</h1>
+  <p class="summary">Spring for GraphQL은 Mono/Flux 반환을 그대로 처리하며, Subscription은 Flux 하나와 Sinks·Pub/Sub 조합으로 실시간 스트림이 된다</p>
+  <div class="content">
+<p>GraphQL 리졸버가 동기 값만 반환하면 R2DBC·Reactive Redis·WebClient로 얻은 <code>Mono</code>를 매번 <code>block()</code>으로 풀어야 하고, 이벤트 루프가 막혀 WebFlux의 처리량 이점이 사라진다. 알림·채팅·시세처럼 서버가 먼저 데이터를 밀어야 하는 요구는 Query·Mutation만으로는 폴링밖에 답이 없다. Spring for GraphQL은 리졸버가 <code>Mono</code>·<code>Flux</code>를 반환하면 구독과 응답 조립을 대신 처리하고, <code>Subscription</code> 타입을 <code>Flux</code> 하나로 WebSocket·SSE 스트림에 연결한다.</p>
+<h2>핵심 개념</h2>
+<h3>Mono/Flux 반환</h3>
+<p><code>@QueryMapping</code>·<code>@SchemaMapping</code>·<code>@MutationMapping</code> 메서드는 <code>Mono&lt;T&gt;</code>, <code>Flux&lt;T&gt;</code>, <code>Mono&lt;List&lt;T&gt;&gt;</code> 중 무엇을 반환해도 된다. 리스트 필드에 <code>Flux&lt;T&gt;</code>를 반환하면 엔진이 완료까지 모아 배열로 직렬화한다. 의존 관계가 있는 호출은 <code>flatMap</code>으로 잇고, 독립인 호출은 <code>Mono.zip</code>으로 동시에 실행한다. <code>@BatchMapping</code>도 <code>Mono&lt;Map&lt;K, V&gt;&gt;</code>를 반환할 수 있어 N+1 해소가 논블로킹으로 이루어진다.</p>
+<p>에러는 Reactor 연산자와 <code>@GraphQlExceptionHandler</code>가 함께 다룬다. <code>switchIfEmpty</code>로 빈 결과를 오류로 바꾸고, <code>onErrorResume</code>으로 특정 필드만 null 처리하면 부분 응답(data + errors)이 된다. 요청 범위 정보는 <code>ThreadLocal</code> 대신 Reactor <code>Context</code>로 전파한다.</p>
+<h3>Subscription</h3>
+<p>스키마에 <code>type Subscription</code>을 선언하고 <code>@SubscriptionMapping</code> 메서드가 <code>Flux&lt;T&gt;</code>를 반환하면 된다. 발행 채널은 <code>Sinks.Many</code>다.</p>
+<table>
+<thead>
+<tr>
+<th>Sink</th>
+<th>동작</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>multicast().onBackpressureBuffer()</code></td>
+<td>구독 시점 이후 이벤트를 모든 구독자에게</td>
+<td>알림·채팅 기본</td>
+</tr>
+<tr>
+<td><code>replay().limit(n)</code></td>
+<td>새 구독자에게 최근 n개도 재전송</td>
+<td>접속 직후 최근 이력</td>
+</tr>
+<tr>
+<td><code>unicast().onBackpressureBuffer()</code></td>
+<td>구독자 한 명만 허용</td>
+<td>1:1 스트림</td>
+</tr>
+<tr>
+<td><code>multicast().directBestEffort()</code></td>
+<td>느린 구독자 이벤트 드롭</td>
+<td>손실 허용 시세</td>
+</tr>
+</tbody></table>
+<p>전송은 두 가지다. WebSocket은 <code>spring.graphql.websocket.path</code>를 지정하면 활성화되고 <code>graphql-ws</code> 프로토콜(ConnectionInit → ConnectionAck → Subscribe → Next → Complete)을 따른다. 구버전 <code>subscriptions-transport-ws</code>는 deprecated다. SSE는 <code>spring.graphql.sse.path</code>로 켜며 HTTP 단방향이라 프록시 통과가 쉽지만 클라이언트가 서버로 보낼 수 없다.</p>
+<p>인스턴스가 두 대 이상이면 메모리 Sink만으로는 다른 서버의 구독자에게 이벤트가 닿지 않는다. Mutation이 Redis Pub/Sub 또는 Kafka에 발행하고 각 인스턴스가 이를 구독해 로컬 Flux로 흘린다. Redis는 휘발성, Kafka는 영속·재처리 가능이다.</p>
+<h2>코드</h2>
+<p>R2DBC 리포지토리를 그대로 연결하고 독립 호출은 <code>Mono.zip</code>으로 병렬화한 Query 리졸버.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Controller</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserRepository userRepo;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StatsService statsService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> NotificationRepository notificationRepo;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserController</span><span class="hljs-params">(UserRepository userRepo, StatsService statsService,
+                          NotificationRepository notificationRepo)</span> {
+        <span class="hljs-built_in">this</span>.userRepo = userRepo;
+        <span class="hljs-built_in">this</span>.statsService = statsService;
+        <span class="hljs-built_in">this</span>.notificationRepo = notificationRepo;
+    }
+
+    <span class="hljs-meta">@QueryMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;User&gt; <span class="hljs-title function_">user</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> String id)</span> {
+        <span class="hljs-keyword">return</span> userRepo.findById(id)
+            .switchIfEmpty(Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">UserNotFoundException</span>(id)))
+            .onErrorMap(DataAccessException.class, e -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">ServiceException</span>(<span class="hljs-string">&quot;db error&quot;</span>, e));
+    }
+
+    <span class="hljs-meta">@QueryMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Dashboard&gt; <span class="hljs-title function_">dashboard</span><span class="hljs-params">(<span class="hljs-meta">@AuthenticationPrincipal</span> UserDetails principal)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">userId</span> <span class="hljs-operator">=</span> principal.getUsername();
+        <span class="hljs-keyword">return</span> Mono.zip(
+                userRepo.findById(userId),
+                statsService.stats(userId),
+                notificationRepo.findByUserIdAndReadFalse(userId).collectList())
+            .map(t -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">Dashboard</span>(t.getT1(), t.getT2(), t.getT3()));
+    }
+
+    <span class="hljs-meta">@BatchMapping(typeName = &quot;User&quot;, field = &quot;posts&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Map&lt;User, List&lt;Post&gt;&gt;&gt; <span class="hljs-title function_">posts</span><span class="hljs-params">(List&lt;User&gt; users)</span> {
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">ids</span> <span class="hljs-operator">=</span> users.stream().map(User::id).toList();
+        <span class="hljs-keyword">return</span> postRepo.findByAuthorIdIn(ids)
+            .collectList()
+            .map(posts -&gt; {
+                <span class="hljs-type">Map</span>&lt;String, List&lt;Post&gt;&gt; <span class="hljs-variable">byAuthor</span> <span class="hljs-operator">=</span> posts.stream()
+                    .collect(Collectors.groupingBy(Post::authorId));
+                <span class="hljs-keyword">return</span> users.stream().collect(Collectors.toMap(
+                    u -&gt; u, u -&gt; byAuthor.getOrDefault(u.id(), List.of())));
+            });
+    }
+}</code></pre>
+<p>방별 Sink를 유지하는 채팅 Subscription. 인자로 필터링하고 취소·종료 시 활성 구독 수를 계측한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Controller</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ChatController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Map&lt;String, Sinks.Many&lt;Message&gt;&gt; rooms = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">AtomicInteger</span> <span class="hljs-variable">active</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicInteger</span>();
+
+    <span class="hljs-meta">@SubscriptionMapping</span>
+    <span class="hljs-meta">@PreAuthorize(&quot;isAuthenticated()&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Message&gt; <span class="hljs-title function_">messageReceived</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> String roomId)</span> {
+        <span class="hljs-keyword">return</span> sink(roomId).asFlux()
+            .doOnSubscribe(s -&gt; active.incrementAndGet())
+            .doFinally(sig -&gt; active.decrementAndGet())
+            .take(Duration.ofMinutes(<span class="hljs-number">30</span>));
+    }
+
+    <span class="hljs-meta">@MutationMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Message&gt; <span class="hljs-title function_">sendMessage</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> String roomId, <span class="hljs-meta">@Argument</span> String text,
+                                     <span class="hljs-meta">@AuthenticationPrincipal</span> UserDetails user)</span> {
+        <span class="hljs-type">Message</span> <span class="hljs-variable">msg</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Message</span>(user.getUsername(), text, Instant.now());
+        Sinks.<span class="hljs-type">EmitResult</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> sink(roomId).tryEmitNext(msg);
+        <span class="hljs-keyword">if</span> (result.isFailure()) {
+            <span class="hljs-keyword">return</span> Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;emit failed: &quot;</span> + result));
+        }
+        <span class="hljs-keyword">return</span> Mono.just(msg);
+    }
+
+    <span class="hljs-keyword">private</span> Sinks.<span class="hljs-type">Many</span>&lt;Message&gt; <span class="hljs-title function_">sink</span><span class="hljs-params">(String roomId)</span> {
+        <span class="hljs-keyword">return</span> rooms.computeIfAbsent(roomId,
+            k -&gt; Sinks.many().multicast().onBackpressureBuffer(<span class="hljs-number">1_000</span>));
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">MeterBinder</span> <span class="hljs-title function_">activeSubscriptions</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> registry -&gt; Gauge.builder(<span class="hljs-string">&quot;graphql.subscriptions.active&quot;</span>, active::get)
+            .register(registry);
+    }
+}</code></pre>
+<p>다중 인스턴스 환경에서 Redis Pub/Sub을 브로커로 두는 구성.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PostEvents</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ReactiveRedisTemplate&lt;String, Post&gt; redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PostEvents</span><span class="hljs-params">(ReactiveRedisTemplate&lt;String, Post&gt; redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Long&gt; <span class="hljs-title function_">publish</span><span class="hljs-params">(Post post)</span> {
+        <span class="hljs-keyword">return</span> redis.convertAndSend(<span class="hljs-string">&quot;posts&quot;</span>, post);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Post&gt; <span class="hljs-title function_">stream</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> redis.listenToChannel(<span class="hljs-string">&quot;posts&quot;</span>)
+            .map(ReactiveSubscription.Message::getMessage);
+    }
+}
+
+<span class="hljs-meta">@Controller</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PostController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostRepository postRepo;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostEvents events;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PostController</span><span class="hljs-params">(PostRepository postRepo, PostEvents events)</span> {
+        <span class="hljs-built_in">this</span>.postRepo = postRepo;
+        <span class="hljs-built_in">this</span>.events = events;
+    }
+
+    <span class="hljs-meta">@SubscriptionMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Post&gt; <span class="hljs-title function_">postCreated</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> String category)</span> {
+        <span class="hljs-keyword">return</span> events.stream()
+            .filter(p -&gt; category == <span class="hljs-literal">null</span> || category.equals(p.category()));
+    }
+
+    <span class="hljs-meta">@MutationMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Post&gt; <span class="hljs-title function_">createPost</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> CreatePostInput input)</span> {
+        <span class="hljs-keyword">return</span> postRepo.save(Post.from(input))
+            .flatMap(saved -&gt; events.publish(saved).thenReturn(saved));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>block()</code> 혼입.</strong> 한 곳만 <code>block()</code>을 호출해도 Netty 이벤트 루프가 멈춘다. 블로킹 라이브러리를 피할 수 없다면 <code>Schedulers.boundedElastic()</code>으로 격리하거나 Spring MVC + Virtual Thread를 택한다.</li>
+<li><strong>트랜잭션 경계.</strong> R2DBC의 <code>@Transactional</code>은 <code>TransactionalOperator</code>로 동작하지만 MongoDB·Redis·Kafka와 묶이지 않는다. DB 저장과 이벤트 발행을 한 Mutation에서 하면 롤백 후에도 이벤트가 나갈 수 있으므로 Outbox 패턴으로 분리한다.</li>
+<li><strong><code>tryEmitNext</code> 실패 무시.</strong> 버퍼가 차거나 동시 emit이 겹치면 <code>EmitResult</code>가 실패로 돌아오는데, 반환값을 버리면 이벤트가 조용히 사라진다. 결과를 검사하거나 <code>emitNext</code>에 <code>EmitFailureHandler</code>를 지정한다.</li>
+<li><strong>구독 인증.</strong> WebSocket은 HTTP 헤더를 연결 시 한 번만 전달하므로 <code>ConnectionInit</code> 페이로드의 토큰을 <code>WebSocketGraphQlInterceptor</code>에서 검증한다. 다른 사용자의 방을 인자로 넘기는 경우는 리졸버의 <code>filter</code>나 <code>@PreAuthorize</code>로 메시지 단위 권한을 다시 확인해야 막힌다.</li>
+<li><strong>연결 수와 메모리.</strong> 구독당 수 KB라 WebSocket 수만 개는 가능하지만 <code>replay</code> Sink와 큰 버퍼는 구독자 수만큼 곱해져 힙을 누른다. <code>take(Duration)</code>으로 유휴 구독을 정리하고, 방 Sink 맵은 마지막 구독자가 떠날 때 제거하지 않으면 누수가 된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/graphql-schema-queries/">GraphQL — Schema·Query·Mutation·Spring for GraphQL</a></li>
+<li><a href="/notes/reactive-spring/hot-cold-sinks/">Hot/Cold Publisher와 Sinks</a></li>
+<li><a href="/notes/reactive-spring/graphql-dataloader-security/">GraphQL — DataLoader·Federation·보안·테스트</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · GraphQL, Subscription, WebFlux, Sinks, graphql-ws</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/graphql-schema-queries/"><small>이전</small>GraphQL — Schema·Query·Mutation·Spring for GraphQL</a>
+  <a class="next" href="/notes/reactive-spring/graphql-dataloader-security/"><small>다음</small>GraphQL — DataLoader·Federation·보안·테스트</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

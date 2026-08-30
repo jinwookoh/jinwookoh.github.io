@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Database Reader·Writer — Cursor vs Paging · Spring Batch</title>
+  <meta name="description" content="DB 읽기는 Cursor와 Paging 중 무엇을 고르고, 쓰기는 왜 JdbcBatchItemWriter와 UPSERT가 기본인지 정리한다">
+  <meta property="og:title" content="Database Reader·Writer — Cursor vs Paging · Spring Batch">
+  <meta property="og:description" content="DB 읽기는 Cursor와 Paging 중 무엇을 고르고, 쓰기는 왜 JdbcBatchItemWriter와 UPSERT가 기본인지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/database-reader-writer/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Database Reader·Writer — Cursor vs Paging</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Reader·Processor·Writer</p>
+  <h1>Database Reader·Writer — Cursor vs Paging</h1>
+  <p class="summary">DB 읽기는 Cursor와 Paging 중 무엇을 고르고, 쓰기는 왜 JdbcBatchItemWriter와 UPSERT가 기본인지 정리한다</p>
+  <div class="content">
+<p>SQL 한 줄로 100만 row를 조회하면 드라이버에 따라 ResultSet 전체가 메모리에 올라와 OOM이 나고, 한 건씩 INSERT하면 chunk마다 수백 번의 round-trip이 생겨 처리량이 무너진다. Spring Batch는 읽기를 Cursor와 Paging 두 전략으로, 쓰기를 chunk 트랜잭션 안의 batch update로 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>Cursor — JdbcCursorItemReader</h3>
+<p>DB cursor를 한 번 열고 <code>read()</code>마다 <code>rs.next()</code>와 <code>RowMapper.mapRow()</code>를 실행해 row를 하나씩 흘려보낸다. connection 1개를 Step 끝까지 점유하고 메모리는 <code>fetchSize</code>만큼 쓴다. <code>fetchSize</code>는 100~1000이 무난하며 MySQL은 <code>Integer.MIN_VALUE</code>를 주어야 streaming이 된다. thread-safe가 아니다.</p>
+<h3>Paging — JdbcPagingItemReader</h3>
+<p><code>pageSize</code> 단위로 독립된 query를 반복한다. 페이지마다 connection을 반납하므로 idle timeout에 안전하고 thread-safe이며, 재시작 위치는 읽은 item 수로 복원한다. DB별 LIMIT/OFFSET 문법은 <code>PagingQueryProvider</code>가 흡수하고 <code>SqlPagingQueryProviderFactoryBean</code>이 DataSource의 dialect를 감지해 구현체를 고른다. <code>sortKey</code>는 unique해야 하며, 아니면 페이지 경계에서 row가 중복되거나 빠진다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left">Cursor</th>
+<th align="left">Paging</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">connection</td>
+<td align="left">1개 long-running</td>
+<td align="left">페이지마다 open/close</td>
+</tr>
+<tr>
+<td align="left">장시간 실행</td>
+<td align="left">idle timeout 위험</td>
+<td align="left">안전</td>
+</tr>
+<tr>
+<td align="left">DB 부하</td>
+<td align="left">단일 query</td>
+<td align="left">deep OFFSET 시 급증</td>
+</tr>
+<tr>
+<td align="left">thread-safety</td>
+<td align="left">없음</td>
+<td align="left">있음</td>
+</tr>
+</tbody></table>
+<p>운영 기본값은 Paging이다. JPA에서는 <code>JpaPagingItemReader</code>가 페이지마다 persistence context를 clear해 1차 캐시 누적을 막고, <code>JpaCursorItemReader</code>는 자동 clear가 없어 직접 걸어야 한다.</p>
+<h3>Writer — 트랜잭션이 곧 보장</h3>
+<p>DB writer는 chunk 트랜잭션 안에서 동작하므로 별도 장치가 필요 없다. <code>JdbcBatchItemWriter</code>는 chunk 전체를 한 번의 <code>executeBatch()</code>로 보낸다. 바인딩은 <code>?</code> 위치 기반과 <code>:name</code> 기반(<code>beanMapped()</code>) 두 가지인데, 위치 기반은 순서가 어긋나면 모든 컬럼이 틀어지므로 이름 기반이 안전하다. <code>JpaItemWriter</code>는 <code>merge()</code> 후 flush하며 batch INSERT는 <code>SEQUENCE</code> 전략과 <code>hibernate.jdbc.batch_size</code>가 갖춰져야 발생한다. 여러 대상에 쓰려면 <code>CompositeItemWriter</code>로 묶는다.</p>
+<h2>코드</h2>
+<p>Job parameter를 late binding으로 받는 표준 Paging reader. <code>SqlPagingQueryProviderFactoryBean</code>에 DataSource를 넘겨야 dialect가 감지된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-meta">@StepScope</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">JdbcPagingItemReader</span>&lt;Customer&gt; <span class="hljs-title function_">customerReader</span><span class="hljs-params">(
+        DataSource ds,
+        <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;status&#x27;]}&quot;)</span> String status)</span> <span class="hljs-keyword">throws</span> Exception {
+
+    <span class="hljs-type">SqlPagingQueryProviderFactoryBean</span> <span class="hljs-variable">qp</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SqlPagingQueryProviderFactoryBean</span>();
+    qp.setDataSource(ds);
+    qp.setSelectClause(<span class="hljs-string">&quot;select id, name, email&quot;</span>);
+    qp.setFromClause(<span class="hljs-string">&quot;from customer&quot;</span>);
+    qp.setWhereClause(<span class="hljs-string">&quot;where status = :status&quot;</span>);
+    qp.setSortKey(<span class="hljs-string">&quot;id&quot;</span>);
+
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcPagingItemReaderBuilder</span>&lt;Customer&gt;()
+            .name(<span class="hljs-string">&quot;customerReader&quot;</span>)
+            .dataSource(ds)
+            .queryProvider(qp.getObject())
+            .parameterValues(Map.of(<span class="hljs-string">&quot;status&quot;</span>, status))
+            .pageSize(<span class="hljs-number">1000</span>)
+            .rowMapper(BeanPropertyRowMapper.newInstance(Customer.class))
+            .build();
+}</code></pre>
+<p>PostgreSQL UPSERT를 쓰는 <code>JdbcBatchItemWriter</code>와 chunk Step. 재실행해도 결과가 같도록 멱등하게 만든다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">JdbcBatchItemWriter</span>&lt;Customer&gt; <span class="hljs-title function_">customerWriter</span><span class="hljs-params">(DataSource ds)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcBatchItemWriterBuilder</span>&lt;Customer&gt;()
+            .dataSource(ds)
+            .sql(<span class="hljs-string">&quot;&quot;&quot;
+                INSERT INTO customer_target (id, name, email)
+                VALUES (:id, :name, :email)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    email = EXCLUDED.email
+                &quot;&quot;&quot;</span>)
+            .beanMapped()
+            .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">etlStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                    JdbcPagingItemReader&lt;Customer&gt; reader,
+                    JdbcBatchItemWriter&lt;Customer&gt; writer)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;etlStep&quot;</span>, repo)
+            .&lt;Customer, Customer&gt;chunk(<span class="hljs-number">500</span>, tx)
+            .reader(reader)
+            .writer(writer)
+            .build();
+}</code></pre>
+<p>OFFSET 대신 마지막 키 이후만 조회하는 keyset reader. deep pagination 성능 저하를 피한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">KeysetCustomerReader</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">AbstractItemCountingItemStreamItemReader</span>&lt;Customer&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcTemplate jdbc;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Deque</span>&lt;Customer&gt; <span class="hljs-variable">buffer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayDeque</span>&lt;&gt;();
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> <span class="hljs-variable">lastId</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">KeysetCustomerReader</span><span class="hljs-params">(JdbcTemplate jdbc)</span> {
+        <span class="hljs-built_in">this</span>.jdbc = jdbc;
+        setName(<span class="hljs-string">&quot;keysetCustomerReader&quot;</span>);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">Customer</span> <span class="hljs-title function_">doRead</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">if</span> (buffer.isEmpty()) {
+            buffer.addAll(jdbc.query(
+                    <span class="hljs-string">&quot;SELECT id, name, email FROM customer WHERE id &gt; ? ORDER BY id LIMIT 1000&quot;</span>,
+                    BeanPropertyRowMapper.newInstance(Customer.class), lastId));
+            <span class="hljs-keyword">if</span> (buffer.isEmpty()) {
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+            }
+        }
+        <span class="hljs-type">Customer</span> <span class="hljs-variable">c</span> <span class="hljs-operator">=</span> buffer.poll();
+        lastId = c.getId();
+        <span class="hljs-keyword">return</span> c;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">void</span> <span class="hljs-title function_">doOpen</span><span class="hljs-params">()</span> { }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">void</span> <span class="hljs-title function_">doClose</span><span class="hljs-params">()</span> { }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>connection idle timeout.</strong> Cursor reader는 Step 내내 connection을 잡아 pool이나 DB의 idle timeout을 넘기면 끊긴다. Paging 전환이 정석이고 timeout 연장은 임시 조치다.</li>
+<li><strong>non-unique sortKey와 deep pagination.</strong> <code>createdAt</code>으로 정렬하면 row가 중복·누락되므로 PK나 <code>Map&lt;String, Order&gt;</code> 다중 정렬을 쓴다. OFFSET이 수백만을 넘으면 후반 페이지가 급격히 느려지니 keyset 방식이나 partitioning으로 쪼갠다.</li>
+<li><strong>JPA N+1.</strong> lazy 연관을 <code>JpaPagingItemReader</code>로 읽으면 row마다 query가 나간다. collection fetch join에 paging을 결합하면 Hibernate가 메모리 페이징으로 처리하므로, 대량이면 JDBC reader로 명시 join SQL을 쓴다.</li>
+<li><strong>flush 시점과 skip.</strong> custom writer가 flush를 미루면 어떤 item이 원인인지 알 수 없어 chunk 전체가 롤백되고 skip이 동작하지 않는다. <code>write(Chunk)</code> 안에서 flush해야 하며 <code>JdbcBatchItemWriter</code>·<code>JpaItemWriter</code>는 내부에서 처리한다. <code>IDENTITY</code> 전략이면 INSERT batching이 불가능하므로 <code>SEQUENCE</code>로 바꾼다.</li>
+<li><strong>다중 thread와 다중 DataSource.</strong> multi-threaded Step에서 Cursor reader는 <code>SynchronizedItemStreamReader</code>로 감싸거나 Paging으로 바꾼다. source와 target DB가 다르면 트랜잭션도 분리되므로 UPSERT 멱등성으로 재실행을 허용한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/reader-writer-interfaces/">ItemReader·ItemWriter 인터페이스와 구현체 카탈로그</a></li>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/scaling-partitioning/">Scaling — Multi-thread·Partitioning·Remote Chunking</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, JdbcCursorItemReader, JdbcPagingItemReader, JdbcBatchItemWriter, JpaItemWriter</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/xml-json-multifile/"><small>이전</small>XML·JSON·Multi-file 입출력</a>
+  <a class="next" href="/notes/spring-batch/item-processor-custom/"><small>다음</small>ItemProcessor·서비스 재사용·커스텀 구현</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

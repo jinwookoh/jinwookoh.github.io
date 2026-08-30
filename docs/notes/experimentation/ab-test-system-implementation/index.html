@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현 · 실험과 분석</title>
+  <meta name="description" content="배정·플래그 평가·이벤트 추적·결과 집계를 분리해 A/B 테스트 플랫폼을 직접 구현하는 방법">
+  <meta property="og:title" content="A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현 · 실험과 분석">
+  <meta property="og:description" content="배정·플래그 평가·이벤트 추적·결과 집계를 분리해 A/B 테스트 플랫폼을 직접 구현하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ab-test-system-implementation/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · A/B 테스트</p>
+  <h1>A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현</h1>
+  <p class="summary">배정·플래그 평가·이벤트 추적·결과 집계를 분리해 A/B 테스트 플랫폼을 직접 구현하는 방법</p>
+  <div class="content">
+<p>가설과 지표가 정해져도 실험을 손으로 운영하면 곧 한계에 부딪힌다. 어떤 사용자가 어느 그룹에 들어갔는지, 지금 어떤 실험이 켜져 있는지, 전환 이벤트를 어디에 어떤 형식으로 쌓을지가 코드 곳곳에 흩어지고, 새로고침 한 번에 사용자가 다른 그룹으로 옮겨 가거나 같은 사용자가 두 번 집계되는 오류가 결과를 오염시킨다. Optimizely·VWO 같은 상용 도구가 내부에서 하는 일은 결국 배정, 플래그 평가, 이벤트 수집, 집계와 검정 네 가지이며, 이 네 가지를 분리해 작게 구현하면 실험 결과를 신뢰할 수 있는 최소 플랫폼이 된다.</p>
+<h2>핵심 개념</h2>
+<p>시스템은 세 층으로 나뉜다. 클라이언트는 사용자를 그룹에 배정하고 그 결과에 따라 화면을 분기하며 이벤트를 전송한다. 추적 서버는 이벤트를 받아 저장하고, 실험별로 그룹당 사용자 수와 전환 수를 집계해 검정 결과를 반환한다. 저장소는 이벤트 종류별로 분리된 append-only 로그다. 세 층을 나누면 프론트엔드 프레임워크나 상태 관리 라이브러리를 바꿔도 실험 로직은 그대로 남는다.</p>
+<p>실험 로직의 핵심은 두 연산의 분리다. 활성화(activate)는 타겟팅 조건을 확인하고 사용자를 변형(variation)에 배정한 뒤 <code>Bucket</code> 이벤트를 기록한다. 실행(run)은 이미 배정된 변형을 조회해 호출자에게 돌려준다. 실행이 배정 결과를 찾지 못하면 null 또는 false를 반환하고, 호출자는 이 경우를 항상 원본(original) 분기로 처리한다. 실험이 꺼져 있거나 초기화가 끝나지 않은 순간에도 화면이 깨지지 않게 하는 안전장치다.</p>
+<p>배정은 결정적이어야 한다. 매 요청마다 난수를 뽑으면 재방문 시 그룹이 바뀌고 같은 사용자가 두 그룹에 동시에 잡힌다. 실험 키와 사용자 식별자를 이어 붙여 해시한 뒤 버킷 범위로 나누면 같은 사용자는 언제나 같은 변형을 받고, 서버가 상태를 들고 있을 필요도 없다. 사용자 식별자는 로그인 전에는 브라우저 저장소에 보관한 UUID를 쓰고, 로그인 후에는 계정 ID로 연결한다.</p>
+<p>변형이 돌려주는 값의 형태는 네 가지로 정리된다.</p>
+<table>
+<thead>
+<tr>
+<th>패턴</th>
+<th>반환값</th>
+<th>용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Boolean</td>
+<td>true/false</td>
+<td>새 기능 노출 여부</td>
+</tr>
+<tr>
+<td>데이터 변환</td>
+<td>입력을 가공한 값</td>
+<td>리뷰 정렬 순서 변경</td>
+</tr>
+<tr>
+<td>조건부 Boolean</td>
+<td>데이터에 따른 true/false</td>
+<td>재고 10개 미만일 때만 경고</td>
+</tr>
+<tr>
+<td>데이터 주입</td>
+<td>변형별 다른 콘텐츠</td>
+<td>결제 완료 페이지의 추천 목록</td>
+</tr>
+</tbody></table>
+<p>이벤트 저장은 종류별 파일 또는 테이블로 분리한다. <code>Bucket</code>은 실험명과 변형을, <code>purchase</code>는 사용자와 시각만 담는 식으로 스키마가 달라도 서로 간섭하지 않고, 분석 시 필요한 이벤트만 읽는다. 타임스탬프는 클라이언트가 보낸 값을 버리고 서버가 수신 시각으로 기록한다.</p>
+<p>집계는 <code>Bucket</code>에서 해당 실험의 행만 골라 사용자 식별자로 중복을 제거하고, 변형별 사용자 수를 센 뒤 지표 이벤트를 남긴 사용자 집합과 교집합을 구해 전환 수를 얻는다. 변형별 <code>[사용자 수, 전환 수]</code> 표를 카이제곱 검정에 넣으면 유의성이 나온다.</p>
+<h2>코드</h2>
+<p>실험 정의와 해시 기반 결정적 배정 서비스다. 같은 실험 키와 사용자 ID 조합은 항상 같은 변형을 받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.nio.charset.StandardCharsets;
+<span class="hljs-keyword">import</span> java.security.MessageDigest;
+<span class="hljs-keyword">import</span> java.util.HexFormat;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Optional;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Experiment</span><span class="hljs-params">(String key, <span class="hljs-type">boolean</span> active, List&lt;String&gt; variations,
+                         Optional&lt;String&gt; pathPattern)</span> {}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AssignmentService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ExperimentRegistry registry;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> EventStore events;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">AssignmentService</span><span class="hljs-params">(ExperimentRegistry registry, EventStore events)</span> {
+        <span class="hljs-built_in">this</span>.registry = registry;
+        <span class="hljs-built_in">this</span>.events = events;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Optional</span>&lt;String&gt; <span class="hljs-title function_">activate</span><span class="hljs-params">(String experimentKey, String userId, String path)</span> {
+        <span class="hljs-type">Experiment</span> <span class="hljs-variable">exp</span> <span class="hljs-operator">=</span> registry.find(experimentKey).orElse(<span class="hljs-literal">null</span>);
+        <span class="hljs-keyword">if</span> (exp == <span class="hljs-literal">null</span> || !exp.active()) <span class="hljs-keyword">return</span> Optional.empty();
+        <span class="hljs-keyword">if</span> (exp.pathPattern().map(p -&gt; !path.matches(p)).orElse(<span class="hljs-literal">false</span>)) <span class="hljs-keyword">return</span> Optional.empty();
+
+        <span class="hljs-type">String</span> <span class="hljs-variable">variation</span> <span class="hljs-operator">=</span> exp.variations().get(bucket(experimentKey, userId, exp.variations().size()));
+        events.append(<span class="hljs-string">&quot;Bucket&quot;</span>, userId, List.of(experimentKey, variation));
+        <span class="hljs-keyword">return</span> Optional.of(variation);
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">bucket</span><span class="hljs-params">(String experimentKey, String userId, <span class="hljs-type">int</span> size)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">byte</span>[] <span class="hljs-variable">digest</span> <span class="hljs-operator">=</span> MessageDigest.getInstance(<span class="hljs-string">&quot;SHA-256&quot;</span>)
+                    .digest((experimentKey + <span class="hljs-string">&quot;:&quot;</span> + userId).getBytes(StandardCharsets.UTF_8));
+            <span class="hljs-type">long</span> <span class="hljs-variable">head</span> <span class="hljs-operator">=</span> Long.parseUnsignedLong(HexFormat.of().formatHex(digest, <span class="hljs-number">0</span>, <span class="hljs-number">7</span>), <span class="hljs-number">16</span>);
+            <span class="hljs-keyword">return</span> (<span class="hljs-type">int</span>) (head % size);
+        } <span class="hljs-keyword">catch</span> (Exception e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(e);
+        }
+    }
+}</code></pre>
+<p>이벤트 수신과 저장 컨트롤러다. 타임스탬프는 서버에서 찍고, 이벤트 이름별로 다른 파일에 append한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.nio.charset.StandardCharsets;
+<span class="hljs-keyword">import</span> java.nio.file.Files;
+<span class="hljs-keyword">import</span> java.nio.file.Path;
+<span class="hljs-keyword">import</span> java.nio.file.StandardOpenOption;
+<span class="hljs-keyword">import</span> java.time.Instant;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.concurrent.locks.ReentrantLock;
+<span class="hljs-keyword">import</span> org.springframework.http.ResponseEntity;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+<span class="hljs-keyword">import</span> org.springframework.web.bind.annotation.*;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">TrackRequest</span><span class="hljs-params">(String uuid, String event, List&lt;String&gt; data)</span> {}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">EventStore</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Path</span> <span class="hljs-variable">dir</span> <span class="hljs-operator">=</span> Path.of(<span class="hljs-string">&quot;data&quot;</span>);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">ReentrantLock</span> <span class="hljs-variable">lock</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ReentrantLock</span>();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">append</span><span class="hljs-params">(String event, String uuid, List&lt;String&gt; data)</span> {
+        <span class="hljs-keyword">if</span> (!event.matches(<span class="hljs-string">&quot;[A-Za-z0-9_ ]+&quot;</span>)) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;invalid event&quot;</span>);
+        <span class="hljs-type">String</span> <span class="hljs-variable">row</span> <span class="hljs-operator">=</span> uuid + <span class="hljs-string">&quot;,&quot;</span> + event + <span class="hljs-string">&quot;,&quot;</span> + Instant.now().toEpochMilli()
+                + (data.isEmpty() ? <span class="hljs-string">&quot;&quot;</span> : <span class="hljs-string">&quot;,&quot;</span> + String.join(<span class="hljs-string">&quot;,&quot;</span>, data)) + <span class="hljs-string">&quot;\n&quot;</span>;
+        lock.lock();
+        <span class="hljs-keyword">try</span> {
+            Files.createDirectories(dir);
+            Files.writeString(dir.resolve(event + <span class="hljs-string">&quot;.csv&quot;</span>), row, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } <span class="hljs-keyword">catch</span> (IOException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(e);
+        } <span class="hljs-keyword">finally</span> {
+            lock.unlock();
+        }
+    }
+}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@CrossOrigin(origins = &quot;${experiment.allowed-origin}&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TrackController</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> EventStore store;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TrackController</span><span class="hljs-params">(EventStore store)</span> { <span class="hljs-built_in">this</span>.store = store; }
+
+    <span class="hljs-meta">@PostMapping(&quot;/track&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ResponseEntity</span>&lt;Void&gt; <span class="hljs-title function_">track</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> TrackRequest req)</span> {
+        <span class="hljs-keyword">if</span> (req.uuid() == <span class="hljs-literal">null</span> || req.event() == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> ResponseEntity.badRequest().build();
+        store.append(req.event(), req.uuid(), req.data() == <span class="hljs-literal">null</span> ? List.of() : req.data());
+        <span class="hljs-keyword">return</span> ResponseEntity.accepted().build();
+    }
+}</code></pre>
+<p>결과 집계다. 실험별 <code>Bucket</code> 행에서 사용자 중복을 제거하고 변형별 사용자 수와 전환 수를 세어 2×2 카이제곱 통계량을 계산한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.nio.file.Files;
+<span class="hljs-keyword">import</span> java.nio.file.Path;
+<span class="hljs-keyword">import</span> java.util.*;
+<span class="hljs-keyword">import</span> org.springframework.web.bind.annotation.*;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">VariationResult</span><span class="hljs-params">(<span class="hljs-type">long</span> users, <span class="hljs-type">long</span> conversions, <span class="hljs-type">double</span> conversionRate)</span> {}
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">ExperimentResult</span><span class="hljs-params">(<span class="hljs-type">double</span> chiSquare, Map&lt;String, VariationResult&gt; results)</span> {}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ResultsController</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Path</span> <span class="hljs-variable">dir</span> <span class="hljs-operator">=</span> Path.of(<span class="hljs-string">&quot;data&quot;</span>);
+
+    <span class="hljs-meta">@GetMapping(&quot;/results&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ExperimentResult</span> <span class="hljs-title function_">results</span><span class="hljs-params">(<span class="hljs-meta">@RequestParam</span> String experiment,
+                                    <span class="hljs-meta">@RequestParam</span> String metric)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">converted</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashSet</span>&lt;&gt;();
+        <span class="hljs-type">Path</span> <span class="hljs-variable">metricFile</span> <span class="hljs-operator">=</span> dir.resolve(metric + <span class="hljs-string">&quot;.csv&quot;</span>);
+        <span class="hljs-keyword">if</span> (Files.exists(metricFile)) {
+            <span class="hljs-keyword">for</span> (String row : Files.readAllLines(metricFile)) {
+                <span class="hljs-keyword">if</span> (!row.isBlank()) converted.add(row.split(<span class="hljs-string">&quot;,&quot;</span>)[<span class="hljs-number">0</span>]);
+            }
+        }
+
+        <span class="hljs-type">Map</span>&lt;String, <span class="hljs-type">long</span>[]&gt; <span class="hljs-variable">counts</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LinkedHashMap</span>&lt;&gt;();
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">seen</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashSet</span>&lt;&gt;();
+        <span class="hljs-keyword">for</span> (String row : Files.readAllLines(dir.resolve(<span class="hljs-string">&quot;Bucket.csv&quot;</span>))) {
+            <span class="hljs-keyword">if</span> (row.isBlank()) <span class="hljs-keyword">continue</span>;
+            <span class="hljs-type">String</span>[] <span class="hljs-variable">f</span> <span class="hljs-operator">=</span> row.split(<span class="hljs-string">&quot;,&quot;</span>);
+            <span class="hljs-keyword">if</span> (f.length &lt; <span class="hljs-number">5</span> || !f[<span class="hljs-number">3</span>].equals(experiment) || !seen.add(f[<span class="hljs-number">0</span>])) <span class="hljs-keyword">continue</span>;
+            <span class="hljs-type">long</span>[] <span class="hljs-variable">c</span> <span class="hljs-operator">=</span> counts.computeIfAbsent(f[<span class="hljs-number">4</span>], k -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">long</span>[<span class="hljs-number">2</span>]);
+            c[<span class="hljs-number">0</span>]++;
+            <span class="hljs-keyword">if</span> (converted.contains(f[<span class="hljs-number">0</span>])) c[<span class="hljs-number">1</span>]++;
+        }
+
+        <span class="hljs-type">Map</span>&lt;String, VariationResult&gt; <span class="hljs-variable">out</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LinkedHashMap</span>&lt;&gt;();
+        counts.forEach((v, c) -&gt; out.put(v,
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">VariationResult</span>(c[<span class="hljs-number">0</span>], c[<span class="hljs-number">1</span>], c[<span class="hljs-number">0</span>] == <span class="hljs-number">0</span> ? <span class="hljs-number">0</span> : (<span class="hljs-type">double</span>) c[<span class="hljs-number">1</span>] / c[<span class="hljs-number">0</span>])));
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ExperimentResult</span>(chiSquare(counts.values()), out);
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-type">double</span> <span class="hljs-title function_">chiSquare</span><span class="hljs-params">(Collection&lt;<span class="hljs-type">long</span>[]&gt; groups)</span> {
+        <span class="hljs-type">long</span> <span class="hljs-variable">users</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>, conv = <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">long</span>[] g : groups) { users += g[<span class="hljs-number">0</span>]; conv += g[<span class="hljs-number">1</span>]; }
+        <span class="hljs-keyword">if</span> (users == <span class="hljs-number">0</span> || conv == <span class="hljs-number">0</span> || conv == users) <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+        <span class="hljs-type">double</span> <span class="hljs-variable">p</span> <span class="hljs-operator">=</span> (<span class="hljs-type">double</span>) conv / users, stat = <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">long</span>[] g : groups) {
+            <span class="hljs-type">double</span> <span class="hljs-variable">expConv</span> <span class="hljs-operator">=</span> g[<span class="hljs-number">0</span>] * p, expNo = g[<span class="hljs-number">0</span>] * (<span class="hljs-number">1</span> - p);
+            stat += Math.pow(g[<span class="hljs-number">1</span>] - expConv, <span class="hljs-number">2</span>) / expConv
+                  + Math.pow((g[<span class="hljs-number">0</span>] - g[<span class="hljs-number">1</span>]) - expNo, <span class="hljs-number">2</span>) / expNo;
+        }
+        <span class="hljs-keyword">return</span> stat;
+    }
+}</code></pre>
+<p>두 변형이면 자유도 1이며 통계량이 3.84를 넘으면 95%, 6.63을 넘으면 99% 수준에서 유의하다. 변형이 셋 이상이면 자유도가 늘어나므로 임계값을 그에 맞게 읽는다.</p>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>CORS 누락.</strong> 프론트엔드와 추적 서버가 다른 origin에서 뜨면 브라우저가 요청을 차단하고 모든 이벤트가 조용히 사라진다. 개발 환경에서는 전체 허용이 편하지만 운영에서는 <code>@CrossOrigin</code> 또는 <code>CorsConfigurationSource</code>로 허용 origin을 명시적으로 제한한다.</li>
+<li><strong>중복 집계.</strong> 새로고침마다 <code>Bucket</code> 이벤트가 다시 기록되므로 집계 단계에서 사용자 식별자로 반드시 중복을 제거한다. 배정을 해시로 결정적으로 만들면 중복 행이 있어도 변형은 같으므로 결과가 흔들리지 않는다.</li>
+<li><strong>추적 호출이 사용자 동작을 막는 문제.</strong> 클라이언트의 <code>track</code>은 실패를 삼키고 응답을 기다리지 않아야 한다. 추적 서버가 죽어도 구매 흐름은 이어져야 하며, 서버 쪽도 저장 실패를 4xx·5xx로 노출하기보다 로그로 남기고 202를 반환하는 편이 낫다.</li>
+<li><strong>평가 순서 경쟁.</strong> 자식 컴포넌트가 실험 값을 읽는 시점이 부모의 활성화보다 빠르면 null이 돌아온다. 실험 값을 렌더 최상단에서 읽고 그 값을 effect 의존성에 넣어 값이 준비되면 재실행되게 하거나, 활성화를 앱 부트스트랩에서 동기적으로 끝낸 뒤 화면을 그린다.</li>
+<li><strong>파일 append의 한계.</strong> CSV는 MVP에 적합하지만 다중 인스턴스에서는 잠금이 통하지 않고 파일 끝의 빈 줄이나 값 안의 쉼표가 파싱을 깨뜨린다. 트래픽이 늘면 PostgreSQL이나 ClickHouse 같은 저장소로 옮기고, 이벤트 이름은 파일 경로로 쓰이므로 허용 문자를 검증해 경로 조작을 막는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/ab-test-basics-design/">A/B 테스트 — 대조군·전환율·가설과 지표 설계</a></li>
+<li><a href="/notes/experimentation/ab-test-statistics/">A/B 테스트 통계 — 카이제곱·베이지안·다중 비교</a></li>
+<li><a href="/notes/experimentation/ab-test-best-practices-cases/">A/B 테스트 베스트 프랙티스와 사례</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · A/B 테스트, Feature Flag, 실험 플랫폼, 이벤트 추적, Spring Boot</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/ab-test-statistics/"><small>이전</small>A/B 테스트 통계 — 카이제곱·베이지안·다중 비교</a>
+  <a class="next" href="/notes/experimentation/ab-test-best-practices-cases/"><small>다음</small>A/B 테스트 베스트 프랙티스와 사례</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

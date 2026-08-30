@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GA4 데이터 모델 — 이벤트·세션·사용자 · 실험과 분석</title>
+  <meta name="description" content="GA4는 모든 상호작용을 이벤트로 기록하고, Client ID·User ID·세션 규칙으로 사용자와 방문을 묶는다.">
+  <meta property="og:title" content="GA4 데이터 모델 — 이벤트·세션·사용자 · 실험과 분석">
+  <meta property="og:description" content="GA4는 모든 상호작용을 이벤트로 기록하고, Client ID·User ID·세션 규칙으로 사용자와 방문을 묶는다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ga4-data-model/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>GA4 데이터 모델 — 이벤트·세션·사용자</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · GA4</p>
+  <h1>GA4 데이터 모델 — 이벤트·세션·사용자</h1>
+  <p class="summary">GA4는 모든 상호작용을 이벤트로 기록하고, Client ID·User ID·세션 규칙으로 사용자와 방문을 묶는다.</p>
+  <div class="content">
+<p>Universal Analytics(UA)는 2023년 7월에 종료됐지만 남은 자료 대부분은 UA 기준이다. UA의 히트·목표 개념으로 GA4를 보면 세션 수와 이탈률 정의가 어긋나고 사용자는 브라우저마다 따로 잡힌다. 데이터 모델을 먼저 잡지 않으면 되돌릴 수 없는 스코프의 맞춤 측정기준을 만들거나, 로그아웃 처리를 빠뜨려 익명 사용자 전체가 한 명으로 합쳐진다.</p>
+<h2>핵심 개념</h2>
+<h3>계층 — Account · Property · Data Stream</h3>
+<p>계정(조직, 권한) → 속성(분석 단위, 서비스 하나) → 데이터 스트림(Web·iOS·Android 수집 진입점) 3단이다. UA는 앱과 웹이 별도 속성이었지만 GA4는 한 속성 아래 여러 스트림을 두어 크로스 플랫폼 사용자를 한 뷰로 본다. 스트림마다 Measurement ID(<code>G-XXXXXXXXXX</code>)가 발급되며 gtag·GTM 설치 시 이 값을 쓴다. 속성은 서비스 단위로 하나만 두고 페이지·기능은 파라미터로 구분한다.</p>
+<h3>이벤트 — 단일 스키마</h3>
+<p>GA4는 page_view·click·purchase가 모두 <code>event_name</code> + <code>event_params</code> + <code>user_properties</code> 구조의 이벤트다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">유형</th>
+<th align="left">발생 조건</th>
+<th align="left">예</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">자동 수집</td>
+<td align="left">설치만으로 발생</td>
+<td align="left">first_visit, session_start, page_view</td>
+</tr>
+<tr>
+<td align="left">향상된 측정</td>
+<td align="left">웹 스트림 토글</td>
+<td align="left">scroll, 외부 링크 click, file_download, video_*</td>
+</tr>
+<tr>
+<td align="left">추천 이벤트</td>
+<td align="left">표준 이름을 개발자가 전송</td>
+<td align="left">purchase, add_to_cart, sign_up</td>
+</tr>
+<tr>
+<td align="left">맞춤 이벤트</td>
+<td align="left">직접 정의</td>
+<td align="left">product_click</td>
+</tr>
+</tbody></table>
+<p>추천 이벤트 이름을 쓰면 표준 보고서·전자상거래 퍼널·예측 지표가 자동으로 채워지고, <code>buy_now</code> 같은 임의 이름은 인식되지 않는다. 이름은 snake_case 40자 이내다.</p>
+<p>파라미터는 해당 이벤트에만 붙고, 사용자 속성은 이후 모든 이벤트에 따라붙는다. 한도는 파라미터 이벤트당 25개(이름 40자·값 100자), 사용자 속성 25개(이름 24자·값 36자)이며 초과분은 오류 없이 잘린다.</p>
+<h3>사용자 식별 — 3개 계층</h3>
+<p><strong>Client ID</strong>는 첫 방문 시 <code>_ga</code> 쿠키에 저장되는 브라우저·기기 단위 식별자다. 쿠키 삭제, 시크릿 모드, 다른 브라우저는 모두 새 사용자로 잡힌다. <strong>User ID</strong>는 서비스의 로그인 식별자를 개발자가 보내는 값으로, 여러 기기에서 같은 값으로 로그인하면 한 사용자로 묶인다. <strong>Google Signals</strong>는 Google 계정 로그인과 광고 개인 맞춤에 동의한 사용자를 Google이 기기 간 통합 인식한 결과로, User ID 없이도 일부 크로스 디바이스 통합과 인구통계 데이터를 준다.</p>
+<h3>세션 — 30분 비활동 규칙과 참여 세션</h3>
+<p>세션은 <code>session_start</code>로 시작하고 30분(스트림 설정에서 5분~7시간) 동안 활동이 없으면 끝난다. UA와 달리 자정에 끊기지 않고 캠페인 소스가 바뀌어도 새 세션이 생기지 않으므로 UA와 GA4의 세션 수는 추세만 비교한다.</p>
+<p>참여 세션은 10초 이상 지속, page_view 2회 이상, 키 이벤트 발생 중 하나를 만족한 세션이다. GA4 이탈률은 1 − 참여율이라 UA 이탈률(1페이지 세션 비율)과 수치가 대응하지 않는다. 도메인 간 이동을 한 세션으로 유지하려면 웹 스트림에 cross-domain 도메인을 등록한다.</p>
+<h3>맞춤 측정기준 — 3개 스코프</h3>
+<p>파라미터와 사용자 속성은 맞춤 측정기준(문자)·측정항목(숫자)으로 등록해야 보고서에 나타나며 스코프는 등록 후 바꿀 수 없다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">스코프</th>
+<th align="left">적용 범위</th>
+<th align="left">예</th>
+<th align="left">한도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Event</td>
+<td align="left">이벤트 한 건</td>
+<td align="left">article_category</td>
+<td align="left">50</td>
+</tr>
+<tr>
+<td align="left">User</td>
+<td align="left">사용자의 이후 모든 이벤트</td>
+<td align="left">user_tier</td>
+<td align="left">25</td>
+</tr>
+<tr>
+<td align="left">Item</td>
+<td align="left">items 배열의 각 상품</td>
+<td align="left">brand, size</td>
+<td align="left">10</td>
+</tr>
+</tbody></table>
+<p>고유값(cardinality)이 많아지면 보고서가 상위 값만 남기고 나머지를 <code>(other)</code>로 합친다. user_id·session_id·search_query 같은 값은 파라미터로만 보내고 BigQuery Export에서 조회한다.</p>
+<h2>코드</h2>
+<p>Measurement Protocol로 서버에서 purchase 이벤트를 보내는 컴포넌트다. <code>client_id</code>는 프론트가 <code>_ga</code> 쿠키에서 읽어 주문에 저장한 값이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Ga4MeasurementClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String measurementId;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String apiSecret;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Ga4MeasurementClient</span><span class="hljs-params">(RestClient.Builder builder,
+                                <span class="hljs-meta">@Value(&quot;${ga4.measurement-id}&quot;)</span> String measurementId,
+                                <span class="hljs-meta">@Value(&quot;${ga4.api-secret}&quot;)</span> String apiSecret)</span> {
+        <span class="hljs-built_in">this</span>.restClient = builder.baseUrl(<span class="hljs-string">&quot;https://www.google-analytics.com&quot;</span>).build();
+        <span class="hljs-built_in">this</span>.measurementId = measurementId;
+        <span class="hljs-built_in">this</span>.apiSecret = apiSecret;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">sendPurchase</span><span class="hljs-params">(String clientId, String userId, Order order)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">items</span> <span class="hljs-operator">=</span> order.lines().stream()
+                .map(l -&gt; Map.of(
+                        <span class="hljs-string">&quot;item_id&quot;</span>, l.productId(),
+                        <span class="hljs-string">&quot;item_name&quot;</span>, l.productName(),
+                        <span class="hljs-string">&quot;item_brand&quot;</span>, l.brand(),
+                        <span class="hljs-string">&quot;price&quot;</span>, l.unitPrice(),
+                        <span class="hljs-string">&quot;quantity&quot;</span>, l.quantity()))
+                .toList();
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">event</span> <span class="hljs-operator">=</span> Map.of(
+                <span class="hljs-string">&quot;name&quot;</span>, <span class="hljs-string">&quot;purchase&quot;</span>,
+                <span class="hljs-string">&quot;params&quot;</span>, Map.of(
+                        <span class="hljs-string">&quot;transaction_id&quot;</span>, order.id(),
+                        <span class="hljs-string">&quot;value&quot;</span>, order.totalAmount(),
+                        <span class="hljs-string">&quot;currency&quot;</span>, <span class="hljs-string">&quot;KRW&quot;</span>,
+                        <span class="hljs-string">&quot;items&quot;</span>, items));
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">body</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LinkedHashMap</span>&lt;String, Object&gt;();
+        body.put(<span class="hljs-string">&quot;client_id&quot;</span>, clientId);
+        <span class="hljs-keyword">if</span> (userId != <span class="hljs-literal">null</span>) {
+            body.put(<span class="hljs-string">&quot;user_id&quot;</span>, userId);
+        }
+        body.put(<span class="hljs-string">&quot;events&quot;</span>, List.of(event));
+
+        restClient.post()
+                .uri(uri -&gt; uri.path(<span class="hljs-string">&quot;/mp/collect&quot;</span>)
+                        .queryParam(<span class="hljs-string">&quot;measurement_id&quot;</span>, measurementId)
+                        .queryParam(<span class="hljs-string">&quot;api_secret&quot;</span>, apiSecret)
+                        .build())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+}</code></pre>
+<p>User ID 생성을 한 곳에 모아 형식 통일과 PII 검증을 강제하는 값 객체다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">GaUserId</span><span class="hljs-params">(String value)</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Pattern</span> <span class="hljs-variable">ALLOWED</span> <span class="hljs-operator">=</span> Pattern.compile(<span class="hljs-string">&quot;^user-\\d+$&quot;</span>);
+
+    <span class="hljs-keyword">public</span> GaUserId {
+        Objects.requireNonNull(value, <span class="hljs-string">&quot;user id must not be null&quot;</span>);
+        <span class="hljs-keyword">if</span> (value.contains(<span class="hljs-string">&quot;@&quot;</span>) || value.matches(<span class="hljs-string">&quot;.*\\d{3}-\\d{4}-\\d{4}.*&quot;</span>)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;PII cannot be used as GA4 user_id&quot;</span>);
+        }
+        <span class="hljs-keyword">if</span> (!ALLOWED.matcher(value).matches()) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;user_id must match user-&lt;numeric id&gt;&quot;</span>);
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">GaUserId</span> <span class="hljs-title function_">of</span><span class="hljs-params">(<span class="hljs-type">long</span> dbUserId)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">GaUserId</span>(<span class="hljs-string">&quot;user-&quot;</span> + dbUserId);
+    }
+}</code></pre>
+<p>클라이언트는 로그인 시 같은 값을 설정하고 로그아웃 시 <code>null</code>로 되돌린다. 빈 문자열은 실제 ID로 기록된다.</p>
+<pre><code class="hljs language-javascript"><span class="hljs-title function_">gtag</span>(<span class="hljs-string">&#x27;config&#x27;</span>, <span class="hljs-string">&#x27;G-XXXXXXXXXX&#x27;</span>, { <span class="hljs-attr">user_id</span>: <span class="hljs-string">&#x27;user-12345&#x27;</span> });
+<span class="hljs-title function_">gtag</span>(<span class="hljs-string">&#x27;set&#x27;</span>, <span class="hljs-string">&#x27;user_properties&#x27;</span>, { <span class="hljs-attr">user_tier</span>: <span class="hljs-string">&#x27;premium&#x27;</span>, <span class="hljs-attr">country</span>: <span class="hljs-string">&#x27;KR&#x27;</span> });
+
+<span class="hljs-comment">// 로그아웃</span>
+<span class="hljs-title function_">gtag</span>(<span class="hljs-string">&#x27;set&#x27;</span>, { <span class="hljs-attr">user_id</span>: <span class="hljs-literal">null</span> });</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>User ID를 맞춤 측정기준으로 등록.</strong> 고유값이 사용자 수만큼 늘어 <code>(other)</code>로 뭉개진다. 사용자 단위 분석은 BigQuery에서 한다.</li>
+<li><strong>스코프 선택 실수.</strong> user_tier를 Event 스코프로 만들면 파라미터가 없는 이벤트에서 빈 값이 잡힌다. 사용자 상태는 User, 이벤트마다 다른 값은 Event, items 안의 값은 Item으로 정한다.</li>
+<li><strong>PII 전송.</strong> 이메일·전화번호·실명을 보내면 정책 위반으로 속성이 정지될 수 있다. 해시 값도 고유 식별이 가능하면 PII로 취급되므로 내부 ID만 보낸다.</li>
+<li><strong>환경별 속성 미분리.</strong> dev·staging이 production Measurement ID를 쓰면 테스트 이벤트가 실데이터에 섞인다. 환경별로 속성을 나눈다.</li>
+<li><strong>보존 기간과 샘플링.</strong> 이벤트 보존은 기본 2개월, 최대 14개월이고 트래픽이 많으면 탐색 보고서가 샘플링된다. BigQuery Export로 raw 이벤트를 직접 보관한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/ga4-measurement-gtm-events/">측정 구현 — gtag·GTM·이벤트·전자상거래</a></li>
+<li><a href="/notes/experimentation/ga4-conversions-reports/">전환·잠재고객·보고서·탐색</a></li>
+<li><a href="/notes/experimentation/ga4-bigquery-api-privacy/">BigQuery Export·API·운영과 Privacy</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · GA4, Event Model, User ID, Session, Custom Dimension</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/statsig-integrations-adoption/"><small>이전</small>통합·운영·도입 결정</a>
+  <a class="next" href="/notes/experimentation/ga4-measurement-gtm-events/"><small>다음</small>측정 구현 — gtag·GTM·이벤트·전자상거래</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

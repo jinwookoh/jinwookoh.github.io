@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관측성 3 pillar와 LGTM 스택·Micrometer facade · 관측성</title>
+  <meta name="description" content="Metrics·Logs·Traces를 앱 계측(Micrometer)·저장(LGTM)·시각화(Grafana)로 나눠 각 계층의 역할과 경계를 정리한다">
+  <meta property="og:title" content="관측성 3 pillar와 LGTM 스택·Micrometer facade · 관측성">
+  <meta property="og:description" content="Metrics·Logs·Traces를 앱 계측(Micrometer)·저장(LGTM)·시각화(Grafana)로 나눠 각 계층의 역할과 경계를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/three-pillars-lgtm/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/observability/">관측성</a><span class="sep">›</span><span>관측성 3 pillar와 LGTM 스택·Micrometer facade</span></nav>
+    <article class="post">
+  <p class="part">관측성 · 개념</p>
+  <h1>관측성 3 pillar와 LGTM 스택·Micrometer facade</h1>
+  <p class="summary">Metrics·Logs·Traces를 앱 계측(Micrometer)·저장(LGTM)·시각화(Grafana)로 나눠 각 계층의 역할과 경계를 정리한다</p>
+  <div class="content">
+<p>서비스가 느려졌다는 신고가 들어왔을 때 로그만 있는 시스템은 &quot;어느 시각에 어떤 에러가 찍혔는가&quot;까지만 답한다. 어느 엔드포인트의 p99가 언제부터 튀었는지는 로그 텍스트로는 나오지 않는다. 앱이 자기 상태를 수치·이벤트·요청 흐름의 세 형태로 내보내고 그 셋을 한 화면에서 엮을 수 있어야 &quot;왜, 어디서&quot;에 답할 수 있다. 이 능력이 관측성이고, Java·Spring 진영에서 그 시작점이 Micrometer, 저장과 시각화의 끝점이 Grafana Labs의 LGTM 스택이다.</p>
+<h2>핵심 개념</h2>
+<p>모니터링은 사전에 정의한 지표를 임계치로 감시해 &quot;무엇이 잘못됐는가&quot;에 답하고, 관측성은 외부로 나온 데이터만으로 내부 상태를 추론해 &quot;왜, 어디서, 어떤 흐름으로&quot;에 답한다. 세 종류 데이터 사이의 연결(correlation)과 drill-down이 가능해야 하며, 그 세 종류가 3 pillar다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">pillar</th>
+<th align="left">답하는 질문</th>
+<th align="left">형태</th>
+<th align="left">특성</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Metrics</td>
+<td align="left">지금 상태</td>
+<td align="left">시계열 수치 (RPS·p99·큐 크기)</td>
+<td align="left">저장 효율이 높고 알림·트렌드에 적합</td>
+</tr>
+<tr>
+<td align="left">Logs</td>
+<td align="left">발생한 일</td>
+<td align="left">시각 + 자유 텍스트 이벤트</td>
+<td align="left">context가 풍부하지만 저장 비용이 높다</td>
+</tr>
+<tr>
+<td align="left">Traces</td>
+<td align="left">요청의 여정</td>
+<td align="left">span의 트리 (frontend → auth → db)</td>
+<td align="left">분산 시스템의 병목 위치를 드러낸다</td>
+</tr>
+</tbody></table>
+<p>메트릭에서 p99가 5초로 뛴 구간을 찾고, 같은 시간대 로그에서 &quot;connection pool exhausted&quot;를 확인하고, 그 시각의 trace에서 DB 쿼리 span이 4.8초를 차지한 것을 보면 원인이 커넥션 풀 고갈이라는 결론에 도달한다.</p>
+<p>파이프라인은 생산·저장·시각화의 세 계층으로 나뉜다. Micrometer는 생산 계층이다. 코드는 <code>MeterRegistry</code>라는 벤더 중립 API만 호출하고, 어느 백엔드로 나갈지는 클래스패스의 <code>micrometer-registry-*</code> 의존성이 결정한다. SLF4J가 Logback을 숨기는 것과 같은 구조다.</p>
+<p>Meter는 이름과 태그(key=value) 조합으로 식별된다. <code>http.server.requests{uri=&quot;/api/orders&quot;, status=&quot;500&quot;}</code>처럼 태그가 차원이 되어 에러율을 계산하게 하는 것이 dimensional metrics다. 백엔드 전달은 Prometheus가 <code>/actuator/prometheus</code>를 주기적으로 긁어 가는 pull과, Datadog·CloudWatch·OTLP처럼 앱이 일정 step마다 밀어내는 push로 나뉜다. Observation API는 한 번의 계측으로 Timer(메트릭)와 Span(트레이스)을 동시에 만들며, Spring Cloud Sleuth를 대체한 Micrometer Tracing이 Brave 또는 OpenTelemetry bridge로 span을 내보낸다.</p>
+<p>저장 계층이 LGTM이다. Loki는 로그를 label만 인덱싱해 객체 스토리지에 저장하고 LogQL로 조회한다. Tempo는 OpenTelemetry·Jaeger·Zipkin 형식의 trace를 객체 스토리지에 저장하고 TraceQL로 조회한다. Mimir는 Prometheus를 remote write로 받아 수평 확장과 장기 보관을 제공하며 PromQL을 그대로 지원한다. Grafana는 데이터를 저장하지 않고 datasource를 실시간 조회하며, Mixed datasource로 3 pillar를 한 화면에 모은다. 수집 에이전트 Alloy(구 Grafana Agent)는 메트릭·로그·트레이스를 한 프로세스로 처리한다.</p>
+<h2>코드</h2>
+<p>Actuator와 Prometheus 레지스트리를 붙이는 최소 의존성이다. <code>micrometer-registry-datadog</code>으로 교체하면 push 백엔드로 전환된다.</p>
+<pre><code class="hljs language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">dependency</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">groupId</span>&gt;</span>org.springframework.boot<span class="hljs-tag">&lt;/<span class="hljs-name">groupId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">artifactId</span>&gt;</span>spring-boot-starter-actuator<span class="hljs-tag">&lt;/<span class="hljs-name">artifactId</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">dependency</span>&gt;</span>
+<span class="hljs-tag">&lt;<span class="hljs-name">dependency</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">groupId</span>&gt;</span>io.micrometer<span class="hljs-tag">&lt;/<span class="hljs-name">groupId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">artifactId</span>&gt;</span>micrometer-registry-prometheus<span class="hljs-tag">&lt;/<span class="hljs-name">artifactId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">scope</span>&gt;</span>runtime<span class="hljs-tag">&lt;/<span class="hljs-name">scope</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">dependency</span>&gt;</span>
+<span class="hljs-tag">&lt;<span class="hljs-name">dependency</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">groupId</span>&gt;</span>io.micrometer<span class="hljs-tag">&lt;/<span class="hljs-name">groupId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">artifactId</span>&gt;</span>micrometer-tracing-bridge-otel<span class="hljs-tag">&lt;/<span class="hljs-name">artifactId</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">dependency</span>&gt;</span></code></pre>
+<p>Meter는 생성자에서 한 번 등록하고 필드로 재사용한다. <code>register(registry)</code>를 빠뜨리면 컴파일은 되지만 데이터가 수집되지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> io.micrometer.core.instrument.Counter;
+<span class="hljs-keyword">import</span> io.micrometer.core.instrument.MeterRegistry;
+<span class="hljs-keyword">import</span> io.micrometer.core.instrument.Timer;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.time.Duration;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Counter created;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Counter failed;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Timer processing;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(MeterRegistry registry)</span> {
+        <span class="hljs-built_in">this</span>.created = Counter.builder(<span class="hljs-string">&quot;orders.created&quot;</span>)
+                .description(<span class="hljs-string">&quot;Successfully created orders&quot;</span>)
+                .register(registry);
+        <span class="hljs-built_in">this</span>.failed = Counter.builder(<span class="hljs-string">&quot;orders.failed&quot;</span>)
+                .register(registry);
+        <span class="hljs-built_in">this</span>.processing = Timer.builder(<span class="hljs-string">&quot;orders.processing.time&quot;</span>)
+                .publishPercentileHistogram()
+                .serviceLevelObjectives(Duration.ofMillis(<span class="hljs-number">100</span>),
+                        Duration.ofMillis(<span class="hljs-number">300</span>), Duration.ofMillis(<span class="hljs-number">1000</span>))
+                .register(registry);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">createOrder</span><span class="hljs-params">(CreateOrderRequest req)</span> {
+        <span class="hljs-keyword">return</span> processing.record(() -&gt; {
+            <span class="hljs-keyword">try</span> {
+                <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> doCreate(req);
+                created.increment();
+                <span class="hljs-keyword">return</span> order;
+            } <span class="hljs-keyword">catch</span> (RuntimeException e) {
+                failed.increment();
+                <span class="hljs-keyword">throw</span> e;
+            }
+        });
+    }
+}</code></pre>
+<p>Observation API는 한 블록으로 Timer와 Span을 함께 만든다. 태그는 <code>lowCardinalityKeyValue</code>로만 붙이고, 무한히 늘어나는 식별자는 <code>highCardinalityKeyValue</code>로 분리해 span에만 남긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> io.micrometer.observation.Observation;
+<span class="hljs-keyword">import</span> io.micrometer.observation.ObservationRegistry;
+
+<span class="hljs-keyword">public</span> <span class="hljs-type">Order</span> <span class="hljs-title function_">createObserved</span><span class="hljs-params">(ObservationRegistry registry, CreateOrderRequest req)</span> {
+    <span class="hljs-keyword">return</span> Observation.createNotStarted(<span class="hljs-string">&quot;orders.create&quot;</span>, registry)
+            .lowCardinalityKeyValue(<span class="hljs-string">&quot;region&quot;</span>, req.region())
+            .highCardinalityKeyValue(<span class="hljs-string">&quot;order.id&quot;</span>, req.orderId())
+            .observe(() -&gt; doCreate(req));
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>태그 값에 <code>userId</code>·<code>requestId</code> 같은 동적 식별자를 넣으면 시계열이 사용자 수만큼 늘어나 Prometheus·Mimir 메모리가 고갈된다. 태그 값은 유한 집합이어야 하며 식별자는 로그나 trace의 속성으로 보낸다.</li>
+<li>&quot;지금까지 몇 번&quot;은 단조 증가 Counter, &quot;지금 몇 개&quot;는 Gauge다. 시간이 아닌 크기(페이로드 바이트·배치 건수)는 Timer가 아니라 DistributionSummary로 잰다.</li>
+<li>커스텀 Meter 이름이 Actuator 자동 계측 prefix(<code>http.</code>, <code>jvm.</code>, <code>tomcat.</code>)와 겹치면 충돌하므로 도메인 prefix(<code>orders.</code>)를 붙인다.</li>
+<li>Push 백엔드는 기본 step이 1분이라 짧은 스파이크를 놓친다. <code>management.&lt;backend&gt;.metrics.export.step</code>으로 줄이면 API 호출 비용이 비례해 늘어난다. Micrometer Tracing은 bridge 의존성이 없으면 span이 나가지 않는다.</li>
+<li>단일 Prometheus는 retention 15일 정도가 권장 한도라 Mimir·Thanos 또는 관리형 서비스를 붙여야 하고, Grafana Cloud는 무료 한도를 넘긴 뒤의 비용 분기점을 self-host와 미리 비교한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/observability/meter-types-tags-cardinality/">Meter 타입·태그·카디널리티</a></li>
+<li><a href="/notes/observability/registry-backends-actuator/">Registry·push vs pull·Actuator 연동</a></li>
+<li><a href="/notes/observability/loki-tempo/">Loki·LogQL과 Tempo·TraceQL</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Observability, Micrometer, Grafana, LGTM, Prometheus</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/observability/meter-types-tags-cardinality/"><small>다음</small>Meter 타입·태그·카디널리티</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

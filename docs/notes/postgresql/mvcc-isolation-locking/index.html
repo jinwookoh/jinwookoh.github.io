@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MVCC·격리 수준·락 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="PostgreSQL이 MVCC 스냅샷으로 격리 수준을 구현하는 방식과, 락·Lost Update·Deadlock을 실무에서 다루는 기준을 정리한다.">
+  <meta property="og:title" content="MVCC·격리 수준·락 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="PostgreSQL이 MVCC 스냅샷으로 격리 수준을 구현하는 방식과, 락·Lost Update·Deadlock을 실무에서 다루는 기준을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/mvcc-isolation-locking/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>MVCC·격리 수준·락</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · 동시성</p>
+  <h1>MVCC·격리 수준·락</h1>
+  <p class="summary">PostgreSQL이 MVCC 스냅샷으로 격리 수준을 구현하는 방식과, 락·Lost Update·Deadlock을 실무에서 다루는 기준을 정리한다.</p>
+  <div class="content">
+<p>여러 트랜잭션이 같은 행에 동시에 접근하면 Lost Update, Dirty Read, Non-Repeatable Read, Phantom Read가 발생한다. 초기 RDBMS는 이를 테이블 락으로 막았고, 쓰기 하나가 끝날 때까지 모든 읽기가 대기했다. PostgreSQL은 행의 여러 버전을 유지하는 MVCC로 읽기와 쓰기가 서로를 차단하지 않게 했다. 다만 MVCC가 락을 없애는 것은 아니며, 격리 수준의 의미와 락이 걸리는 지점, 옛 버전 행의 운영 비용을 모르면 동시성 버그와 bloat가 함께 온다.</p>
+<h2>핵심 개념</h2>
+<h3>MVCC와 xmin·xmax</h3>
+<p>MVCC(Multi-Version Concurrency Control)는 UPDATE를 제자리 덮어쓰기가 아니라 새 버전 추가와 옛 버전 무효화 표시로 처리한다. 각 행에는 시스템 컬럼 <code>xmin</code>(행을 만든 트랜잭션 ID)과 <code>xmax</code>(행을 무효화한 트랜잭션 ID, 살아 있으면 0)가 붙는다. DELETE는 <code>xmax</code>만 기록한다.</p>
+<p>각 트랜잭션은 스냅샷 시점에 커밋된 행만 보고 이후 변경은 무시한다. 읽기는 락 없이 옛 버전을 읽고 쓰기는 새 버전을 만든다. Oracle, MySQL InnoDB도 같은 방식이며 SQL Server는 <code>READ_COMMITTED_SNAPSHOT</code> 옵션으로 켠다.</p>
+<h3>격리 수준과 스냅샷 시점</h3>
+<p>격리 수준 차이는 스냅샷을 언제 찍는가의 차이다. READ UNCOMMITTED를 지정해도 READ COMMITTED로 동작하며, Dirty Read는 어떤 수준에서도 발생하지 않는다.</p>
+<table>
+<thead>
+<tr>
+<th>수준</th>
+<th>스냅샷</th>
+<th>Non-Repeatable</th>
+<th>Phantom</th>
+<th>Serialization Anomaly</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>READ COMMITTED (기본)</td>
+<td>문장마다 새로</td>
+<td>발생</td>
+<td>발생</td>
+<td>발생</td>
+</tr>
+<tr>
+<td>REPEATABLE READ</td>
+<td>첫 문장 시점 고정</td>
+<td>방지</td>
+<td>방지</td>
+<td>발생</td>
+</tr>
+<tr>
+<td>SERIALIZABLE</td>
+<td>고정 + SSI 충돌 검출</td>
+<td>방지</td>
+<td>방지</td>
+<td>방지</td>
+</tr>
+</tbody></table>
+<p>REPEATABLE READ는 SQL 표준보다 강해서 Phantom Read까지 막는다. 대신 스냅샷 이후 다른 트랜잭션이 커밋한 행을 UPDATE하면 <code>could not serialize access due to concurrent update</code> 오류로 중단되므로 재시도가 필요하다. SERIALIZABLE은 SSI(Serializable Snapshot Isolation)로 구현되어, 읽기·쓰기 의존성을 추적하다 직렬 실행으로 나올 수 없는 결과가 감지되면 한쪽을 롤백한다. MySQL InnoDB 기본값은 REPEATABLE READ이므로 같은 SQL이 DB마다 다르게 동작한다.</p>
+<h3>여전히 락이 걸리는 곳</h3>
+<p>일반 SELECT는 락을 잡지 않지만 같은 행에 대한 두 UPDATE는 행 락으로 직렬화된다. <code>SELECT ... FOR UPDATE</code>는 읽는 시점에 배타 행 락을 잡아 다른 쓰기를 대기시키고, DDL은 테이블 수준 ACCESS EXCLUSIVE 락으로 모든 접근을 차단한다.</p>
+<p>Lost Update 방지법은 세 가지다. 원자적 UPDATE(<code>SET val = val + 10</code>)로 읽기와 쓰기를 한 문장에 묶거나, <code>FOR UPDATE</code>로 비관적 락을 잡거나, version 컬럼을 WHERE에 넣는 낙관적 락으로 충돌 시 재시도한다. 충돌이 잦으면 비관적, 드물면 낙관적이 유리하다.</p>
+<p>Deadlock은 두 트랜잭션이 서로의 락을 기다릴 때 생긴다. PostgreSQL은 <code>deadlock_timeout</code>(기본 1초) 후 한쪽을 롤백한다. 완전히 피할 수 없으므로 락 순서를 통일하고 재시도한다.</p>
+<h2>코드</h2>
+<p>재고 차감은 원자적 UPDATE 한 문장으로 처리한다. 영향 행 수 0은 재고 부족이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Repository</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">ProductRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Product, Long&gt; {
+
+    <span class="hljs-meta">@Modifying(clearAutomatically = true)</span>
+    <span class="hljs-meta">@Query(&quot;UPDATE Product p SET p.stock = p.stock - :qty &quot; +
+           &quot;WHERE p.id = :id AND p.stock &gt;= :qty&quot;)</span>
+    <span class="hljs-type">int</span> <span class="hljs-title function_">decreaseStock</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id, <span class="hljs-meta">@Param(&quot;qty&quot;)</span> <span class="hljs-type">int</span> qty)</span>;
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(ProductRepository productRepository)</span> {
+        <span class="hljs-built_in">this</span>.productRepository = productRepository;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">order</span><span class="hljs-params">(Long productId, <span class="hljs-type">int</span> qty)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">updated</span> <span class="hljs-operator">=</span> productRepository.decreaseStock(productId, qty);
+        <span class="hljs-keyword">if</span> (updated == <span class="hljs-number">0</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;재고 부족: productId=&quot;</span> + productId);
+        }
+    }
+}</code></pre>
+<p>여러 행은 항상 id 오름차순으로 잠가 Deadlock을 피한다. <code>@Lock(PESSIMISTIC_WRITE)</code>는 <code>FOR UPDATE</code>로 변환된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Repository</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">AccountRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Account, Long&gt; {
+
+    <span class="hljs-meta">@Lock(LockModeType.PESSIMISTIC_WRITE)</span>
+    <span class="hljs-meta">@Query(&quot;SELECT a FROM Account a WHERE a.id IN :ids ORDER BY a.id&quot;)</span>
+    <span class="hljs-type">List</span>&lt;Account&gt; <span class="hljs-title function_">findAllForUpdate</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;ids&quot;)</span> Collection&lt;Long&gt; ids)</span>;
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TransferService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AccountRepository accountRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TransferService</span><span class="hljs-params">(AccountRepository accountRepository)</span> {
+        <span class="hljs-built_in">this</span>.accountRepository = accountRepository;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">transfer</span><span class="hljs-params">(Long fromId, Long toId, <span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-type">Map</span>&lt;Long, Account&gt; <span class="hljs-variable">locked</span> <span class="hljs-operator">=</span> accountRepository
+                .findAllForUpdate(List.of(fromId, toId)).stream()
+                .collect(Collectors.toMap(Account::getId, a -&gt; a));
+        <span class="hljs-type">Account</span> <span class="hljs-variable">from</span> <span class="hljs-operator">=</span> locked.get(fromId);
+        <span class="hljs-type">Account</span> <span class="hljs-variable">to</span> <span class="hljs-operator">=</span> locked.get(toId);
+        <span class="hljs-keyword">if</span> (from.getBalance() &lt; amount) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;잔액 부족&quot;</span>);
+        }
+        from.setBalance(from.getBalance() - amount);
+        to.setBalance(to.getBalance() + amount);
+    }
+}</code></pre>
+<p>SERIALIZABLE 또는 낙관적 락 트랜잭션은 직렬화 실패와 버전 충돌을 재시도로 감싼다. <code>@Retryable</code>은 <code>spring-retry</code>와 <code>@EnableRetry</code>가 필요하다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Coupon</span> {
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-keyword">private</span> Long id;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> remaining;
+    <span class="hljs-meta">@Version</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> version;
+    <span class="hljs-comment">// getter, setter 생략</span>
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CouponService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> CouponRepository couponRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CouponService</span><span class="hljs-params">(CouponRepository couponRepository)</span> {
+        <span class="hljs-built_in">this</span>.couponRepository = couponRepository;
+    }
+
+    <span class="hljs-meta">@Retryable(
+        retryFor = {
+            CannotAcquireLockException.class,
+            ObjectOptimisticLockingFailureException.class
+        },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 50, multiplier = 2)
+    )</span>
+    <span class="hljs-meta">@Transactional(isolation = Isolation.SERIALIZABLE)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">issue</span><span class="hljs-params">(Long couponId)</span> {
+        <span class="hljs-type">Coupon</span> <span class="hljs-variable">coupon</span> <span class="hljs-operator">=</span> couponRepository.findById(couponId).orElseThrow();
+        <span class="hljs-keyword">if</span> (coupon.getRemaining() &lt;= <span class="hljs-number">0</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;쿠폰 소진&quot;</span>);
+        }
+        coupon.setRemaining(coupon.getRemaining() - <span class="hljs-number">1</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>오래 열린 트랜잭션이 bloat를 만든다.</strong> 스냅샷이 살아 있는 동안 생긴 옛 버전 행은 VACUUM이 회수하지 못한다. 방치된 <code>idle in transaction</code> 커넥션 하나가 테이블을 부풀린다. <code>idle_in_transaction_session_timeout</code>을 설정하고 트랜잭션을 짧게 끊는다.</li>
+<li><strong>트랜잭션 ID Wraparound.</strong> 트랜잭션 ID는 32bit이며 약 20억 개를 지나면 행의 가시성이 뒤집힌다. autovacuum이 오래된 행을 frozen 처리해 막는데, 밀리면 DB가 쓰기를 거부한다. <code>age(datfrozenxid)</code>를 모니터링하고 autovacuum을 끄지 않는다.</li>
+<li><strong>SERIALIZABLE 남용.</strong> 모든 트랜잭션에 걸면 SSI 추적 비용과 재시도가 처리량을 무너뜨린다. 일반 API는 READ COMMITTED, 보고서는 REPEATABLE READ, 돈·재고만 SERIALIZABLE에 재시도를 붙인다.</li>
+<li><strong>낙관적 락 예외를 삼키면 갱신이 사라진다.</strong> <code>ObjectOptimisticLockingFailureException</code>을 catch만 하고 넘기면 변경이 유실된다. 재시도하거나 충돌을 알린다.</li>
+<li><strong>락 대기는 pg_stat_activity로 잡는다.</strong> <code>wait_event_type = &#39;Lock&#39;</code>인 세션과 <code>pg_blocking_pids(pid)</code>로 차단 관계를 확인한다. 작업 큐 처리에는 <code>FOR UPDATE SKIP LOCKED</code>를 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/acid-transactions-isolation/">ACID·트랜잭션·격리 수준</a></li>
+<li><a href="/notes/postgresql/update-delete-hot-bloat-vacuum/">UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</a></li>
+<li><a href="/notes/postgresql/production-install-config/">운영 설치와 postgresql.conf</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, MVCC, Isolation Level, Locking, Deadlock</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/performance-textsearch/"><small>이전</small>성능 팁과 전문 검색</a>
+  <a class="next" href="/notes/postgresql/production-install-config/"><small>다음</small>운영 설치와 postgresql.conf</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

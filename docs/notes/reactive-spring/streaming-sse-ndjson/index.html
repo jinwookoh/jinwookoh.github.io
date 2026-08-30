@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>스트리밍 응답 — SSE·NDJSON · Reactive Spring</title>
+  <meta name="description" content="Flux 반환만으로는 스트리밍이 되지 않는다. produces가 응답 형식을 결정하고 NDJSON과 SSE는 용도가 다르다.">
+  <meta property="og:title" content="스트리밍 응답 — SSE·NDJSON · Reactive Spring">
+  <meta property="og:description" content="Flux 반환만으로는 스트리밍이 되지 않는다. produces가 응답 형식을 결정하고 NDJSON과 SSE는 용도가 다르다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/streaming-sse-ndjson/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>스트리밍 응답 — SSE·NDJSON</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · WebFlux</p>
+  <h1>스트리밍 응답 — SSE·NDJSON</h1>
+  <p class="summary">Flux 반환만으로는 스트리밍이 되지 않는다. produces가 응답 형식을 결정하고 NDJSON과 SSE는 용도가 다르다.</p>
+  <div class="content">
+<p>컨트롤러가 <code>Flux&lt;T&gt;</code>를 반환해도 응답은 기본적으로 JSON 배열 하나다. WebFlux는 <code>produces</code>가 <code>application/json</code>이면 모든 원소를 모아 배열로 직렬화한 뒤 한 번에 내보낸다. DB에 100만 건이 있으면 100만 건이 메모리에 올라간 뒤 전송되고, 클라이언트는 그때까지 아무것도 받지 못한다. 대용량 조회나 실시간 알림처럼 준비된 원소부터 내보내야 하는 요구는 미디어 타입을 바꿔야 해결된다.</p>
+<h2>핵심 개념</h2>
+<p>리액티브 파이프라인과 HTTP 응답 방식은 별개다. <code>Flux</code>는 원소가 흐르는 파이프라인이고, 그것을 어떤 형식으로 쓰기 시작할지는 <code>produces</code>(또는 클라이언트 <code>Accept</code>)로 협상된 미디어 타입이 정한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">미디어 타입</th>
+<th align="left">전송 방식</th>
+<th align="left">브라우저 지원</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>application/json</code></td>
+<td align="left">전체 수집 후 배열 1회 전송</td>
+<td align="left">일반 fetch</td>
+<td align="left">소량 조회</td>
+</tr>
+<tr>
+<td align="left"><code>application/x-ndjson</code></td>
+<td align="left">JSON 객체 1개를 1줄로 즉시 전송</td>
+<td align="left">직접 지원 없음, fetch 스트림으로 파싱</td>
+<td align="left">서비스 간 대용량 스트리밍</td>
+</tr>
+<tr>
+<td align="left"><code>text/event-stream</code></td>
+<td align="left"><code>data:</code> 블록 단위로 즉시 전송</td>
+<td align="left"><code>EventSource</code> 내장</td>
+<td align="left">브라우저 실시간 푸시</td>
+</tr>
+</tbody></table>
+<p>NDJSON은 줄바꿈으로 구분된 JSON 객체의 나열이다. 이벤트 타입이나 재연결 개념은 없다.</p>
+<p>SSE는 서버에서 클라이언트로 향하는 단방향 푸시다. 각 이벤트는 <code>data:</code>(본문), <code>event:</code>(타입, 기본값 <code>message</code>), <code>id:</code>(이벤트 식별자), <code>retry:</code>(재연결 간격 ms) 필드로 구성되며 빈 줄로 구분된다. <code>:</code>로 시작하는 줄은 주석이며 클라이언트는 무시한다. 브라우저 <code>EventSource</code>는 연결이 끊기면 스스로 재연결하고, 이때 마지막으로 받은 <code>id</code>를 <code>Last-Event-ID</code> 헤더로 보낸다. 서버가 이 헤더를 읽으면 끊긴 지점 이후부터 이어서 보낼 수 있다. 클라이언트에서 서버로 메시지를 보내야 한다면 SSE가 아니라 WebSocket이나 gRPC 양방향 스트리밍의 영역이다.</p>
+<p>WebFlux에서 SSE 응답은 두 가지로 만든다. <code>Flux&lt;T&gt;</code>에 <code>TEXT_EVENT_STREAM_VALUE</code>를 붙이면 각 원소가 <code>data:</code> 필드에 JSON으로 직렬화된다. <code>id</code>·<code>event</code>·<code>retry</code>를 제어하려면 <code>Flux&lt;ServerSentEvent&lt;T&gt;&gt;</code>로 감싼다. 재연결 이어받기는 후자에서만 가능하다.</p>
+<p>앞으로 발생할 이벤트를 연결된 구독자 전체에 전달하려면 명령형 코드에서 스트림에 원소를 주입할 통로가 필요하다. Reactor의 <code>Sinks.Many</code>가 그 역할이다. <code>unicast</code>는 구독자 1명만 허용하고, <code>multicast</code>는 구독 이전 원소를 전달하지 않으며, <code>replay().limit(n)</code>은 새 구독자에게 최근 n개를 재생한 뒤 실시간으로 이어간다. 끊겼다 돌아오는 클라이언트가 많은 SSE 알림에는 <code>replay</code>가 맞다.</p>
+<p>Backpressure는 HTTP 스트리밍에서 별도 설정 없이 동작한다. Netty가 소켓의 쓰기 가능 상태에 맞춰 상위 Publisher에 <code>request</code>를 전달한다. <code>limitRate(n)</code>은 상위 파이프라인의 prefetch 크기를 제한하고 싶을 때만 추가한다.</p>
+<h2>코드</h2>
+<p>NDJSON과 SSE는 같은 파이프라인에 <code>produces</code>만 다르게 붙이면 된다. <code>delayElements</code>는 로컬에서 흐름을 눈으로 확인하기 위한 것이므로 운영 코드에는 남기지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/products&quot;)</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductStreamController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    <span class="hljs-meta">@GetMapping(value = &quot;/ndjson&quot;, produces = MediaType.APPLICATION_NDJSON_VALUE)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Product&gt; <span class="hljs-title function_">streamNdjson</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> productRepository.findAll()
+                .limitRate(<span class="hljs-number">64</span>)
+                .doOnCancel(() -&gt; log.info(<span class="hljs-string">&quot;client disconnected&quot;</span>));
+    }
+
+    <span class="hljs-meta">@GetMapping(value = &quot;/sse&quot;, produces = MediaType.TEXT_EVENT_STREAM_VALUE)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Product&gt; <span class="hljs-title function_">streamSse</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> productRepository.findAll();
+    }
+
+    <span class="hljs-meta">@PostMapping(value = &quot;/bulk&quot;, consumes = MediaType.APPLICATION_NDJSON_VALUE)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Long&gt; <span class="hljs-title function_">uploadBulk</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> Flux&lt;ProductDto&gt; body)</span> {
+        <span class="hljs-keyword">return</span> body.map(ProductDto::toEntity)
+                .flatMap(productRepository::save)
+                .count();
+    }
+}</code></pre>
+<p>신규 상품이 저장될 때마다 연결된 모든 클라이언트에 알리고, 재연결한 클라이언트는 <code>Last-Event-ID</code> 이후부터 이어받는다. 하트비트는 주석 이벤트로 보내 프록시 유휴 타임아웃을 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductEventService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Sinks.<span class="hljs-type">Many</span>&lt;Product&gt; <span class="hljs-variable">sink</span> <span class="hljs-operator">=</span> Sinks.many().replay().limit(<span class="hljs-number">100</span>);
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Product&gt; <span class="hljs-title function_">save</span><span class="hljs-params">(ProductDto dto)</span> {
+        <span class="hljs-keyword">return</span> productRepository.save(dto.toEntity())
+                .doOnSuccess(saved -&gt; {
+                    Sinks.<span class="hljs-type">EmitResult</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> sink.tryEmitNext(saved);
+                    <span class="hljs-keyword">if</span> (result.isFailure()) {
+                        log.warn(<span class="hljs-string">&quot;emit failed: {}&quot;</span>, result);
+                    }
+                });
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;ServerSentEvent&lt;Product&gt;&gt; <span class="hljs-title function_">events</span><span class="hljs-params">(String lastEventId)</span> {
+        <span class="hljs-type">long</span> <span class="hljs-variable">from</span> <span class="hljs-operator">=</span> lastEventId == <span class="hljs-literal">null</span> ? <span class="hljs-number">0L</span> : Long.parseLong(lastEventId);
+
+        <span class="hljs-type">Flux</span>&lt;ServerSentEvent&lt;Product&gt;&gt; <span class="hljs-variable">missed</span> <span class="hljs-operator">=</span> productRepository.findByIdGreaterThan(from)
+                .map(<span class="hljs-built_in">this</span>::toEvent);
+        <span class="hljs-type">Flux</span>&lt;ServerSentEvent&lt;Product&gt;&gt; <span class="hljs-variable">live</span> <span class="hljs-operator">=</span> sink.asFlux()
+                .filter(p -&gt; p.getId() &gt; from)
+                .map(<span class="hljs-built_in">this</span>::toEvent);
+        <span class="hljs-type">Flux</span>&lt;ServerSentEvent&lt;Product&gt;&gt; <span class="hljs-variable">heartbeat</span> <span class="hljs-operator">=</span> Flux.interval(Duration.ofSeconds(<span class="hljs-number">25</span>))
+                .map(t -&gt; ServerSentEvent.&lt;Product&gt;builder().comment(<span class="hljs-string">&quot;keep-alive&quot;</span>).build());
+
+        <span class="hljs-keyword">return</span> Flux.merge(Flux.concat(missed, live), heartbeat);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">ServerSentEvent</span>&lt;Product&gt; <span class="hljs-title function_">toEvent</span><span class="hljs-params">(Product p)</span> {
+        <span class="hljs-keyword">return</span> ServerSentEvent.&lt;Product&gt;builder()
+                .id(String.valueOf(p.getId()))
+                .event(<span class="hljs-string">&quot;product-added&quot;</span>)
+                .data(p)
+                .retry(Duration.ofSeconds(<span class="hljs-number">3</span>))
+                .build();
+    }
+}</code></pre>
+<pre><code class="hljs language-java"><span class="hljs-meta">@GetMapping(value = &quot;/events&quot;, produces = MediaType.TEXT_EVENT_STREAM_VALUE)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;ServerSentEvent&lt;Product&gt;&gt; <span class="hljs-title function_">events</span><span class="hljs-params">(
+        <span class="hljs-meta">@RequestHeader(value = &quot;Last-Event-ID&quot;, required = false)</span> String lastEventId)</span> {
+    <span class="hljs-keyword">return</span> productEventService.events(lastEventId);
+}</code></pre>
+<p>무한 스트림 테스트는 <code>expectComplete</code> 대신 <code>thenCancel</code>로 끝낸다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Test</span>
+<span class="hljs-type">void</span> <span class="hljs-title function_">streamsProducts</span><span class="hljs-params">()</span> {
+    webTestClient.get().uri(<span class="hljs-string">&quot;/products/ndjson&quot;</span>)
+            .accept(MediaType.APPLICATION_NDJSON)
+            .exchange()
+            .expectStatus().isOk()
+            .returnResult(Product.class)
+            .getResponseBody()
+            .as(StepVerifier::create)
+            .expectNextCount(<span class="hljs-number">10</span>)
+            .thenCancel()
+            .verify();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>produces</code> 누락.</strong> <code>Flux&lt;T&gt;</code>만 반환하면 JSON 배열로 전체 수집 후 전송된다. 스트리밍이 안 되는 것뿐 아니라 대용량 조회에서 OOM으로 이어진다. <code>curl</code>도 기본 버퍼링을 하므로 확인할 때는 <code>curl -N</code>을 붙인다.</li>
+<li><strong>Sink 스코프.</strong> 요청 핸들러 안에서 <code>Sinks.many()</code>를 만들면 매 요청마다 아무도 발행하지 않는 새 Sink가 생긴다. Sink는 싱글톤 빈의 필드로 두고 <code>asFlux()</code>만 노출한다. <code>replay().all()</code>은 원소를 무한히 보관하므로 <code>limit(n)</code> 또는 <code>limit(Duration)</code>으로 제한한다.</li>
+<li><strong><code>tryEmitNext</code> 결과 무시.</strong> 반환값 <code>EmitResult</code>가 <code>FAIL_ZERO_SUBSCRIBER</code>, <code>FAIL_OVERFLOW</code>, <code>FAIL_NON_SERIALIZED</code>일 수 있다. 여러 스레드에서 동시에 발행한다면 <code>emitNext</code>에 <code>EmitFailureHandler</code>를 넘긴다.</li>
+<li><strong>커밋 전 발행.</strong> <code>doOnNext</code>에서 이벤트를 내보내면 구독자가 아직 커밋되지 않은 행을 조회할 수 있다. 저장 <code>Mono</code>의 <code>doOnSuccess</code> 또는 트랜잭션 커밋 이후 시점에서 발행한다.</li>
+<li><strong>프록시 유휴 타임아웃.</strong> 이벤트가 뜸한 SSE 연결은 로드밸런서가 끊는다. 주석 이벤트로 하트비트를 보내고 프록시의 응답 버퍼링을 끈다. 재연결 시 <code>Last-Event-ID</code>를 처리하지 않으면 그 사이 이벤트는 유실된다.</li>
+<li><strong>클라이언트 스트리밍의 완료 신호.</strong> <code>@RequestBody Flux&lt;T&gt;</code>를 <code>count()</code>로 마무리하는 핸들러는 요청 본문이 <code>onComplete</code>되어야 응답한다. 클라이언트가 스트림을 닫지 않으면 응답이 나가지 않으므로 타임아웃을 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/hot-cold-sinks/">Hot/Cold Publisher와 Sinks</a></li>
+<li><a href="/notes/reactive-spring/backpressure/">Backpressure</a></li>
+<li><a href="/notes/reactive-spring/webclient/">WebClient</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · WebFlux, SSE, NDJSON, Sinks, Backpressure</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/webfilter-error-handling/"><small>이전</small>WebFilter·예외 처리·검증</a>
+  <a class="next" href="/notes/reactive-spring/webflux-performance-microservices/"><small>다음</small>WebFlux 성능과 마이크로서비스</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>String·Hash — 값 캐싱과 객체 저장 · Redis</title>
+  <meta name="description" content="String은 값 하나·카운터·비트맵·락에, Hash는 부분 갱신이 잦은 flat 객체에 쓴다">
+  <meta property="og:title" content="String·Hash — 값 캐싱과 객체 저장 · Redis">
+  <meta property="og:description" content="String은 값 하나·카운터·비트맵·락에, Hash는 부분 갱신이 잦은 flat 객체에 쓴다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/string-hash/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>String·Hash — 값 캐싱과 객체 저장</span></nav>
+    <article class="post">
+  <p class="part">Redis · 데이터 타입</p>
+  <h1>String·Hash — 값 캐싱과 객체 저장</h1>
+  <p class="summary">String은 값 하나·카운터·비트맵·락에, Hash는 부분 갱신이 잦은 flat 객체에 쓴다</p>
+  <div class="content">
+<p>관계형 DB에서 조회수를 올리려면 읽고, 더하고, 쓰는 세 단계를 거치며 동시 요청이 겹치면 갱신이 유실된다. 세션이나 인증번호처럼 수명이 정해진 값은 만료 컬럼과 정리 배치가 따로 필요하다. 프로필을 캐시에 통째로 넣어 두면 이메일 하나를 바꿀 때도 전체를 읽어 파싱하고 다시 써야 한다. Redis의 String과 Hash는 이를 각각 원자적 증감, 키 단위 TTL, 필드 단위 갱신으로 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>String — 모든 값의 기본 형태</h3>
+<p>String은 바이트 시퀀스다. 문자열, 숫자, 직렬화된 객체, 바이너리가 모두 들어가며 최대 크기는 512MB다. <code>SET</code>과 <code>GET</code>은 O(1)이고, <code>SET</code>은 기존 키가 Hash나 List여도 확인 없이 String으로 덮어쓴다. 반대로 <code>GET</code>을 다른 타입 키에 실행하면 <code>WRONGTYPE</code> 오류가 난다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">옵션</th>
+<th align="left">동작</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>EX</code> / <code>PX</code></td>
+<td align="left">초·밀리초 TTL</td>
+<td align="left">세션, OTP, 캐시</td>
+</tr>
+<tr>
+<td align="left"><code>NX</code></td>
+<td align="left">키가 없을 때만 저장</td>
+<td align="left">락 획득, 중복 방지</td>
+</tr>
+<tr>
+<td align="left"><code>XX</code></td>
+<td align="left">키가 있을 때만 저장</td>
+<td align="left">워밍된 캐시만 갱신</td>
+</tr>
+<tr>
+<td align="left"><code>KEEPTTL</code></td>
+<td align="left">값만 바꾸고 남은 TTL 유지</td>
+<td align="left">만료를 건드리지 않는 갱신</td>
+</tr>
+<tr>
+<td align="left"><code>GET</code></td>
+<td align="left">저장 전 기존 값 반환</td>
+<td align="left">원자적 교체</td>
+</tr>
+</tbody></table>
+<p>숫자로 해석되는 String에는 <code>INCR</code>, <code>INCRBY</code>, <code>DECR</code>, <code>INCRBYFLOAT</code>가 허용된다. 명령이 단일 스레드에서 순서대로 처리되므로 증감은 별도 락 없이 원자적이며, 키가 없으면 0에서 시작한다. <code>MSET</code>/<code>MGET</code>은 여러 키를 한 번의 왕복으로 처리하지만 명령 하나 안에서만 원자적이고, 앞뒤 명령과 묶으려면 <code>MULTI</code>/<code>EXEC</code>가 필요하다.</p>
+<p><code>APPEND</code>, <code>STRLEN</code>, <code>GETRANGE</code>는 바이트 단위라서 <code>STRLEN</code>은 글자 수가 아니라 바이트 수를 돌려준다. <code>SETBIT</code>, <code>GETBIT</code>, <code>BITCOUNT</code>, <code>BITOP</code>는 String을 비트 배열로 다룬다. 사용자 ID를 오프셋으로 쓰면 1억 명의 일별 출석이 약 12.5MB에 담긴다. Bitmap은 별도 타입이 아니라 String의 비트 뷰다.</p>
+<h3>Hash — 한 키 안의 field-value 집합</h3>
+<p>Hash는 키 하나 아래에 field-value 쌍을 담는 <code>Map&lt;String, String&gt;</code> 모델이며 중첩은 불가능하다. <code>HSET</code>은 필드당 O(1)이고 반환값은 새로 생성된 필드 수라서 덮어쓰기는 0을 돌려준다. <code>HGET</code>은 필드나 키가 없어도 <code>nil</code>을 반환하고, <code>HMGET</code>은 지정한 필드만 읽으며, <code>HGETALL</code>은 O(N)이다. <code>HINCRBY</code>는 필드 단위 원자 카운터고, 큰 Hash 순회는 <code>HSCAN</code>으로 나눈다.</p>
+<p>TTL은 키 단위로 걸린다. Redis 7.4부터 <code>HEXPIRE</code> 계열로 필드별 만료를 줄 수 있지만 클라이언트 지원이 아직 제한적이므로, 수명이 다른 필드는 키를 나누는 편이 안전하다.</p>
+<p>내부 인코딩은 크기에 따라 전환된다. 필드 수가 <code>hash-max-listpack-entries</code>(기본 128) 이하이고 모든 값이 <code>hash-max-listpack-value</code>(기본 64바이트) 이하이면 연속 메모리에 압축한 listpack을 쓰고, 하나라도 넘으면 hashtable로 바뀐다. 필드 열 개 안팎의 객체가 Hash에서 메모리 효율이 좋은 이유다.</p>
+<h3>String JSON과 Hash의 선택</h3>
+<table>
+<thead>
+<tr>
+<th align="left">기준</th>
+<th align="left">String JSON</th>
+<th align="left">Hash</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">전체 읽기·쓰기가 대부분</td>
+<td align="left">유리</td>
+<td align="left">가능</td>
+</tr>
+<tr>
+<td align="left">특정 필드만 자주 갱신·읽기</td>
+<td align="left">전체 read-modify-write</td>
+<td align="left"><code>HSET</code>/<code>HMGET</code></td>
+</tr>
+<tr>
+<td align="left">중첩 구조·배열</td>
+<td align="left">자연스러움</td>
+<td align="left">불가</td>
+</tr>
+<tr>
+<td align="left">필드별 원자 카운터</td>
+<td align="left">불가</td>
+<td align="left"><code>HINCRBY</code></td>
+</tr>
+<tr>
+<td align="left">작은 객체 메모리</td>
+<td align="left">JSON 오버헤드</td>
+<td align="left">listpack</td>
+</tr>
+</tbody></table>
+<p>통째로 넣고 빼는 비중이 압도적이거나 중첩이 있으면 String JSON, 필드 단위 접근과 카운터가 잦고 구조가 평면이면 Hash다.</p>
+<h2>코드</h2>
+<p><code>StringRedisTemplate</code>으로 원자 카운터, TTL이 있는 세션 값, <code>SET NX EX</code> 락 획득을 처리하는 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.redis;
+
+<span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CounterService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CounterService</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">increasePageView</span><span class="hljs-params">(String date)</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">value</span> <span class="hljs-operator">=</span> redis.opsForValue().increment(<span class="hljs-string">&quot;pv:&quot;</span> + date);
+        <span class="hljs-keyword">return</span> value == <span class="hljs-literal">null</span> ? <span class="hljs-number">0L</span> : value;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">saveSession</span><span class="hljs-params">(String sessionId, String payload)</span> {
+        redis.opsForValue().set(<span class="hljs-string">&quot;session:&quot;</span> + sessionId, payload, Duration.ofHours(<span class="hljs-number">1</span>));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">tryAcquire</span><span class="hljs-params">(String resource, String owner)</span> {
+        <span class="hljs-type">Boolean</span> <span class="hljs-variable">ok</span> <span class="hljs-operator">=</span> redis.opsForValue()
+                .setIfAbsent(<span class="hljs-string">&quot;lock:&quot;</span> + resource, owner, Duration.ofSeconds(<span class="hljs-number">30</span>));
+        <span class="hljs-keyword">return</span> Boolean.TRUE.equals(ok);
+    }
+}</code></pre>
+<p>사용자 프로필을 Hash로 캐싱하고 이메일만 부분 갱신하는 예제다. <code>putAll</code>은 <code>HSET</code>에 필드를 한꺼번에 전달하고 <code>expire</code>로 키 단위 TTL을 건다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.redis;
+
+<span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.HashOperations;
+<span class="hljs-keyword">import</span> org.springframework.data.redis.core.StringRedisTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserCacheService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Duration</span> <span class="hljs-variable">TTL</span> <span class="hljs-operator">=</span> Duration.ofHours(<span class="hljs-number">1</span>);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserRepository userRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserCacheService</span><span class="hljs-params">(StringRedisTemplate redis, UserRepository userRepository)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+        <span class="hljs-built_in">this</span>.userRepository = userRepository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Map</span>&lt;String, String&gt; <span class="hljs-title function_">getUser</span><span class="hljs-params">(<span class="hljs-type">long</span> id)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;user:&quot;</span> + id;
+        <span class="hljs-type">HashOperations</span>&lt;String, String, String&gt; <span class="hljs-variable">hash</span> <span class="hljs-operator">=</span> redis.opsForHash();
+        <span class="hljs-type">Map</span>&lt;String, String&gt; <span class="hljs-variable">cached</span> <span class="hljs-operator">=</span> hash.entries(key);
+        <span class="hljs-keyword">if</span> (!cached.isEmpty()) {
+            <span class="hljs-keyword">return</span> cached;
+        }
+        <span class="hljs-type">User</span> <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> userRepository.findById(id).orElseThrow();
+        <span class="hljs-type">Map</span>&lt;String, String&gt; <span class="hljs-variable">fields</span> <span class="hljs-operator">=</span> Map.of(
+                <span class="hljs-string">&quot;name&quot;</span>, user.name(),
+                <span class="hljs-string">&quot;email&quot;</span>, user.email(),
+                <span class="hljs-string">&quot;age&quot;</span>, String.valueOf(user.age()));
+        hash.putAll(key, fields);
+        redis.expire(key, TTL);
+        <span class="hljs-keyword">return</span> fields;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">updateEmail</span><span class="hljs-params">(<span class="hljs-type">long</span> id, String email)</span> {
+        redis.&lt;String, String&gt;opsForHash().put(<span class="hljs-string">&quot;user:&quot;</span> + id, <span class="hljs-string">&quot;email&quot;</span>, email);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">increaseLoginCount</span><span class="hljs-params">(<span class="hljs-type">long</span> id)</span> {
+        <span class="hljs-keyword">return</span> redis.opsForHash().increment(<span class="hljs-string">&quot;user:&quot;</span> + id + <span class="hljs-string">&quot;:stats&quot;</span>, <span class="hljs-string">&quot;logins&quot;</span>, <span class="hljs-number">1L</span>);
+    }
+}</code></pre>
+<p>객체를 통째로 캐싱한다면 Spring Cache 추상화가 더 짧다. <code>@Cacheable</code>은 반환 객체를 JSON String 하나로 <code>SET</code>한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">CacheConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">RedisCacheConfiguration</span> <span class="hljs-title function_">cacheConfiguration</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(<span class="hljs-number">10</span>))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair
+                        .fromSerializer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">GenericJackson2JsonRedisSerializer</span>()));
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository productRepository;
+
+    ProductService(ProductRepository productRepository) {
+        <span class="hljs-built_in">this</span>.productRepository = productRepository;
+    }
+
+    <span class="hljs-meta">@Cacheable(cacheNames = &quot;products&quot;, key = &quot;#id&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Product</span> <span class="hljs-title function_">getProduct</span><span class="hljs-params">(<span class="hljs-type">long</span> id)</span> {
+        <span class="hljs-keyword">return</span> productRepository.findById(id).orElseThrow();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>SET</code>의 타입 덮어쓰기.</strong> 다른 타입 명령은 키 타입을 검사하지만 <code>SET</code>은 Hash든 List든 지우고 String으로 바꾼다. 키 접두사를 타입·서비스별로 분리한다.</li>
+<li><strong>큰 Hash에 <code>HGETALL</code>.</strong> 필드가 수천 개를 넘으면 O(N) 응답이 단일 스레드를 점유해 다른 명령까지 지연된다. <code>HMGET</code>으로 필요한 필드만 읽고, 수만 필드로 자라면 키를 분할한다.</li>
+<li><strong>listpack 경계를 넘는 값.</strong> 필드 하나라도 64바이트를 넘으면 Hash 전체가 hashtable로 바뀌어 메모리가 수 배 늘어난다. 긴 문자열이나 직렬화된 JSON을 Hash 필드에 넣는 순간 작은 객체의 이점이 사라진다.</li>
+<li><strong>TTL 없는 갱신.</strong> 옵션 없는 <code>SET</code>은 기존 TTL을 지워 영구 키를 만든다. <code>KEEPTTL</code>을 쓰거나 TTL을 다시 지정하고, Hash는 <code>HSET</code> 후 <code>EXPIRE</code>를 잊지 않는다. <code>@Cacheable</code>도 <code>entryTtl</code>이 없으면 만료 없이 쌓인다.</li>
+<li><strong>직렬화 불일치.</strong> <code>RedisTemplate</code> 기본값은 JDK 직렬화라서 CLI에서 읽을 수 없다. <code>StringRedisTemplate</code>이나 JSON 직렬화기로 통일한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/data-types-overview/">데이터 타입 개관</a></li>
+<li><a href="/notes/redis/ttl-eviction-keyspace/">TTL·Eviction·Keyspace Notification</a></li>
+<li><a href="/notes/redis/distributed-lock-redlock/">분산 락 — SET NX와 Redlock</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, String, Hash, Spring Data Redis, 캐싱</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/data-types-overview/"><small>이전</small>데이터 타입 개관</a>
+  <a class="next" href="/notes/redis/list-set/"><small>다음</small>List·Set — 큐와 집합 연산</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

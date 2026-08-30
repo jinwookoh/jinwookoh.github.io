@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scaling·Scheduling·Probes · 인프라 — Kubernetes · Consul</title>
+  <meta name="description" content="HPA·Probe·Affinity·Taint·Quota로 Pod의 수·건강·배치·자원을 자동 제어하는 원리와 함정을 정리한다">
+  <meta property="og:title" content="Scaling·Scheduling·Probes · 인프라 — Kubernetes · Consul">
+  <meta property="og:description" content="HPA·Probe·Affinity·Taint·Quota로 Pod의 수·건강·배치·자원을 자동 제어하는 원리와 함정을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/infra/k8s-scaling-scheduling/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/infra/">인프라 — Kubernetes · Consul</a><span class="sep">›</span><span>Scaling·Scheduling·Probes</span></nav>
+    <article class="post">
+  <p class="part">인프라 — Kubernetes · Consul · Kubernetes</p>
+  <h1>Scaling·Scheduling·Probes</h1>
+  <p class="summary">HPA·Probe·Affinity·Taint·Quota로 Pod의 수·건강·배치·자원을 자동 제어하는 원리와 함정을 정리한다</p>
+  <div class="content">
+<p>replicas를 고정해 두면 트래픽이 늘 때 사람이 숫자를 고쳐야 하고, 줄어도 비용이 남는다. 프로세스가 데드락에 빠져도 kubelet은 모른 채 트래픽을 흘려보낸다. 배치 기준이 없으면 replicas 3개가 한 노드에 모여 노드 장애 한 번에 서비스가 내려가고, 한 팀이 namespace 자원을 다 쓰면 다른 팀의 Pod이 Pending에 걸린다. 자동 확장·Probe·스케줄링 제어·자원 한도가 이 네 문제를 맡는다.</p>
+<h2>핵심 개념</h2>
+<h3>자동 확장 3계층</h3>
+<table>
+<thead>
+<tr>
+<th align="left">계층</th>
+<th align="left">조정 대상</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">HPA</td>
+<td align="left">Pod 수</td>
+</tr>
+<tr>
+<td align="left">VPA</td>
+<td align="left">Pod의 requests·limits</td>
+</tr>
+<tr>
+<td align="left">Cluster Autoscaler</td>
+<td align="left">노드 수</td>
+</tr>
+</tbody></table>
+<p>HPA(<code>autoscaling/v2</code>)는 Metrics Server가 수집한 CPU·메모리 사용률 평균을 목표값과 비교해 <code>minReplicas</code>~`maxReplicas<code>범위에서 replicas를 조정한다. 사용률은</code>requests<code> 대비 비율이다. Prometheus Adapter를 두면 커스텀 메트릭(</code>type: Pods<code>)으로도 확장한다. </code>behavior<code>로 scaleDown 안정화 창과 변화율을 제한해 진동을 막는다. VPA는 requests·limits를 다시 계산하며 </code>updateMode: Auto`면 Pod을 재생성한다. Cluster Autoscaler는 자원 부족으로 Pending인 Pod이 생기면 노드를 추가하고 비면 제거한다. 일반적인 조합은 HPA + Cluster Autoscaler다.</p>
+<h3>Probe 3종</h3>
+<table>
+<thead>
+<tr>
+<th align="left">Probe</th>
+<th align="left">질문</th>
+<th align="left">실패 시</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Liveness</td>
+<td align="left">살아 있는가</td>
+<td align="left">컨테이너 재시작</td>
+</tr>
+<tr>
+<td align="left">Readiness</td>
+<td align="left">트래픽을 받을 수 있는가</td>
+<td align="left">Service Endpoints에서 제외, 재시작 없음</td>
+</tr>
+<tr>
+<td align="left">Startup</td>
+<td align="left">기동이 끝났는가</td>
+<td align="left">재시작. 성공 전까지 나머지 두 Probe 비활성</td>
+</tr>
+</tbody></table>
+<p>Liveness는 프로세스는 살아 있지만 복구 불가능한 상태를 잡는다. Readiness는 워밍업 중이거나 외부 의존이 끊긴 상황에서 트래픽만 끊는다. Startup은 기동이 긴 앱에 <code>failureThreshold × periodSeconds</code> 만큼 유예를 주어 Liveness가 기동 중인 컨테이너를 죽이지 못하게 막는다. 검사 방식은 <code>httpGet</code>·<code>tcpSocket</code>·<code>exec</code>·<code>grpc</code>다.</p>
+<h3>스케줄링 제어 4가지</h3>
+<p><code>nodeSelector</code>는 노드 라벨의 단순 일치다. <code>nodeAffinity</code>는 <code>In</code>·<code>Exists</code> 연산자와 <code>required</code>(필수)·<code>preferred</code>(가중치 선호)를 구분한다. <code>podAffinity</code>/<code>podAntiAffinity</code>는 다른 Pod의 라벨을 기준으로 같은 <code>topologyKey</code>에 모으거나 흩는다. Taint/Toleration은 반대로 노드가 받아들일 Pod을 제한한다. Effect는 <code>NoSchedule</code>(신규 거부), <code>PreferNoSchedule</code>(가능하면 거부), <code>NoExecute</code>(기존 Pod도 추방)다. Affinity는 Pod 관점, Taint는 노드 관점이며 함께 쓴다.</p>
+<h3>자원·가용성 정책</h3>
+<p><code>ResourceQuota</code>는 namespace 단위로 requests·limits 합계와 Pod·PVC 개수의 상한을 둔다. <code>LimitRange</code>는 컨테이너별 기본값과 최소·최대를 강제한다. <code>PodDisruptionBudget</code>은 drain 같은 자발적 중단 시 <code>minAvailable</code> 또는 <code>maxUnavailable</code>을 지킨다. <code>PriorityClass</code>는 자원이 모자랄 때 낮은 우선순위 Pod을 선점(preemption)한다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x Actuator의 liveness·readiness 그룹을 Probe 엔드포인트로 노출한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># application.yml</span>
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">endpoint:</span>
+    <span class="hljs-attr">health:</span>
+      <span class="hljs-attr">probes:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+      <span class="hljs-attr">group:</span>
+        <span class="hljs-attr">readiness:</span>
+          <span class="hljs-attr">include:</span> <span class="hljs-string">readinessState,</span> <span class="hljs-string">db,</span> <span class="hljs-string">redis</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">health</span></code></pre>
+<p>외부 캐시가 끊겼을 때 재시작 대신 트래픽만 빼도록 Readiness 상태를 이벤트로 바꾼다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.boot.availability.AvailabilityChangeEvent;
+<span class="hljs-keyword">import</span> org.springframework.boot.availability.ReadinessState;
+<span class="hljs-keyword">import</span> org.springframework.context.ApplicationEventPublisher;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CacheHealthWatcher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApplicationEventPublisher publisher;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CacheHealthWatcher</span><span class="hljs-params">(ApplicationEventPublisher publisher)</span> {
+        <span class="hljs-built_in">this</span>.publisher = publisher;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onCacheDisconnected</span><span class="hljs-params">()</span> {
+        AvailabilityChangeEvent.publish(publisher, <span class="hljs-built_in">this</span>, ReadinessState.REFUSING_TRAFFIC);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onCacheRecovered</span><span class="hljs-params">()</span> {
+        AvailabilityChangeEvent.publish(publisher, <span class="hljs-built_in">this</span>, ReadinessState.ACCEPTING_TRAFFIC);
+    }
+}</code></pre>
+<p>Deployment에 Probe 3종·AntiAffinity를 지정하고 HPA·PDB를 붙인다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Deployment</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">replicas:</span> <span class="hljs-number">3</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span> { <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span> }
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">metadata:</span>
+      <span class="hljs-attr">labels:</span> { <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span> }
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">affinity:</span>
+        <span class="hljs-attr">podAntiAffinity:</span>
+          <span class="hljs-attr">requiredDuringSchedulingIgnoredDuringExecution:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">labelSelector:</span>
+                <span class="hljs-attr">matchLabels:</span> { <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span> }
+              <span class="hljs-attr">topologyKey:</span> <span class="hljs-string">kubernetes.io/hostname</span>
+      <span class="hljs-attr">tolerations:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">key:</span> <span class="hljs-string">dedicated</span>
+          <span class="hljs-attr">operator:</span> <span class="hljs-string">Equal</span>
+          <span class="hljs-attr">value:</span> <span class="hljs-string">api</span>
+          <span class="hljs-attr">effect:</span> <span class="hljs-string">NoSchedule</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app</span>
+          <span class="hljs-attr">image:</span> <span class="hljs-string">registry.local/order-api:1.4.0</span>
+          <span class="hljs-attr">ports:</span> [{ <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8080</span> }]
+          <span class="hljs-attr">resources:</span>
+            <span class="hljs-attr">requests:</span> { <span class="hljs-attr">cpu:</span> <span class="hljs-string">500m</span>, <span class="hljs-attr">memory:</span> <span class="hljs-string">1Gi</span> }
+            <span class="hljs-attr">limits:</span> { <span class="hljs-attr">memory:</span> <span class="hljs-string">1Gi</span> }
+          <span class="hljs-attr">startupProbe:</span>
+            <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/health/liveness</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+            <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">5</span>
+            <span class="hljs-attr">failureThreshold:</span> <span class="hljs-number">24</span>
+          <span class="hljs-attr">livenessProbe:</span>
+            <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/health/liveness</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+            <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">10</span>
+            <span class="hljs-attr">failureThreshold:</span> <span class="hljs-number">3</span>
+          <span class="hljs-attr">readinessProbe:</span>
+            <span class="hljs-attr">httpGet:</span> { <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/health/readiness</span>, <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span> }
+            <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">5</span>
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">autoscaling/v2</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">HorizontalPodAutoscaler</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">scaleTargetRef:</span>
+    <span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+    <span class="hljs-attr">kind:</span> <span class="hljs-string">Deployment</span>
+    <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+  <span class="hljs-attr">minReplicas:</span> <span class="hljs-number">3</span>
+  <span class="hljs-attr">maxReplicas:</span> <span class="hljs-number">12</span>
+  <span class="hljs-attr">metrics:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">type:</span> <span class="hljs-string">Resource</span>
+      <span class="hljs-attr">resource:</span>
+        <span class="hljs-attr">name:</span> <span class="hljs-string">cpu</span>
+        <span class="hljs-attr">target:</span> { <span class="hljs-attr">type:</span> <span class="hljs-string">Utilization</span>, <span class="hljs-attr">averageUtilization:</span> <span class="hljs-number">70</span> }
+  <span class="hljs-attr">behavior:</span>
+    <span class="hljs-attr">scaleDown:</span>
+      <span class="hljs-attr">stabilizationWindowSeconds:</span> <span class="hljs-number">300</span>
+      <span class="hljs-attr">policies:</span>
+        <span class="hljs-bullet">-</span> { <span class="hljs-attr">type:</span> <span class="hljs-string">Percent</span>, <span class="hljs-attr">value:</span> <span class="hljs-number">10</span>, <span class="hljs-attr">periodSeconds:</span> <span class="hljs-number">60</span> }
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">policy/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">PodDisruptionBudget</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">minAvailable:</span> <span class="hljs-number">2</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span> { <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span> }</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Liveness에 외부 의존을 넣으면 연쇄 재시작이 난다.</strong> DB가 잠시 끊겼을 때 모든 Pod이 동시에 재시작되고 복구 후 커넥션 폭주가 따른다. 외부 의존은 Readiness 그룹에만 두고 Liveness는 프로세스 상태만 본다.</li>
+<li><strong>Startup Probe 없이 JVM 앱을 올리면 기동 중에 죽는다.</strong> <code>initialDelaySeconds</code>로 버티는 방식은 기동 시간이 늘면 깨진다. <code>failureThreshold × periodSeconds</code>를 최악의 기동 시간보다 넉넉히 잡는다.</li>
+<li><strong>HPA는 CPU requests가 없으면 동작하지 않는다.</strong> 사용률 분모가 requests이므로 생략하면 메트릭이 <code>unknown</code>이 된다. VPA와 HPA를 같은 메트릭에 동시에 걸면 서로 반대 방향으로 조정해 충돌한다.</li>
+<li><strong>PDB와 AntiAffinity가 drain을 막을 수 있다.</strong> <code>minAvailable: 2</code>에 replicas 2면 drain이 끝나지 않고, <code>required</code> AntiAffinity는 노드보다 replicas가 많으면 Pending을 만든다. 노드가 적으면 <code>preferred</code>로 완화한다.</li>
+<li><strong>JVM 힙과 limits를 맞추지 않으면 OOMKilled가 반복된다.</strong> limits는 컨테이너 전체 RSS 기준이므로 <code>-XX:MaxRAMPercentage</code>로 힙 비율을 지정하고 메타스페이스 여유를 남긴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/infra/k8s-workloads/">Workloads — Deployment·StatefulSet·DaemonSet·Job</a></li>
+<li><a href="/notes/infra/k8s-services-networking/">Services·Networking·Ingress</a></li>
+<li><a href="/notes/infra/k8s-helm-real-world/">Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Kubernetes, HPA, Probe, Affinity, Taint</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/infra/k8s-config-storage/"><small>이전</small>ConfigMap·Secret·Storage</a>
+  <a class="next" href="/notes/infra/k8s-security/"><small>다음</small>Security — RBAC·NetworkPolicy</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

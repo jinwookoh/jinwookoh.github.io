@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>리액티브 Redis — 연동·Template·자료구조 · Reactive Spring</title>
+  <meta name="description" content="WebFlux에서 Lettuce 기반 ReactiveRedisTemplate으로 Redis를 연동하고 5대 자료구조를 논블로킹으로 다루는 방법을 정리한다.">
+  <meta property="og:title" content="리액티브 Redis — 연동·Template·자료구조 · Reactive Spring">
+  <meta property="og:description" content="WebFlux에서 Lettuce 기반 ReactiveRedisTemplate으로 Redis를 연동하고 5대 자료구조를 논블로킹으로 다루는 방법을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/reactive-redis-basics/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>리액티브 Redis — 연동·Template·자료구조</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · 리액티브 데이터</p>
+  <h1>리액티브 Redis — 연동·Template·자료구조</h1>
+  <p class="summary">WebFlux에서 Lettuce 기반 ReactiveRedisTemplate으로 Redis를 연동하고 5대 자료구조를 논블로킹으로 다루는 방법을 정리한다.</p>
+  <div class="content">
+<p>WebFlux는 적은 수의 이벤트 루프 스레드로 많은 요청을 처리한다. 여기서 블로킹 <code>RedisTemplate</code>을 호출하면 <code>get()</code> 한 줄이 이벤트 루프를 점유한 채 응답을 기다리고, 같은 스레드의 다른 요청이 전부 밀린다. 요청마다 Redis를 거치는 경로가 많을수록 처리량 손실은 커진다. Spring Data Redis는 Lettuce의 논블로킹 I/O 위에 <code>ReactiveRedisTemplate</code>을 얹어 모든 명령을 <code>Mono</code>/<code>Flux</code>로 반환하게 한다.</p>
+<h2>핵심 개념</h2>
+<h3>Redis는 인메모리 데이터 구조 서버다</h3>
+<p>Redis는 String·Hash·List·Set·ZSet에 Stream·GeoSpatial·HyperLogLog·Bitmap까지 제공한다. 디스크 저장소보다 수천 배 빠르지만 휘발성이므로 영속이 필요하면 RDB·AOF를 설정한다.</p>
+<h3>Lettuce와 ReactiveRedisTemplate</h3>
+<p>Spring Boot의 기본 드라이버는 Lettuce다. Jedis는 동기 전용이라 리액티브 스택에 맞지 않고, Redisson은 분산 락 같은 고수준 API를 <code>RedissonReactiveClient</code>로 제공한다. 단순 명령과 캐시는 <code>ReactiveRedisTemplate</code>으로 충분하고, 분산 락이 필요한 지점에만 Redisson을 더하는 혼합 구성이 일반적이다.</p>
+<p><code>spring-boot-starter-data-redis-reactive</code>를 추가하면 <code>ReactiveRedisConnectionFactory</code>, <code>ReactiveRedisTemplate&lt;Object, Object&gt;</code>, <code>ReactiveStringRedisTemplate</code>이 자동 구성된다. 설정 키는 Spring Boot 3.x 기준 <code>spring.data.redis.*</code>다.</p>
+<p><code>ReactiveRedisTemplate</code>은 자료구조별 <code>opsFor*()</code> 다섯 개를 제공한다. 모든 메서드는 <code>Mono</code>/<code>Flux</code>를 반환하며 구독 전에는 명령이 전송되지 않는다. 컨트롤러가 반환한 <code>Mono</code>를 WebFlux가 구독하므로 서비스 계층은 체인을 끊지 않고 반환한다.</p>
+<h3>직렬화</h3>
+<p>Key는 <code>StringRedisSerializer</code>로 고정한다. Value는 <code>Jackson2JsonRedisSerializer</code>(단일 타입)나 <code>GenericJackson2JsonRedisSerializer</code>(<code>@class</code> 포함, 다형성 지원) 중에서 고른다. <code>JdkSerializationRedisSerializer</code>는 Java 전용 바이너리라 운영에서는 피한다. <code>GenericJackson2JsonRedisSerializer</code>는 <code>BasicPolymorphicTypeValidator</code>로 역직렬화 허용 패키지를 제한해야 임의 클래스 로딩을 막을 수 있다.</p>
+<h3>자료구조 선택 기준</h3>
+<table>
+<thead>
+<tr>
+<th align="left">자료구조</th>
+<th align="left">용도</th>
+<th align="left">복잡도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">String</td>
+<td align="left">캐시, 카운터(INCR), <code>SET NX EX</code> 락</td>
+<td align="left">O(1)</td>
+</tr>
+<tr>
+<td align="left">Hash</td>
+<td align="left">부분 갱신이 필요한 작은 객체</td>
+<td align="left">O(1)</td>
+</tr>
+<tr>
+<td align="left">List</td>
+<td align="left">FIFO 큐, 최근 N개(LTRIM)</td>
+<td align="left">양 끝 O(1)</td>
+</tr>
+<tr>
+<td align="left">Set</td>
+<td align="left">태그, 관계, 집합 연산</td>
+<td align="left">집합 연산 O(N+M)</td>
+</tr>
+<tr>
+<td align="left">ZSet</td>
+<td align="left">랭킹, 우선순위 큐, 슬라이딩 윈도우</td>
+<td align="left">O(log N)</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>Key는 String, Value는 JSON으로 저장하는 템플릿 빈 구성이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RedisConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ReactiveRedisTemplate</span>&lt;String, Object&gt; <span class="hljs-title function_">reactiveRedisTemplate</span><span class="hljs-params">(
+            ReactiveRedisConnectionFactory factory)</span> {
+
+        <span class="hljs-type">ObjectMapper</span> <span class="hljs-variable">mapper</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ObjectMapper</span>();
+        mapper.activateDefaultTyping(
+                BasicPolymorphicTypeValidator.builder()
+                        .allowIfSubType(<span class="hljs-string">&quot;com.example.&quot;</span>)
+                        .build(),
+                ObjectMapper.DefaultTyping.NON_FINAL);
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">valueSerializer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">GenericJackson2JsonRedisSerializer</span>(mapper);
+        <span class="hljs-type">var</span> <span class="hljs-variable">context</span> <span class="hljs-operator">=</span> RedisSerializationContext
+                .&lt;String, Object&gt;newSerializationContext(<span class="hljs-keyword">new</span> <span class="hljs-title class_">StringRedisSerializer</span>())
+                .value(valueSerializer)
+                .hashValue(valueSerializer)
+                .build();
+
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ReactiveRedisTemplate</span>&lt;&gt;(factory, context);
+    }
+}</code></pre>
+<p>캐시 미스 시 R2DBC 리포지토리를 읽고 TTL과 함께 저장한다. 빈 <code>Mono</code>는 <code>switchIfEmpty</code>, 에러는 <code>onErrorResume</code>으로 구분한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserCacheService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ReactiveRedisTemplate&lt;String, Object&gt; redis;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserRepository userRepository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserCacheService</span><span class="hljs-params">(ReactiveRedisTemplate&lt;String, Object&gt; redis,
+                            UserRepository userRepository)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+        <span class="hljs-built_in">this</span>.userRepository = userRepository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;User&gt; <span class="hljs-title function_">findById</span><span class="hljs-params">(String id)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;user:&quot;</span> + id;
+        <span class="hljs-keyword">return</span> redis.opsForValue().get(key)
+                .cast(User.class)
+                .switchIfEmpty(userRepository.findById(id)
+                        .flatMap(user -&gt; redis.opsForValue()
+                                .set(key, user, Duration.ofMinutes(<span class="hljs-number">5</span>))
+                                .thenReturn(user)));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Boolean&gt; <span class="hljs-title function_">evict</span><span class="hljs-params">(String id)</span> {
+        <span class="hljs-keyword">return</span> redis.delete(<span class="hljs-string">&quot;user:&quot;</span> + id).map(count -&gt; count &gt; <span class="hljs-number">0</span>);
+    }
+}</code></pre>
+<p>ZSet으로 실시간 랭킹과 슬라이딩 윈도우 rate limit을 구현한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RankingService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ReactiveStringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RankingService</span><span class="hljs-params">(ReactiveStringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Double&gt; <span class="hljs-title function_">like</span><span class="hljs-params">(String postId)</span> {
+        <span class="hljs-keyword">return</span> redis.opsForZSet().incrementScore(<span class="hljs-string">&quot;rank:posts&quot;</span>, postId, <span class="hljs-number">1</span>);
+    }
+
+    <span class="hljs-keyword">public</span> Flux&lt;ZSetOperations.TypedTuple&lt;String&gt;&gt; top(<span class="hljs-type">int</span> n) {
+        <span class="hljs-keyword">return</span> redis.opsForZSet()
+                .reverseRangeWithScores(<span class="hljs-string">&quot;rank:posts&quot;</span>, Range.closed(<span class="hljs-number">0L</span>, (<span class="hljs-type">long</span>) n - <span class="hljs-number">1</span>));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Boolean&gt; <span class="hljs-title function_">allowRequest</span><span class="hljs-params">(String userId, <span class="hljs-type">int</span> limit, Duration window)</span> {
+        <span class="hljs-type">long</span> <span class="hljs-variable">now</span> <span class="hljs-operator">=</span> System.currentTimeMillis();
+        <span class="hljs-type">double</span> <span class="hljs-variable">windowStart</span> <span class="hljs-operator">=</span> now - window.toMillis();
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;rate:&quot;</span> + userId;
+        <span class="hljs-type">var</span> <span class="hljs-variable">zset</span> <span class="hljs-operator">=</span> redis.opsForZSet();
+
+        <span class="hljs-keyword">return</span> zset.removeRangeByScore(key,
+                        Range.leftUnbounded(Range.Bound.exclusive(windowStart)))
+                .then(zset.add(key, UUID.randomUUID().toString(), now))
+                .then(zset.count(key, Range.closed(windowStart, (<span class="hljs-type">double</span>) now)))
+                .flatMap(count -&gt; redis.expire(key, window).thenReturn(count &lt;= limit));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>구독되지 않은 체인.</strong> <code>ops.set(...)</code>의 반환값을 버리면 명령이 전송되지 않는다. <code>doOnNext</code> 안에서 <code>.subscribe()</code>를 따로 호출하면 순서와 에러 전파가 보장되지 않으므로 <code>then</code>·<code>flatMap</code>으로 메인 체인에 합성한다.</li>
+<li><strong><code>KEYS *</code>와 대형 컬렉션 전체 조회.</strong> O(N) 명령 하나가 단일 스레드인 Redis 전체를 멈춘다. 키 순회는 <code>SCAN</code>, 큰 Hash·Set은 <code>HSCAN</code>·<code>SSCAN</code>으로 나눈다.</li>
+<li><strong>TTL 없는 캐시 키.</strong> 캐시 키에는 <code>set(key, value, Duration)</code>으로 TTL을 항상 지정하고, <code>INCR</code> 카운터는 첫 증가 시 <code>expire</code>를 건다. List는 <code>LTRIM</code>, ZSet은 <code>removeRangeByScore</code>로 길이를 제한한다.</li>
+<li><strong>Lettuce 풀 설정.</strong> Lettuce는 단일 연결을 멀티플렉싱하므로 일반 명령에는 풀이 필요 없다. <code>spring.data.redis.lettuce.pool</code>은 트랜잭션이나 <code>BLPOP</code> 같은 전용 연결이 필요한 경우에만 의미가 있고, 켜려면 <code>commons-pool2</code> 의존성이 필요하다.</li>
+<li><strong><code>@class</code> 결합.</strong> <code>GenericJackson2JsonRedisSerializer</code>는 클래스명을 저장하므로 클래스를 옮기면 기존 데이터 역직렬화가 실패한다. 배포 전 키를 비우는 절차를 정하고, 다른 언어와 공유하는 키는 타입 정보 없는 <code>Jackson2JsonRedisSerializer</code>를 쓴다.</li>
+<li><strong>Cluster의 논리 DB.</strong> Cluster는 0번 DB만 지원하므로 처음부터 키 접두어로 네임스페이스를 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/reactive-redis-advanced/">리액티브 Redis — 캐싱·Pub/Sub·트랜잭션·성능</a></li>
+<li><a href="/notes/reactive-spring/r2dbc/">R2DBC — 리액티브 DB 연동과 JPA 비교</a></li>
+<li><a href="/notes/reactive-spring/schedulers-context/">Schedulers·스레딩·Context</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, ReactiveRedisTemplate, Lettuce, WebFlux, Spring Data Redis</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/r2dbc/"><small>이전</small>R2DBC — 리액티브 DB 연동과 JPA 비교</a>
+  <a class="next" href="/notes/reactive-spring/reactive-redis-advanced/"><small>다음</small>리액티브 Redis — 캐싱·Pub/Sub·트랜잭션·성능</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

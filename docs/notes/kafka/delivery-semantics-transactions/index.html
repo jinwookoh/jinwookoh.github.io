@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>전달 보증 — at-most·at-least·exactly-once와 트랜잭션 · Kafka</title>
+  <meta name="description" content="세 가지 전달 보증의 차이와 멱등 프로듀서·트랜잭션·read_committed로 Kafka 내부 exactly-once가 성립하는 원리를 정리한다">
+  <meta property="og:title" content="전달 보증 — at-most·at-least·exactly-once와 트랜잭션 · Kafka">
+  <meta property="og:description" content="세 가지 전달 보증의 차이와 멱등 프로듀서·트랜잭션·read_committed로 Kafka 내부 exactly-once가 성립하는 원리를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/delivery-semantics-transactions/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>전달 보증 — at-most·at-least·exactly-once와 트랜잭션</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 설계와 내부</p>
+  <h1>전달 보증 — at-most·at-least·exactly-once와 트랜잭션</h1>
+  <p class="summary">세 가지 전달 보증의 차이와 멱등 프로듀서·트랜잭션·read_committed로 Kafka 내부 exactly-once가 성립하는 원리를 정리한다</p>
+  <div class="content">
+<p>Producer가 ACK를 받지 못하면 재전송할지 포기할지, Consumer는 처리와 offset commit 중 무엇을 먼저 할지 정해야 한다. 어느 쪽이든 손실 또는 중복 중 하나를 감수하게 된다. 결제·정산처럼 둘 다 허용되지 않는 데이터에서는 이 선택이 곧 장애 원인이다. Kafka는 멱등 Producer와 트랜잭션으로 클러스터 내부에 한해 손실과 중복을 모두 제거하며, 그 범위와 비용을 알아야 올바르게 쓸 수 있다.</p>
+<h2>핵심 개념</h2>
+<h3>세 가지 보증</h3>
+<table>
+<thead>
+<tr>
+<th align="left">보증</th>
+<th align="center">손실</th>
+<th align="center">중복</th>
+<th align="left">Producer</th>
+<th align="left">Consumer 순서</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">at-most-once</td>
+<td align="center">가능</td>
+<td align="center">없음</td>
+<td align="left"><code>acks=0</code>, <code>retries=0</code></td>
+<td align="left">poll → commit → process</td>
+</tr>
+<tr>
+<td align="left">at-least-once</td>
+<td align="center">없음</td>
+<td align="center">가능</td>
+<td align="left"><code>acks=all</code>, retries &gt; 0</td>
+<td align="left">poll → process → commit</td>
+</tr>
+<tr>
+<td align="left">exactly-once</td>
+<td align="center">없음</td>
+<td align="center">없음</td>
+<td align="left">멱등 + 트랜잭션</td>
+<td align="left"><code>isolation.level=read_committed</code></td>
+</tr>
+</tbody></table>
+<p>발행 측과 소비 측 보증은 별개다. Producer가 정확히 한 번 저장했어도 Consumer가 commit 전에 죽으면 재처리되므로 양쪽을 한 트랜잭션으로 묶어야 한다.</p>
+<h3>발행 측 — 멱등 Producer</h3>
+<p>Producer는 브로커에서 Producer ID(PID)를 받고 파티션별 sequence number를 붙여 전송한다. 브로커는 (PID, sequence)를 추적해 이미 저장한 배치가 다시 오면 저장하지 않고 성공으로 응답한다. Kafka 3.0부터 <code>enable.idempotence=true</code>가 기본이며 <code>acks=all</code>, 무제한 retries가 함께 적용된다. 멱등성은 단일 파티션·단일 세션 안에서만 유효하고, 그 밖은 트랜잭션이 담당한다.</p>
+<h3>트랜잭션 프로토콜</h3>
+<p>세 부품으로 동작한다.</p>
+<ol>
+<li><strong>Transaction Coordinator</strong> — 브로커 내부 컴포넌트. <code>transactional.id</code> 해시로 담당이 정해지며 상태 추적, 2단계 커밋 조율, fencing, timeout 감지를 맡는다.</li>
+<li><strong><code>__transaction_state</code></strong> — 내부 토픽(기본 50 파티션). Empty → Ongoing → PrepareCommit/PrepareAbort → CompleteCommit/CompleteAbort 전이가 append되어 코디네이터 장애 후에도 복구된다.</li>
+<li><strong>Control Batch</strong> — 파티션 로그에 기록되는 COMMIT/ABORT 마커.</li>
+</ol>
+<pre><code class="hljs language-plaintext">initTransactions         → InitProducerId (PID + epoch 발급)
+send(record)             → 새 파티션이면 AddPartitionsToTxn 후 전송
+sendOffsetsToTransaction → __consumer_offsets에 트랜잭션 offset 기록
+commitTransaction        → Phase 1: PrepareCommit 기록
+                         → Phase 2: 각 파티션 리더에 COMMIT 마커 append
+                         → CompleteCommit 기록, Producer에 응답</code></pre>
+<p>출력 레코드와 입력 offset이 한 트랜잭션에 묶이므로 consume-transform-produce가 원자적으로 처리된다.</p>
+<h3>소비 측 — read_committed와 LSO</h3>
+<p><code>read_committed</code> Consumer에게 브로커는 Last Stable Offset(LSO)까지만 반환한다. LSO는 그 이전의 모든 트랜잭션이 commit 또는 abort로 끝난 지점이다. 진행 중인 레코드는 보이지 않고 ABORT 마커가 붙은 배치는 건너뛴다. abort된 레코드는 디스크에 남았다가 retention으로 제거된다.</p>
+<h3>Producer Fencing</h3>
+<p>같은 <code>transactional.id</code>로 새 Producer가 <code>initTransactions</code>를 호출하면 코디네이터는 epoch를 올리고 이전 epoch의 진행 중 트랜잭션을 abort한다. 긴 GC 후 깨어난 옛 인스턴스는 <code>ProducerFencedException</code>을 받아 커밋을 끼워 넣지 못한다.</p>
+<h3>Kafka Streams의 EOS</h3>
+<p><code>processing.guarantee=exactly_once_v2</code> 한 줄로 위 구성이 모두 적용된다. v2는 task별이 아닌 스레드 단위로 Producer를 공유해 메모리와 연결 수를 줄인다.</p>
+<h2>코드</h2>
+<p>consume-transform-produce를 한 트랜잭션으로 묶는 클라이언트 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">Properties</span> <span class="hljs-variable">pp</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Properties</span>();
+pp.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, <span class="hljs-string">&quot;localhost:9092&quot;</span>);
+pp.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, <span class="hljs-string">&quot;order-enricher-&quot;</span> + instanceId);
+pp.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+pp.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+
+<span class="hljs-type">Properties</span> <span class="hljs-variable">cp</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Properties</span>();
+cp.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, <span class="hljs-string">&quot;localhost:9092&quot;</span>);
+cp.put(ConsumerConfig.GROUP_ID_CONFIG, <span class="hljs-string">&quot;order-enricher&quot;</span>);
+cp.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, <span class="hljs-string">&quot;false&quot;</span>);
+cp.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, <span class="hljs-string">&quot;read_committed&quot;</span>);
+cp.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+cp.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+
+<span class="hljs-keyword">try</span> (<span class="hljs-type">var</span> <span class="hljs-variable">producer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">KafkaProducer</span>&lt;String, String&gt;(pp);
+     <span class="hljs-type">var</span> <span class="hljs-variable">consumer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">KafkaConsumer</span>&lt;String, String&gt;(cp)) {
+    producer.initTransactions();
+    consumer.subscribe(List.of(<span class="hljs-string">&quot;orders&quot;</span>));
+
+    <span class="hljs-keyword">while</span> (running) {
+        <span class="hljs-type">ConsumerRecords</span>&lt;String, String&gt; <span class="hljs-variable">records</span> <span class="hljs-operator">=</span> consumer.poll(Duration.ofMillis(<span class="hljs-number">500</span>));
+        <span class="hljs-keyword">if</span> (records.isEmpty()) <span class="hljs-keyword">continue</span>;
+
+        producer.beginTransaction();
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">for</span> (ConsumerRecord&lt;String, String&gt; r : records) {
+                producer.send(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ProducerRecord</span>&lt;&gt;(<span class="hljs-string">&quot;orders-enriched&quot;</span>, r.key(), enrich(r.value())));
+            }
+            <span class="hljs-type">Map</span>&lt;TopicPartition, OffsetAndMetadata&gt; <span class="hljs-variable">offsets</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashMap</span>&lt;&gt;();
+            <span class="hljs-keyword">for</span> (TopicPartition tp : records.partitions()) {
+                <span class="hljs-type">var</span> <span class="hljs-variable">last</span> <span class="hljs-operator">=</span> records.records(tp).getLast();
+                offsets.put(tp, <span class="hljs-keyword">new</span> <span class="hljs-title class_">OffsetAndMetadata</span>(last.offset() + <span class="hljs-number">1</span>));
+            }
+            producer.sendOffsetsToTransaction(offsets, consumer.groupMetadata());
+            producer.commitTransaction();
+        } <span class="hljs-keyword">catch</span> (ProducerFencedException | OutOfOrderSequenceException e) {
+            <span class="hljs-keyword">throw</span> e;   <span class="hljs-comment">// 복구 불가, 인스턴스 종료</span>
+        } <span class="hljs-keyword">catch</span> (KafkaException e) {
+            producer.abortTransaction();   <span class="hljs-comment">// 다음 poll에서 같은 offset부터 재처리</span>
+        }
+    }
+}</code></pre>
+<p>Spring Kafka에서는 <code>transaction-id-prefix</code>만 지정하면 리스너 컨테이너가 트랜잭션과 offset 전송을 처리한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">producer:</span>
+      <span class="hljs-attr">transaction-id-prefix:</span> <span class="hljs-string">order-enricher-tx-</span>
+    <span class="hljs-attr">consumer:</span>
+      <span class="hljs-attr">group-id:</span> <span class="hljs-string">order-enricher</span>
+      <span class="hljs-attr">isolation-level:</span> <span class="hljs-string">read_committed</span>
+      <span class="hljs-attr">enable-auto-commit:</span> <span class="hljs-literal">false</span></code></pre>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEnricher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, String&gt; template;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderEnricher</span><span class="hljs-params">(KafkaTemplate&lt;String, String&gt; template)</span> {
+        <span class="hljs-built_in">this</span>.template = template;
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;orders&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">on</span><span class="hljs-params">(ConsumerRecord&lt;String, String&gt; record)</span> {
+        <span class="hljs-comment">// 컨테이너가 연 트랜잭션 안에서 실행된다. 예외가 나가면 abort 후 재시도.</span>
+        template.send(<span class="hljs-string">&quot;orders-enriched&quot;</span>, record.key(), enrich(record.value()));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>EOS 범위는 Kafka 클러스터 내부다.</strong> DB·HTTP·파일로 sink하면 트랜잭션 밖이므로 키 기반 upsert 같은 멱등 쓰기, 또는 DB 트랜잭션 안에 outbox 테이블을 쓰고 CDC로 발행하는 Transactional Outbox가 필요하다. 다른 클러스터로 복제한 뒤에도 EOS는 보장되지 않는다.</li>
+<li><strong><code>transaction.timeout.ms</code>(기본 60초)를 넘기면 자동 abort된다.</strong> 배치가 크거나 외부 호출이 느리면 값을 올리되, 브로커 <code>transaction.max.timeout.ms</code>(기본 15분)를 넘길 수 없다.</li>
+<li><strong><code>transactional.id</code> 중복은 서로를 fencing한다.</strong> 두 인스턴스가 같은 ID를 쓰면 번갈아 <code>ProducerFencedException</code>으로 죽는다. 이 예외는 재시도하지 말고 종료해야 한다.</li>
+<li><strong>read_committed는 지연을 더한다.</strong> 커밋 주기만큼 Consumer가 늦게 본다. EOS는 at-least-once 대비 10~20% 정도 처리량 손실이 있다.</li>
+<li><strong>기본 선택은 at-least-once + 멱등 처리다.</strong> 로그·메트릭만 at-most-once가 허용되고, Kafka 내부 스트림 처리는 exactly_once_v2, 외부 DB가 최종 목적지면 Outbox 패턴을 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/producer-internals/">Producer 동작 원리 — 파티션 선택·ACK·멱등성</a></li>
+<li><a href="/notes/kafka/consumer-internals-rebalance/">Consumer 동작 원리 — Pull·Group·Offset·Rebalance</a></li>
+<li><a href="/notes/kafka/event-patterns-outbox-saga/">이벤트 패턴 — Outbox·Saga·Fan-out</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, Exactly-Once, Transactions, Idempotent Producer, read_committed</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/consumer-internals-rebalance/"><small>이전</small>Consumer 동작 원리 — Pull·Group·Offset·Rebalance</a>
+  <a class="next" href="/notes/kafka/replication-isr/"><small>다음</small>Replication — ISR·리더 선출·Unclean</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>운영 함정과 사고 케이스·Elasticsearch 모니터링 · 관측성</title>
+  <meta name="description" content="카디널리티·Gauge 누수·percentile 합산·alert 폭주·drift 등 관측 스택의 반복 사고와 Elasticsearch 감시 지표를 정리한다">
+  <meta property="og:title" content="운영 함정과 사고 케이스·Elasticsearch 모니터링 · 관측성">
+  <meta property="og:description" content="카디널리티·Gauge 누수·percentile 합산·alert 폭주·drift 등 관측 스택의 반복 사고와 Elasticsearch 감시 지표를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/operations-incidents/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/observability/">관측성</a><span class="sep">›</span><span>운영 함정과 사고 케이스·Elasticsearch 모니터링</span></nav>
+    <article class="post">
+  <p class="part">관측성 · 운영</p>
+  <h1>운영 함정과 사고 케이스·Elasticsearch 모니터링</h1>
+  <p class="summary">카디널리티·Gauge 누수·percentile 합산·alert 폭주·drift 등 관측 스택의 반복 사고와 Elasticsearch 감시 지표를 정리한다</p>
+  <div class="content">
+<p>관측 스택은 트래픽과 팀이 커진 뒤에 무너진다. 동적 값을 태그로 넣은 메트릭 하나가 Prometheus를 OOM으로 떨어뜨리고, 인스턴스별 p99를 평균 낸 대시보드는 SLO 위반을 초록불로 표시하며, 리전 장애 한 번에 알림 1,000건이 동시에 발화한다. Micrometer 계측 계층, Grafana·Prometheus 운영 계층, Elasticsearch 클러스터에서 반복되는 사고를 원인과 예방 패턴 중심으로 정리한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>카디널리티</strong>는 label 조합으로 생성되는 고유 시계열 수다. <code>method(5) × status(30) × region(3) × service(20)</code>만으로 9,000개이고 raw path가 곱해지면 상한이 없다. <code>userId</code>·<code>requestId</code> 같은 값은 로그나 trace attribute로 보내고, URI는 <code>/products/{id}</code> 같은 route 패턴으로 정규화한다. <code>MeterFilter.maximumAllowableTags</code>, Prometheus relabel drop, <code>prometheus_tsdb_head_series</code> 감시가 세 겹의 방어선이다.</p>
+<p><strong>Gauge</strong>는 관찰 대상을 <code>WeakReference</code>로 잡는다. <code>Gauge.builder(name, obj, fn)</code> 형태는 obj가 GC 대상이 될 수 있지만, <code>() -&gt; cache.size()</code> 같은 람다는 객체를 강하게 캡처해 회수를 막는다. 같은 이름·태그의 Meter는 첫 등록만 유효하다.</p>
+<p><strong>percentile</strong>은 <code>publishPercentiles()</code>로 만든 클라이언트 측 값이 위치 통계량이라 인스턴스 간 <code>avg()</code>가 성립하지 않는다. 다중 인스턴스 SLO는 <code>publishPercentileHistogram()</code>으로 bucket을 내보내고 <code>histogram_quantile</code>로 서버 측에서 계산한다. bucket은 10~15개로 유지한다.</p>
+<p><strong>alert 폭주와 drift</strong>는 Grafana 계층의 문제다. 리전 장애 alert가 발화하면 같은 <code>region</code> 라벨의 하위 alert를 inhibition으로 잠재우고, 인스턴스별 alert 대신 서비스 비율 alert 하나를 둔다. provisioning에 <code>editable: false</code>를 강제하고 CI가 Git과 실제 상태를 diff한다. 백업은 alert rule·contact point까지 포함하고 분기마다 복원 시험을 한다.</p>
+<p><strong>Elasticsearch 감시</strong>는 클러스터(<code>_cluster/health</code>의 status·unassigned_shards·pending_tasks), 노드(<code>_nodes/stats</code>의 heap·old GC·thread pool rejected), 쿼리(slow log), 색인(index_failed), 캐시(fielddata evictions) 다섯 계층이다. self-monitoring은 대상 클러스터와 함께 죽으므로 Metricbeat가 외부에서 수집해 별도 모니터링 클러스터에 저장하는 3-tier가 표준이며, Prometheus 경로는 <code>elasticsearch_exporter</code>를 쓴다. 알림은 Cluster Red·Heap 85%·Disk 85%·Unassigned Shards·Thread Pool Rejected 다섯 룰로 시작한다.</p>
+<h2>코드</h2>
+<p>카디널리티 상한과 공통 태그를 설정한 registry 구성이다. <code>MeterRegistryCustomizer</code>는 Spring Boot가 registry를 만들 때 자동 적용된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MetricsConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">MeterRegistryCustomizer</span>&lt;MeterRegistry&gt; <span class="hljs-title function_">guardrails</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> registry -&gt; registry.config()
+            .commonTags(<span class="hljs-string">&quot;application&quot;</span>, <span class="hljs-string">&quot;order-service&quot;</span>)
+            .meterFilter(MeterFilter.maximumAllowableTags(
+                <span class="hljs-string">&quot;http.server.requests&quot;</span>, <span class="hljs-string">&quot;uri&quot;</span>, <span class="hljs-number">100</span>, MeterFilter.deny()));
+    }
+}</code></pre>
+<p>Meter는 생성자에서 한 번 등록해 필드로 재사용한다. 요청마다 builder를 호출하면 해시 조회가 hot path에 누적된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Counter success;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Counter failed;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Timer latency;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PaymentService</span><span class="hljs-params">(MeterRegistry registry, PaymentQueue queue)</span> {
+        <span class="hljs-built_in">this</span>.success = Counter.builder(<span class="hljs-string">&quot;payment.processed&quot;</span>)
+            .tag(<span class="hljs-string">&quot;result&quot;</span>, <span class="hljs-string">&quot;success&quot;</span>).register(registry);
+        <span class="hljs-built_in">this</span>.failed = Counter.builder(<span class="hljs-string">&quot;payment.processed&quot;</span>)
+            .tag(<span class="hljs-string">&quot;result&quot;</span>, <span class="hljs-string">&quot;failed&quot;</span>).register(registry);
+        <span class="hljs-built_in">this</span>.latency = Timer.builder(<span class="hljs-string">&quot;payment.latency&quot;</span>)
+            .publishPercentileHistogram()
+            .serviceLevelObjectives(Duration.ofMillis(<span class="hljs-number">100</span>), Duration.ofMillis(<span class="hljs-number">300</span>))
+            .register(registry);
+        Gauge.builder(<span class="hljs-string">&quot;payment.queue.size&quot;</span>, queue, PaymentQueue::size)
+            .register(registry);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Receipt</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(PaymentRequest req)</span> {
+        <span class="hljs-keyword">return</span> latency.record(() -&gt; {
+            <span class="hljs-keyword">try</span> {
+                <span class="hljs-type">Receipt</span> <span class="hljs-variable">r</span> <span class="hljs-operator">=</span> gateway.charge(req);
+                success.increment();
+                <span class="hljs-keyword">return</span> r;
+            } <span class="hljs-keyword">catch</span> (GatewayException e) {
+                failed.increment();
+                <span class="hljs-keyword">throw</span> e;
+            }
+        });
+    }
+}</code></pre>
+<p>계측 동작은 <code>SimpleMeterRegistry</code>를 명시 주입해 검증한다. <code>Metrics.globalRegistry</code> 직접 참조는 테스트에서 조용히 통과하고 운영에서 누락된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Test</span>
+<span class="hljs-keyword">void</span> 결제_성공시_카운터가_증가한다() {
+    <span class="hljs-type">SimpleMeterRegistry</span> <span class="hljs-variable">registry</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SimpleMeterRegistry</span>();
+    <span class="hljs-type">PaymentService</span> <span class="hljs-variable">service</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentService</span>(registry, <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentQueue</span>());
+
+    service.pay(sampleRequest());
+
+    <span class="hljs-type">Counter</span> <span class="hljs-variable">counter</span> <span class="hljs-operator">=</span> registry.find(<span class="hljs-string">&quot;payment.processed&quot;</span>)
+        .tag(<span class="hljs-string">&quot;result&quot;</span>, <span class="hljs-string">&quot;success&quot;</span>).counter();
+    assertThat(counter.count()).isEqualTo(<span class="hljs-number">1.0</span>);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>actuator 노출</strong>: <code>/actuator/prometheus</code>는 기본으로 서비스 포트에 함께 열린다. <code>management.server.port: 8081</code>로 분리하고 NetworkPolicy로 monitoring namespace만 허용한다.</li>
+<li><strong>이중 계측과 태그셋 충돌</strong>: <code>@Timed</code>와 수동 <code>Timer.record()</code>를 겹치면 카운트가 두 배가 된다. 같은 이름의 Meter에 다른 태그 키 집합을 쓰면 <code>IllegalArgumentException</code>이 나므로 키 집합은 고정하고 없는 값은 <code>unknown</code>으로 채운다.</li>
+<li><strong>비동기 컨텍스트 손실</strong>: Observation과 span은 ThreadLocal로 전파되어 Reactor·<code>@Async</code> 경계에서 끊긴다. <code>context-propagation</code> 의존성을 추가하고 <code>Hooks.enableAutomaticContextPropagation()</code>을 호출한다.</li>
+<li><strong>PII와 비용</strong>: 경로에 실린 email이 Loki에 남으면 GDPR·PIPA 위반이다. Alloy <code>stage.replace</code>로 ingestion 전에 마스킹한다. Loki chunk가 작으면 S3 PUT 비용이 폭증하므로 1.5MB·2시간 단위로 키운다.</li>
+<li><strong>Elasticsearch 임계 무시</strong>: heap 75% 지속은 old GC와 circuit breaker로 이어지고, disk는 85%·90%·95% 순으로 할당 차단·강제 이동·read-only가 된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/observability/meter-types-tags-cardinality/">Meter 타입·태그·카디널리티</a></li>
+<li><a href="/notes/observability/timer-percentile-slo/">Timer·percentile·histogram·SLO</a></li>
+<li><a href="/notes/observability/alerting-slo/">Alerting·Notification·SLO</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Micrometer, Grafana, Elasticsearch, Cardinality, Incident</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/observability/iac-cloud-opentelemetry/"><small>이전</small>IaC·Cloud·OpenTelemetry 연동</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

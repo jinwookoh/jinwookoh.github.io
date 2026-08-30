@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>실험과 분석 · Notes</title>
+  <meta name="description" content="확률·통계 기초에서 A/B 테스트 설계와 통계, Statsig 실험 플랫폼, GA4 측정·전환·BigQuery까지.">
+  <meta property="og:title" content="실험과 분석 · Notes">
+  <meta property="og:description" content="확률·통계 기초에서 A/B 테스트 설계와 통계, Statsig 실험 플랫폼, GA4 측정·전환·BigQuery까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>실험과 분석</span></nav>
+    <header class="series-head"><h1>실험과 분석</h1><p>확률·통계 기초에서 A/B 테스트 설계와 통계, Statsig 실험 플랫폼, GA4 측정·전환·BigQuery까지.</p><p class="count">15편</p></header>
+<section class="part-group"><h2>통계 기초</h2><ol class="toc"><li><a href="/notes/experimentation/probability-descriptive-stats/"><span class="n">1</span><span class="t">확률 기초와 기술통계</span><span class="s">실험 결과를 읽기 전에 알아야 할 중심·산포 측도와 조건부 확률·베이즈 정리를 정리한다</span></a></li>
+<li><a href="/notes/experimentation/distributions-hypothesis-testing/"><span class="n">2</span><span class="t">확률 분포·가설 검정·신뢰구간</span><span class="s">표본 하나로 모집단을 말할 수 있는 근거는 분포 가정과 CLT이며, p-value와 신뢰구간은 그 위에서만 의미를 가진다.</span></a></li>
+<li><a href="/notes/experimentation/regression-anova-chisquare/"><span class="n">3</span><span class="t">회귀·ANOVA·카이제곱</span><span class="s">두 변수의 관계는 회귀로, 세 그룹 이상의 평균은 ANOVA로, 범주형 빈도는 카이제곱으로 검정하는 기준을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>A/B 테스트</h2><ol class="toc"><li><a href="/notes/experimentation/ab-test-basics-design/"><span class="n">4</span><span class="t">A/B 테스트 — 대조군·전환율·가설과 지표 설계</span><span class="s">무작위 동시 배정·고정 버케팅·이진 지표·사전 종료 기준이 갖춰져야 A/B 테스트 결과를 의사결정 근거로 쓸 수 있다</span></a></li>
+<li><a href="/notes/experimentation/ab-test-statistics/"><span class="n">5</span><span class="t">A/B 테스트 통계 — 카이제곱·베이지안·다중 비교</span><span class="s">전환율 차이가 우연인지 판정하는 카이제곱 검정과 p-value의 정확한 의미, Peeking·다중 비교 함정과 베이지안 대안을 정리한다.</span></a></li>
+<li><a href="/notes/experimentation/ab-test-system-implementation/"><span class="n">6</span><span class="t">A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현</span><span class="s">배정·플래그 평가·이벤트 추적·결과 집계를 분리해 A/B 테스트 플랫폼을 직접 구현하는 방법</span></a></li>
+<li><a href="/notes/experimentation/ab-test-best-practices-cases/"><span class="n">7</span><span class="t">A/B 테스트 베스트 프랙티스와 사례</span><span class="s">실험 코드를 안전하게 짜고, 결과를 트레이드오프까지 보고 판단하며, 종료 후 정리하는 실무 원칙과 사례</span></a></li></ol></section>
+<section class="part-group"><h2>Statsig</h2><ol class="toc"><li><a href="/notes/experimentation/statsig-overview-quickstart/"><span class="n">8</span><span class="t">Statsig 개관과 SDK Quickstart</span><span class="s">Statsig의 네 축과 Cloud/Warehouse Native 구분을 정리하고 Java Server SDK로 첫 Feature Gate를 연결한다</span></a></li>
+<li><a href="/notes/experimentation/statsig-flags-experiments/"><span class="n">9</span><span class="t">Feature Flags와 Experiments</span><span class="s">Gate의 순차 Targeting·Holdout으로 출시를 제어하고, Experiment의 Layer·SRM·순차 검정으로 인과를 검증하는 방법</span></a></li>
+<li><a href="/notes/experimentation/statsig-analytics-warehouse/"><span class="n">10</span><span class="t">Product Analytics와 Warehouse Native</span><span class="s">이벤트 설계와 6종 차트, 그리고 데이터를 자사 웨어하우스에 둔 채 Statsig 통계 엔진을 쓰는 WHN 운영을 정리한다</span></a></li>
+<li><a href="/notes/experimentation/statsig-integrations-adoption/"><span class="n">11</span><span class="t">통합·운영·도입 결정</span><span class="s">Statsig를 사내 도구와 연결하는 통합 계층, 부수 기능의 비용·privacy, 도입 여부를 가르는 결정 기준을 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>GA4</h2><ol class="toc"><li><a href="/notes/experimentation/ga4-data-model/"><span class="n">12</span><span class="t">GA4 데이터 모델 — 이벤트·세션·사용자</span><span class="s">GA4는 모든 상호작용을 이벤트로 기록하고, Client ID·User ID·세션 규칙으로 사용자와 방문을 묶는다.</span></a></li>
+<li><a href="/notes/experimentation/ga4-measurement-gtm-events/"><span class="n">13</span><span class="t">측정 구현 — gtag·GTM·이벤트·전자상거래</span><span class="s">gtag·GTM·Measurement Protocol의 역할을 나누고, 표준 이름과 items 구조로 전자상거래 퍼널을 깨지지 않게 구현한다</span></a></li>
+<li><a href="/notes/experimentation/ga4-conversions-reports/"><span class="n">14</span><span class="t">전환·잠재고객·보고서·탐색</span><span class="s">이벤트를 키 이벤트로 승격하고 잠재고객·탐색·기여 분석으로 비즈니스 가치를 읽어내는 절차를 정리한다</span></a></li>
+<li><a href="/notes/experimentation/ga4-bigquery-api-privacy/"><span class="n">15</span><span class="t">BigQuery Export·API·운영과 Privacy</span><span class="s">GA4 데이터를 UI 밖으로 꺼내 쓰는 세 경로와, 운영에서 반드시 마주치는 한도·동의·PII 문제를 정리한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

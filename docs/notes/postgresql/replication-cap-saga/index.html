@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>복제·CAP·분산 트랜잭션 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="복제 모드와 CAP·PACELC 트레이드오프를 기준으로 읽기 라우팅·Failover·Saga 보상 설계를 정리한다">
+  <meta property="og:title" content="복제·CAP·분산 트랜잭션 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="복제 모드와 CAP·PACELC 트레이드오프를 기준으로 읽기 라우팅·Failover·Saga 보상 설계를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/replication-cap-saga/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>복제·CAP·분산 트랜잭션</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · DB 원리</p>
+  <h1>복제·CAP·분산 트랜잭션</h1>
+  <p class="summary">복제 모드와 CAP·PACELC 트레이드오프를 기준으로 읽기 라우팅·Failover·Saga 보상 설계를 정리한다</p>
+  <div class="content">
+<p>단일 노드 PostgreSQL은 그 노드가 곧 SPOF다. 디스크가 죽으면 서비스가 멈추고, 읽기 트래픽이 늘어도 수직 확장 외에 선택지가 없다. 복제는 이 두 문제를 동시에 푼다. 그러나 노드가 둘 이상이 되는 순간 네트워크 단절, 복제 지연, 두 노드가 동시에 primary라고 믿는 상황이 생기고, 여러 서비스에 걸친 업무를 원자적으로 묶던 트랜잭션 경계도 사라진다.</p>
+<h2>핵심 개념</h2>
+<h3>복제 토폴로지</h3>
+<p>Primary-Replica 구성은 한 노드가 모든 쓰기를 받고, WAL을 스트리밍해 여러 replica가 읽기를 나눠 맡는다. 충돌이 없어 단순하지만 primary가 SPOF다. Multi-Primary는 여러 노드가 동시에 쓰기를 받으므로 충돌 해결 전략(Last-Write-Wins, 사용자 정의 규칙, CRDT)이 필수이며, PostgreSQL은 BDR 같은 확장 없이는 지원하지 않는다.</p>
+<p>Physical(Streaming) 복제는 WAL을 그대로 전달하므로 replica가 primary와 같은 바이트 상태를 유지하고 메이저 버전이 같아야 한다. Logical 복제는 변경을 행 단위로 디코딩해 전달하므로 테이블 선택 복제나 버전 간 마이그레이션에 쓴다.</p>
+<h3>동기·비동기와 일관성</h3>
+<table>
+<thead>
+<tr>
+<th align="left">모드</th>
+<th align="left">커밋 응답 시점</th>
+<th align="left">특징</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Asynchronous</td>
+<td align="left">primary WAL 기록 즉시</td>
+<td align="left">빠름, primary 장애 시 미전송 트랜잭션 유실</td>
+</tr>
+<tr>
+<td align="left">Synchronous</td>
+<td align="left">지정 standby가 WAL 수신·flush 후</td>
+<td align="left">유실 없음, standby 지연이 커밋 지연으로 전파</td>
+</tr>
+<tr>
+<td align="left">Quorum(<code>ANY n</code>)</td>
+<td align="left">n대가 응답하면</td>
+<td align="left">유실 방지와 지연의 절충</td>
+</tr>
+</tbody></table>
+<p>비동기 복제에서는 Replication Lag이 필연적으로 생기고, 방금 쓴 사용자가 replica에서 자기 쓰기를 못 보는 문제가 발생한다. 대응은 read-your-own-writes다. 쓰기 직후의 읽기는 primary로, 검색·통계처럼 stale이 허용되는 조회만 replica로 보낸다. 일관성 요구를 Strong, Read-Your-Writes, Eventual로 나눠 쿼리마다 라우팅을 결정한다.</p>
+<h3>Failover와 Split-Brain</h3>
+<p>primary 장애 시 replica를 승격하는 것이 Failover다. 수동 승격은 다운타임이 분에서 시간 단위로 늘어나므로 Patroni처럼 etcd·Consul 합의로 새 primary를 정하는 자동화를 쓴다. 핵심은 정족수(Quorum)와 Fencing이다. 과반 합의 없이 승격하면 옛 primary와 새 primary가 동시에 쓰기를 받는 Split-Brain이 발생하고, 수동 병합 외에 복구 방법이 없다.</p>
+<h3>CAP과 PACELC</h3>
+<p>네트워크 분할(P)은 피할 수 없으므로 실제 선택은 분할 중에 일관성(C)과 가용성(A) 중 무엇을 지킬지다. 동기 복제 + 과반 승격은 CP에, 비동기 복제 + 즉시 응답은 AP에 가깝다. CAP은 장애 시점만 설명하므로 정상 시 지연(L)과 일관성(C)의 선택까지 포함한 PACELC가 실무 판단에 더 유용하다. 동기 복제가 정상 시에도 매 커밋에 왕복 지연을 더하는 것이 EC 선택의 비용이다.</p>
+<h3>분산 트랜잭션</h3>
+<p>2PC는 코디네이터가 참여자 전원에게 PREPARE를 보내고 전원 동의 시 COMMIT한다. 코디네이터가 PREPARE 이후 죽으면 참여자는 락을 쥔 채 무한 대기하는 블로킹 프로토콜이라 서비스 간 트랜잭션에는 거의 쓰지 않는다. Saga는 업무를 로컬 트랜잭션의 연쇄로 나누고 각 단계에 보상 트랜잭션을 정의한다. Orchestration은 중앙 코디네이터가 순서를 제어하고, Choreography는 각 서비스가 이벤트를 구독해 진행한다. Saga는 BASE만 보장하므로 중간 상태가 노출되며, 보상이 정의 가능한 업무에만 적용한다.</p>
+<h2>코드</h2>
+<p>Spring에서 <code>@Transactional(readOnly = true)</code>인 경우 replica로, 나머지는 primary로 보내는 라우팅 DataSource다. 트랜잭션 동기화 시점의 readOnly 플래그를 키로 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ReplicaRoutingDataSource</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">AbstractRoutingDataSource</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">determineCurrentLookupKey</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">boolean</span> <span class="hljs-variable">readOnly</span> <span class="hljs-operator">=</span> TransactionSynchronizationManager.isCurrentTransactionReadOnly();
+        <span class="hljs-keyword">return</span> readOnly ? <span class="hljs-string">&quot;replica&quot;</span> : <span class="hljs-string">&quot;primary&quot;</span>;
+    }
+}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DataSourceConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">DataSource</span> <span class="hljs-title function_">dataSource</span><span class="hljs-params">(
+            <span class="hljs-meta">@Qualifier(&quot;primaryDataSource&quot;)</span> DataSource primary,
+            <span class="hljs-meta">@Qualifier(&quot;replicaDataSource&quot;)</span> DataSource replica)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">routing</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ReplicaRoutingDataSource</span>();
+        routing.setTargetDataSources(Map.of(<span class="hljs-string">&quot;primary&quot;</span>, primary, <span class="hljs-string">&quot;replica&quot;</span>, replica));
+        routing.setDefaultTargetDataSource(primary);
+        <span class="hljs-comment">// LazyConnectionDataSourceProxy가 없으면 readOnly 결정 전에 커넥션을 잡아 항상 primary로 간다</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LazyConnectionDataSourceProxy</span>(routing);
+    }
+}</code></pre>
+<p>primary에서 복제 상태와 각 standby의 지연 바이트를 확인하는 쿼리다. 알람 임계값은 초 단위 lag과 바이트 단위 lag을 함께 본다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">SELECT</span> application_name, state, sync_state,
+       pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) <span class="hljs-keyword">AS</span> replay_lag_bytes,
+       replay_lag
+<span class="hljs-keyword">FROM</span> pg_stat_replication;
+
+<span class="hljs-comment">-- standby에서 실행: 마지막 재생 트랜잭션 기준 지연</span>
+<span class="hljs-keyword">SELECT</span> now() <span class="hljs-operator">-</span> pg_last_xact_replay_timestamp() <span class="hljs-keyword">AS</span> lag;</code></pre>
+<p>주문·결제·재고를 Orchestration Saga로 묶은 예다. 각 단계는 별도 서비스의 로컬 트랜잭션이며, 실패 시 완료된 단계의 보상을 역순으로 실행한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderSagaOrchestrator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderClient orders;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentClient payments;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> InventoryClient inventory;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderSagaOrchestrator</span><span class="hljs-params">(OrderClient orders, PaymentClient payments, InventoryClient inventory)</span> {
+        <span class="hljs-built_in">this</span>.orders = orders;
+        <span class="hljs-built_in">this</span>.payments = payments;
+        <span class="hljs-built_in">this</span>.inventory = inventory;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">place</span><span class="hljs-params">(PlaceOrderCommand cmd)</span> {
+        <span class="hljs-type">Deque</span>&lt;Runnable&gt; <span class="hljs-variable">compensations</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayDeque</span>&lt;&gt;();
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">UUID</span> <span class="hljs-variable">orderId</span> <span class="hljs-operator">=</span> orders.create(cmd);
+            compensations.push(() -&gt; orders.cancel(orderId));
+
+            <span class="hljs-type">UUID</span> <span class="hljs-variable">paymentId</span> <span class="hljs-operator">=</span> payments.charge(orderId, cmd.amount());
+            compensations.push(() -&gt; payments.refund(paymentId));
+
+            inventory.reserve(orderId, cmd.items());
+            compensations.push(() -&gt; inventory.release(orderId));
+
+            orders.confirm(orderId);
+        } <span class="hljs-keyword">catch</span> (RuntimeException e) {
+            <span class="hljs-keyword">while</span> (!compensations.isEmpty()) {
+                compensations.pop().run();   <span class="hljs-comment">// 보상은 멱등해야 재시도가 안전하다</span>
+            }
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SagaFailedException</span>(e);
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>복제는 백업이 아니다.</strong> primary에서 잘못 실행한 DELETE는 밀리초 안에 모든 replica에 반영된다. 복구는 WAL 아카이브 기반 PITR이나 pg_dump 같은 별도 백업으로만 가능하다.</li>
+<li><strong><code>synchronous_standby_names</code>를 켠 상태에서 standby가 전부 내려가면 커밋이 멈춘다.</strong> <code>ANY 1 (s1, s2)</code> 정족수로 낮추거나 장애 시 설정을 풀 운영 절차를 준비해야 한다.</li>
+<li><strong>long transaction과 replica 충돌.</strong> standby의 긴 조회는 primary VACUUM이 만든 WAL과 충돌해 취소되거나(<code>hot_standby_feedback</code> off), primary의 dead tuple 정리를 막는다(on). 분석 쿼리는 전용 replica로 분리한다.</li>
+<li><strong>Cascade 복제는 lag이 누적된다.</strong> replica의 replica는 primary lag과 중간 노드 lag을 합산한 지연을 가지므로 Eventual 조회 전용으로 격리한다.</li>
+<li><strong>Saga의 보상은 항상 성공한다는 가정이 틀리다.</strong> 환불 API가 실패하거나 두 번 호출될 수 있으므로 보상은 멱등하게 만들고, 실패한 보상은 outbox 테이블에 기록해 재처리한다. 보상 불가능한 단계는 Saga의 마지막에 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/partitioning-sharding/">파티셔닝과 샤딩</a></li>
+<li><a href="/notes/postgresql/mvcc-isolation-locking/">MVCC·격리 수준·락</a></li>
+<li><a href="/notes/postgresql/backup-restore-pitr/">백업과 복구 — pg_dump·PITR</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Replication, CAP, PACELC, Saga, Failover</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/partitioning-sharding/"><small>이전</small>파티셔닝과 샤딩</a>
+  <a class="next" href="/notes/postgresql/what-is-postgresql/"><small>다음</small>PostgreSQL이란 — MySQL과의 비교·아키텍처·관계형 모델</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

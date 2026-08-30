@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job 설정 — JobBuilder·Validator·Listener · Spring Batch</title>
+  <meta name="description" content="JobBuilder로 Step 흐름·재시작 정책·파라미터 검증·Incrementer·Listener를 한 번에 정의하는 방법">
+  <meta property="og:title" content="Job 설정 — JobBuilder·Validator·Listener · Spring Batch">
+  <meta property="og:description" content="JobBuilder로 Step 흐름·재시작 정책·파라미터 검증·Incrementer·Listener를 한 번에 정의하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/configuring-job/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Job 설정 — JobBuilder·Validator·Listener</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Job과 실행</p>
+  <h1>Job 설정 — JobBuilder·Validator·Listener</h1>
+  <p class="summary">JobBuilder로 Step 흐름·재시작 정책·파라미터 검증·Incrementer·Listener를 한 번에 정의하는 방법</p>
+  <div class="content">
+<p>Job 정의를 소홀히 하면 같은 문제가 반복된다. 같은 JobParameters로 두 번째 실행하면 JobInstance가 이미 완료됐다는 이유로 거부되고, 필수 파라미터가 빠진 Job은 Step 중간에서 NullPointerException으로 죽는다. JobBuilder의 Validator·Incrementer·Listener·restart 옵션은 이 문제를 정의 시점에 고정하는 장치다.</p>
+<h2>핵심 개념</h2>
+<h3>JobBuilder와 Step 연결</h3>
+<p>Spring Batch 5부터 <code>JobBuilderFactory</code>·<code>StepBuilderFactory</code>는 deprecated 되었고 6에서 제거됐다. <code>@EnableBatchProcessing</code>도 Spring Boot 3.x에서는 붙이지 않는다. 붙이면 Boot 자동 구성이 물러난다. Job은 <code>new JobBuilder(name, jobRepository)</code>로 정의하고 <code>start()</code>·<code>next()</code>로 Step을 잇는다. 앞 Step이 실패하면 뒤 Step은 실행되지 않고 Job은 FAILED가 된다.</p>
+<p>Job·Step 이름은 메타데이터 테이블에 저장되므로, 이름을 바꾸면 이전 이력과 끊긴다.</p>
+<h3>조건부 흐름</h3>
+<p>Step의 ExitStatus에 따라 분기할 때는 <code>on()</code>·<code>to()</code>·<code>from()</code>을 조합한다. 이 체인을 쓰면 빌더가 <code>FlowJobBuilder</code>로 바뀌고, <code>build()</code> 직전에 반드시 <code>end()</code>를 호출해야 한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">메서드</th>
+<th align="left">역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>on(&quot;CODE&quot;)</code></td>
+<td align="left">ExitStatus 패턴. <code>*</code>는 전체, <code>PREFIX_*</code>는 접두사</td>
+</tr>
+<tr>
+<td align="left"><code>to(step)</code></td>
+<td align="left">조건 충족 시 이동할 Step</td>
+</tr>
+<tr>
+<td align="left"><code>from(step)</code></td>
+<td align="left">이미 등장한 Step에서 분기 추가</td>
+</tr>
+<tr>
+<td align="left"><code>end()</code> / <code>fail()</code></td>
+<td align="left">경로를 COMPLETED / FAILED로 종료</td>
+</tr>
+</tbody></table>
+<p>ExitStatus는 애플리케이션이 임의 문자열로 정하는 흐름 제어용 값이다. <code>StepExecutionListener.afterStep()</code>이 반환한 값이 Step의 종료 코드가 되므로 처리 건수 같은 결과를 분기 조건으로 쓸 수 있다.</p>
+<h3>재시작 정책</h3>
+<p>Job은 기본적으로 restartable이다. 실패한 JobExecution은 같은 JobInstance의 새 JobExecution으로 재시작되며 완료된 Step은 건너뛴다. <code>preventRestart()</code>를 지정하면 재시작이 <code>JobRestartException</code>으로 거부된다. 멱등성이 없는 작업에만 쓴다.</p>
+<h3>Validator와 Incrementer</h3>
+<p><code>JobParametersValidator</code>는 시작 전에 파라미터를 검사하고 위반 시 <code>JobParametersInvalidException</code>으로 실행을 막는다. <code>DefaultJobParametersValidator</code>에 필수 키와 선택 키 배열만 넘기면 구현 없이 쓸 수 있다.</p>
+<p><code>JobParametersIncrementer</code>는 직전 파라미터로 다음 실행용 파라미터를 만든다. <code>RunIdIncrementer</code>는 <code>run.id</code>를 1씩 올려 매번 새 JobInstance를 만든다. Incrementer는 <code>JobOperator.startNextInstance()</code>와 Boot 커맨드라인 경로에서만 호출된다.</p>
+<h3>JobExecutionListener</h3>
+<p><code>beforeJob()</code>·<code>afterJob()</code>으로 Job 전후에 개입한다. 외부 시스템 lock 획득·해제, 완료·실패 통지가 주된 용도다. <code>afterJob()</code>에서 <code>setExitStatus()</code>를 호출하면 Job의 ExitStatus를 커스텀 코드로 바꿀 수 있다. <code>@BeforeJob</code>·<code>@AfterJob</code>을 붙인 일반 빈을 <code>listener()</code>에 넘겨도 동일하다.</p>
+<h2>코드</h2>
+<p>필수 파라미터 검증·run.id 증가·전후 리스너를 갖춘 순차 Job이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DailyReportJobConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">dailyReportJob</span><span class="hljs-params">(JobRepository jobRepository,
+                              Step extractStep, Step transformStep, Step loadStep,
+                              JobExecutionListener reportJobListener)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;dailyReportJob&quot;</span>, jobRepository)
+                .incrementer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RunIdIncrementer</span>())
+                .validator(<span class="hljs-keyword">new</span> <span class="hljs-title class_">DefaultJobParametersValidator</span>(
+                        <span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[] {<span class="hljs-string">&quot;targetDate&quot;</span>},
+                        <span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[] {<span class="hljs-string">&quot;limit&quot;</span>}))
+                .listener(reportJobListener)
+                .start(extractStep)
+                .next(transformStep)
+                .next(loadStep)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">JobExecutionListener</span> <span class="hljs-title function_">reportJobListener</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobExecutionListener</span>() {
+            <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(<span class="hljs-string">&quot;reportJob&quot;</span>);
+
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">beforeJob</span><span class="hljs-params">(JobExecution jobExecution)</span> {
+                log.info(<span class="hljs-string">&quot;start {} params={}&quot;</span>,
+                        jobExecution.getJobInstance().getJobName(),
+                        jobExecution.getJobParameters());
+            }
+
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterJob</span><span class="hljs-params">(JobExecution jobExecution)</span> {
+                <span class="hljs-keyword">if</span> (jobExecution.getStatus() == BatchStatus.COMPLETED) {
+                    log.info(<span class="hljs-string">&quot;completed in {}&quot;</span>,
+                            Duration.between(jobExecution.getStartTime(), jobExecution.getEndTime()));
+                } <span class="hljs-keyword">else</span> {
+                    log.error(<span class="hljs-string">&quot;failed: {}&quot;</span>, jobExecution.getAllFailureExceptions());
+                }
+            }
+        };
+    }
+}</code></pre>
+<p>Step의 쓰기 건수를 커스텀 ExitStatus로 바꾸고 그 값으로 후속 Step을 분기하는 Job이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductStepListener</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">StepExecutionListener</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ExitStatus</span> <span class="hljs-title function_">afterStep</span><span class="hljs-params">(StepExecution stepExecution)</span> {
+        <span class="hljs-keyword">if</span> (stepExecution.getStatus().isUnsuccessful()) {
+            <span class="hljs-keyword">return</span> stepExecution.getExitStatus();
+        }
+        <span class="hljs-keyword">if</span> (stepExecution.getWriteCount() == <span class="hljs-number">0</span>) {
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ExitStatus</span>(<span class="hljs-string">&quot;NO_DATA&quot;</span>);
+        }
+        <span class="hljs-keyword">return</span> ExitStatus.COMPLETED;
+    }
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">productJob</span><span class="hljs-params">(JobRepository jobRepository,
+                      Step productStep, Step reportStep, Step notifyStep)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;productJob&quot;</span>, jobRepository)
+            .start(productStep)
+                .on(<span class="hljs-string">&quot;NO_DATA&quot;</span>).to(notifyStep)
+                .on(<span class="hljs-string">&quot;FAILED&quot;</span>).fail()
+                .on(<span class="hljs-string">&quot;*&quot;</span>).to(reportStep)
+            .from(notifyStep).on(<span class="hljs-string">&quot;*&quot;</span>).end()
+            .from(reportStep).on(<span class="hljs-string">&quot;*&quot;</span>).end()
+            .end()
+            .build();
+}</code></pre>
+<p>날짜를 하루씩 넘기는 도메인 Incrementer다. <code>startNextInstance()</code>로 호출하면 직전 <code>targetDate</code>의 다음 날이 들어간다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TargetDateIncrementer</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">JobParametersIncrementer</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">JobParameters</span> <span class="hljs-title function_">getNext</span><span class="hljs-params">(JobParameters parameters)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">last</span> <span class="hljs-operator">=</span> parameters == <span class="hljs-literal">null</span> ? <span class="hljs-literal">null</span> : parameters.getString(<span class="hljs-string">&quot;targetDate&quot;</span>);
+        <span class="hljs-type">LocalDate</span> <span class="hljs-variable">next</span> <span class="hljs-operator">=</span> last == <span class="hljs-literal">null</span> ? LocalDate.now() : LocalDate.parse(last).plusDays(<span class="hljs-number">1</span>);
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobParametersBuilder</span>(parameters == <span class="hljs-literal">null</span> ? <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobParameters</span>() : parameters)
+                .addString(<span class="hljs-string">&quot;targetDate&quot;</span>, next.toString())
+                .toJobParameters();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Incrementer가 있어도 파라미터를 직접 넘기면 적용되지 않는다.</strong> <code>JobLauncher.run(job, params)</code>로 실행한다면 타임스탬프 같은 식별 파라미터를 직접 추가한다. 빠뜨리면 두 번째 호출부터 <code>JobInstanceAlreadyCompleteException</code>이 난다.</li>
+<li><strong><code>end()</code> 누락은 컴파일 시점에 잡히지 않는다.</strong> <code>on()</code>을 쓴 뒤 <code>end()</code> 없이 <code>build()</code>하면 런타임 예외로 컨텍스트 기동이 실패한다.</li>
+<li><strong><code>afterJob()</code> 안의 외부 호출 실패는 Job 상태를 오염시킨다.</strong> 알림 발송에서 예외가 나면 COMPLETED로 끝난 Job이 FAILED로 기록된다. 리스너 내부에서 예외를 잡아 별도 로그로 남긴다.</li>
+<li><strong>분기가 다섯 개를 넘으면 Job을 나눈다.</strong> 재시작 시 어느 Step부터 이어지는지 추적하기 어려워진다. 독립 단계는 별도 Job으로 분리한다.</li>
+<li><strong>Boot 3.x에서 자동 실행을 끄지 않으면 기동마다 모든 Job이 돈다.</strong> 외부에서 실행을 제어하려면 <code>spring.batch.job.enabled=false</code>를 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/first-job-infrastructure/">첫 Job — Infrastructure 설정과 v5/v6 변경 사항</a></li>
+<li><a href="/notes/spring-batch/running-jobs/">Job 실행 — JobLauncher·JobOperator·JobExplorer</a></li>
+<li><a href="/notes/spring-batch/flow-control-late-binding/">Flow 제어 — Decision·Split·Late Binding</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, JobBuilder, JobParametersValidator, JobParametersIncrementer, JobExecutionListener</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/first-job-infrastructure/"><small>이전</small>첫 Job — Infrastructure 설정과 v5/v6 변경 사항</a>
+  <a class="next" href="/notes/spring-batch/job-repository-schema/"><small>다음</small>JobRepository와 메타데이터 스키마</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

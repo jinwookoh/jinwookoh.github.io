@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kafka 이벤트 흐름·Outbox·Redis 활용 패턴 · 실전 프로젝트 — SNS 마이크로서비스</title>
+  <meta name="description" content="DB 커밋과 Kafka 발행을 Outbox·Debezium으로 묶고, Redis 하나로 캐시·랭킹·블랙리스트·락을 나눠 맡긴다">
+  <meta property="og:title" content="Kafka 이벤트 흐름·Outbox·Redis 활용 패턴 · 실전 프로젝트 — SNS 마이크로서비스">
+  <meta property="og:description" content="DB 커밋과 Kafka 발행을 Outbox·Debezium으로 묶고, Redis 하나로 캐시·랭킹·블랙리스트·락을 나눠 맡긴다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/sns-project/kafka-outbox-redis-patterns/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/sns-project/">실전 프로젝트 — SNS 마이크로서비스</a><span class="sep">›</span><span>Kafka 이벤트 흐름·Outbox·Redis 활용 패턴</span></nav>
+    <article class="post">
+  <p class="part">실전 프로젝트 — SNS 마이크로서비스 · 데이터와 검색</p>
+  <h1>Kafka 이벤트 흐름·Outbox·Redis 활용 패턴</h1>
+  <p class="summary">DB 커밋과 Kafka 발행을 Outbox·Debezium으로 묶고, Redis 하나로 캐시·랭킹·블랙리스트·락을 나눠 맡긴다</p>
+  <div class="content">
+<p>게시글 저장 뒤 <code>kafkaTemplate.send()</code>를 호출하면 커밋은 됐는데 발행이 실패해 알림이 사라지거나, 발행은 됐는데 롤백돼 없는 게시글의 알림이 나간다. 또 캐시·랭킹·로그아웃 토큰·중복 요청 차단까지 PostgreSQL에 맡기면 응답이 수백 ms로 늘어난다. 앞의 문제는 Outbox Pattern과 Debezium CDC로, 뒤의 문제는 Redis 역할 분담으로 푼다.</p>
+<h2>핵심 개념</h2>
+<h3>Outbox Pattern + Debezium CDC</h3>
+<p>이벤트를 브로커에 직접 보내는 대신 같은 트랜잭션 안에서 <code>outbox_events</code> 테이블에 INSERT한다. 게시글과 outbox 행이 함께 커밋되거나 롤백되므로 원자성이 DB 수준에서 보장된다. PostgreSQL을 <code>wal_level=logical</code>로 두면 Debezium(Kafka Connect)이 WAL에서 outbox 행 커밋을 감지하고, <code>EventRouter</code> SMT가 <code>aggregate_type</code> 값을 토픽명으로 써서 발행한다. 읽힌 outbox 행은 쓸모가 없으므로 <code>created_at</code> RANGE 파티션을 pg_partman으로 월별 생성하고 지난 파티션을 DROP해 디스크를 회수한다.</p>
+<h3>알림 파이프라인의 두 단계 분리</h3>
+<p>notification-service는 <code>Post</code> 토픽을 소비해 작성자와 구독자를 user-service에서 조회하고 알림을 DB에 저장한 뒤, 구독자별로 <code>notification.email</code> 토픽에 다시 발행한다. SMTP 발송은 별도 리스너가 맡으므로 메일이 실패해도 알림 레코드는 남고 재처리는 Kafka 재전송으로 끝난다. Spring MVC라 리스너 안에서 <code>WebClient</code>를 동기 호출해도 막히는 것은 컨슈머 스레드 하나뿐이다.</p>
+<h3>직렬화와 컨슈머 그룹</h3>
+<p><code>JsonSerializer</code>는 기본값으로 헤더에 Java 클래스 이름을 싣는데, 서비스마다 DTO 패키지가 달라 역직렬화가 실패한다. <code>spring.json.add.type.headers=false</code>로 두면 컨슈머가 리스너 파라미터 타입으로 역직렬화하며, 컨슈머 쪽에는 <code>spring.json.trusted.packages</code>를 명시한다. 같은 <code>group-id</code>의 인스턴스들은 파티션을 자동으로 나눠 갖는다.</p>
+<h3>Redis의 네 가지 역할</h3>
+<table>
+<thead>
+<tr>
+<th>키</th>
+<th>자료구조</th>
+<th>용도</th>
+<th>만료</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>cache:posts:{id}</code></td>
+<td>String</td>
+<td>게시글 상세 캐시</td>
+<td>TTL 5분</td>
+</tr>
+<tr>
+<td><code>cache:posts:list</code></td>
+<td>String</td>
+<td>게시글 목록 캐시</td>
+<td>이벤트로 삭제</td>
+</tr>
+<tr>
+<td><code>ranking:posts</code></td>
+<td>Sorted Set</td>
+<td>인기 게시글 랭킹</td>
+<td>없음</td>
+</tr>
+<tr>
+<td><code>session:blacklist:{jti}</code></td>
+<td>String</td>
+<td>JWT 블랙리스트</td>
+<td>토큰 잔여 만료 시간</td>
+</tr>
+<tr>
+<td><code>lock:post:create:{userId}</code></td>
+<td>Redisson 내부</td>
+<td>게시글 생성 분산 락</td>
+<td>Watchdog</td>
+</tr>
+</tbody></table>
+<p>키는 <code>&lt;용도&gt;:&lt;엔티티&gt;:&lt;식별자&gt;</code> 형식으로 통일하고, 분산 락만 <code>RedissonClient</code>가, 나머지는 <code>StringRedisTemplate</code>이 맡는다.</p>
+<p>캐시는 Cache-Aside다. 상세는 캐시 미스 시 DB를 읽고 <code>afterCommit</code>에서 5분 TTL로 저장하고, 목록은 방금 쓴 글이 안 보이면 곧바로 드러나므로 생성 트랜잭션 안에서 즉시 삭제한다.</p>
+<p>랭킹은 <code>score = likeCount × 2 + viewCount</code>를 Sorted Set에 넣는다. <code>ZREVRANGE</code>는 O(log N + M)이라 수백만 멤버가 있어도 밀리초 안에 상위 M개를 얻는다.</p>
+<p>JWT 블랙리스트는 로그아웃 시 <code>jti</code>를 키로 저장하되 TTL을 토큰의 남은 만료 시간과 맞춘다. 만료된 토큰은 서명 검증에서 걸러지므로 저장소가 커지지 않는다.</p>
+<p>분산 락은 Redisson <code>RLock</code>을 <code>tryLock(0, -1, SECONDS)</code>로 잡는다. <code>waitTime=0</code>은 즉시 실패, <code>leaseTime=-1</code>은 Watchdog 활성화다. Watchdog은 30초 TTL을 10초마다 갱신하므로 긴 작업에도 락이 유지되고, 서버가 죽으면 30초 뒤 해제된다. 락은 <code>@Transactional</code> 바깥에서 잡아야 커밋 이후에 해제된다.</p>
+<h2>코드</h2>
+<p><code>outbox_events</code> 테이블이다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE TABLE</span> outbox_events (
+    id             UUID         <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> gen_random_uuid(),
+    aggregate_type <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>) <span class="hljs-keyword">NOT NULL</span>,  <span class="hljs-comment">-- &quot;Post&quot;</span>
+    aggregate_id   <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>) <span class="hljs-keyword">NOT NULL</span>,  <span class="hljs-comment">-- post.id</span>
+    type           <span class="hljs-type">VARCHAR</span>(<span class="hljs-number">100</span>) <span class="hljs-keyword">NOT NULL</span>,  <span class="hljs-comment">-- &quot;PostCreated&quot;</span>
+    payload        JSONB        <span class="hljs-keyword">NOT NULL</span>,
+    created_at     <span class="hljs-type">TIMESTAMP</span>    <span class="hljs-keyword">NOT NULL</span> <span class="hljs-keyword">DEFAULT</span> now()
+) <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">BY</span> <span class="hljs-keyword">RANGE</span> (created_at);
+<span class="hljs-comment">-- pg_partman이 월별 파티션을 생성·관리한다</span></code></pre>
+<p><code>Post</code> 토픽을 소비해 알림을 저장하고 이메일 이벤트를 발행하는 리스너와 발송 리스너다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PostCreatedConsumer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserServiceClient userServiceClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> NotificationService notificationService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, EmailEvent&gt; kafkaTemplate;
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;Post&quot;, groupId = &quot;notification-service&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">consume</span><span class="hljs-params">(PostCreatedEvent event)</span> {
+        <span class="hljs-type">InternalUserResponse</span> <span class="hljs-variable">author</span> <span class="hljs-operator">=</span> userServiceClient.getUser(event.authorId()).orElse(<span class="hljs-literal">null</span>);
+        <span class="hljs-keyword">if</span> (author == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span>;                       <span class="hljs-comment">// 작성자 삭제 시 건너뜀</span>
+
+        <span class="hljs-type">List</span>&lt;SubscriberResponse&gt; <span class="hljs-variable">subscribers</span> <span class="hljs-operator">=</span> userServiceClient.getSubscribers(event.authorId());
+        <span class="hljs-keyword">if</span> (subscribers.isEmpty()) <span class="hljs-keyword">return</span>;
+
+        notificationService.saveAll(subscribers, event, author.nickname());
+
+        <span class="hljs-keyword">for</span> (SubscriberResponse s : subscribers) {
+            <span class="hljs-type">EmailEvent</span> <span class="hljs-variable">email</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">EmailEvent</span>(s.userId(), author.nickname(), event.postId(), event.title());
+            kafkaTemplate.send(<span class="hljs-string">&quot;notification.email&quot;</span>, String.valueOf(s.userId()), email)
+                    .whenComplete((result, ex) -&gt; {
+                        <span class="hljs-keyword">if</span> (ex != <span class="hljs-literal">null</span>) log.error(<span class="hljs-string">&quot;이메일 이벤트 발행 실패 userId={}&quot;</span>, s.userId(), ex);
+                    });
+        }
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">EmailSendConsumer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserServiceClient userServiceClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> EmailService emailService;
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;notification.email&quot;, groupId = &quot;notification-service&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">consume</span><span class="hljs-params">(EmailEvent event)</span> {
+        userServiceClient.getUser(event.recipientUserId()).ifPresentOrElse(
+                user -&gt; emailService.sendNewPostNotification(
+                        user.email(), user.nickname(),
+                        event.authorNickname(), event.postTitle(), event.postId()),
+                () -&gt; log.warn(<span class="hljs-string">&quot;수신자 조회 실패 — 이메일 스킵 userId={}&quot;</span>, event.recipientUserId()));
+    }
+}</code></pre>
+<p>게시글 생성에서 락은 트랜잭션 바깥, 캐시 삭제는 트랜잭션 안, 랭킹 갱신은 커밋 이후에 둔다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PostService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RedissonClient redissonClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redisTemplate;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostRepository postRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OutboxEventRepository outboxEventRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ObjectMapper objectMapper;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PostResponse</span> <span class="hljs-title function_">createPost</span><span class="hljs-params">(Long userId, PostRequest request)</span> {
+        <span class="hljs-type">RLock</span> <span class="hljs-variable">lock</span> <span class="hljs-operator">=</span> redissonClient.getLock(<span class="hljs-string">&quot;lock:post:create:&quot;</span> + userId);
+        <span class="hljs-type">boolean</span> acquired;
+        <span class="hljs-keyword">try</span> {
+            acquired = lock.tryLock(<span class="hljs-number">0</span>, -<span class="hljs-number">1</span>, TimeUnit.SECONDS);   <span class="hljs-comment">// 즉시 실패 + Watchdog</span>
+        } <span class="hljs-keyword">catch</span> (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DuplicatePostRequestException</span>(userId);
+        }
+        <span class="hljs-keyword">if</span> (!acquired) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DuplicatePostRequestException</span>(userId);   <span class="hljs-comment">// 409</span>
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> doCreatePost(userId, request);
+        } <span class="hljs-keyword">finally</span> {
+            <span class="hljs-keyword">if</span> (lock.isHeldByCurrentThread()) lock.unlock();
+        }
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-type">PostResponse</span> <span class="hljs-title function_">doCreatePost</span><span class="hljs-params">(Long userId, PostRequest request)</span> {
+        <span class="hljs-type">Post</span> <span class="hljs-variable">saved</span> <span class="hljs-operator">=</span> postRepository.save(Post.of(userId, request));
+        outboxEventRepository.save(OutboxEvent.postCreated(saved, objectMapper));  <span class="hljs-comment">// 같은 트랜잭션</span>
+        redisTemplate.delete(<span class="hljs-string">&quot;cache:posts:list&quot;</span>);                                 <span class="hljs-comment">// 목록 캐시 즉시 무효화</span>
+
+        TransactionSynchronizationManager.registerSynchronization(<span class="hljs-keyword">new</span> <span class="hljs-title class_">TransactionSynchronization</span>() {
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterCommit</span><span class="hljs-params">()</span> {
+                <span class="hljs-type">double</span> <span class="hljs-variable">score</span> <span class="hljs-operator">=</span> saved.getLikeCount() * <span class="hljs-number">2.0</span> + saved.getViewCount();
+                redisTemplate.opsForZSet().add(<span class="hljs-string">&quot;ranking:posts&quot;</span>, String.valueOf(saved.getId()), score);
+            }
+        });
+        <span class="hljs-keyword">return</span> PostResponse.from(saved);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>max.block.ms</code> 기본값 60초.</strong> 브로커에 연결되지 않으면 <code>send()</code>가 최대 60초 블로킹되므로 직접 발행하는 notification-service는 5초 안팎으로 줄인다.</li>
+<li><strong>Debezium은 at-least-once다.</strong> 커넥터 재시작으로 같은 outbox 행이 두 번 발행될 수 있으므로 컨슈머는 outbox <code>id</code> 처리 이력이나 유니크 제약으로 멱등하게 만든다.</li>
+<li><strong>랭킹 Sorted Set은 어긋난다.</strong> Redis 재시작이나 <code>afterCommit</code> 예외로 점수가 DB와 달라지므로 Spring Batch Job이 <code>executePipelined()</code>로 ZADD를 묶어 주기적으로 재계산한다.</li>
+<li><strong>캐시 SET 타이밍.</strong> 트랜잭션 안에서 SET하면 롤백된 값이 캐시에 남으므로 SET은 <code>afterCommit</code>에서 한다.</li>
+<li><strong>Redis 단일 장애점.</strong> 블랙리스트 조회 실패 시 거부할지 통과시킬지 정책을 코드에 명시하고, 운영에서는 Sentinel 또는 Cluster로 가용성을 확보한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/sns-project/post-service-distributed-lock/">게시물 서비스 — Redisson 분산 락과 동시성</a></li>
+<li><a href="/notes/sns-project/gateway-jwt-oauth2/">API Gateway·JWT·OAuth2 인증</a></li>
+<li><a href="/notes/sns-project/elasticsearch-s3/">Elasticsearch 검색과 S3 업로드</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, Outbox Pattern, Debezium, Redis, Redisson</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/sns-project/post-service-distributed-lock/"><small>이전</small>게시물 서비스 — Redisson 분산 락과 동시성</a>
+  <a class="next" href="/notes/sns-project/elasticsearch-s3/"><small>다음</small>Elasticsearch 검색과 S3 업로드</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

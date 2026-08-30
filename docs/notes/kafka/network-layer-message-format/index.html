@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>내부 구현 — Network Layer·Message Format · Kafka</title>
+  <meta name="description" content="브로커가 수만 연결을 소수 스레드로 받는 NIO 구조와, wire·디스크가 공유하는 RecordBatch v2 포맷을 정리한다">
+  <meta property="og:title" content="내부 구현 — Network Layer·Message Format · Kafka">
+  <meta property="og:description" content="브로커가 수만 연결을 소수 스레드로 받는 NIO 구조와, wire·디스크가 공유하는 RecordBatch v2 포맷을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/network-layer-message-format/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>내부 구현 — Network Layer·Message Format</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 설계와 내부</p>
+  <h1>내부 구현 — Network Layer·Message Format</h1>
+  <p class="summary">브로커가 수만 연결을 소수 스레드로 받는 NIO 구조와, wire·디스크가 공유하는 RecordBatch v2 포맷을 정리한다</p>
+  <div class="content">
+<p>브로커 한 대에는 수만 개의 TCP 연결이 동시에 맺힌다. 연결마다 스레드를 배정하면 OS 한계에 닿고 컨텍스트 스위칭만으로 CPU가 소진된다. 또한 수신 바이트를 변환해 저장하면 쓰기와 전송마다 직렬화 비용이 붙고 커널 zero-copy가 불가능해진다. Kafka는 Java NIO 기반 3단 스레드 풀과 wire·디스크 공용 바이너리 포맷으로 두 문제를 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>3단 스레드 풀과 RequestChannel</h3>
+<p>Acceptor는 리스너당 1개로 <code>accept()</code>만 수행하고 새 연결을 Processor에 라운드 로빈으로 넘긴다. Processor(<code>num.network.threads</code>, 기본 3)는 NIO Selector를 하나씩 보유해 준비된 채널만 골라 처리하므로 스레드 하나가 수천 연결을 다중화한다. 파싱된 요청은 RequestChannel의 request queue(<code>queued.max.requests</code>, 기본 500)에 들어가고, KafkaRequestHandler(<code>num.io.threads</code>, 기본 8)가 꺼내 로그 append·read를 수행한 뒤 응답을 Processor의 response queue로 돌려준다. request queue가 차면 Processor가 소켓 읽기를 멈춰 클라이언트에 backpressure가 걸린다.</p>
+<p>리스너는 여러 개를 둘 수 있고 <code>listener.name.&lt;name&gt;.num.network.threads</code>로 리스너별 Processor 수를 분리한다. 브로커 간 복제는 <code>inter.broker.listener.name</code>으로 격리한다. 요청 지연은 JMX <code>RequestMetrics</code>에서 <code>RequestQueueTimeMs</code>·<code>LocalTimeMs</code>·<code>RemoteTimeMs</code>(복제 대기)·<code>ResponseQueueTimeMs</code>·<code>ResponseSendTimeMs</code>로 분해된다.</p>
+<h3>RecordBatch v2 포맷</h3>
+<p>프로듀서가 보낸 바이트, 디스크에 쓰인 바이트, 컨슈머가 받는 바이트는 모두 같은 RecordBatch v2다. 브로커는 변환 없이 append하고 <code>sendfile()</code>로 그대로 내보낸다. 4.0부터 v0·v1 쓰기가 제거되어 구버전 클라이언트 변환 부담이 사라졌고 <code>message.format.version</code> 설정도 제거됐다.</p>
+<p>배치 헤더는 <code>baseOffset</code>·<code>partitionLeaderEpoch</code>·<code>magic</code>(2)·<code>crc</code>·<code>attributes</code>·<code>lastOffsetDelta</code>·<code>baseTimestamp</code>·<code>maxTimestamp</code>·<code>producerId</code>·<code>producerEpoch</code>·<code>baseSequence</code>·<code>recordsCount</code>의 고정 길이 필드다. <code>attributes</code>는 bit 0~2 압축 코덱, bit 3 타임스탬프 타입, bit 4 트랜잭션, bit 5 컨트롤 배치다. 컨트롤 배치는 COMMIT·ABORT 마커를 담고 <code>read_committed</code> 컨슈머가 이를 보고 노출 여부를 정한다.</p>
+<p>레코드는 <code>length</code>·<code>attributes</code>·<code>timestampDelta</code>·<code>offsetDelta</code>·key·value·headers 순이며 길이와 델타는 zigzag varint로 인코딩된다. 배치 안의 인접한 타임스탬프와 오프셋은 8바이트 대신 1~2바이트로 표현된다. 압축은 배치 단위로 레코드 영역에만 적용되고, 브로커가 재압축 없이 저장해 컨슈머가 처음 해제한다. <code>crc</code>는 <code>attributes</code>부터 끝까지의 CRC-32C이며 브로커와 컨슈머가 수신 시 검증한다.</p>
+<h2>코드</h2>
+<p>Processor 스레드의 골격을 재현한 NIO 루프다. Selector 하나가 accept·read 이벤트를 단일 스레드로 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.net.InetSocketAddress;
+<span class="hljs-keyword">import</span> java.nio.ByteBuffer;
+<span class="hljs-keyword">import</span> java.nio.channels.*;
+<span class="hljs-keyword">import</span> java.util.Iterator;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SelectorLoop</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">Selector</span> <span class="hljs-variable">selector</span> <span class="hljs-operator">=</span> Selector.open();
+        <span class="hljs-type">ServerSocketChannel</span> <span class="hljs-variable">server</span> <span class="hljs-operator">=</span> ServerSocketChannel.open();
+        server.bind(<span class="hljs-keyword">new</span> <span class="hljs-title class_">InetSocketAddress</span>(<span class="hljs-number">9092</span>));
+        server.configureBlocking(<span class="hljs-literal">false</span>);
+        server.register(selector, SelectionKey.OP_ACCEPT);
+
+        <span class="hljs-type">ByteBuffer</span> <span class="hljs-variable">buf</span> <span class="hljs-operator">=</span> ByteBuffer.allocateDirect(<span class="hljs-number">64</span> * <span class="hljs-number">1024</span>);
+        <span class="hljs-keyword">while</span> (!Thread.currentThread().isInterrupted()) {
+            selector.select(<span class="hljs-number">300</span>);
+            <span class="hljs-type">Iterator</span>&lt;SelectionKey&gt; <span class="hljs-variable">it</span> <span class="hljs-operator">=</span> selector.selectedKeys().iterator();
+            <span class="hljs-keyword">while</span> (it.hasNext()) {
+                <span class="hljs-type">SelectionKey</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> it.next();
+                it.remove();
+                <span class="hljs-keyword">if</span> (key.isAcceptable()) {
+                    <span class="hljs-type">SocketChannel</span> <span class="hljs-variable">client</span> <span class="hljs-operator">=</span> server.accept();
+                    client.configureBlocking(<span class="hljs-literal">false</span>);
+                    client.register(selector, SelectionKey.OP_READ);
+                } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> (key.isReadable()) {
+                    <span class="hljs-type">SocketChannel</span> <span class="hljs-variable">ch</span> <span class="hljs-operator">=</span> (SocketChannel) key.channel();
+                    buf.clear();
+                    <span class="hljs-keyword">if</span> (ch.read(buf) &lt; <span class="hljs-number">0</span>) { ch.close(); <span class="hljs-keyword">continue</span>; }
+                    buf.flip();
+                    <span class="hljs-comment">// 요청 프레임 파싱 후 RequestChannel에 enqueue</span>
+                }
+            }
+        }
+    }
+}</code></pre>
+<p>세그먼트 파일을 <code>FileRecords</code>로 열어 배치 헤더와 레코드를 읽는다. <code>kafka-dump-log.sh --deep-iteration</code>이 내부에서 하는 일과 같다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.common.header.Header;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.record.FileRecords;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.record.Record;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.record.RecordBatch;
+<span class="hljs-keyword">import</span> java.io.File;
+<span class="hljs-keyword">import</span> java.nio.charset.StandardCharsets;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SegmentDump</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">File</span> <span class="hljs-variable">segment</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">File</span>(<span class="hljs-string">&quot;/var/kafka-data/orders-0/00000000000000000000.log&quot;</span>);
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">FileRecords</span> <span class="hljs-variable">records</span> <span class="hljs-operator">=</span> FileRecords.open(segment, <span class="hljs-literal">false</span>)) {
+            <span class="hljs-keyword">for</span> (RecordBatch batch : records.batches()) {
+                System.out.printf(<span class="hljs-string">&quot;batch base=%d last=%d epoch=%d pid=%d codec=%s txn=%b control=%b%n&quot;</span>,
+                        batch.baseOffset(), batch.lastOffset(), batch.partitionLeaderEpoch(),
+                        batch.producerId(), batch.compressionType(),
+                        batch.isTransactional(), batch.isControlBatch());
+                batch.ensureValid(); <span class="hljs-comment">// CRC-32C 검증</span>
+                <span class="hljs-keyword">for</span> (Record r : batch) {
+                    <span class="hljs-type">StringBuilder</span> <span class="hljs-variable">headers</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StringBuilder</span>();
+                    <span class="hljs-keyword">for</span> (Header h : r.headers()) {
+                        headers.append(h.key()).append(<span class="hljs-string">&#x27;=&#x27;</span>)
+                               .append(<span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>(h.value(), StandardCharsets.UTF_8)).append(<span class="hljs-string">&#x27; &#x27;</span>);
+                    }
+                    System.out.printf(<span class="hljs-string">&quot;  offset=%d ts=%d keySize=%d valueSize=%d headers=[%s]%n&quot;</span>,
+                            r.offset(), r.timestamp(), r.keySize(), r.valueSize(), headers);
+                }
+            }
+        }
+    }
+}</code></pre>
+<p>Spring Kafka에서 레코드 헤더를 싣는 예다. 헤더는 배치 길이에 더해지므로 필요한 항목만 넣는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.producer.ProducerRecord;
+<span class="hljs-keyword">import</span> org.springframework.kafka.core.KafkaTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+<span class="hljs-keyword">import</span> java.nio.charset.StandardCharsets;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEventPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, String&gt; template;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderEventPublisher</span><span class="hljs-params">(KafkaTemplate&lt;String, String&gt; template)</span> {
+        <span class="hljs-built_in">this</span>.template = template;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">publish</span><span class="hljs-params">(String orderId, String payload, String traceId)</span> {
+        <span class="hljs-type">ProducerRecord</span>&lt;String, String&gt; <span class="hljs-variable">record</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ProducerRecord</span>&lt;&gt;(<span class="hljs-string">&quot;orders&quot;</span>, orderId, payload);
+        record.headers()
+              .add(<span class="hljs-string">&quot;trace-id&quot;</span>, traceId.getBytes(StandardCharsets.UTF_8))
+              .add(<span class="hljs-string">&quot;schema-v&quot;</span>, <span class="hljs-string">&quot;2&quot;</span>.getBytes(StandardCharsets.UTF_8));
+        template.send(record);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>스레드 증설 기준은 idle percent다.</strong> <code>NetworkProcessorAvgIdlePercent</code>가 0.3 아래로 지속되면 <code>num.network.threads</code>를, <code>RequestHandlerAvgIdlePercent</code>가 0.3 아래면 <code>num.io.threads</code>를 늘린다. io 스레드 부족은 디스크 포화의 결과인 경우가 많다.</li>
+<li><strong><code>RemoteTimeMs</code>는 스레드 문제가 아니다.</strong> <code>acks=all</code> Produce가 팔로워 복제 완료를 기다리는 시간이며, 팔로워 fetch 지연과 ISR 축소를 봐야 한다.</li>
+<li><strong>SSL 리스너는 zero-copy를 잃는다.</strong> TLS는 유저 공간에서 수행되므로 <code>sendfile()</code>을 쓸 수 없고 Fetch마다 CPU 비용이 든다.</li>
+<li><strong><code>compression.type</code>을 프로듀서와 브로커에서 맞춘다.</strong> 토픽 설정이 <code>producer</code>가 아니고 코덱이 다르면 브로커가 매 배치를 재압축하며 그 비용이 RequestHandler 풀에 얹힌다.</li>
+<li><strong><code>max.connections.per.ip</code>는 기본값이 사실상 무제한이다.</strong> 커넥션을 반환하지 않는 클라이언트 버그가 Selector를 채우므로 상한을 둔다. <code>connections.max.idle.ms</code>(기본 10분)와 로드밸런서 idle timeout이 어긋나면 끊긴 연결에 대한 재시도가 폭증한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/design-philosophy/">설계 철학 — 왜 디스크·배치·Zero-Copy인가</a></li>
+<li><a href="/notes/kafka/topic-partition-offset-segment/">Topic·Partition·Offset·Segment</a></li>
+<li><a href="/notes/kafka/monitoring-performance/">Monitoring·Hardware·성능 튜닝</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, NIO, RequestChannel, RecordBatch, Varint</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/replication-isr/"><small>이전</small>Replication — ISR·리더 선출·Unclean</a>
+  <a class="next" href="/notes/kafka/log-compaction-tiered-storage/"><small>다음</small>Log Compaction·Tiered Storage</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

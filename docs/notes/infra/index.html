@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인프라 — Kubernetes · Consul · Notes</title>
+  <meta name="description" content="Kubernetes의 아키텍처·워크로드·네트워킹·스토리지·보안·운영과 Consul 서비스 디스커버리·KV·서비스 메시.">
+  <meta property="og:title" content="인프라 — Kubernetes · Consul · Notes">
+  <meta property="og:description" content="Kubernetes의 아키텍처·워크로드·네트워킹·스토리지·보안·운영과 Consul 서비스 디스커버리·KV·서비스 메시.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/infra/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>인프라 — Kubernetes · Consul</span></nav>
+    <header class="series-head"><h1>인프라 — Kubernetes · Consul</h1><p>Kubernetes의 아키텍처·워크로드·네트워킹·스토리지·보안·운영과 Consul 서비스 디스커버리·KV·서비스 메시.</p><p class="count">10편</p></header>
+<section class="part-group"><h2>Kubernetes</h2><ol class="toc"><li><a href="/notes/infra/k8s-architecture-pod/"><span class="n">1</span><span class="t">Kubernetes 아키텍처와 Pod</span><span class="s">Control Plane과 Worker Node가 선언된 상태를 어떻게 유지하는지, 그 최소 단위인 Pod이 왜 휘발성인지 정리한다.</span></a></li>
+<li><a href="/notes/infra/k8s-workloads/"><span class="n">2</span><span class="t">Workloads — Deployment·StatefulSet·DaemonSet·Job</span><span class="s">Pod을 직접 만들지 않고 컨트롤러에 맡겨야 하는 이유와, 다섯 가지 Workload를 상황별로 고르는 기준을 정리한다</span></a></li>
+<li><a href="/notes/infra/k8s-services-networking/"><span class="n">3</span><span class="t">Services·Networking·Ingress</span><span class="s">Pod IP가 바뀌어도 접근 경로를 유지하는 Service·DNS·Ingress의 역할 분담과 노출 방식별 선택 기준</span></a></li>
+<li><a href="/notes/infra/k8s-config-storage/"><span class="n">4</span><span class="t">ConfigMap·Secret·Storage</span><span class="s">설정은 ConfigMap·Secret으로 주입하고 데이터는 PVC·StorageClass로 영속화하되, Secret 평문과 Delete 회수 정책을 경계한다</span></a></li>
+<li><a href="/notes/infra/k8s-scaling-scheduling/"><span class="n">5</span><span class="t">Scaling·Scheduling·Probes</span><span class="s">HPA·Probe·Affinity·Taint·Quota로 Pod의 수·건강·배치·자원을 자동 제어하는 원리와 함정을 정리한다</span></a></li>
+<li><a href="/notes/infra/k8s-security/"><span class="n">6</span><span class="t">Security — RBAC·NetworkPolicy</span><span class="s">RBAC로 API 권한을, NetworkPolicy로 Pod 간 트래픽을, SecurityContext와 PSS로 컨테이너 권한을 최소화한다.</span></a></li>
+<li><a href="/notes/infra/k8s-helm-real-world/"><span class="n">7</span><span class="t">Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability</span><span class="s">환경별 YAML 중복은 Helm 템플릿으로, 배포는 GitOps로, 상태 파악은 Metrics·Logs·Traces 3축으로 묶는다</span></a></li></ol></section>
+<section class="part-group"><h2>Consul</h2><ol class="toc"><li><a href="/notes/infra/consul-architecture-deploy/"><span class="n">8</span><span class="t">Consul 아키텍처와 배포 — Raft·Gossip·클러스터</span><span class="s">Consul 서버·클라이언트 모드가 Raft와 Gossip을 어떻게 나눠 쓰는지, 5 서버 클러스터를 어떤 구성으로 띄우는지 정리한다.</span></a></li>
+<li><a href="/notes/infra/consul-service-discovery-kv/"><span class="n">9</span><span class="t">Service Discovery와 KV Store</span><span class="s">Consul에 서비스를 등록·조회하고 헬스 체크로 걸러내는 방식과, KV Store로 동적 설정·분산 락을 다루는 방법을 정리한다.</span></a></li>
+<li><a href="/notes/infra/consul-mesh-security-backup/"><span class="n">10</span><span class="t">Service Mesh·보안·백업</span><span class="s">Connect 사이드카·mTLS·Intentions로 서비스 간 통신을 통제하고, TLS·ACL·Gossip 키와 스냅샷으로 클러스터를 지킨다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

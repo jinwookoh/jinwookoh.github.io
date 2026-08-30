@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>INSERT 깊이 — Bulk·COPY·UPSERT · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="단건·Bulk·COPY의 비용 차이와 ON CONFLICT·MERGE 기반 UPSERT를 대량 입력 운영 관점에서 정리한다.">
+  <meta property="og:title" content="INSERT 깊이 — Bulk·COPY·UPSERT · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="단건·Bulk·COPY의 비용 차이와 ON CONFLICT·MERGE 기반 UPSERT를 대량 입력 운영 관점에서 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/insert-bulk-copy-upsert/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>INSERT 깊이 — Bulk·COPY·UPSERT</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · DDL과 DML</p>
+  <h1>INSERT 깊이 — Bulk·COPY·UPSERT</h1>
+  <p class="summary">단건·Bulk·COPY의 비용 차이와 ON CONFLICT·MERGE 기반 UPSERT를 대량 입력 운영 관점에서 정리한다.</p>
+  <div class="content">
+<p>INSERT는 DML 네 동사 중 가장 단순하다. 옛 버전 행을 남기지 않으므로 MVCC 부담도 없다. 그런데도 대량 입력에서 병목이 되는 이유는 문장마다 붙는 고정 비용 때문이다. 단건 INSERT 한 번에는 네트워크 왕복, 파싱·계획, 트랜잭션 커밋, WAL fsync, 인덱스 갱신, 트리거 실행이 따라붙고, 10만 건을 반복문으로 넣으면 이 비용이 10만 번 반복된다. 여기에 중복 키 처리 방식을 정하지 않으면 동시 요청에서 UNIQUE 위반이 발생한다. 입력 방식과 충돌 처리 전략을 함께 설계해야 하는 이유다.</p>
+<h2>핵심 개념</h2>
+<h3>세 가지 입력 방식</h3>
+<table>
+<thead>
+<tr>
+<th>방식</th>
+<th>10만 건 기준</th>
+<th>비용이 줄어드는 지점</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>단건 INSERT 반복</td>
+<td>약 10초</td>
+<td>없음 — 모든 비용이 N번</td>
+</tr>
+<tr>
+<td>Bulk INSERT (1,000건씩)</td>
+<td>약 2초</td>
+<td>파싱·계획·커밋·fsync가 chunk당 1회</td>
+</tr>
+<tr>
+<td>COPY</td>
+<td>약 0.5초</td>
+<td>SQL 파싱 생략, 별도 프로토콜, 페이지 단위 WAL</td>
+</tr>
+</tbody></table>
+<p>Bulk INSERT는 <code>INSERT ... VALUES (...), (...), ...</code> 형태로 여러 행을 한 문장에 담는다. 파싱·계획이 한 번으로 끝나고 WAL 기록도 묶인다. chunk 크기는 1,000~5,000건이 적정하다. 너무 크면 메모리와 계획 시간이 늘고, 너무 작으면 단건과 차이가 없다.</p>
+<p>COPY는 SQL 파서를 거치지 않는 별도 프로토콜로 데이터를 받고, 인덱스·제약 검사를 일괄 처리하며 WAL을 페이지 단위로 기록한다. 서버 파일을 읽는 <code>COPY FROM</code>과 클라이언트 스트림을 보내는 <code>COPY FROM STDIN</code>이 있고, psql의 <code>\copy</code>는 후자를 감싼 명령이다. 애플리케이션에서는 PostgreSQL JDBC의 <code>CopyManager</code>로 STDIN 스트림을 직접 보낸다.</p>
+<h3>UPSERT — 충돌 처리</h3>
+<p><code>ON CONFLICT</code>는 INSERT가 UNIQUE 위반을 만났을 때의 동작을 지정한다. 충돌 대상은 UNIQUE 제약이나 unique 인덱스가 있는 컬럼이어야 하며, <code>WHERE 조건</code>으로 부분 unique 인덱스를, <code>ON CONSTRAINT name</code>으로 명명된 제약을 가리킬 수 있다.</p>
+<ul>
+<li><code>DO UPDATE SET ...</code> — 기존 행을 갱신한다. <code>EXCLUDED</code>는 INSERT하려던 값이고, SET에 쓰지 않은 컬럼은 기존 값을 유지한다. <code>WHERE 기존값 &lt;&gt; EXCLUDED.값</code>을 붙이면 달라진 경우에만 UPDATE가 일어나 행 버전 생성과 WAL을 줄인다.</li>
+<li><code>DO NOTHING</code> — 충돌 행을 건너뛴다. 재시도해도 결과가 같은 멱등 입력에 쓴다.</li>
+<li><code>MERGE</code> (PG 15+) — 소스와 타깃을 조인해 <code>WHEN MATCHED</code>·<code>WHEN NOT MATCHED</code> 분기별로 UPDATE·INSERT·DELETE를 지정한다. PG 17부터 <code>RETURNING merge_action()</code>으로 행별 적용 동작을 받을 수 있다.</li>
+<li><code>SELECT ... FOR UPDATE</code> 후 분기 — 락을 잡고 애플리케이션에서 판단한다. 느리지만 ON CONFLICT로 표현할 수 없는 로직의 대안이다.</li>
+</ul>
+<p>동시 INSERT 경합은 <code>SELECT</code>로 존재를 확인한 뒤 <code>INSERT</code>하는 분리 패턴에서 생긴다. <code>ON CONFLICT</code>는 확인과 입력을 한 문장에서 원자적으로 처리한다.</p>
+<h3>RETURNING과 시퀀스</h3>
+<p><code>RETURNING</code>은 입력된 행의 컬럼을 결과로 돌려주므로 생성된 ID를 받기 위한 SELECT가 필요 없다. <code>WITH ... AS (INSERT ... RETURNING id)</code> 형태의 데이터 수정 CTE와 결합하면 부모·자식 행 입력을 한 문장으로 묶는다.</p>
+<p>시퀀스는 트랜잭션과 무관하다. ROLLBACK해도 배정된 번호는 되돌아오지 않으며, ID가 건너뛰는 것은 정상이다.</p>
+<h2>코드</h2>
+<p>Bulk INSERT의 충돌 처리와 RETURNING, CTE 체이닝을 한 문장에 담은 SQL이다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">WITH</span> upserted <span class="hljs-keyword">AS</span> (
+    <span class="hljs-keyword">INSERT INTO</span> products (sku, name, price, updated_at)
+    <span class="hljs-keyword">VALUES</span> (<span class="hljs-string">&#x27;A-001&#x27;</span>, <span class="hljs-string">&#x27;Keyboard&#x27;</span>, <span class="hljs-number">59000</span>, now()),
+           (<span class="hljs-string">&#x27;A-002&#x27;</span>, <span class="hljs-string">&#x27;Mouse&#x27;</span>,    <span class="hljs-number">29000</span>, now())
+    <span class="hljs-keyword">ON</span> CONFLICT (sku)
+    DO <span class="hljs-keyword">UPDATE</span> <span class="hljs-keyword">SET</span> name <span class="hljs-operator">=</span> EXCLUDED.name,
+                  price <span class="hljs-operator">=</span> EXCLUDED.price,
+                  updated_at <span class="hljs-operator">=</span> EXCLUDED.updated_at
+    <span class="hljs-keyword">WHERE</span> products.price <span class="hljs-operator">&lt;&gt;</span> EXCLUDED.price
+    RETURNING id, sku, price
+)
+<span class="hljs-keyword">INSERT INTO</span> price_changes (product_id, new_price, changed_at)
+<span class="hljs-keyword">SELECT</span> id, price, now() <span class="hljs-keyword">FROM</span> upserted;</code></pre>
+<p>JPA <code>saveAll()</code>이 실제로 배치 INSERT를 내보내게 하는 설정이다. <code>batch_size</code>가 없으면 단건 INSERT가 N번 나간다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">jpa:</span>
+    <span class="hljs-attr">properties:</span>
+      <span class="hljs-attr">hibernate:</span>
+        <span class="hljs-attr">jdbc:</span>
+          <span class="hljs-attr">batch_size:</span> <span class="hljs-number">1000</span>
+        <span class="hljs-attr">order_inserts:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">order_updates:</span> <span class="hljs-literal">true</span></code></pre>
+<p>PostgreSQL JDBC의 <code>CopyManager</code>로 STDIN 스트림 COPY를 수행하는 Spring Boot 3.x 컴포넌트다. <code>DataSourceUtils</code>로 현재 트랜잭션의 커넥션을 얻어 <code>@Transactional</code> 경계 안에서 실행한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.io.StringReader;
+<span class="hljs-keyword">import</span> java.sql.Connection;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.stream.Collectors;
+<span class="hljs-keyword">import</span> javax.sql.DataSource;
+
+<span class="hljs-keyword">import</span> org.postgresql.PGConnection;
+<span class="hljs-keyword">import</span> org.postgresql.copy.CopyManager;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.datasource.DataSourceUtils;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Repository;
+<span class="hljs-keyword">import</span> org.springframework.transaction.annotation.Transactional;
+
+<span class="hljs-meta">@Repository</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LogCopyRepository</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> DataSource dataSource;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">LogCopyRepository</span><span class="hljs-params">(DataSource dataSource)</span> {
+        <span class="hljs-built_in">this</span>.dataSource = dataSource;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">LogRow</span><span class="hljs-params">(String level, String msg)</span> {}
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">copyIn</span><span class="hljs-params">(List&lt;LogRow&gt; rows)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">Connection</span> <span class="hljs-variable">conn</span> <span class="hljs-operator">=</span> DataSourceUtils.getConnection(dataSource);
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">CopyManager</span> <span class="hljs-variable">copy</span> <span class="hljs-operator">=</span> conn.unwrap(PGConnection.class).getCopyAPI();
+            <span class="hljs-type">String</span> <span class="hljs-variable">csv</span> <span class="hljs-operator">=</span> rows.stream()
+                    .map(r -&gt; r.level() + <span class="hljs-string">&quot;,&quot;</span> + escape(r.msg()))
+                    .collect(Collectors.joining(<span class="hljs-string">&quot;\n&quot;</span>));
+            <span class="hljs-keyword">return</span> copy.copyIn(
+                    <span class="hljs-string">&quot;COPY logs (level, msg) FROM STDIN WITH (FORMAT csv)&quot;</span>,
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">StringReader</span>(csv));
+        } <span class="hljs-keyword">finally</span> {
+            DataSourceUtils.releaseConnection(conn, dataSource);
+        }
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">String</span> <span class="hljs-title function_">escape</span><span class="hljs-params">(String value)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;\&quot;&quot;</span> + value.replace(<span class="hljs-string">&quot;\&quot;&quot;</span>, <span class="hljs-string">&quot;\&quot;\&quot;&quot;</span>) + <span class="hljs-string">&quot;\&quot;&quot;</span>;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>반복문 save()</strong> — <code>for (...) repo.save(u)</code>는 단건 INSERT를 N번 보내며, <code>saveAll()</code>로 바꿔도 <code>batch_size</code>가 없으면 같다. IDENTITY 전략은 Hibernate가 배치 INSERT를 비활성화하므로 SEQUENCE 전략과 <code>allocationSize</code>를 함께 잡는다.</li>
+<li><strong>트리거의 행 단위 비용</strong> — <code>FOR EACH ROW</code> 트리거는 대량 입력에서 행마다 실행된다. 적재 전 <code>ALTER TABLE ... DISABLE TRIGGER</code>로 끄고 끝난 뒤 켠다.</li>
+<li><strong>EXCLUDED 대신 상수</strong> — <code>DO UPDATE SET name = &#39;fixed&#39;</code>처럼 상수를 쓰면 충돌 행이 모두 같은 값으로 덮인다. INSERT하려던 값을 반영하려면 <code>EXCLUDED.name</code>이어야 한다.</li>
+<li><strong>UPSERT 대상 인덱스 누락</strong> — <code>ON CONFLICT (col)</code>은 col에 unique 인덱스가 있어야 실행된다. 오류가 나면 인덱스 존재 여부와, 부분 인덱스라면 WHERE 조건 일치 여부를 확인한다.</li>
+<li><strong>대량 입력 후 통계</strong> — 10만 건 이상을 COPY로 넣으면 계획자 통계가 실제 분포와 어긋난다. autovacuum을 기다리지 않고 정확한 계획이 필요하면 <code>ANALYZE</code>를 직접 실행한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/insert-update-delete/">INSERT·UPDATE·DELETE 표준 패턴</a></li>
+<li><a href="/notes/postgresql/update-delete-hot-bloat-vacuum/">UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</a></li>
+<li><a href="/notes/postgresql/storage-engine-wal/">내부 구조 — Storage Engine·페이지·WAL</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, INSERT, COPY, UPSERT, ON CONFLICT</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/ddl-tables-constraints/"><small>이전</small>DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</a>
+  <a class="next" href="/notes/postgresql/update-delete-hot-bloat-vacuum/"><small>다음</small>UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

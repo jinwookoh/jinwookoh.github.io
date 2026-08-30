@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registry·push vs pull·Actuator 연동 · 관측성</title>
+  <meta name="description" content="MeterRegistry 구현체가 pull과 push로 어떻게 갈리는지, Actuator가 그 위에 무엇을 자동으로 얹는지 정리한다.">
+  <meta property="og:title" content="Registry·push vs pull·Actuator 연동 · 관측성">
+  <meta property="og:description" content="MeterRegistry 구현체가 pull과 push로 어떻게 갈리는지, Actuator가 그 위에 무엇을 자동으로 얹는지 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/registry-backends-actuator/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/observability/">관측성</a><span class="sep">›</span><span>Registry·push vs pull·Actuator 연동</span></nav>
+    <article class="post">
+  <p class="part">관측성 · 메트릭</p>
+  <h1>Registry·push vs pull·Actuator 연동</h1>
+  <p class="summary">MeterRegistry 구현체가 pull과 push로 어떻게 갈리는지, Actuator가 그 위에 무엇을 자동으로 얹는지 정리한다.</p>
+  <div class="content">
+<p>계측 코드가 한 줄이어도 그 값이 어디로 어떻게 나가는지는 MeterRegistry 구현체가 결정한다. 이 구조를 모르면 의존성은 넣었는데 <code>enabled</code>나 API 키가 빠져 메트릭이 어느 백엔드로도 나가지 않는 상태를 로그 없이 겪고, pull과 push의 카운터 의미 차이 때문에 같은 Counter가 두 백엔드에서 다른 숫자로 보이며, <code>@Timed</code>를 붙이고도 데이터가 없는 상황이 생긴다.</p>
+<h2>핵심 개념</h2>
+<p>MeterRegistry는 추상 클래스이고 실제 동작은 백엔드별 구현체가 한다. Spring Boot는 클래스패스의 레지스트리 의존성을 보고 구현체 빈을 만들고, 둘 이상이면 CompositeMeterRegistry로 묶어 주입한다. Composite는 한 호출을 모든 child에 전달할 뿐 이중 집계하지 않으므로 백엔드 이전 검증 기간에 적합하다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">구분</th>
+<th align="left">pull</th>
+<th align="left">push</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">구현체</td>
+<td align="left">PrometheusMeterRegistry</td>
+<td align="left">StepMeterRegistry 계열 (Datadog·StatsD·CloudWatch·OTLP)</td>
+</tr>
+<tr>
+<td align="left">전송 주체</td>
+<td align="left">Prometheus 서버가 <code>/actuator/prometheus</code>를 scrape</td>
+<td align="left">앱 내부 push 스레드가 step마다 전송</td>
+</tr>
+<tr>
+<td align="left">Counter 의미</td>
+<td align="left">단조 누적값, rate는 서버가 <code>rate()</code>로 계산</td>
+<td align="left">step 동안의 증가량을 보내고 리셋</td>
+</tr>
+</tbody></table>
+<p>StepMeterRegistry는 step 구간 단위로 집계해 전송하므로 step 도중 프로세스가 사라지면 그 구간은 어디에도 남지 않는다. scrape 시점에 이미 종료된 배치 잡은 PushGateway에 push해 두고 Prometheus가 PushGateway를 scrape하게 한다. <code>shutdown-operation: push</code>로 정상 종료 시 마지막 push를 보장하되, 오래 사는 서비스에 쓰면 stale 메트릭이 남으므로 단명 작업 전용이다.</p>
+<p>Actuator 연동은 auto-configuration이 맡는다. <code>spring-boot-starter-actuator</code>와 레지스트리 의존성이 있으면 레지스트리 빈과 <code>/actuator/prometheus</code>가 등록되고, 내장 MeterBinder가 JVM·HikariCP·Tomcat·HTTP 서버(<code>http.server.requests</code>, uri·method·status·outcome 태그)·HTTP 클라이언트·Logback·캐시·Kafka 메트릭을 자동 등록한다. 노출은 자동이 아니라 <code>management.endpoints.web.exposure.include</code>에 <code>prometheus</code>를 명시해야 하고, <code>/actuator/metrics</code>는 JSON 탐색용이라 scrape target이 될 수 없다.</p>
+<p>직접 얹는 수단은 세 가지다. <code>@Timed</code>·<code>@Counted</code>는 TimedAspect·CountedAspect 빈이 있어야 동작한다. MeterRegistryCustomizer는 common tag와 MeterFilter를 주입하며, 타입 파라미터가 <code>MeterRegistry</code>면 모든 child에 적용된다. Observation API는 하나의 Observation으로 Timer와 Span을 동시에 만들고, <code>lowCardinalityKeyValue</code>는 메트릭 태그와 trace 양쪽에, <code>highCardinalityKeyValue</code>는 trace에만 기록된다. <code>@Observed</code>에는 ObservedAspect와 <code>micrometer-tracing-bridge-otel</code> 의존성이 필요하다.</p>
+<h2>코드</h2>
+<p>프로파일별로 레지스트리를 명시적으로 켜고 운영에서는 Prometheus와 Datadog을 동시에 활성화하는 설정이다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">management:</span>
+  <span class="hljs-attr">server:</span>
+    <span class="hljs-attr">port:</span> <span class="hljs-number">8081</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">health,</span> <span class="hljs-string">info,</span> <span class="hljs-string">prometheus,</span> <span class="hljs-string">metrics</span>
+  <span class="hljs-attr">metrics:</span>
+    <span class="hljs-attr">tags:</span>
+      <span class="hljs-attr">application:</span> <span class="hljs-string">${spring.application.name}</span>
+      <span class="hljs-attr">env:</span> <span class="hljs-string">${SPRING_PROFILES_ACTIVE:local}</span>
+    <span class="hljs-attr">distribution:</span>
+      <span class="hljs-attr">percentiles-histogram:</span>
+        <span class="hljs-attr">http.server.requests:</span> <span class="hljs-literal">true</span>
+      <span class="hljs-attr">slo:</span>
+        <span class="hljs-attr">http.server.requests:</span> <span class="hljs-string">50ms,</span> <span class="hljs-string">100ms,</span> <span class="hljs-string">200ms,</span> <span class="hljs-string">500ms</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">false</span>
+  <span class="hljs-attr">datadog:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">false</span>
+
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">config:</span>
+    <span class="hljs-attr">activate:</span>
+      <span class="hljs-attr">on-profile:</span> <span class="hljs-string">local</span>
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">config:</span>
+    <span class="hljs-attr">activate:</span>
+      <span class="hljs-attr">on-profile:</span> <span class="hljs-string">production</span>
+  <span class="hljs-attr">lifecycle:</span>
+    <span class="hljs-attr">timeout-per-shutdown-phase:</span> <span class="hljs-string">30s</span>
+<span class="hljs-attr">server:</span>
+  <span class="hljs-attr">shutdown:</span> <span class="hljs-string">graceful</span>
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+  <span class="hljs-attr">datadog:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">api-key:</span> <span class="hljs-string">${DATADOG_API_KEY}</span>
+        <span class="hljs-attr">step:</span> <span class="hljs-string">15s</span></code></pre>
+<p>Aspect 빈, common tag와 카디널리티 필터, 기동 시 활성 레지스트리 로그를 한 클래스에 모은 예다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> io.micrometer.core.aop.CountedAspect;
+<span class="hljs-keyword">import</span> io.micrometer.core.aop.TimedAspect;
+<span class="hljs-keyword">import</span> io.micrometer.core.instrument.MeterRegistry;
+<span class="hljs-keyword">import</span> io.micrometer.core.instrument.composite.CompositeMeterRegistry;
+<span class="hljs-keyword">import</span> io.micrometer.core.instrument.config.MeterFilter;
+<span class="hljs-keyword">import</span> io.micrometer.observation.ObservationRegistry;
+<span class="hljs-keyword">import</span> io.micrometer.observation.aop.ObservedAspect;
+<span class="hljs-keyword">import</span> org.slf4j.Logger;
+<span class="hljs-keyword">import</span> org.slf4j.LoggerFactory;
+<span class="hljs-keyword">import</span> org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCustomizer;
+<span class="hljs-keyword">import</span> org.springframework.boot.context.event.ApplicationReadyEvent;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.context.event.EventListener;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MetricsConfig</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(MetricsConfig.class);
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">TimedAspect</span> <span class="hljs-title function_">timedAspect</span><span class="hljs-params">(MeterRegistry registry)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TimedAspect</span>(registry);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">CountedAspect</span> <span class="hljs-title function_">countedAspect</span><span class="hljs-params">(MeterRegistry registry)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">CountedAspect</span>(registry);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">ObservedAspect</span> <span class="hljs-title function_">observedAspect</span><span class="hljs-params">(ObservationRegistry registry)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ObservedAspect</span>(registry);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">MeterRegistryCustomizer</span>&lt;MeterRegistry&gt; <span class="hljs-title function_">commonCustomizer</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> registry -&gt; registry.config()
+            .commonTags(<span class="hljs-string">&quot;region&quot;</span>, System.getenv().getOrDefault(<span class="hljs-string">&quot;AWS_REGION&quot;</span>, <span class="hljs-string">&quot;local&quot;</span>))
+            .meterFilter(MeterFilter.maximumAllowableTags(
+                <span class="hljs-string">&quot;http.server.requests&quot;</span>, <span class="hljs-string">&quot;uri&quot;</span>, <span class="hljs-number">100</span>, MeterFilter.deny()));
+    }
+
+    <span class="hljs-meta">@EventListener(ApplicationReadyEvent.class)</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">logActiveRegistries</span><span class="hljs-params">(ApplicationReadyEvent event)</span> {
+        <span class="hljs-type">MeterRegistry</span> <span class="hljs-variable">registry</span> <span class="hljs-operator">=</span> event.getApplicationContext().getBean(MeterRegistry.class);
+        <span class="hljs-keyword">if</span> (registry <span class="hljs-keyword">instanceof</span> CompositeMeterRegistry composite) {
+            log.info(<span class="hljs-string">&quot;active registries: {}&quot;</span>, composite.getRegistries().stream()
+                .map(r -&gt; r.getClass().getSimpleName()).toList());
+        } <span class="hljs-keyword">else</span> {
+            log.info(<span class="hljs-string">&quot;active registry: {}&quot;</span>, registry.getClass().getSimpleName());
+        }
+    }
+}</code></pre>
+<p>인메모리 SimpleMeterRegistry로 계측을 검증하는 단위 테스트다. 테스트마다 새 인스턴스를 만들어 오염을 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> <span class="hljs-keyword">static</span> org.assertj.core.api.Assertions.assertThat;
+
+<span class="hljs-keyword">import</span> io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+<span class="hljs-keyword">import</span> org.junit.jupiter.api.BeforeEach;
+<span class="hljs-keyword">import</span> org.junit.jupiter.api.Test;
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderServiceMetricsTest</span> {
+
+    <span class="hljs-keyword">private</span> SimpleMeterRegistry registry;
+    <span class="hljs-keyword">private</span> OrderService service;
+
+    <span class="hljs-meta">@BeforeEach</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">setUp</span><span class="hljs-params">()</span> {
+        registry = <span class="hljs-keyword">new</span> <span class="hljs-title class_">SimpleMeterRegistry</span>();
+        service = <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderService</span>(registry);
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">createOrderIncrementsCounter</span><span class="hljs-params">()</span> {
+        service.createOrder(<span class="hljs-keyword">new</span> <span class="hljs-title class_">CreateOrderRequest</span>(<span class="hljs-string">&quot;us-east&quot;</span>, <span class="hljs-string">&quot;online&quot;</span>));
+        service.createOrder(<span class="hljs-keyword">new</span> <span class="hljs-title class_">CreateOrderRequest</span>(<span class="hljs-string">&quot;us-east&quot;</span>, <span class="hljs-string">&quot;online&quot;</span>));
+
+        <span class="hljs-type">double</span> <span class="hljs-variable">count</span> <span class="hljs-operator">=</span> registry.find(<span class="hljs-string">&quot;orders.created&quot;</span>)
+            .tags(<span class="hljs-string">&quot;region&quot;</span>, <span class="hljs-string">&quot;us-east&quot;</span>, <span class="hljs-string">&quot;type&quot;</span>, <span class="hljs-string">&quot;online&quot;</span>)
+            .counter()
+            .count();
+
+        assertThat(count).isEqualTo(<span class="hljs-number">2.0</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>child 없는 Composite.</strong> <code>enabled: false</code>이거나 API 키가 비면 빈 Composite가 주입돼 메트릭이 조용히 사라진다. 기동 시 <code>getRegistries()</code>를 로그로 남긴다.</li>
+<li><strong>step·scrape 주기와 강제 종료.</strong> scrape 주기는 push step 이하로 맞추고, graceful shutdown 대기 시간을 step보다 길게 잡아야 마지막 구간이 전송된다. SIGKILL은 shutdown hook을 건너뛰므로 <code>terminationGracePeriodSeconds</code>도 늘린다.</li>
+<li><strong>PushGateway 레이블.</strong> scrape 설정에 <code>honor_labels: true</code>가 없으면 잡별 <code>job</code>·<code>instance</code> 레이블이 덮어써진다.</li>
+<li><strong>Aspect·클라이언트 빈 누락.</strong> HTTP 메트릭은 잡히는데 서비스 메서드 메트릭만 없다면 Aspect 빈 미등록을 의심한다. HTTP 클라이언트는 <code>RestClient.Builder</code>·<code>WebClient.Builder</code> 빈으로 만들어야 계측된다.</li>
+<li><strong>비용과 노출 범위.</strong> <code>percentiles-histogram</code>은 <code>histogram_quantile()</code>을 쓰는 메트릭에만 켜고, CloudWatch <code>batch-size</code>는 한도 20을 넘기지 않는다. <code>include: *</code>는 <code>env</code>·<code>heapdump</code>를 여는 셈이므로 관리 포트를 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/observability/meter-types-tags-cardinality/">Meter 타입·태그·카디널리티</a></li>
+<li><a href="/notes/observability/timer-percentile-slo/">Timer·percentile·histogram·SLO</a></li>
+<li><a href="/notes/observability/prometheus-promql/">Prometheus와 PromQL</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Micrometer, MeterRegistry, Spring Boot Actuator, Prometheus, PushGateway</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/observability/timer-percentile-slo/"><small>이전</small>Timer·percentile·histogram·SLO</a>
+  <a class="next" href="/notes/observability/prometheus-promql/"><small>다음</small>Prometheus와 PromQL</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

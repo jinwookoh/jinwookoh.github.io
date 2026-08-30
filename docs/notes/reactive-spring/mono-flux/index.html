@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mono와 Flux · Reactive Spring</title>
+  <meta name="description" content="Mono는 0~1개, Flux는 0~N개를 지연 방출하는 Publisher이며 팩토리·변환·에러 처리 연산자의 선택 기준을 정리한다.">
+  <meta property="og:title" content="Mono와 Flux · Reactive Spring">
+  <meta property="og:description" content="Mono는 0~1개, Flux는 0~N개를 지연 방출하는 Publisher이며 팩토리·변환·에러 처리 연산자의 선택 기준을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/mono-flux/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>Mono와 Flux</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · Reactor 기초</p>
+  <h1>Mono와 Flux</h1>
+  <p class="summary">Mono는 0~1개, Flux는 0~N개를 지연 방출하는 Publisher이며 팩토리·변환·에러 처리 연산자의 선택 기준을 정리한다.</p>
+  <div class="content">
+<p>Reactive Streams 명세는 네 인터페이스만 정의한다. 이것만으로 비동기 결과를 다루려면 신호 순서, <code>request(n)</code> 배압, 취소 처리를 매번 직접 구현해야 하고 변환·에러 복구 로직도 재사용되지 않는다. 단건 조회와 끝이 없는 스트림을 같은 타입으로 표현하면 호출자는 완료 시점을 예측할 수 없다. Project Reactor는 이 문제를 <code>Mono&lt;T&gt;</code>와 <code>Flux&lt;T&gt;</code> 두 타입과 연산자 체인으로 해결한다.</p>
+<h2>핵심 개념</h2>
+<p><code>Mono&lt;T&gt;</code>는 0개 또는 1개의 요소를 방출하는 Publisher다. 완료 시나리오는 세 가지다. 값이 있으면 <code>onNext</code> 후 <code>onComplete</code>, 값이 없으면 <code>onComplete</code>만, 실패하면 <code>onError</code>가 온다. <code>Flux&lt;T&gt;</code>는 0개 이상, 무한을 포함한 요소를 순차 방출하며 마지막 요소 이후 또는 <code>cancel</code> 시점에 끝난다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left"><code>Mono&lt;T&gt;</code></th>
+<th align="left"><code>Flux&lt;T&gt;</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">요소 수</td>
+<td align="left">0 또는 1</td>
+<td align="left">0 ~ N (무한 가능)</td>
+</tr>
+<tr>
+<td align="left">용도</td>
+<td align="left"><code>findById</code>, <code>save</code>, <code>deleteById</code></td>
+<td align="left"><code>findAll</code>, 스트리밍, <code>interval</code></td>
+</tr>
+<tr>
+<td align="left">완료</td>
+<td align="left">요소 하나 방출 후</td>
+<td align="left">모든 요소 방출 후 또는 cancel</td>
+</tr>
+</tbody></table>
+<p>두 타입 모두 <code>subscribe()</code> 전까지 아무 일도 일어나지 않는다. WebFlux 컨트롤러가 <code>Mono</code>/<code>Flux</code>를 반환하면 프레임워크가 구독하므로 애플리케이션 코드는 리액티브 타입을 그대로 반환한다.</p>
+<p>팩토리 메서드는 평가 시점으로 갈린다. <code>Mono.just(expr)</code>는 생성 순간 <code>expr</code>을 평가하므로 상수에만 적합하다. <code>fromSupplier</code>·<code>fromCallable</code>은 구독 시점에 평가하고 후자는 체크드 예외를 <code>onError</code>로 변환한다. <code>defer</code>는 구독마다 새 Publisher를 만든다. <code>Mono.just(null)</code>은 <code>NullPointerException</code>이므로 값 없음은 <code>Mono.empty()</code>로 표현한다.</p>
+<p>Flux는 <code>just</code>·<code>fromIterable</code>·<code>fromArray</code>가 정적 값, <code>range(start, count)</code>가 연속 정수, <code>interval(Duration)</code>이 parallel 스케줄러에서 주기적 Long 값을 낸다. <code>range</code>의 두 번째 인자는 개수다. <code>fromStream</code>에는 재구독을 위해 <code>list::stream</code>처럼 Supplier를 넘긴다. 동적 생성은 <code>generate</code>(<code>SynchronousSink</code>, 호출당 <code>next</code> 한 번, 상태 전달)·<code>create</code>(<code>FluxSink</code>, 다중 방출, 멀티스레드 안전)·<code>push</code>(<code>create</code>와 같되 단일 스레드 전용)로 나뉜다.</p>
+<p><code>map</code>은 동기 1:1 변환, <code>flatMap</code>은 함수가 반환한 Publisher를 구독해 평탄화한다. <code>map</code> 안에서 <code>Mono</code>를 반환하면 <code>Mono&lt;Mono&lt;T&gt;&gt;</code>가 되어 내부 Mono가 구독되지 않는다. <code>zipWith</code>는 두 Mono를 동시에 구독해 결합하며 한쪽이 empty면 전체가 empty다.</p>
+<p>에러는 던지지 않고 신호로 다룬다. <code>onErrorReturn</code>은 값으로 대체해 정상 완료로 바꾸고, <code>onErrorResume</code>은 대체 Publisher로 전환하며, <code>onErrorMap</code>은 타입만 바꾸고 에러를 계속 흘린다. <code>switchIfEmpty</code>·<code>defaultIfEmpty</code>는 빈 완료를 대체한다. 타입 변환은 <code>mono.flux()</code>, <code>flux.next()</code>, <code>flux.collectList()</code>를 쓴다.</p>
+<h2>코드</h2>
+<p><code>just</code>·<code>fromSupplier</code>·<code>defer</code>의 평가 시점 차이. 카운터 값으로 확인한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.concurrent.atomic.AtomicInteger;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Mono;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FactoryTiming</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">AtomicInteger</span> <span class="hljs-variable">counter</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicInteger</span>();
+
+        <span class="hljs-type">Mono</span>&lt;Integer&gt; <span class="hljs-variable">just</span> <span class="hljs-operator">=</span> Mono.just(counter.incrementAndGet());        <span class="hljs-comment">// 생성 즉시 1</span>
+        <span class="hljs-type">Mono</span>&lt;Integer&gt; <span class="hljs-variable">lazy</span> <span class="hljs-operator">=</span> Mono.fromSupplier(counter::incrementAndGet); <span class="hljs-comment">// 구독 시 평가</span>
+        <span class="hljs-type">Mono</span>&lt;Integer&gt; <span class="hljs-variable">defer</span> <span class="hljs-operator">=</span> Mono.defer(() -&gt; Mono.just(counter.incrementAndGet()));
+
+        just.subscribe(v -&gt; System.out.println(<span class="hljs-string">&quot;just  &quot;</span> + v));   <span class="hljs-comment">// 1</span>
+        just.subscribe(v -&gt; System.out.println(<span class="hljs-string">&quot;just  &quot;</span> + v));   <span class="hljs-comment">// 1</span>
+        lazy.subscribe(v -&gt; System.out.println(<span class="hljs-string">&quot;lazy  &quot;</span> + v));   <span class="hljs-comment">// 2</span>
+        lazy.subscribe(v -&gt; System.out.println(<span class="hljs-string">&quot;lazy  &quot;</span> + v));   <span class="hljs-comment">// 3</span>
+        defer.subscribe(v -&gt; System.out.println(<span class="hljs-string">&quot;defer &quot;</span> + v));  <span class="hljs-comment">// 4</span>
+        defer.subscribe(v -&gt; System.out.println(<span class="hljs-string">&quot;defer &quot;</span> + v));  <span class="hljs-comment">// 5</span>
+    }
+}</code></pre>
+<p><code>generate</code>로 상태 기반 순차 생성, <code>takeWhile</code>과 <code>takeUntil</code>의 경계 포함 여부 비교.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> reactor.core.publisher.Flux;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FluxGenerateTake</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">Flux</span>&lt;String&gt; <span class="hljs-variable">items</span> <span class="hljs-operator">=</span> Flux.generate(
+                () -&gt; <span class="hljs-number">0</span>,
+                (state, sink) -&gt; {
+                    sink.next(<span class="hljs-string">&quot;item-&quot;</span> + state);      <span class="hljs-comment">// 호출당 next는 한 번만</span>
+                    <span class="hljs-keyword">if</span> (state &gt;= <span class="hljs-number">9</span>) sink.complete();
+                    <span class="hljs-keyword">return</span> state + <span class="hljs-number">1</span>;
+                });
+        items.subscribe(System.out::println);           <span class="hljs-comment">// item-0 ~ item-9</span>
+
+        Flux.range(<span class="hljs-number">1</span>, <span class="hljs-number">10</span>).takeWhile(n -&gt; n &lt; <span class="hljs-number">5</span>)
+                .subscribe(System.out::println);        <span class="hljs-comment">// 1 2 3 4</span>
+        Flux.range(<span class="hljs-number">1</span>, <span class="hljs-number">10</span>).takeUntil(n -&gt; n == <span class="hljs-number">5</span>)
+                .subscribe(System.out::println);        <span class="hljs-comment">// 1 2 3 4 5</span>
+    }
+}</code></pre>
+<p>R2DBC 리포지토리 위에 변환·빈 결과·에러 연산자를 조합한 서비스와 컨트롤러.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.dao.DataAccessException;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+<span class="hljs-keyword">import</span> org.springframework.web.bind.annotation.*;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Flux;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Mono;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository repository;   <span class="hljs-comment">// ReactiveCrudRepository&lt;Product, Long&gt;</span>
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductService</span><span class="hljs-params">(ProductRepository repository)</span> {
+        <span class="hljs-built_in">this</span>.repository = repository;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;ProductDto&gt; <span class="hljs-title function_">list</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> repository.findAll().map(ProductDto::from);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;ProductDto&gt; <span class="hljs-title function_">update</span><span class="hljs-params">(Long id, ProductDto dto)</span> {
+        <span class="hljs-keyword">return</span> repository.findById(id)
+                .switchIfEmpty(Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">NotFoundException</span>(id)))
+                .map(found -&gt; found.withName(dto.name()).withPrice(dto.price()))
+                .flatMap(repository::save)                 <span class="hljs-comment">// save가 Mono를 반환하므로 flatMap</span>
+                .map(ProductDto::from)
+                .onErrorMap(DataAccessException.class,
+                        e -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">ServiceException</span>(<span class="hljs-string">&quot;product update failed&quot;</span>, e));
+    }
+}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/v1/products&quot;)</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductService service;
+
+    ProductController(ProductService service) {
+        <span class="hljs-built_in">this</span>.service = service;
+    }
+
+    <span class="hljs-meta">@GetMapping</span>
+    <span class="hljs-type">Flux</span>&lt;ProductDto&gt; <span class="hljs-title function_">list</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> service.list();
+    }
+
+    <span class="hljs-meta">@PutMapping(&quot;/{id}&quot;)</span>
+    <span class="hljs-type">Mono</span>&lt;ProductDto&gt; <span class="hljs-title function_">update</span><span class="hljs-params">(<span class="hljs-meta">@PathVariable</span> Long id, <span class="hljs-meta">@RequestBody</span> ProductDto dto)</span> {
+        <span class="hljs-keyword">return</span> service.update(id, dto);      <span class="hljs-comment">// 프레임워크가 구독한다</span>
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>이벤트 루프 안의 <code>block()</code>.</strong> 핸들러나 연산자 내부에서 <code>block()</code>을 호출하면 결과를 만들 스레드가 자기 자신이라 데드락이 난다. 테스트와 main 최외곽에서만 허용하고, 블로킹 I/O는 <code>Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())</code>으로 격리한다.</li>
+<li><strong><code>Mono.just</code>에 무거운 호출.</strong> <code>Mono.just(blockingQuery())</code>는 생성 시점에 실행되어 재시도·조건부 실행이 동작하지 않는다. <code>fromSupplier</code>·<code>fromCallable</code>·<code>defer</code>를 기본으로 쓴다.</li>
+<li><strong>구독되지 않은 파이프라인.</strong> <code>void</code> 메서드에서 <code>repository.deleteById(id)</code>만 호출하면 실행되지 않는다. 리액티브 타입을 끝까지 반환한다.</li>
+<li><strong><code>interval</code>과 프로세스 종료.</strong> 별도 스레드에서 돌기 때문에 main이 먼저 끝나면 출력이 없다. 테스트는 <code>StepVerifier</code> 가상 시간을 쓰고 무한 스트림에는 <code>take</code>로 상한을 둔다.</li>
+<li><strong><code>generate</code>·<code>create</code> 계약 위반.</strong> <code>generate</code>에서 <code>next</code>를 두 번 호출하면 <code>IllegalStateException</code>, <code>create</code>에서 <code>complete()</code>를 빠뜨리면 요청이 끝나지 않는다. <code>create</code>에는 <code>OverflowStrategy</code>를 명시한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/reactive-programming-intro/">리액티브 프로그래밍 — 왜 필요한가·Reactive Streams</a></li>
+<li><a href="/notes/reactive-spring/operators-combining-batching/">연산자 — 변환·결합·배칭</a></li>
+<li><a href="/notes/reactive-spring/hot-cold-sinks/">Hot/Cold Publisher와 Sinks</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Mono, Flux, Project Reactor, flatMap, WebFlux</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/reactive-programming-intro/"><small>이전</small>리액티브 프로그래밍 — 왜 필요한가·Reactive Streams</a>
+  <a class="next" href="/notes/reactive-spring/operators-combining-batching/"><small>다음</small>연산자 — 변환·결합·배칭</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kibana·Elastic Cloud·OpenSearch·IaC · Elasticsearch</title>
+  <meta name="description" content="Kibana로 데이터를 보고, Elastic Cloud와 AWS OpenSearch 중 하나를 고르고, 클러스터를 코드로 관리하는 기준">
+  <meta property="og:title" content="Kibana·Elastic Cloud·OpenSearch·IaC · Elasticsearch">
+  <meta property="og:description" content="Kibana로 데이터를 보고, Elastic Cloud와 AWS OpenSearch 중 하나를 고르고, 클러스터를 코드로 관리하는 기준">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/kibana-cloud-opensearch-iac/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Kibana·Elastic Cloud·OpenSearch·IaC</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 통합과 클라우드</p>
+  <h1>Kibana·Elastic Cloud·OpenSearch·IaC</h1>
+  <p class="summary">Kibana로 데이터를 보고, Elastic Cloud와 AWS OpenSearch 중 하나를 고르고, 클러스터를 코드로 관리하는 기준</p>
+  <div class="content">
+<p>Elasticsearch에는 사람이 보는 화면이 없어 데이터 확인마다 JSON 요청이 필요하다. 클러스터를 직접 운영하면 패치·백업·노드 교체가 전부 팀 몫이고, 매니지드도 Elastic Cloud와 AWS OpenSearch Service는 엔진 자체가 다르다. 콘솔 클릭으로 만든 클러스터는 옵션 추적이 안 되고, dev·prod 사이 analyzer나 ILM 정책이 어긋나 prod에서만 검색이 깨진다.</p>
+<h2>핵심 개념</h2>
+<h3>Kibana</h3>
+<p>Elasticsearch 전용 웹 UI로, Logstash·Beats와 함께 Elastic Stack(ELK)을 이룬다. Elasticsearch와 메이저·마이너 버전을 정확히 맞춰야 한다.</p>
+<p>Discover는 Data View에 지정한 인덱스를 KQL(<code>status: &quot;error&quot; and not user_id: &quot;test&quot;</code>)로 검색한다. Lens는 8.x 표준 시각화 도구이며 TSVB는 deprecation 흐름이다. Dev Tools는 내장 REST 콘솔과 Profiler, Stack Management는 Index·ILM·Saved Object·Snapshot·Security 관리, Space는 권한 단위다.</p>
+<h3>OpenSearch와 AWS OpenSearch Service</h3>
+<p>OpenSearch는 2021년 AWS가 Elasticsearch·Kibana 7.10.2를 fork한 Apache 2.0 프로젝트다. Elastic의 SSPL 전환이 계기이며, Elasticsearch가 구독으로 묶은 보안·Alerting·ML을 무료로 제공한다. 시각화는 OpenSearch Dashboards, ILM 대신 ISM을 쓴다.</p>
+<p>AWS OpenSearch Service의 운영 단위는 Domain이다. Provisioned는 인스턴스를 직접 정하며 운영 환경은 Multi-AZ + Replica 1 이상 + 전용 마스터 3대가 기본이다. Serverless는 최소 2 OCU가 24시간 과금되어 유휴 상태에서도 월 300달러 이상이 나가므로 피크·유휴 차이가 큰 워크로드에만 쓴다. 보안은 IAM 정책과 fine-grained access control 두 축이며 운영 도메인은 VPC에 둔다.</p>
+<h3>Elastic Cloud</h3>
+<p>Elastic이 AWS·GCP·Azure 위에서 직접 운영한다.</p>
+<table>
+<thead>
+<tr>
+<th>라인</th>
+<th>단위</th>
+<th>과금</th>
+<th>적합한 자리</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Hosted</td>
+<td>deployment</td>
+<td>인스턴스 시간</td>
+<td>안정 부하, Hot/Warm/Cold/Frozen 4-tier</td>
+</tr>
+<tr>
+<td>Serverless</td>
+<td>project</td>
+<td>VCU 분 단위</td>
+<td>가변 트래픽·PoC</td>
+</tr>
+<tr>
+<td>ECE</td>
+<td>자체 DC 설치</td>
+<td>구독 + 인프라</td>
+<td>클라우드 반출 금지 환경</td>
+</tr>
+<tr>
+<td>ECK</td>
+<td>Kubernetes CRD</td>
+<td>Basic 무료</td>
+<td>K8s 표준 인프라</td>
+</tr>
+</tbody></table>
+<p>단가는 AWS OpenSearch보다 20~30% 높지만 ML·CCR·Frozen tier·APM이 기본 포함이라 고급 기능을 쓸수록 총비용이 역전된다. Apache 2.0 강제 또는 기본 검색·로그만이면 OpenSearch, 고급 기능·멀티 클라우드면 Elastic Cloud, K8s 표준이면 ECK다. region과 provider는 생성 후 불변이다.</p>
+<h3>IaC</h3>
+<p>클러스터·인덱스·ILM·alias를 코드로 선언하고 git을 단일 진실 원천으로 둔다. <code>plan</code>으로 drift를 잡고, 같은 모듈에 다른 변수로 환경을 복제한다. Terraform은 <code>hashicorp/aws</code>와 <code>elastic/ec</code>·<code>elastic/elasticstack</code> provider로 멀티 클라우드를 한 코드베이스에서 다루며 state는 원격 백엔드에 둔다. AWS CDK는 CloudFormation으로 컴파일되어 AWS 외 자원은 못 다룬다. ECK는 CRD를 ArgoCD·Flux로 동기화하며 <code>selfHeal: true</code>가 콘솔 수작업을 git 상태로 되돌린다.</p>
+<h2>코드</h2>
+<p>Terraform으로 AWS OpenSearch Domain을 3-AZ·전용 마스터·VPC·암호화 활성으로 선언한다.</p>
+<pre><code class="hljs language-plaintext">resource &quot;aws_opensearch_domain&quot; &quot;search&quot; {
+  domain_name    = &quot;search-${var.env}&quot;
+  engine_version = &quot;OpenSearch_2.19&quot;
+
+  cluster_config {
+    instance_type            = &quot;r7g.large.search&quot;
+    instance_count           = 3
+    dedicated_master_enabled = true
+    dedicated_master_type    = &quot;m6g.large.search&quot;
+    dedicated_master_count   = 3
+    zone_awareness_enabled   = true
+    zone_awareness_config { availability_zone_count = 3 }
+  }
+
+  ebs_options {
+    ebs_enabled = true
+    volume_type = &quot;gp3&quot;
+    volume_size = 100
+  }
+
+  encrypt_at_rest         { enabled = true }
+  node_to_node_encryption { enabled = true }
+  domain_endpoint_options { enforce_https = true }
+
+  vpc_options {
+    subnet_ids         = var.private_subnet_ids
+    security_group_ids = [aws_security_group.search.id]
+  }
+
+  advanced_security_options {
+    enabled                        = true
+    internal_user_database_enabled = false
+    master_user_options { master_user_arn = aws_iam_role.search_admin.arn }
+  }
+
+  lifecycle { prevent_destroy = true }
+}</code></pre>
+<p>ECK 위에 hot·warm nodeSet 클러스터를 CRD로 정의한다. Operator는 <code>helm install elastic-operator elastic/eck-operator</code>로 먼저 설치한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">elasticsearch.k8s.elastic.co/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Elasticsearch</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">search-prod</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">elastic</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">version:</span> <span class="hljs-number">9.0</span><span class="hljs-number">.0</span>
+  <span class="hljs-attr">nodeSets:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">hot</span>
+      <span class="hljs-attr">count:</span> <span class="hljs-number">3</span>
+      <span class="hljs-attr">config:</span>
+        <span class="hljs-attr">node.roles:</span> [<span class="hljs-string">&quot;master&quot;</span>, <span class="hljs-string">&quot;data_hot&quot;</span>, <span class="hljs-string">&quot;ingest&quot;</span>]
+      <span class="hljs-attr">podTemplate:</span>
+        <span class="hljs-attr">spec:</span>
+          <span class="hljs-attr">containers:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">elasticsearch</span>
+              <span class="hljs-attr">resources:</span>
+                <span class="hljs-attr">requests:</span> { <span class="hljs-attr">cpu:</span> <span class="hljs-number">2</span>, <span class="hljs-attr">memory:</span> <span class="hljs-string">8Gi</span> }
+                <span class="hljs-attr">limits:</span> { <span class="hljs-attr">memory:</span> <span class="hljs-string">8Gi</span> }
+      <span class="hljs-attr">volumeClaimTemplates:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">metadata:</span> { <span class="hljs-attr">name:</span> <span class="hljs-string">elasticsearch-data</span> }
+          <span class="hljs-attr">spec:</span>
+            <span class="hljs-attr">accessModes:</span> [<span class="hljs-string">&quot;ReadWriteOnce&quot;</span>]
+            <span class="hljs-attr">resources:</span> { <span class="hljs-attr">requests:</span> { <span class="hljs-attr">storage:</span> <span class="hljs-string">200Gi</span> } }
+            <span class="hljs-attr">storageClassName:</span> <span class="hljs-string">gp3</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">warm</span>
+      <span class="hljs-attr">count:</span> <span class="hljs-number">2</span>
+      <span class="hljs-attr">config:</span>
+        <span class="hljs-attr">node.roles:</span> [<span class="hljs-string">&quot;data_warm&quot;</span>]</code></pre>
+<p>Spring Boot 3.x에서 Elastic Cloud에 API Key로 접속하는 <code>ElasticsearchClient</code> 설정이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.search.config;
+
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.json.jackson.JacksonJsonpMapper;
+<span class="hljs-keyword">import</span> co.elastic.clients.transport.rest5_client.Rest5ClientTransport;
+<span class="hljs-keyword">import</span> co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
+<span class="hljs-keyword">import</span> org.apache.hc.core5.http.HttpHost;
+<span class="hljs-keyword">import</span> org.apache.hc.core5.http.message.BasicHeader;
+<span class="hljs-keyword">import</span> org.springframework.beans.factory.annotation.Value;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ElasticCloudConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">ElasticsearchClient</span> <span class="hljs-title function_">elasticsearchClient</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;${elastic.cloud.endpoint}&quot;)</span> String endpoint,
+            <span class="hljs-meta">@Value(&quot;${elastic.cloud.api-key}&quot;)</span> String apiKey)</span> {
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">restClient</span> <span class="hljs-operator">=</span> Rest5Client.builder(HttpHost.create(endpoint))
+                .setDefaultHeaders(<span class="hljs-keyword">new</span> <span class="hljs-title class_">BasicHeader</span>[] {
+                        <span class="hljs-keyword">new</span> <span class="hljs-title class_">BasicHeader</span>(<span class="hljs-string">&quot;Authorization&quot;</span>, <span class="hljs-string">&quot;ApiKey &quot;</span> + apiKey)
+                })
+                .build();
+
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ElasticsearchClient</span>(
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">Rest5ClientTransport</span>(restClient, <span class="hljs-keyword">new</span> <span class="hljs-title class_">JacksonJsonpMapper</span>()));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Kibana 기본 시간 범위.</strong> Discover 기본값 Last 15 minutes 때문에 과거 장애 로그가 0건으로 보인다. 운영 대시보드는 24h 이상으로 저장한다.</li>
+<li><strong>Saved Object 백업.</strong> 대시보드는 <code>.kibana</code> 시스템 인덱스에 있으므로 export ndjson을 git에 커밋하고 정기 스냅샷에 포함한다.</li>
+<li><strong>UltraWarm 응답.</strong> 캐시 미스 시 수십 초까지 느려져 사용자 대면 인덱스는 Hot에 둔다.</li>
+<li><strong>매니지드 스냅샷 보존.</strong> AWS는 14일, Elastic Cloud Hosted는 직전 24시간만 보관한다. 그 이전 복구는 자체 리포지토리와 SLM 정책이 필요하다.</li>
+<li><strong>인덱스 매핑 immutability.</strong> <code>elasticstack_elasticsearch_index</code>의 mappings를 바꾸면 인덱스 replace로 데이터가 사라진다. Terraform은 index template·alias를 관리하고 새 매핑은 새 인덱스로 만든다. 비밀은 Secrets Manager·Vault로 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/index-management-ilm/">Index 관리·ILM·Rollover</a></li>
+<li><a href="/notes/elasticsearch/snapshot-security/">Snapshot·Restore와 보안 (RBAC)</a></li>
+<li><a href="/notes/elasticsearch/spring-data-elasticsearch/">Spring Data Elasticsearch</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kibana, Elastic Cloud, OpenSearch, Terraform, ECK</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/spring-data-elasticsearch/"><small>이전</small>Spring Data Elasticsearch</a>
+  <a class="next" href="/notes/elasticsearch/decision-checklist/"><small>다음</small>마무리 — 결정 트리와 체크리스트</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

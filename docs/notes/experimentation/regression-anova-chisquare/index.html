@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>회귀·ANOVA·카이제곱 · 실험과 분석</title>
+  <meta name="description" content="두 변수의 관계는 회귀로, 세 그룹 이상의 평균은 ANOVA로, 범주형 빈도는 카이제곱으로 검정하는 기준을 정리한다">
+  <meta property="og:title" content="회귀·ANOVA·카이제곱 · 실험과 분석">
+  <meta property="og:description" content="두 변수의 관계는 회귀로, 세 그룹 이상의 평균은 ANOVA로, 범주형 빈도는 카이제곱으로 검정하는 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/regression-anova-chisquare/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>회귀·ANOVA·카이제곱</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · 통계 기초</p>
+  <h1>회귀·ANOVA·카이제곱</h1>
+  <p class="summary">두 변수의 관계는 회귀로, 세 그룹 이상의 평균은 ANOVA로, 범주형 빈도는 카이제곱으로 검정하는 기준을 정리한다</p>
+  <div class="content">
+<p>t-검정과 z-검정은 한 집단 또는 두 집단의 평균만 다룬다. 실무 데이터는 그 범위를 자주 벗어난다. 광고비와 매출처럼 두 연속 변수의 관계를 수치로 표현해야 하고, 세 개 이상의 실험군 평균을 한 번에 비교해야 하며, 연령대별 선호 항목처럼 빈도로만 주어지는 범주형 데이터도 검정해야 한다. 이때 t-검정을 반복하면 제1종 오류율이 통제되지 않고, 범주형 데이터에 평균 검정을 적용하면 결과 자체가 성립하지 않는다. 회귀·ANOVA·카이제곱은 각각 이 세 상황을 담당하는 도구다.</p>
+<h2>핵심 개념</h2>
+<h3>상관계수와 단순 선형 회귀</h3>
+<p>피어슨 상관계수 r은 두 변수의 선형 관계의 방향과 강도를 -1과 1 사이의 값으로 나타낸다. 공분산을 두 표준편차의 곱으로 나눈 값이므로 단위가 없다. |r|이 0.7 이상이면 강한 상관, 0.3 미만이면 약한 상관으로 본다. r = 0은 선형 관계가 없다는 뜻이지 관계가 없다는 뜻이 아니다. y = x² 같은 비선형 관계는 r이 0에 가깝게 나온다. 결정계수 R² = r²는 독립 변수가 종속 변수 변동을 설명하는 비율이다. r = 0.8이면 설명력은 80%가 아니라 64%다.</p>
+<p>회귀선 ŷ = b₀ + b₁x는 잔차 제곱합 Σ(yᵢ - ŷᵢ)²을 최소화하는 직선이다. 기울기와 절편은 다음과 같이 구한다.</p>
+<ul>
+<li>b₁ = (nΣxy - ΣxΣy) / (nΣx² - (Σx)²) = r · (Sy / Sx)</li>
+<li>b₀ = ȳ - b₁x̄</li>
+</ul>
+<p>회귀가 성립하려면 선형성·잔차 독립성·등분산성·잔차 정규성 네 가지 가정이 필요하다. 잔차 도표에서 곡선 패턴이 보이면 선형성 위반, 깔때기 모양이면 이분산성, 시간순 패턴이면 자기상관을 의심한다. 독립 변수가 여러 개인 다중 회귀에서는 변수를 추가할수록 R²가 기계적으로 상승하므로 변수 수 k로 보정한 조정된 R²를 본다.</p>
+<h3>ANOVA</h3>
+<p>세 그룹 이상의 평균이 같은지 검정한다. 그룹이 3개일 때 t-검정을 세 번 하면 모두 귀무가설이 참이라도 최소 한 번 기각할 확률이 1 - 0.95³ = 14.3%가 된다. ANOVA는 검정 한 번으로 전체 오류율을 α에 묶는다.</p>
+<p>F = MSB / MSW로 계산하며, MSB = SSB / (k - 1)은 그룹 간 분산, MSW = SSW / (N - k)는 그룹 내 분산이다. F가 1 부근이면 그룹 간 차이가 그룹 내 변동 수준이라는 뜻이고, F가 크면 귀무가설을 기각한다. 가정은 각 그룹의 정규성, 등분산성, 관측치 독립이다. 기각은 적어도 한 쌍의 평균이 다르다는 결론일 뿐이므로, 어느 쌍인지는 Tukey HSD나 Bonferroni 같은 사후 검정으로 확인한다.</p>
+<h3>카이제곱 검정</h3>
+<p>범주형 데이터의 빈도를 검정한다. 통계량은 χ² = Σ(O - E)² / E로, 관측 빈도 O가 기대 빈도 E에서 얼마나 벗어났는지를 모든 셀에서 합산한다. 적용 조건은 무작위 표본, 모든 셀의 기대 빈도 5 이상, 표본이 모집단의 10% 이하다. 계산식은 같지만 목적과 표본 설계에 따라 세 가지로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">검정</th>
+<th align="left">표본</th>
+<th align="left">질문</th>
+<th align="left">자유도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">동질성</td>
+<td align="left">독립된 여러 표본</td>
+<td align="left">그룹별 분포가 같은가</td>
+<td align="left">(행-1)(열-1)</td>
+</tr>
+<tr>
+<td align="left">독립성</td>
+<td align="left">하나의 표본</td>
+<td align="left">두 변수가 독립인가</td>
+<td align="left">(행-1)(열-1)</td>
+</tr>
+<tr>
+<td align="left">적합도</td>
+<td align="left">하나의 표본</td>
+<td align="left">특정 분포를 따르는가</td>
+<td align="left">범주 수 - 1</td>
+</tr>
+</tbody></table>
+<p>교차표의 기대 빈도는 (행 합계 × 열 합계) / 전체 합계로 구한다. 임계값을 넘지 못하면 차이를 검출하지 못한 것이지 차이가 없음을 증명한 것이 아니다.</p>
+<h3>비모수 검정과 효과 크기</h3>
+<p>정규성이 성립하지 않거나 표본이 매우 작거나 데이터가 순위 척도이면 원자료를 순위로 변환하는 비모수 검정을 쓴다. 독립 t-검정은 Mann-Whitney U, 대응 t-검정은 Wilcoxon signed-rank, ANOVA는 Kruskal-Wallis에 대응한다. 정규성이 충족되는 상황에서 비모수를 쓰면 검정력이 떨어진다.</p>
+<p>p-value는 차이가 우연일 가능성을 말할 뿐 차이의 크기를 말하지 않는다. 표본이 충분히 크면 무의미한 차이도 p &lt; 0.05가 된다. 평균 차이는 Cohen&#39;s d = (μ₁ - μ₂) / σ_pooled로 보고하며 0.2·0.5·0.8을 작음·중간·큼의 기준으로 삼는다. 검정력 1 - β는 80% 이상을 목표로 하고, 표본 크기는 실험 시작 전에 감지하려는 차이 Δ와 표준편차 σ로부터 n = ((z_α/2 + z_β) / (Δ/σ))²로 정한다.</p>
+<h2>코드</h2>
+<p>단순 선형 회귀의 기울기·절편·결정계수를 최소제곱법으로 구하는 Java 21 레코드 기반 구현이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.stats;
+
+<span class="hljs-keyword">import</span> java.util.stream.IntStream;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">SimpleRegression</span><span class="hljs-params">(<span class="hljs-type">double</span> slope, <span class="hljs-type">double</span> intercept, <span class="hljs-type">double</span> r2)</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">SimpleRegression</span> <span class="hljs-title function_">fit</span><span class="hljs-params">(<span class="hljs-type">double</span>[] x, <span class="hljs-type">double</span>[] y)</span> {
+        <span class="hljs-keyword">if</span> (x.length != y.length || x.length &lt; <span class="hljs-number">2</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;x와 y의 길이가 같아야 하고 2개 이상이어야 한다&quot;</span>);
+        }
+        <span class="hljs-type">int</span> <span class="hljs-variable">n</span> <span class="hljs-operator">=</span> x.length;
+        <span class="hljs-type">double</span> <span class="hljs-variable">sumX</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>, sumY = <span class="hljs-number">0</span>, sumXY = <span class="hljs-number">0</span>, sumX2 = <span class="hljs-number">0</span>, sumY2 = <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; n; i++) {
+            sumX += x[i];
+            sumY += y[i];
+            sumXY += x[i] * y[i];
+            sumX2 += x[i] * x[i];
+            sumY2 += y[i] * y[i];
+        }
+        <span class="hljs-type">double</span> <span class="hljs-variable">slope</span> <span class="hljs-operator">=</span> (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        <span class="hljs-type">double</span> <span class="hljs-variable">intercept</span> <span class="hljs-operator">=</span> sumY / n - slope * sumX / n;
+        <span class="hljs-type">double</span> <span class="hljs-variable">r</span> <span class="hljs-operator">=</span> (n * sumXY - sumX * sumY)
+                / Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SimpleRegression</span>(slope, intercept, r * r);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span> <span class="hljs-title function_">predict</span><span class="hljs-params">(<span class="hljs-type">double</span> x)</span> {
+        <span class="hljs-keyword">return</span> intercept + slope * x;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">double</span>[] <span class="hljs-title function_">residuals</span><span class="hljs-params">(<span class="hljs-type">double</span>[] x, <span class="hljs-type">double</span>[] y)</span> {
+        <span class="hljs-keyword">return</span> IntStream.range(<span class="hljs-number">0</span>, x.length)
+                .mapToDouble(i -&gt; y[i] - predict(x[i]))
+                .toArray();
+    }
+}</code></pre>
+<p>교차표를 받아 카이제곱 통계량과 자유도를 계산하고, 기대 빈도 5 미만 셀이 있으면 거부하는 서비스다. p-value 변환은 Apache Commons Math의 ChiSquaredDistribution을 사용한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.stats;
+
+<span class="hljs-keyword">import</span> org.apache.commons.math3.distribution.ChiSquaredDistribution;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ChiSquareService</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Result</span><span class="hljs-params">(<span class="hljs-type">double</span> statistic, <span class="hljs-type">int</span> degreesOfFreedom, <span class="hljs-type">double</span> pValue)</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Result</span> <span class="hljs-title function_">testIndependence</span><span class="hljs-params">(<span class="hljs-type">long</span>[][] observed)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">rows</span> <span class="hljs-operator">=</span> observed.length;
+        <span class="hljs-type">int</span> <span class="hljs-variable">cols</span> <span class="hljs-operator">=</span> observed[<span class="hljs-number">0</span>].length;
+        <span class="hljs-type">long</span>[] <span class="hljs-variable">rowTotal</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">long</span>[rows];
+        <span class="hljs-type">long</span>[] <span class="hljs-variable">colTotal</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">long</span>[cols];
+        <span class="hljs-type">long</span> <span class="hljs-variable">total</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; rows; i++) {
+            <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">j</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; j &lt; cols; j++) {
+                rowTotal[i] += observed[i][j];
+                colTotal[j] += observed[i][j];
+                total += observed[i][j];
+            }
+        }
+        <span class="hljs-type">double</span> <span class="hljs-variable">chi2</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; rows; i++) {
+            <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">j</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; j &lt; cols; j++) {
+                <span class="hljs-type">double</span> <span class="hljs-variable">expected</span> <span class="hljs-operator">=</span> (<span class="hljs-type">double</span>) rowTotal[i] * colTotal[j] / total;
+                <span class="hljs-keyword">if</span> (expected &lt; <span class="hljs-number">5</span>) {
+                    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(
+                            <span class="hljs-string">&quot;기대 빈도 5 미만 셀 존재: (%d,%d)=%.2f&quot;</span>.formatted(i, j, expected));
+                }
+                <span class="hljs-type">double</span> <span class="hljs-variable">diff</span> <span class="hljs-operator">=</span> observed[i][j] - expected;
+                chi2 += diff * diff / expected;
+            }
+        }
+        <span class="hljs-type">int</span> <span class="hljs-variable">df</span> <span class="hljs-operator">=</span> (rows - <span class="hljs-number">1</span>) * (cols - <span class="hljs-number">1</span>);
+        <span class="hljs-type">double</span> <span class="hljs-variable">pValue</span> <span class="hljs-operator">=</span> <span class="hljs-number">1</span> - <span class="hljs-keyword">new</span> <span class="hljs-title class_">ChiSquaredDistribution</span>(df).cumulativeProbability(chi2);
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Result</span>(chi2, df, pValue);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>상관은 인과가 아니다.</strong> 아이스크림 판매량과 익사 사고 수는 양의 상관을 보이지만 둘 다 기온이라는 교란 변수의 결과다. 관찰 데이터에서 강한 상관을 발견하면 제3의 변수를 먼저 의심하고, 인과를 주장하려면 무작위 통제 실험이나 차이의 차이 같은 설계가 필요하다.</li>
+<li><strong>외삽은 신뢰할 수 없다.</strong> 회귀선은 관측된 x 범위 안에서만 유효하다. 1~5월 데이터로 적합한 모델에 x = 100을 넣으면 수식은 값을 내놓지만 그 값에는 근거가 없다.</li>
+<li><strong>영향점 한 개가 기울기를 바꾼다.</strong> x가 극단적인 레버리지 점이 큰 잔차까지 가지면 회귀선 전체가 끌려간다. 데이터 오류로 확인된 경우에만 제거한다.</li>
+<li><strong>다중 비교를 보정하지 않으면 거짓 양성이 쌓인다.</strong> 검정 k번의 FWER은 1 - (1 - α)^k로, α = 0.05에서 20번이면 64%에 이른다. 여러 지표를 동시에 보는 실험에서는 Bonferroni(α/k)나 Benjamini-Hochberg FDR 절차로 보정한다.</li>
+<li><strong>카이제곱의 기대 빈도 조건을 무시하면 근사가 깨진다.</strong> 희소한 범주가 섞인 교차표는 셀 기대 빈도가 5 아래로 떨어지기 쉽다. 범주를 병합하거나 Fisher 정확 검정으로 대체한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/distributions-hypothesis-testing/">확률 분포·가설 검정·신뢰구간</a></li>
+<li><a href="/notes/experimentation/ab-test-statistics/">A/B 테스트 통계 — 카이제곱·베이지안·다중 비교</a></li>
+<li><a href="/notes/experimentation/ab-test-basics-design/">A/B 테스트 — 대조군·전환율·가설과 지표 설계</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · regression, ANOVA, chi-square, 효과 크기, 다중 비교</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/distributions-hypothesis-testing/"><small>이전</small>확률 분포·가설 검정·신뢰구간</a>
+  <a class="next" href="/notes/experimentation/ab-test-basics-design/"><small>다음</small>A/B 테스트 — 대조군·전환율·가설과 지표 설계</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canvas·Campaign 운영과 도입 결정 · Braze</title>
+  <meta name="description" content="Canvas 5 구성 요소와 Step 종류로 journey를 설계하는 법, 그리고 Braze 도입 여부를 가르는 기준을 정리한다.">
+  <meta property="og:title" content="Canvas·Campaign 운영과 도입 결정 · Braze">
+  <meta property="og:description" content="Canvas 5 구성 요소와 Step 종류로 journey를 설계하는 법, 그리고 Braze 도입 여부를 가르는 기준을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/braze/canvas-operations-adoption/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/braze/">Braze</a><span class="sep">›</span><span>Canvas·Campaign 운영과 도입 결정</span></nav>
+    <article class="post">
+  <p class="part">Braze · 메시징과 운영</p>
+  <h1>Canvas·Campaign 운영과 도입 결정</h1>
+  <p class="summary">Canvas 5 구성 요소와 Step 종류로 journey를 설계하는 법, 그리고 Braze 도입 여부를 가르는 기준을 정리한다.</p>
+  <div class="content">
+<p>사용자 데이터를 쌓아도 언제 어떤 채널에 무엇을 보낼지 정하는 층이 없으면 발송은 개발자의 배치 스크립트로 되돌아간다. 가입 후 24시간 미결제면 push, 48시간 뒤에도 미결제면 in-app 같은 다단계 분기를 코드로 유지하면 조건이 바뀔 때마다 배포가 필요하고, 같은 사용자에게 여러 채널이 동시에 쏟아지는 폭격도 막기 어렵다. Braze에서 이 자리를 맡는 것이 Campaign과 Canvas이며, 이 층을 누가 운영하고 어느 규모에서 가치가 생기는지가 도입 결정을 가른다.</p>
+<h2>핵심 개념</h2>
+<p>Campaign은 단일 메시지를 한 번 보내는 단위이고, Canvas는 여러 메시지를 분기·지연·조건으로 엮은 journey 자동화 단위다. Campaign은 One-time(정해진 시각 1회), Trigger-based(사용자 행동 시 자동), API-triggered(<code>/campaigns/trigger/send</code>로 백엔드가 발송 시점 통제), Recurring(정기 반복) 네 타입으로 나뉜다. 서버가 시점을 아는 트랜잭션 메시지는 API-triggered Campaign, Onboarding·Cart Abandonment·Win-back처럼 상태에 따라 갈라지는 lifecycle은 Canvas가 맞다.</p>
+<p>Canvas는 다섯 요소로 구성된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">요소</th>
+<th align="left">역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Entry</td>
+<td align="left">진입 트리거. Custom Event · Scheduled · API-triggered(<code>/canvas/trigger/send</code>) · Segment Entry</td>
+</tr>
+<tr>
+<td align="left">Audience</td>
+<td align="left">진입 시점에 평가하는 전체 필터(구독 상태·국가·앱 버전 등)</td>
+</tr>
+<tr>
+<td align="left">Flow</td>
+<td align="left">Step의 연결</td>
+</tr>
+<tr>
+<td align="left">Exit</td>
+<td align="left">종료 조건. Goal event 도달 · Audience 위반 · Custom Event · timeout</td>
+</tr>
+<tr>
+<td align="left">Variants</td>
+<td align="left">Flow 전체에 겹치는 A/B 실험 층</td>
+</tr>
+</tbody></table>
+<p>Flow를 이루는 Step은 일곱 종류다. Message(채널별 발송), Delay(고정 시간·특정 시각·특정 요일까지), Decision(조건 분기), Webhook(외부 HTTP 호출), Update User Attribute(속성 변경), Audience Filter(중간 재평가), Wait Until(event 발생 또는 최대 대기 시간까지 대기)이다. Decision은 다시 행동 기반 Action Path(지난 N일 안 특정 event 발생 여부), 특성 기반 Audience Path(segment 멤버십), 무작위 Random Split(A/B/n)으로 갈린다.</p>
+<p>Campaign의 variant가 제목·본문 수준이라면, Canvas의 variant는 &quot;email → 24h → push&quot;와 &quot;push → 24h → email&quot;처럼 채널 순서·타이밍·시퀀스 전체를 비교한다. 다만 통계 처리는 전용 실험 플랫폼보다 약하므로 제품 실험은 Statsig 계열에 두고 Braze는 메시징 시퀀스 비교에 한정하는 편이 분업이 깨끗하다.</p>
+<p>도입 결정은 규모·채널·운영 주체로 갈린다. 사용자 1만 명 이하이거나 email 단일 채널이면 Mailchimp·OneSignal급으로 충분하고, 1만<del>10만은 Customer.io·Klaviyo 같은 mid-tier, 10만 이상에서 여러 채널을 함께 굴리며 마케터가 직접 journey를 설계해야 할 때 Braze의 multi-channel orchestration이 가치를 낸다. Shopify 중심은 Klaviyo, B2B CRM 결합은 HubSpot·Salesforce가 우세하고, self-host 필수 환경은 SaaS-only인 Braze로 풀 수 없다. 라이선스는 연 $50K</del>$200K대이며 free tier가 없다.</p>
+<h2>코드</h2>
+<p>결제 완료 시 API-triggered Canvas를 진입시키는 Spring Boot 3.x 클라이언트다. entry property는 마케터가 Liquid에서 참조하는 계약 필드이므로 record로 고정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BrazeCanvasClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String canvasId;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">BrazeCanvasClient</span><span class="hljs-params">(RestClient.Builder builder,
+                             <span class="hljs-meta">@Value(&quot;${braze.rest-endpoint}&quot;)</span> String endpoint,
+                             <span class="hljs-meta">@Value(&quot;${braze.api-key}&quot;)</span> String apiKey,
+                             <span class="hljs-meta">@Value(&quot;${braze.canvas.receipt-id}&quot;)</span> String canvasId)</span> {
+        <span class="hljs-built_in">this</span>.restClient = builder
+                .baseUrl(endpoint)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, <span class="hljs-string">&quot;Bearer &quot;</span> + apiKey)
+                .build();
+        <span class="hljs-built_in">this</span>.canvasId = canvasId;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">ReceiptProperties</span><span class="hljs-params">(String orderId, <span class="hljs-type">long</span> value, String currency)</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">triggerReceipt</span><span class="hljs-params">(String externalId, ReceiptProperties props)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">body</span> <span class="hljs-operator">=</span> Map.of(
+                <span class="hljs-string">&quot;canvas_id&quot;</span>, canvasId,
+                <span class="hljs-string">&quot;recipients&quot;</span>, List.of(Map.of(
+                        <span class="hljs-string">&quot;external_user_id&quot;</span>, externalId,
+                        <span class="hljs-string">&quot;canvas_entry_properties&quot;</span>, Map.of(
+                                <span class="hljs-string">&quot;order_id&quot;</span>, props.orderId(),
+                                <span class="hljs-string">&quot;value&quot;</span>, props.value(),
+                                <span class="hljs-string">&quot;currency&quot;</span>, props.currency()))));
+        restClient.post()
+                .uri(<span class="hljs-string">&quot;/canvas/trigger/send&quot;</span>)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+}</code></pre>
+<p>Webhook Step이 호출하는 수신 엔드포인트다. Braze는 실패 시 재시도하므로 사용자와 step을 키로 멱등 처리하고 실제 작업은 비동기로 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/internal/braze&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BrazeWebhookController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> IdempotencyStore idempotencyStore;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApplicationEventPublisher publisher;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">BrazeWebhookController</span><span class="hljs-params">(IdempotencyStore idempotencyStore,
+                                  ApplicationEventPublisher publisher)</span> {
+        <span class="hljs-built_in">this</span>.idempotencyStore = idempotencyStore;
+        <span class="hljs-built_in">this</span>.publisher = publisher;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">CanvasStepPayload</span><span class="hljs-params">(@NotBlank String externalId, @NotBlank String step)</span> {}
+
+    <span class="hljs-meta">@PostMapping(&quot;/canvas-step&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ResponseEntity</span>&lt;Void&gt; <span class="hljs-title function_">onCanvasStep</span><span class="hljs-params">(
+            <span class="hljs-meta">@RequestHeader(&quot;X-Braze-Signature&quot;)</span> String signature,
+            <span class="hljs-meta">@Valid</span> <span class="hljs-meta">@RequestBody</span> CanvasStepPayload payload)</span> {
+        <span class="hljs-keyword">if</span> (!idempotencyStore.markIfAbsent(payload.externalId() + <span class="hljs-string">&quot;:&quot;</span> + payload.step())) {
+            <span class="hljs-keyword">return</span> ResponseEntity.ok().build();
+        }
+        publisher.publishEvent(<span class="hljs-keyword">new</span> <span class="hljs-title class_">CanvasStepReached</span>(payload.externalId(), payload.step()));
+        <span class="hljs-keyword">return</span> ResponseEntity.accepted().build();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>Audience 필터는 Entry 시점에 한 번 평가된다. 진입 후 국가나 구독 상태가 바뀐 사용자도 journey를 계속 타므로, 중간 재평가가 필요하면 Audience Filter Step을 끼우고 Exit 조건에 구독 해지를 넣는다. 구독 상태 동기화가 늦으면 수신 거부자에게 발송된다.</li>
+<li>Exit 조건 없이 goal에 도달한 사용자에게 후속 메시지가 계속 나가는 사고가 잦다. Cart Abandonment는 <code>checkout_completed</code>, Onboarding은 첫 결제처럼 goal event 자동 종료를 기본으로 두고 최대 기간(7일·30일)도 함께 건다.</li>
+<li>마케터가 Liquid에서 쓰는 attribute·event property는 엔지니어가 실제로 보내는 것과 일치해야 한다. 서버가 보낸 적 없는 <code>preferred_category</code>를 참조하면 모든 사용자에게 빈 개인화가 나간다. 사용 가능한 attribute·event·trigger property 목록을 계약으로 명문화하고 default 값을 강제한다.</li>
+<li>운영 중인 Canvas의 Audience·Flow·Goal 변경은 이미 진입한 사용자 경로를 흔든다. 콘텐츠 수정은 다음 발송부터 반영되어 안전하지만, 구조 변경은 새 Canvas를 만들고 기존 것은 진입만 끊는다.</li>
+<li>variant별 표본이 수백 명이면 검정력이 나오지 않는다. 각 variant 수천 명 이상, 1주 이상 운영 뒤 판단하고 우월한 variant는 100%로 전환한다. 도입 1년 뒤에도 캠페인 수가 그대로이고 A/B 실험이 없다면 도구가 아니라 운영 방식이 안 바뀐 것이다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/braze/what-is-braze/">Braze란 — 고객 참여 플랫폼의 5 핵심 개념</a></li>
+<li><a href="/notes/braze/rest-api-currents/">REST API와 Currents</a></li>
+<li><a href="/notes/braze/channels-liquid-personalization/">메시지 채널과 Liquid 개인화</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Braze, Canvas, Campaign, Journey Orchestration, 도입 결정</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/braze/channels-liquid-personalization/"><small>이전</small>메시지 채널과 Liquid 개인화</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft · Kafka</title>
+  <meta name="description" content="Topic CRUD·파티션 재할당·무중단 재시작·KRaft 컨트롤러 쿼럼까지, 클러스터를 멈추지 않고 바꾸는 운영 절차를 정리한다.">
+  <meta property="og:title" content="운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft · Kafka">
+  <meta property="og:description" content="Topic CRUD·파티션 재할당·무중단 재시작·KRaft 컨트롤러 쿼럼까지, 클러스터를 멈추지 않고 바꾸는 운영 절차를 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/operations-kraft/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 운영</p>
+  <h1>운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</h1>
+  <p class="summary">Topic CRUD·파티션 재할당·무중단 재시작·KRaft 컨트롤러 쿼럼까지, 클러스터를 멈추지 않고 바꾸는 운영 절차를 정리한다.</p>
+  <div class="content">
+<p>트래픽이 늘면 파티션과 브로커를 늘려야 하고, 패치와 업그레이드 때문에 모든 브로커를 주기적으로 재시작해야 한다. 절차 없이 하면 문제가 바로 드러난다. 브로커를 추가만 하면 새 브로커는 빈 채로 놀고, 재할당을 제한 없이 실행하면 복제 트래픽이 정상 트래픽을 밀어내며, <code>kill -9</code>로 내리면 ISR이 깨져 unclean leader election 위험이 생긴다. Kafka 4.0부터 ZooKeeper가 제거되어 KRaft가 유일한 모드이므로 컨트롤러 쿼럼 설계와 포맷도 운영자의 몫이다.</p>
+<h2>핵심 개념</h2>
+<h3>Topic·Consumer Group 관리</h3>
+<p>Topic CRUD는 <code>kafka-topics.sh</code>, 토픽별 설정은 <code>kafka-configs.sh</code>가 담당한다. 파티션 수는 늘릴 수만 있고, 늘려도 기존 메시지는 원래 파티션에 남아 같은 key의 순서 보장이 추가 시점을 경계로 끊어진다. 삭제는 비동기로 브로커가 백그라운드에서 처리한다.</p>
+<p>Consumer Group은 <code>kafka-consumer-groups.sh --describe</code>로 파티션별 LAG를 확인한다. <code>--reset-offsets</code>는 <code>--to-earliest</code>·<code>--to-latest</code>·<code>--to-datetime</code>·<code>--to-offset</code>으로 재처리 시작점을 정하며, <code>--execute</code> 전에 <code>--dry-run</code>으로 확인한다. 활성 컨슈머가 있으면 리셋과 그룹 삭제 모두 거부된다.</p>
+<h3>Partition Reassignment</h3>
+<p>브로커를 추가·제거할 때 레플리카를 옮기는 작업이다. <code>kafka-reassign-partitions.sh</code>의 <code>--generate</code>가 제안 배치 JSON을 만들고, <code>--execute</code>가 복제를 시작하며, <code>--verify</code>가 진행 상태를 보고하고 완료 시 스로틀을 제거한다. <code>--throttle</code>은 바이트/초 단위 복제 대역폭 상한이며 운영 환경에서는 항상 지정한다.</p>
+<h3>Preferred Leader Election</h3>
+<p>레플리카 목록의 첫 브로커가 preferred leader다. 재할당이나 재시작 뒤 리더가 한쪽에 몰리면 <code>auto.leader.rebalance.enable=true</code>(기본)가 <code>leader.imbalance.per.broker.percentage</code> 기준으로 주기적으로 복구하고, 즉시 되돌리려면 <code>kafka-leader-election.sh --election-type preferred</code>를 실행한다.</p>
+<h3>Rolling Restart</h3>
+<p>브로커를 한 대씩 내리고 올리면서 매 단계 <code>--under-replicated-partitions</code> 결과가 비어 있는지 확인한 뒤 다음으로 넘어간다. 그 전에 다음 브로커를 내리면 ISR이 <code>min.insync.replicas</code> 아래로 떨어져 쓰기가 거부된다. 브로커는 정상 종료 신호를 받아야 리더십을 넘기고 내려간다.</p>
+<h3>KRaft 컨트롤러 쿼럼</h3>
+<p>KRaft는 Kafka가 자체 Raft 로그에 메타데이터를 저장하는 방식이다. 3.3에서 프로덕션 준비, 4.0에서 ZooKeeper 제거이며, 기존 ZooKeeper 클러스터는 3.9에서 마이그레이션을 마친 뒤 4.0으로 올린다.</p>
+<p>각 노드는 <code>process.roles</code>로 역할을 정한다. <code>controller</code>는 메타데이터 쿼럼에만 참여하고, <code>broker</code>는 데이터만 다루며, <code>broker,controller</code>는 둘을 한 프로세스에서 맡는 combined 모드다. Combined는 브로커 부하가 컨트롤러 응답에 영향을 주므로 개발·테스트용이며, 운영 환경은 컨트롤러 전용 노드를 분리한 dedicated 모드로 구성한다.</p>
+<table>
+<thead>
+<tr>
+<th align="center">컨트롤러 수</th>
+<th align="center">허용 장애 수</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center">1</td>
+<td align="center">0</td>
+<td align="left">로컬 개발</td>
+</tr>
+<tr>
+<td align="center">3</td>
+<td align="center">1</td>
+<td align="left">소·중규모 운영 표준</td>
+</tr>
+<tr>
+<td align="center">5</td>
+<td align="center">2</td>
+<td align="left">대규모 또는 다중 AZ</td>
+</tr>
+</tbody></table>
+<p>쿼럼은 과반 합의라 홀수로 구성하며, active controller가 죽으면 1초 안팎에 standby 중 새 리더가 선출된다. 초기 구성 시 <code>kafka-storage.sh random-uuid</code>로 만든 cluster ID로 모든 노드를 <code>format</code>해야 하고, 상태는 <code>kafka-metadata-quorum.sh describe --status</code>로 확인한다.</p>
+<h2>코드</h2>
+<p>브로커 4를 추가한 뒤 <code>orders</code> 토픽을 50 MB/s 스로틀로 재분배하는 CLI 절차다.</p>
+<pre><code class="hljs language-bash"><span class="hljs-built_in">cat</span> &gt; topics-to-move.json &lt;&lt;<span class="hljs-string">&#x27;EOF&#x27;</span>
+{<span class="hljs-string">&quot;version&quot;</span>: 1, <span class="hljs-string">&quot;topics&quot;</span>: [{<span class="hljs-string">&quot;topic&quot;</span>: <span class="hljs-string">&quot;orders&quot;</span>}]}
+EOF
+
+kafka-reassign-partitions.sh --bootstrap-server broker-1:9092 \
+  --topics-to-move-json-file topics-to-move.json \
+  --broker-list <span class="hljs-string">&quot;1,2,3,4&quot;</span> --generate &gt; proposal.txt
+<span class="hljs-comment"># proposal.txt 의 &quot;Proposed partition reassignment&quot; 블록을 reassignment.json 으로 저장</span>
+
+kafka-reassign-partitions.sh --bootstrap-server broker-1:9092 \
+  --reassignment-json-file reassignment.json \
+  --execute --throttle 50000000
+
+kafka-reassign-partitions.sh --bootstrap-server broker-1:9092 \
+  --reassignment-json-file reassignment.json --verify</code></pre>
+<p>같은 작업을 Spring Boot 3.x에서 <code>AdminClient</code>로 수행하는 예제다. 스로틀을 걸고 재할당을 제출한 뒤 완료를 폴링하고 스로틀을 제거한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.Optional;
+<span class="hljs-keyword">import</span> java.util.Set;
+<span class="hljs-keyword">import</span> java.util.concurrent.TimeUnit;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.AdminClient;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.AlterConfigOp;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.ConfigEntry;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.NewPartitionReassignment;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.TopicPartition;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.config.ConfigResource;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ReassignmentService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">THROTTLE_KEYS</span> <span class="hljs-operator">=</span> List.of(
+        <span class="hljs-string">&quot;leader.replication.throttled.rate&quot;</span>, <span class="hljs-string">&quot;follower.replication.throttled.rate&quot;</span>);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AdminClient admin;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ReassignmentService</span><span class="hljs-params">(AdminClient admin)</span> {
+        <span class="hljs-built_in">this</span>.admin = admin;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">move</span><span class="hljs-params">(String topic, <span class="hljs-type">int</span> partition, List&lt;Integer&gt; replicas, <span class="hljs-type">long</span> throttleBytes)</span>
+            <span class="hljs-keyword">throws</span> Exception {
+        setThrottle(replicas, String.valueOf(throttleBytes), AlterConfigOp.OpType.SET);
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">tp</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TopicPartition</span>(topic, partition);
+        admin.alterPartitionReassignments(
+                Map.of(tp, Optional.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">NewPartitionReassignment</span>(replicas))))
+            .all().get(<span class="hljs-number">30</span>, TimeUnit.SECONDS);
+
+        <span class="hljs-keyword">while</span> (!admin.listPartitionReassignments(Set.of(tp))
+                .reassignments().get(<span class="hljs-number">1</span>, TimeUnit.MINUTES).isEmpty()) {
+            Thread.sleep(<span class="hljs-number">5_000</span>);
+        }
+
+        setThrottle(replicas, <span class="hljs-string">&quot;&quot;</span>, AlterConfigOp.OpType.DELETE);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">setThrottle</span><span class="hljs-params">(List&lt;Integer&gt; brokers, String value, AlterConfigOp.OpType op)</span>
+            <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> brokerId : brokers) {
+            <span class="hljs-type">var</span> <span class="hljs-variable">resource</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConfigResource</span>(ConfigResource.Type.BROKER, String.valueOf(brokerId));
+            <span class="hljs-type">var</span> <span class="hljs-variable">ops</span> <span class="hljs-operator">=</span> THROTTLE_KEYS.stream()
+                .map(k -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">AlterConfigOp</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ConfigEntry</span>(k, value), op))
+                .toList();
+            admin.incrementalAlterConfigs(Map.of(resource, ops)).all().get(<span class="hljs-number">30</span>, TimeUnit.SECONDS);
+        }
+    }
+}</code></pre>
+<p>롤링 재시작에서 다음 브로커로 넘어가도 되는지 판정하는 헬스체크다. 모든 파티션의 ISR이 레플리카 수와 같고 쿼럼 리더가 있을 때만 true다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.concurrent.TimeUnit;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.AdminClient;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RollingRestartGate</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AdminClient admin;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RollingRestartGate</span><span class="hljs-params">(AdminClient admin)</span> {
+        <span class="hljs-built_in">this</span>.admin = admin;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">safeToProceed</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">var</span> <span class="hljs-variable">topics</span> <span class="hljs-operator">=</span> admin.listTopics().names().get(<span class="hljs-number">30</span>, TimeUnit.SECONDS);
+        <span class="hljs-type">var</span> <span class="hljs-variable">descriptions</span> <span class="hljs-operator">=</span> admin.describeTopics(topics).allTopicNames().get(<span class="hljs-number">1</span>, TimeUnit.MINUTES);
+
+        <span class="hljs-type">boolean</span> <span class="hljs-variable">fullyReplicated</span> <span class="hljs-operator">=</span> descriptions.values().stream()
+            .flatMap(d -&gt; d.partitions().stream())
+            .allMatch(p -&gt; p.isr().size() == p.replicas().size());
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">quorum</span> <span class="hljs-operator">=</span> admin.describeMetadataQuorum().quorumInfo().get(<span class="hljs-number">30</span>, TimeUnit.SECONDS);
+        <span class="hljs-type">boolean</span> <span class="hljs-variable">quorumHealthy</span> <span class="hljs-operator">=</span> quorum.leaderId() &gt;= <span class="hljs-number">0</span> &amp;&amp; quorum.voters().size() &gt;= <span class="hljs-number">3</span>;
+
+        <span class="hljs-keyword">return</span> fullyReplicated &amp;&amp; quorumHealthy;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>파티션 추가는 되돌릴 수 없다.</strong> 추가 시점 전후로 같은 key가 다른 파티션에 흩어지므로 key 순서에 의존하는 컨슈머의 영향을 먼저 확인한다.</li>
+<li><strong>스로틀은 재할당 자체도 느리게 만든다.</strong> 새 데이터가 스로틀 값보다 빠르게 쌓이면 재할당이 끝나지 않는다. 진행이 멈추면 <code>--additional --throttle</code>로 상한을 올린다.</li>
+<li><strong>재할당 중 리더 이동은 <code>NotLeaderOrFollowerException</code>으로 나타난다.</strong> 재시도를 끈 클라이언트는 이를 실패로 본다.</li>
+<li><strong>Combined 모드의 롤링 재시작은 쿼럼을 같이 흔든다.</strong> 3노드에서 한 노드를 내린 상태로 두 번째 노드에 문제가 생기면 메타데이터 변경 자체가 멈춘다.</li>
+<li><strong>cluster ID가 다르게 포맷된 노드는 조용히 분리된다.</strong> 프로비저닝 스크립트에서 <code>describe --status</code>의 ClusterId와 대조한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/admin-client/">Admin Client — API 5종 개관과 관리 작업</a></li>
+<li><a href="/notes/kafka/replication-isr/">Replication — ISR·리더 선출·Unclean</a></li>
+<li><a href="/notes/kafka/broker-topic-config/">Broker·Topic 설정</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, KRaft, Partition Reassignment, Rolling Restart, Admin Client</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/broker-topic-config/"><small>이전</small>Broker·Topic 설정</a>
+  <a class="next" href="/notes/kafka/monitoring-performance/"><small>다음</small>Monitoring·Hardware·성능 튜닝</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

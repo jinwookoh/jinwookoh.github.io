@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gRPC — 개념·HTTP/2·Protobuf · Reactive Spring</title>
+  <meta name="description" content="gRPC는 Protobuf 스키마와 HTTP/2 전송을 결합한 RPC이며, 필드 번호가 와이어 호환성을 결정한다.">
+  <meta property="og:title" content="gRPC — 개념·HTTP/2·Protobuf · Reactive Spring">
+  <meta property="og:description" content="gRPC는 Protobuf 스키마와 HTTP/2 전송을 결합한 RPC이며, 필드 번호가 와이어 호환성을 결정한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/grpc-concepts-protobuf/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>gRPC — 개념·HTTP/2·Protobuf</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · gRPC</p>
+  <h1>gRPC — 개념·HTTP/2·Protobuf</h1>
+  <p class="summary">gRPC는 Protobuf 스키마와 HTTP/2 전송을 결합한 RPC이며, 필드 번호가 와이어 호환성을 결정한다.</p>
+  <div class="content">
+<p>마이크로서비스 사이를 HTTP/1.1과 JSON으로 연결하면 요청마다 텍스트 헤더가 반복되고, 응답이 순서대로 처리되어 head-of-line blocking이 생기며, 스키마가 없어 서비스 간 계약이 문서에만 의존한다. 서버 푸시나 양방향 통신도 표현할 수 없다. gRPC는 전송(HTTP/2)과 스키마·직렬화(Protocol Buffers)를 묶어 이 문제를 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>gRPC는 Google 내부 RPC(Stubby)를 2015년 오픈소스화한 CNCF 프로젝트다. Protobuf가 스키마를 정의하고 바이너리로 직렬화하며, HTTP/2가 그 바이트를 나르고, gRPC가 둘을 결합해 언어별 스텁을 생성한다. Kubernetes·Envoy·Istio가 기본 지원하므로 외부 API는 REST, 내부 통신은 gRPC로 두는 구성이 일반적이다.</p>
+<p>HTTP/2는 한 TCP 연결 위에 여러 스트림을 다중화하고, HPACK으로 헤더를 압축하며, 바이너리 프레임을 쓰고, 스트림 단위 양방향 전송을 지원한다. gRPC는 RPC 호출 하나를 HTTP/2 스트림 하나에 대응시켜 연결 하나로 수많은 호출을 병렬 처리한다.</p>
+<p>RPC 모드는 요청·응답이 단일 메시지인지 스트림인지에 따라 Unary(1:1), Server Streaming(1:N), Client Streaming(N:1), Bidirectional Streaming(N:N)으로 나뉘며, <code>rpc</code> 선언의 <code>stream</code> 키워드 위치가 결정한다. RSocket의 Interaction Model과 거의 대응하지만, gRPC는 Protobuf를 전제로 하고 백프레셔는 HTTP/2 흐름 제어에 의존한다.</p>
+<p>Protobuf 와이어 형식에는 필드 이름이 없다. 필드 번호와 와이어 타입을 합친 태그, 길이, 값만 직렬화되므로 번호가 와이어 식별자이고 이름은 코드 생성용이다. 이름 변경은 호환되지만 번호를 바꾸면 기존 데이터가 다른 필드로 해석된다. 1<del>15는 태그가 1바이트라 자주 쓰는 필드에 배정하고, 19000</del>19999는 내부 예약 범위다.</p>
+<p><code>int32</code>/<code>int64</code>는 varint라 작은 양수에 유리하지만 음수는 10바이트를 차지하므로, 음수가 잦으면 zigzag 인코딩의 <code>sint32</code>/<code>sint64</code>, 항상 큰 값이면 <code>fixed32</code>/<code>fixed64</code>를 쓴다. proto3 스칼라 기본값은 null이 아니라 <code>&quot;&quot;</code>, 0, false이며, 미설정과 구분하려면 <code>optional</code>이나 Wrapper 타입을 쓴다. proto2의 <code>required</code>는 제거되었다.</p>
+<p>복합 구조로는 <code>repeated</code>, <code>map&lt;K, V&gt;</code>(키는 정수·string·bool만), 중첩 메시지, <code>enum</code>(첫 값은 반드시 0), <code>oneof</code>(하나만 설정, 다른 필드 설정 시 기존 값 해제)가 있고, Well-Known Types로 <code>Timestamp</code>·<code>Duration</code>·<code>Empty</code>·<code>Any</code>가 제공된다.</p>
+<p>스키마 진화 규칙은 번호 중심이다. 새 필드 추가는 안전하다. 구버전은 모르는 필드를 무시하고 신버전은 없는 필드를 기본값으로 읽는다. 필드 삭제 시 번호와 이름을 <code>reserved</code>로 남기면 재사용이 컴파일 단계에서 차단된다. 번호 변경, <code>repeated</code>와 단일 필드 간 변경은 파괴적이다. <code>int32</code>↔<code>int64</code>↔<code>uint32</code>↔<code>bool</code>, UTF-8 유효 데이터에 한한 <code>string</code>↔<code>bytes</code>는 와이어 호환된다.</p>
+<h2>코드</h2>
+<p>서비스와 메시지를 정의하는 <code>.proto</code> 파일이다. <code>java_multiple_files</code> 옵션으로 메시지마다 별도 Java 클래스가 생성된다.</p>
+<pre><code class="hljs language-protobuf">syntax = <span class="hljs-string">&quot;proto3&quot;</span>;
+
+<span class="hljs-keyword">package</span> com.example.user;
+<span class="hljs-keyword">option</span> java_package = <span class="hljs-string">&quot;com.example.user.proto&quot;</span>;
+<span class="hljs-keyword">option</span> java_multiple_files = <span class="hljs-literal">true</span>;
+
+<span class="hljs-keyword">import</span> <span class="hljs-string">&quot;google/protobuf/timestamp.proto&quot;</span>;
+
+<span class="hljs-keyword">service </span><span class="hljs-title class_">UserService</span> {
+  <span class="hljs-function"><span class="hljs-keyword">rpc</span> GetUser (UserRequest) <span class="hljs-keyword">returns</span> (User)</span>;
+  <span class="hljs-function"><span class="hljs-keyword">rpc</span> ListUsers (ListRequest) <span class="hljs-keyword">returns</span> (stream User)</span>;
+  <span class="hljs-function"><span class="hljs-keyword">rpc</span> CreateUsers (stream User) <span class="hljs-keyword">returns</span> (CreateResult)</span>;
+  <span class="hljs-function"><span class="hljs-keyword">rpc</span> Chat (stream Message) <span class="hljs-keyword">returns</span> (stream Message)</span>;
+}
+
+<span class="hljs-keyword">message </span><span class="hljs-title class_">UserRequest</span> { <span class="hljs-type">string</span> id = <span class="hljs-number">1</span>; }
+<span class="hljs-keyword">message </span><span class="hljs-title class_">ListRequest</span> { <span class="hljs-type">int32</span> page_size = <span class="hljs-number">1</span>; }
+
+<span class="hljs-keyword">message </span><span class="hljs-title class_">User</span> {
+  reserved <span class="hljs-number">5</span>;
+  reserved <span class="hljs-string">&quot;nickname&quot;</span>;
+
+  <span class="hljs-type">string</span> id = <span class="hljs-number">1</span>;
+  <span class="hljs-type">string</span> name = <span class="hljs-number">2</span>;
+  <span class="hljs-type">int32</span> age = <span class="hljs-number">3</span>;
+  Status status = <span class="hljs-number">4</span>;
+  <span class="hljs-keyword">repeated</span> <span class="hljs-type">string</span> emails = <span class="hljs-number">6</span>;
+  map&lt;<span class="hljs-type">string</span>, <span class="hljs-type">string</span>&gt; attributes = <span class="hljs-number">7</span>;
+  google.protobuf.Timestamp created_at = <span class="hljs-number">8</span>;
+  <span class="hljs-keyword">optional</span> <span class="hljs-type">string</span> phone = <span class="hljs-number">9</span>;
+
+  <span class="hljs-keyword">enum </span><span class="hljs-title class_">Status</span> {
+    STATUS_UNSPECIFIED = <span class="hljs-number">0</span>;
+    ACTIVE = <span class="hljs-number">1</span>;
+    INACTIVE = <span class="hljs-number">2</span>;
+  }
+}
+
+<span class="hljs-keyword">message </span><span class="hljs-title class_">CreateResult</span> {
+  <span class="hljs-keyword">oneof</span> outcome {
+    <span class="hljs-type">int32</span> created_count = <span class="hljs-number">1</span>;
+    <span class="hljs-type">string</span> error_message = <span class="hljs-number">2</span>;
+  }
+}
+
+<span class="hljs-keyword">message </span><span class="hljs-title class_">Message</span> { <span class="hljs-type">string</span> text = <span class="hljs-number">1</span>; }</code></pre>
+<p>Gradle 빌드 설정이다. Spring Boot 3.x와 Jakarta 네임스페이스를 지원하는 3.x 계열 스타터를 사용한다.</p>
+<pre><code class="hljs language-groovy">plugins {
+    id <span class="hljs-string">&#x27;java&#x27;</span>
+    id <span class="hljs-string">&#x27;org.springframework.boot&#x27;</span> version <span class="hljs-string">&#x27;3.3.2&#x27;</span>
+    id <span class="hljs-string">&#x27;com.google.protobuf&#x27;</span> version <span class="hljs-string">&#x27;0.9.4&#x27;</span>
+}
+
+dependencies {
+    implementation <span class="hljs-string">&#x27;net.devh:grpc-spring-boot-starter:3.1.0.RELEASE&#x27;</span>
+    implementation <span class="hljs-string">&#x27;io.grpc:grpc-protobuf:1.65.1&#x27;</span>
+    implementation <span class="hljs-string">&#x27;io.grpc:grpc-stub:1.65.1&#x27;</span>
+    compileOnly <span class="hljs-string">&#x27;org.apache.tomcat:annotations-api:6.0.53&#x27;</span>
+}
+
+protobuf {
+    protoc { artifact = <span class="hljs-string">&#x27;com.google.protobuf:protoc:3.25.3&#x27;</span> }
+    plugins {
+        grpc { artifact = <span class="hljs-string">&#x27;io.grpc:protoc-gen-grpc-java:1.65.1&#x27;</span> }
+    }
+    generateProtoTasks {
+        all()*.plugins { grpc {} }
+    }
+}</code></pre>
+<p>생성된 <code>UserServiceImplBase</code>를 상속한 Unary 서버와 스텁을 주입받는 클라이언트다. 메시지는 불변이라 <code>toBuilder()</code>로 복사해 수정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> com.example.user.proto.User;
+<span class="hljs-keyword">import</span> com.example.user.proto.UserRequest;
+<span class="hljs-keyword">import</span> com.example.user.proto.UserServiceGrpc;
+<span class="hljs-keyword">import</span> com.google.protobuf.util.JsonFormat;
+<span class="hljs-keyword">import</span> com.google.protobuf.util.Timestamps;
+<span class="hljs-keyword">import</span> io.grpc.stub.StreamObserver;
+<span class="hljs-keyword">import</span> net.devh.boot.grpc.client.inject.GrpcClient;
+<span class="hljs-keyword">import</span> net.devh.boot.grpc.server.service.GrpcService;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@GrpcService</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserServiceImpl</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">UserServiceGrpc</span>.UserServiceImplBase {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">getUser</span><span class="hljs-params">(UserRequest request, StreamObserver&lt;User&gt; responseObserver)</span> {
+        <span class="hljs-type">User</span> <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> User.newBuilder()
+            .setId(request.getId())
+            .setName(<span class="hljs-string">&quot;Alice&quot;</span>)
+            .setAge(<span class="hljs-number">30</span>)
+            .setStatus(User.Status.ACTIVE)
+            .addEmails(<span class="hljs-string">&quot;alice@example.com&quot;</span>)
+            .putAttributes(<span class="hljs-string">&quot;role&quot;</span>, <span class="hljs-string">&quot;admin&quot;</span>)
+            .setCreatedAt(Timestamps.now())
+            .build();
+
+        responseObserver.onNext(user);
+        responseObserver.onCompleted();
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">UserClient</span> {
+
+    <span class="hljs-meta">@GrpcClient(&quot;user-service&quot;)</span>
+    <span class="hljs-keyword">private</span> UserServiceGrpc.UserServiceBlockingStub blockingStub;
+
+    <span class="hljs-type">User</span> <span class="hljs-title function_">getUser</span><span class="hljs-params">(String id)</span> {
+        <span class="hljs-type">User</span> <span class="hljs-variable">user</span> <span class="hljs-operator">=</span> blockingStub.getUser(UserRequest.newBuilder().setId(id).build());
+        <span class="hljs-keyword">return</span> user.toBuilder().setAge(user.getAge() + <span class="hljs-number">1</span>).build();
+    }
+
+    <span class="hljs-type">String</span> <span class="hljs-title function_">toJson</span><span class="hljs-params">(User user)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">return</span> JsonFormat.printer().print(user);
+    }
+
+    <span class="hljs-type">User</span> <span class="hljs-title function_">fromBytes</span><span class="hljs-params">(<span class="hljs-type">byte</span>[] bytes)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">return</span> User.parseFrom(bytes);
+    }
+}</code></pre>
+<p>클라이언트 이름 <code>user-service</code>는 설정 파일의 채널 정의와 연결된다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">grpc:</span>
+  <span class="hljs-attr">server:</span>
+    <span class="hljs-attr">port:</span> <span class="hljs-number">9090</span>
+  <span class="hljs-attr">client:</span>
+    <span class="hljs-attr">user-service:</span>
+      <span class="hljs-attr">address:</span> <span class="hljs-string">static://localhost:9090</span>
+      <span class="hljs-attr">negotiation-type:</span> <span class="hljs-string">plaintext</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>스텁 종류와 모드 불일치.</strong> <code>BlockingStub</code>은 Unary와 Server Streaming만, <code>FutureStub</code>은 Unary만 지원하며 Client·Bidirectional Streaming은 비동기 <code>Stub</code>으로만 호출한다. WebFlux 이벤트 루프에서 <code>BlockingStub</code>을 호출하면 루프가 막히므로 비동기 스텁을 쓴다.</li>
+<li><strong>필드 번호 재사용.</strong> <code>reserved</code> 없이 필드를 지우면 같은 번호가 다른 타입에 배정될 수 있다. 구버전 데이터가 새 필드로 잘못 해석되지만 컴파일 경고는 없다.</li>
+<li><strong>기본값과 미설정의 구분.</strong> <code>int32 age = 0</code>은 0인지 값 없음인지 구분되지 않아, 부분 업데이트 API에서 0으로 덮어쓰는 버그가 생긴다. <code>optional</code>이나 Wrapper 타입을 쓰고 <code>hasXxx()</code>로 검사한다.</li>
+<li><strong>단일 장수 연결의 쏠림.</strong> L4 로드 밸런서 뒤에서는 HTTP/2 연결 하나가 특정 인스턴스에 고정된다. 클라이언트 측 로드 밸런싱이나 L7 프록시를 두고 <code>max-connection-age</code>로 연결을 주기적으로 재수립한다.</li>
+<li><strong>디버깅 가시성.</strong> 바이너리 페이로드라 캡처만으로는 읽을 수 없다. 개발 환경에서 Reflection을 켜 grpcurl로 호출하고 로그에는 <code>JsonFormat</code> 변환 결과를 남기되, 운영 환경에서는 스키마 노출을 막기 위해 Reflection을 끈다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/rsocket-concepts/">RSocket — 개념·프레임·Interaction Model</a></li>
+<li><a href="/notes/reactive-spring/grpc-rpc-modes/">gRPC — Unary·Server/Client/Bidirectional Streaming</a></li>
+<li><a href="/notes/reactive-spring/grpc-errors-interceptors-security/">gRPC — 에러·인터셉터·보안·운영</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · gRPC, Protobuf, HTTP/2, Spring Boot, RPC</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/rsocket-security-lb-testing/"><small>이전</small>RSocket — 보안·로드 밸런싱·테스트</a>
+  <a class="next" href="/notes/reactive-spring/grpc-rpc-modes/"><small>다음</small>gRPC — Unary·Server/Client/Bidirectional Streaming</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

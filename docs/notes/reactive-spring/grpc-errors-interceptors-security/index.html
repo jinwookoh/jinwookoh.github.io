@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gRPC — 에러·인터셉터·보안·운영 · Reactive Spring</title>
+  <meta name="description" content="Status Code로 재시도 가능 여부를 표현하고, 인증·로깅은 인터셉터로 분리하며, 운영에서는 mTLS·Health Check·KeepAlive를 갖춘다">
+  <meta property="og:title" content="gRPC — 에러·인터셉터·보안·운영 · Reactive Spring">
+  <meta property="og:description" content="Status Code로 재시도 가능 여부를 표현하고, 인증·로깅은 인터셉터로 분리하며, 운영에서는 mTLS·Health Check·KeepAlive를 갖춘다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/grpc-errors-interceptors-security/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>gRPC — 에러·인터셉터·보안·운영</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · gRPC</p>
+  <h1>gRPC — 에러·인터셉터·보안·운영</h1>
+  <p class="summary">Status Code로 재시도 가능 여부를 표현하고, 인증·로깅은 인터셉터로 분리하며, 운영에서는 mTLS·Health Check·KeepAlive를 갖춘다</p>
+  <div class="content">
+<p>RPC 모드 구현은 메서드 안에서 끝나지만, 실패 시 재시도를 결정할 근거, 인증·로깅을 반복하지 않을 위치, 평문 페이로드의 보호, 인스턴스 상태 확인은 메서드 밖의 문제다. 이를 비워 두면 모든 실패가 UNKNOWN으로 뭉개지고, 토큰 검증 코드가 서비스마다 복사되며, 일반 Kubernetes Service 뒤의 서버는 한 파드에만 트래픽이 몰린다.</p>
+<h2>핵심 개념</h2>
+<h3>Status Code는 분류, Description은 메시지, Details는 구조화된 정보</h3>
+<p>gRPC 에러는 16종의 Status Code로 표현된다. 서버는 <code>Status.NOT_FOUND.withDescription(...).asRuntimeException()</code>으로 호출을 닫고, 클라이언트는 <code>StatusRuntimeException</code>에서 <code>getStatus().getCode()</code>와 <code>getTrailers()</code>를 읽는다. 선택 기준은 재시도 가능 여부다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">분류</th>
+<th align="left">Status Code</th>
+<th align="left">재시도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">일시적 장애</td>
+<td align="left">UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED</td>
+<td align="left">가능 (백오프 후)</td>
+</tr>
+<tr>
+<td align="left">요청의 문제</td>
+<td align="left">INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS, FAILED_PRECONDITION</td>
+<td align="left">불가</td>
+</tr>
+<tr>
+<td align="left">인증·인가</td>
+<td align="left">UNAUTHENTICATED, PERMISSION_DENIED</td>
+<td align="left">불가</td>
+</tr>
+<tr>
+<td align="left">서버 결함</td>
+<td align="left">INTERNAL, UNIMPLEMENTED, DATA_LOSS</td>
+<td align="left">불가</td>
+</tr>
+</tbody></table>
+<p>필드 단위 검증 오류처럼 문자열로 부족한 정보는 <code>google.rpc.Status</code>의 <code>details</code>에 <code>Any</code>로 감싼 표준 메시지(BadRequest, RetryInfo 등)를 넣는다. 잔액 부족 같은 도메인 결과는 응답 필드로 표현한다. 스트림은 <code>onError</code> 한 번으로 종료되므로 일부 항목만 실패한 상황을 에러로 나타낼 수 없다.</p>
+<h3>인터셉터는 양쪽 호출의 횡단 관심사 지점</h3>
+<p><code>ServerInterceptor</code>는 들어오는 호출, <code>ClientInterceptor</code>는 나가는 호출을 가로챈다. 서버 인터셉터는 <code>Metadata</code>를 검증해 실패 시 <code>call.close</code>로 종료하고, 성공 시 <code>Context</code>에 사용자 정보를 담아 <code>Contexts.interceptCall</code>로 넘기며 서비스 메서드는 <code>Context.Key.get()</code>으로 읽는다. 응답 시점 개입은 <code>ForwardingServerCall</code>의 <code>close</code>, 요청 헤더 주입은 <code>ForwardingClientCall</code>의 <code>start</code>를 오버라이드한다. <code>@GrpcGlobalServerInterceptor</code>는 전역, <code>@GrpcService(interceptors = ...)</code>는 서비스별 등록이며 <code>@Order</code>가 낮을수록 먼저 실행된다.</p>
+<h3>보안은 암호화·인증·인가 세 층</h3>
+<p>단방향 TLS는 외부 클라이언트용, 클라이언트도 인증서를 제시하는 mTLS는 서비스 간 통신의 기본값이며 Istio·Linkerd는 사이드카에서 이를 자동 적용한다. 인증은 인터셉터에서 <code>Authorization: Bearer</code> JWT를 검증하고, Spring Security를 붙이면 <code>@EnableMethodSecurity</code> 아래 <code>@PreAuthorize</code>로 메서드 단위 인가를 분리한다. API Key는 회전이 어려워 외부용에 한정한다.</p>
+<h3>운영 구성 요소</h3>
+<p>Health Check는 <code>grpc.health.v1.Health/Check</code> 표준으로 제공하고 Kubernetes의 <code>grpc</code> probe로 확인한다. HTTP/2 연결이 오래 유지되므로 일반 ClusterIP Service로는 분산되지 않으며, Headless Service와 <code>dns:///</code> 주소의 클라이언트 사이드 round-robin 또는 Envoy를 쓴다. Deadline은 하위 호출로 자동 전파되어 체인 전체의 시간 상한이 된다.</p>
+<h2>코드</h2>
+<p><code>@GrpcAdvice</code>로 도메인 예외를 Status와 표준 Error Details로 변환하는 전역 핸들러다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@GrpcAdvice</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GrpcExceptionAdvice</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(GrpcExceptionAdvice.class);
+
+    <span class="hljs-meta">@GrpcExceptionHandler(UserNotFoundException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">StatusException</span> <span class="hljs-title function_">handleNotFound</span><span class="hljs-params">(UserNotFoundException e)</span> {
+        <span class="hljs-keyword">return</span> Status.NOT_FOUND.withDescription(e.getMessage()).asException();
+    }
+
+    <span class="hljs-meta">@GrpcExceptionHandler(ConstraintViolationException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">StatusRuntimeException</span> <span class="hljs-title function_">handleValidation</span><span class="hljs-params">(ConstraintViolationException e)</span> {
+        BadRequest.<span class="hljs-type">Builder</span> <span class="hljs-variable">badRequest</span> <span class="hljs-operator">=</span> BadRequest.newBuilder();
+        <span class="hljs-keyword">for</span> (ConstraintViolation&lt;?&gt; v : e.getConstraintViolations()) {
+            badRequest.addFieldViolations(BadRequest.FieldViolation.newBuilder()
+                .setField(v.getPropertyPath().toString())
+                .setDescription(v.getMessage()));
+        }
+        com.google.rpc.<span class="hljs-type">Status</span> <span class="hljs-variable">rich</span> <span class="hljs-operator">=</span> com.google.rpc.Status.newBuilder()
+            .setCode(Status.Code.INVALID_ARGUMENT.value())
+            .setMessage(<span class="hljs-string">&quot;Validation failed&quot;</span>)
+            .addDetails(Any.pack(badRequest.build()))
+            .build();
+        <span class="hljs-keyword">return</span> StatusProto.toStatusRuntimeException(rich);
+    }
+
+    <span class="hljs-meta">@GrpcExceptionHandler(Exception.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">StatusException</span> <span class="hljs-title function_">handleUnknown</span><span class="hljs-params">(Exception e)</span> {
+        log.error(<span class="hljs-string">&quot;unhandled grpc error&quot;</span>, e);
+        <span class="hljs-keyword">return</span> Status.INTERNAL.withDescription(<span class="hljs-string">&quot;internal error&quot;</span>).asException();
+    }
+}</code></pre>
+<p>JWT를 검증해 사용자 ID를 <code>Context</code>에 싣는 전역 인터셉터와 이를 읽는 서비스 메서드다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AuthContext</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> Context.<span class="hljs-type">Key</span>&lt;String&gt; <span class="hljs-variable">USER_ID</span> <span class="hljs-operator">=</span> Context.key(<span class="hljs-string">&quot;user-id&quot;</span>);
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> Metadata.<span class="hljs-type">Key</span>&lt;String&gt; <span class="hljs-variable">AUTHORIZATION</span> <span class="hljs-operator">=</span>
+        Metadata.Key.of(<span class="hljs-string">&quot;authorization&quot;</span>, Metadata.ASCII_STRING_MARSHALLER);
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@GrpcGlobalServerInterceptor</span>
+<span class="hljs-meta">@Order(1)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">JwtServerInterceptor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ServerInterceptor</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JwtDecoder jwtDecoder;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">JwtServerInterceptor</span><span class="hljs-params">(JwtDecoder jwtDecoder)</span> {
+        <span class="hljs-built_in">this</span>.jwtDecoder = jwtDecoder;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> &lt;ReqT, RespT&gt; ServerCall.<span class="hljs-type">Listener</span>&lt;ReqT&gt; <span class="hljs-title function_">interceptCall</span><span class="hljs-params">(
+            ServerCall&lt;ReqT, RespT&gt; call, Metadata headers, ServerCallHandler&lt;ReqT, RespT&gt; next)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">header</span> <span class="hljs-operator">=</span> headers.get(AuthContext.AUTHORIZATION);
+        <span class="hljs-keyword">if</span> (header == <span class="hljs-literal">null</span> || !header.startsWith(<span class="hljs-string">&quot;Bearer &quot;</span>)) {
+            call.close(Status.UNAUTHENTICATED.withDescription(<span class="hljs-string">&quot;missing token&quot;</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">Metadata</span>());
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ServerCall</span>.Listener&lt;&gt;() {};
+        }
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">Jwt</span> <span class="hljs-variable">jwt</span> <span class="hljs-operator">=</span> jwtDecoder.decode(header.substring(<span class="hljs-number">7</span>));
+            <span class="hljs-type">Context</span> <span class="hljs-variable">ctx</span> <span class="hljs-operator">=</span> Context.current().withValue(AuthContext.USER_ID, jwt.getSubject());
+            <span class="hljs-keyword">return</span> Contexts.interceptCall(ctx, call, headers, next);
+        } <span class="hljs-keyword">catch</span> (JwtException e) {
+            call.close(Status.UNAUTHENTICATED.withDescription(<span class="hljs-string">&quot;invalid token&quot;</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">Metadata</span>());
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ServerCall</span>.Listener&lt;&gt;() {};
+        }
+    }
+}
+
+<span class="hljs-meta">@GrpcService</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProfileService</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">ProfileServiceGrpc</span>.ProfileServiceImplBase {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">getProfile</span><span class="hljs-params">(Empty request, StreamObserver&lt;Profile&gt; observer)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">userId</span> <span class="hljs-operator">=</span> AuthContext.USER_ID.get();
+        observer.onNext(profileRepository.findByUserId(userId));
+        observer.onCompleted();
+    }
+}</code></pre>
+<p>mTLS, 재시도 정책, KeepAlive, 클라이언트 사이드 로드 밸런싱을 모은 grpc-spring-boot-starter 설정이다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">grpc:</span>
+  <span class="hljs-attr">server:</span>
+    <span class="hljs-attr">port:</span> <span class="hljs-number">9090</span>
+    <span class="hljs-attr">security:</span>
+      <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+      <span class="hljs-attr">certificate-chain:</span> <span class="hljs-string">file:/etc/certs/server.crt</span>
+      <span class="hljs-attr">private-key:</span> <span class="hljs-string">file:/etc/certs/server.key</span>
+      <span class="hljs-attr">trust-cert-collection:</span> <span class="hljs-string">file:/etc/certs/ca.crt</span>
+      <span class="hljs-attr">client-auth:</span> <span class="hljs-string">REQUIRE</span>
+    <span class="hljs-attr">enable-keep-alive:</span> <span class="hljs-literal">true</span>
+    <span class="hljs-attr">keep-alive-time:</span> <span class="hljs-string">30s</span>
+    <span class="hljs-attr">permit-keep-alive-time:</span> <span class="hljs-string">10s</span>
+    <span class="hljs-attr">permit-keep-alive-without-calls:</span> <span class="hljs-literal">true</span>
+  <span class="hljs-attr">client:</span>
+    <span class="hljs-attr">user-service:</span>
+      <span class="hljs-attr">address:</span> <span class="hljs-string">dns:///user-service-headless.default.svc.cluster.local:9090</span>
+      <span class="hljs-attr">negotiation-type:</span> <span class="hljs-string">tls</span>
+      <span class="hljs-attr">security:</span>
+        <span class="hljs-attr">certificate-chain:</span> <span class="hljs-string">file:/etc/certs/client.crt</span>
+        <span class="hljs-attr">private-key:</span> <span class="hljs-string">file:/etc/certs/client.key</span>
+        <span class="hljs-attr">trust-cert-collection:</span> <span class="hljs-string">file:/etc/certs/ca.crt</span>
+      <span class="hljs-attr">enable-keep-alive:</span> <span class="hljs-literal">true</span>
+      <span class="hljs-attr">keep-alive-time:</span> <span class="hljs-string">30s</span>
+      <span class="hljs-attr">keep-alive-timeout:</span> <span class="hljs-string">5s</span>
+      <span class="hljs-attr">default-load-balancing-policy:</span> <span class="hljs-string">round_robin</span>
+      <span class="hljs-attr">method-config:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">service:</span> <span class="hljs-string">user.v1.UserService</span>
+          <span class="hljs-attr">retryPolicy:</span>
+            <span class="hljs-attr">maxAttempts:</span> <span class="hljs-number">3</span>
+            <span class="hljs-attr">initialBackoff:</span> <span class="hljs-number">0.</span><span class="hljs-string">5s</span>
+            <span class="hljs-attr">maxBackoff:</span> <span class="hljs-string">5s</span>
+            <span class="hljs-attr">backoffMultiplier:</span> <span class="hljs-number">2</span>
+            <span class="hljs-attr">retryableStatusCodes:</span> [<span class="hljs-string">UNAVAILABLE</span>]</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>DEADLINE_EXCEEDED를 무조건 재시도하지 않는다.</strong> 처리 도중 만료되면 재시도는 같은 작업을 두 번 수행한다. 멱등하지 않은 메서드는 UNAVAILABLE만 재시도한다.</li>
+<li><strong>MDC는 gRPC 스레드 모델과 맞지 않는다.</strong> ThreadLocal이라 인터셉터에서 넣은 trace-id가 서비스 메서드의 executor 스레드로 전파되지 않는다. gRPC <code>Context</code>에 싣거나 OpenTelemetry <code>GrpcTelemetry</code> 인터셉터에 맡긴다.</li>
+<li><strong>KeepAlive 시간이 서버 허용치보다 짧으면 연결이 끊긴다.</strong> 클라이언트 <code>keep-alive-time</code>이 서버 <code>permit-keep-alive-time</code>보다 짧으면 서버가 GOAWAY로 연결을 닫는다. 두 값을 함께 조정한다.</li>
+<li><strong>Reflection과 상세 에러는 정보 노출 경로다.</strong> 운영에서 Reflection을 끄고, 원인 예외는 로그에만 남기며 INTERNAL의 Description은 일반 문구로 제한한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/grpc-concepts-protobuf/">gRPC — 개념·HTTP/2·Protobuf</a></li>
+<li><a href="/notes/reactive-spring/grpc-rpc-modes/">gRPC — Unary·Server/Client/Bidirectional Streaming</a></li>
+<li><a href="/notes/reactive-spring/rsocket-security-lb-testing/">RSocket — 보안·로드 밸런싱·테스트</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · gRPC, Interceptor, Status Code, mTLS, Health Check</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/grpc-rpc-modes/"><small>이전</small>gRPC — Unary·Server/Client/Bidirectional Streaming</a>
+  <a class="next" href="/notes/reactive-spring/graphql-schema-queries/"><small>다음</small>GraphQL — Schema·Query·Mutation·Spring for GraphQL</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

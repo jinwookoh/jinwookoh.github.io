@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security — RBAC·NetworkPolicy · 인프라 — Kubernetes · Consul</title>
+  <meta name="description" content="RBAC로 API 권한을, NetworkPolicy로 Pod 간 트래픽을, SecurityContext와 PSS로 컨테이너 권한을 최소화한다.">
+  <meta property="og:title" content="Security — RBAC·NetworkPolicy · 인프라 — Kubernetes · Consul">
+  <meta property="og:description" content="RBAC로 API 권한을, NetworkPolicy로 Pod 간 트래픽을, SecurityContext와 PSS로 컨테이너 권한을 최소화한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/infra/k8s-security/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/infra/">인프라 — Kubernetes · Consul</a><span class="sep">›</span><span>Security — RBAC·NetworkPolicy</span></nav>
+    <article class="post">
+  <p class="part">인프라 — Kubernetes · Consul · Kubernetes</p>
+  <h1>Security — RBAC·NetworkPolicy</h1>
+  <p class="summary">RBAC로 API 권한을, NetworkPolicy로 Pod 간 트래픽을, SecurityContext와 PSS로 컨테이너 권한을 최소화한다.</p>
+  <div class="content">
+<p>Kubernetes는 기본 설정만으로는 안전하지 않다. Pod은 namespace와 무관하게 서로 통신하고, 컨테이너는 이미지가 지정한 대로 root로 실행되며, API 권한을 정리하지 않으면 자격 증명 하나의 유출이 클러스터 장악으로 이어진다. 이 세 축을 각각 RBAC, NetworkPolicy, SecurityContext와 Pod Security Standards가 담당한다.</p>
+<h2>핵심 개념</h2>
+<h3>RBAC</h3>
+<p>RBAC는 네 객체로 구성된다. Role과 ClusterRole은 권한 묶음이고, RoleBinding과 ClusterRoleBinding은 그 묶음을 주체(User·Group·ServiceAccount)에 연결한다. Role과 RoleBinding은 namespace 범위, ClusterRole과 ClusterRoleBinding은 클러스터 범위이며 Node·PersistentVolume 같은 전역 리소스는 ClusterRole로만 다룬다. RoleBinding은 ClusterRole도 참조할 수 있으므로, 공통 권한을 ClusterRole로 정의하고 namespace마다 RoleBinding으로 범위를 좁혀 부여하는 것이 표준 패턴이다.</p>
+<p>규칙은 <code>apiGroups</code>·<code>resources</code>·<code>verbs</code>로 표현한다. Pod·Service·Node 같은 core 리소스는 <code>apiGroups: [&quot;&quot;]</code>, Deployment는 <code>apps</code>, Job은 <code>batch</code>다. <code>pods/log</code> 같은 하위 리소스는 별도로 허용해야 하고, <code>resourceNames</code>로 특정 이름만 제한할 수 있다.</p>
+<h3>ServiceAccount</h3>
+<p>Pod은 ServiceAccount(SA)로 API 서버에 인증하며, 지정이 없으면 namespace의 <code>default</code> SA를 공유한다. 1.24 이후 영구 Secret 토큰은 생성되지 않고, kubelet이 TokenRequest API로 만료 시간이 있는 토큰을 발급해 <code>/var/run/secrets/kubernetes.io/serviceaccount/token</code>에 프로젝션한다. API를 호출하지 않는 워크로드는 <code>automountServiceAccountToken: false</code>로 마운트를 끈다.</p>
+<h3>NetworkPolicy</h3>
+<p><code>podSelector</code>로 대상 Pod을 고르고, <code>policyTypes</code>에 선언한 방향에 대해 허용 규칙만 나열한다. 한 방향에 정책이 하나라도 걸리면 명시된 것 외에 전부 차단된다. 한 <code>from</code> 항목 안의 podSelector와 namespaceSelector는 AND, 별도 항목은 OR다. 여러 정책은 합집합이므로 <code>podSelector: {}</code>로 default deny를 깔고 경로마다 allow를 추가한다.</p>
+<h3>SecurityContext와 Pod Security Standards</h3>
+<p>SecurityContext는 Pod 레벨(runAsUser·fsGroup·runAsNonRoot·seccompProfile)과 컨테이너 레벨(allowPrivilegeEscalation·readOnlyRootFilesystem·capabilities)로 나뉘고, 컨테이너 레벨이 우선한다. Pod Security Standards는 PodSecurityPolicy를 대체하는 내장 admission으로, Privileged·Baseline·Restricted 프로파일을 namespace 라벨로 적용하고 <code>enforce</code>·<code>audit</code>·<code>warn</code> 모드를 가진다.</p>
+<h2>코드</h2>
+<p>CI용 SA에 특정 Deployment 갱신 권한만 부여한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">ServiceAccount</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">ci-deployer</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">rbac.authorization.k8s.io/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Role</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">deploy-order-api</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-attr">rules:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">apiGroups:</span> [<span class="hljs-string">&quot;apps&quot;</span>]
+    <span class="hljs-attr">resources:</span> [<span class="hljs-string">&quot;deployments&quot;</span>]
+    <span class="hljs-attr">resourceNames:</span> [<span class="hljs-string">&quot;order-api&quot;</span>]
+    <span class="hljs-attr">verbs:</span> [<span class="hljs-string">&quot;get&quot;</span>, <span class="hljs-string">&quot;patch&quot;</span>, <span class="hljs-string">&quot;update&quot;</span>]
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">apiGroups:</span> [<span class="hljs-string">&quot;&quot;</span>]
+    <span class="hljs-attr">resources:</span> [<span class="hljs-string">&quot;pods&quot;</span>, <span class="hljs-string">&quot;pods/log&quot;</span>]
+    <span class="hljs-attr">verbs:</span> [<span class="hljs-string">&quot;get&quot;</span>, <span class="hljs-string">&quot;list&quot;</span>]
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">rbac.authorization.k8s.io/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">RoleBinding</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">ci-deployer-order-api</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-attr">subjects:</span>
+  <span class="hljs-bullet">-</span> <span class="hljs-attr">kind:</span> <span class="hljs-string">ServiceAccount</span>
+    <span class="hljs-attr">name:</span> <span class="hljs-string">ci-deployer</span>
+    <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-attr">roleRef:</span>
+  <span class="hljs-attr">kind:</span> <span class="hljs-string">Role</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">deploy-order-api</span>
+  <span class="hljs-attr">apiGroup:</span> <span class="hljs-string">rbac.authorization.k8s.io</span></code></pre>
+<p>prod namespace에 default deny를 깔고, DB Pod에는 <code>app: order-api</code>의 5432 ingress와 DNS egress만 허용한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">networking.k8s.io/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">NetworkPolicy</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">default-deny-all</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">podSelector:</span> {}
+  <span class="hljs-attr">policyTypes:</span> [<span class="hljs-string">&quot;Ingress&quot;</span>, <span class="hljs-string">&quot;Egress&quot;</span>]
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">networking.k8s.io/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">NetworkPolicy</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">postgres-allow</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">podSelector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">postgres</span>
+  <span class="hljs-attr">policyTypes:</span> [<span class="hljs-string">&quot;Ingress&quot;</span>, <span class="hljs-string">&quot;Egress&quot;</span>]
+  <span class="hljs-attr">ingress:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">from:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">podSelector:</span>
+            <span class="hljs-attr">matchLabels:</span>
+              <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span>
+      <span class="hljs-attr">ports:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">protocol:</span> <span class="hljs-string">TCP</span>
+          <span class="hljs-attr">port:</span> <span class="hljs-number">5432</span>
+  <span class="hljs-attr">egress:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">to:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">namespaceSelector:</span>
+            <span class="hljs-attr">matchLabels:</span>
+              <span class="hljs-attr">kubernetes.io/metadata.name:</span> <span class="hljs-string">kube-system</span>
+          <span class="hljs-attr">podSelector:</span>
+            <span class="hljs-attr">matchLabels:</span>
+              <span class="hljs-attr">k8s-app:</span> <span class="hljs-string">kube-dns</span>
+      <span class="hljs-attr">ports:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">protocol:</span> <span class="hljs-string">UDP</span>
+          <span class="hljs-attr">port:</span> <span class="hljs-number">53</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">protocol:</span> <span class="hljs-string">TCP</span>
+          <span class="hljs-attr">port:</span> <span class="hljs-number">53</span></code></pre>
+<p>Spring Boot 3.x 앱을 Restricted namespace에 배포하는 스펙이다. 루트 파일시스템을 읽기 전용으로 잠그고 <code>/tmp</code>에 emptyDir를 붙인다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Namespace</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">prod</span>
+  <span class="hljs-attr">labels:</span>
+    <span class="hljs-attr">pod-security.kubernetes.io/enforce:</span> <span class="hljs-string">restricted</span>
+    <span class="hljs-attr">pod-security.kubernetes.io/warn:</span> <span class="hljs-string">restricted</span>
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Deployment</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">replicas:</span> <span class="hljs-number">2</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span>
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">metadata:</span>
+      <span class="hljs-attr">labels:</span>
+        <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span>
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">serviceAccountName:</span> <span class="hljs-string">order-api</span>
+      <span class="hljs-attr">automountServiceAccountToken:</span> <span class="hljs-literal">false</span>
+      <span class="hljs-attr">securityContext:</span>
+        <span class="hljs-attr">runAsNonRoot:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">runAsUser:</span> <span class="hljs-number">10001</span>
+        <span class="hljs-attr">fsGroup:</span> <span class="hljs-number">10001</span>
+        <span class="hljs-attr">seccompProfile:</span>
+          <span class="hljs-attr">type:</span> <span class="hljs-string">RuntimeDefault</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app</span>
+          <span class="hljs-attr">image:</span> <span class="hljs-string">registry.internal/order-api:1.8.2</span>
+          <span class="hljs-attr">env:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">JAVA_TOOL_OPTIONS</span>
+              <span class="hljs-attr">value:</span> <span class="hljs-string">&quot;-Djava.io.tmpdir=/tmp -XX:MaxRAMPercentage=75&quot;</span>
+          <span class="hljs-attr">ports:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8080</span>
+          <span class="hljs-attr">securityContext:</span>
+            <span class="hljs-attr">allowPrivilegeEscalation:</span> <span class="hljs-literal">false</span>
+            <span class="hljs-attr">readOnlyRootFilesystem:</span> <span class="hljs-literal">true</span>
+            <span class="hljs-attr">capabilities:</span>
+              <span class="hljs-attr">drop:</span> [<span class="hljs-string">&quot;ALL&quot;</span>]
+          <span class="hljs-attr">volumeMounts:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">tmp</span>
+              <span class="hljs-attr">mountPath:</span> <span class="hljs-string">/tmp</span>
+      <span class="hljs-attr">volumes:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">tmp</span>
+          <span class="hljs-attr">emptyDir:</span> {}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>NetworkPolicy는 CNI가 구현한다.</strong> Calico·Cilium은 지원하지만 Flannel 단독 구성은 정책 객체를 받기만 하고 아무것도 차단하지 않는다.</li>
+<li><strong>default deny가 DNS를 끊는다.</strong> egress deny를 걸면 CoreDNS 질의가 막혀 모든 외부 호출이 이름 해석에서 실패한다. 메트릭 수집기나 사이드카도 별도 allow가 필요하다.</li>
+<li><strong>readOnlyRootFilesystem은 JVM에서 자주 깨진다.</strong> 내장 Tomcat이 <code>java.io.tmpdir</code> 아래에 작업 디렉터리를 만들므로 <code>/tmp</code>에 emptyDir가 없으면 기동 직후 실패한다. root 전제 이미지는 <code>runAsNonRoot</code>와 충돌해 <code>CreateContainerConfigError</code>로 멈춘다.</li>
+<li><strong>와일드카드 권한이 번진다.</strong> <code>resources: [&quot;*&quot;]</code>는 CRD 추가 시 그 리소스까지 자동 포함한다. <code>secrets</code> 읽기와 <code>pods/exec</code>는 자격 증명 탈취와 같으므로 <code>kubectl auth can-i --list --as</code>로 SA별 권한을 주기적으로 검증한다.</li>
+<li><strong>PSS를 enforce로 바로 켜면 기존 워크로드가 거부된다.</strong> <code>warn</code>·<code>audit</code>으로 위반 Pod을 먼저 수집하고 고친 뒤 <code>enforce</code>로 올린다. 허용 레지스트리 제한이나 이미지 서명 검증은 Kyverno·OPA Gatekeeper로 보완한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/infra/k8s-services-networking/">Services·Networking·Ingress</a></li>
+<li><a href="/notes/infra/k8s-config-storage/">ConfigMap·Secret·Storage</a></li>
+<li><a href="/notes/infra/k8s-helm-real-world/">Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Kubernetes, RBAC, ServiceAccount, NetworkPolicy, SecurityContext</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/infra/k8s-scaling-scheduling/"><small>이전</small>Scaling·Scheduling·Probes</a>
+  <a class="next" href="/notes/infra/k8s-helm-real-world/"><small>다음</small>Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

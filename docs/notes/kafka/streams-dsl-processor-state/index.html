@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streams — DSL·Processor API·상태 저장 · Kafka</title>
+  <meta name="description" content="DSL로 변환·집계·조인·윈도우를 선언하고, 시간 기반 작업과 복잡한 상태 조작은 Processor API로 내려가며, 저장된 상태는 Interactive Queries로 외부에 노출한다.">
+  <meta property="og:title" content="Streams — DSL·Processor API·상태 저장 · Kafka">
+  <meta property="og:description" content="DSL로 변환·집계·조인·윈도우를 선언하고, 시간 기반 작업과 복잡한 상태 조작은 Processor API로 내려가며, 저장된 상태는 Interactive Queries로 외부에 노출한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/streams-dsl-processor-state/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Streams — DSL·Processor API·상태 저장</span></nav>
+    <article class="post">
+  <p class="part">Kafka · Streams</p>
+  <h1>Streams — DSL·Processor API·상태 저장</h1>
+  <p class="summary">DSL로 변환·집계·조인·윈도우를 선언하고, 시간 기반 작업과 복잡한 상태 조작은 Processor API로 내려가며, 저장된 상태는 Interactive Queries로 외부에 노출한다.</p>
+  <div class="content">
+<p>Consumer API만으로 실시간 집계를 구현하면 키별 누적값 보관, 재시작 시 복구, 파티션 재할당 시 상태 이동, 늦은 레코드 처리를 전부 애플리케이션이 떠안는다. Kafka Streams는 이를 세 층으로 나눈다. DSL은 변환·집계·조인·윈도우를 선언적으로 표현하고, Processor API는 시간 기반 작업과 상태 조작을 저수준으로 제어하며, state store는 changelog로 복구되고 Interactive Queries로 외부에 노출된다.</p>
+<h2>핵심 개념</h2>
+<h3>DSL 연산의 네 영역</h3>
+<p>Stateless 연산(<code>filter</code>·<code>mapValues</code>·<code>flatMap</code>·<code>peek</code>·<code>selectKey</code>·<code>split</code>)은 상태 없이 레코드를 하나씩 처리한다. Stateful 연산(<code>groupByKey</code>·<code>groupBy</code> 뒤의 <code>count</code>·<code>reduce</code>·<code>aggregate</code>)은 키별 누적값을 state store에 유지하고 KTable을 돌려준다. Join은 KStream-KStream(시간 윈도우 기반), KStream-KTable(테이블의 현재 값을 붙이는 enrichment), KTable-KTable(두 상태의 최신값 결합) 세 조합이 있다. Window는 Tumbling(겹치지 않는 고정 구간), Hopping(advance 간격으로 겹침), Sliding(레코드 간 시간 차 기준), Session(비활동 gap 기준 가변 구간)으로 나뉘며, 윈도우가 닫힌 뒤 grace period 안에 도착한 레코드만 반영되고 그 이후는 버려진다.</p>
+<h3>Repartition</h3>
+<p><code>selectKey</code>·<code>groupBy</code>처럼 키를 바꾸는 연산 뒤에 집계나 조인이 오면 같은 키를 같은 파티션에 모으기 위해 내부 repartition 토픽이 생기고 브로커 I/O가 추가된다. 키를 건드리지 않는 <code>mapValues</code>·<code>groupByKey</code>는 repartition을 일으키지 않는다.</p>
+<h3>Processor API</h3>
+<p>DSL은 Processor API 위의 추상화이다. <code>Topology</code>에 <code>addSource</code>·<code>addProcessor</code>·<code>addStateStore</code>·<code>addSink</code>로 노드를 연결해 DAG를 만든다. <code>Processor</code>는 <code>init</code>에서 state store와 Punctuator를 등록하고, <code>process</code>에서 레코드를 처리한 뒤 <code>context.forward</code>로 하류에 전달한다. Punctuator는 <code>STREAM_TIME</code>(레코드 타임스탬프가 진행할 때만 호출)과 <code>WALL_CLOCK_TIME</code>(실제 시계 기준) 두 종류다. Kafka 3.3부터 DSL 체인 안의 <code>process</code>·<code>processValues</code>는 KStream을 반환해 하류 연산을 이어갈 수 있고, <code>transform</code> 계열은 deprecated이다.</p>
+<h3>상태 저장과 외부 조회</h3>
+<p>State store는 기본적으로 RocksDB 기반이며 <code>KeyValueStore</code>·<code>WindowStore</code>·<code>SessionStore</code>가 있다. <code>Materialized.as(&quot;이름&quot;)</code>으로 명명한 store는 Interactive Queries(IQ) 대상이 된다. IQ v2(<code>streams.query</code>)는 <code>KeyQuery</code>·<code>RangeQuery</code>·<code>WindowKeyQuery</code>·<code>WindowRangeQuery</code>를 지원한다. 상태는 파티션 단위로 분산되므로 <code>queryMetadataForKey</code>로 위치를 확인하고, 원격이면 <code>application.server</code>에 등록된 주소로 전달한다. <code>num.standby.replicas</code>를 1 이상으로 두면 failover가 빨라지고 standby에서도 조회할 수 있다.</p>
+<h2>코드</h2>
+<p>주문 스트림을 프로필 KTable과 조인한 뒤 카테고리별 1시간 매출을 명명된 store에 집계하는 DSL 토폴로지이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableKafkaStreams</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RevenueTopology</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">KStream</span>&lt;String, EnrichedOrder&gt; <span class="hljs-title function_">revenue</span><span class="hljs-params">(StreamsBuilder builder)</span> {
+        <span class="hljs-type">KTable</span>&lt;String, UserProfile&gt; <span class="hljs-variable">profiles</span> <span class="hljs-operator">=</span> builder.table(<span class="hljs-string">&quot;user-profiles&quot;</span>,
+                Consumed.with(Serdes.String(), <span class="hljs-keyword">new</span> <span class="hljs-title class_">JsonSerde</span>&lt;&gt;(UserProfile.class)));
+
+        <span class="hljs-type">KStream</span>&lt;String, Order&gt; <span class="hljs-variable">orders</span> <span class="hljs-operator">=</span> builder.stream(<span class="hljs-string">&quot;orders&quot;</span>,
+                Consumed.with(Serdes.String(), <span class="hljs-keyword">new</span> <span class="hljs-title class_">JsonSerde</span>&lt;&gt;(Order.class)));
+
+        <span class="hljs-type">KStream</span>&lt;String, EnrichedOrder&gt; <span class="hljs-variable">enriched</span> <span class="hljs-operator">=</span> orders.join(profiles,
+                (order, profile) -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">EnrichedOrder</span>(order, profile));
+
+        enriched
+            .groupBy((userId, o) -&gt; o.category(),
+                     Grouped.with(Serdes.String(), <span class="hljs-keyword">new</span> <span class="hljs-title class_">JsonSerde</span>&lt;&gt;(EnrichedOrder.class)))
+            .windowedBy(TimeWindows.ofSizeAndGrace(Duration.ofHours(<span class="hljs-number">1</span>), Duration.ofMinutes(<span class="hljs-number">5</span>)))
+            .aggregate(() -&gt; <span class="hljs-number">0.0</span>,
+                       (category, o, total) -&gt; total + o.amount(),
+                       Materialized.&lt;String, Double, WindowStore&lt;Bytes, <span class="hljs-type">byte</span>[]&gt;&gt;as(<span class="hljs-string">&quot;hourly-revenue&quot;</span>)
+                           .withKeySerde(Serdes.String())
+                           .withValueSerde(Serdes.Double()))
+            .toStream()
+            .to(<span class="hljs-string">&quot;hourly-revenue&quot;</span>,
+                Produced.with(WindowedSerdes.timeWindowedSerdeFrom(String.class, Duration.ofHours(<span class="hljs-number">1</span>).toMillis()),
+                              Serdes.Double()));
+
+        <span class="hljs-keyword">return</span> enriched;
+    }
+}</code></pre>
+<p>DSL 체인에 Processor를 삽입해 키별 마지막 접근 시각을 기록하고, 1시간마다 7일 넘게 비활동인 키를 정리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LastSeenProcessor</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Processor</span>&lt;String, Event, String, Event&gt; {
+
+    <span class="hljs-keyword">private</span> KeyValueStore&lt;String, Long&gt; store;
+    <span class="hljs-keyword">private</span> ProcessorContext&lt;String, Event&gt; context;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">init</span><span class="hljs-params">(ProcessorContext&lt;String, Event&gt; context)</span> {
+        <span class="hljs-built_in">this</span>.context = context;
+        <span class="hljs-built_in">this</span>.store = context.getStateStore(<span class="hljs-string">&quot;last-seen&quot;</span>);
+        context.schedule(Duration.ofHours(<span class="hljs-number">1</span>), PunctuationType.WALL_CLOCK_TIME, now -&gt; {
+            <span class="hljs-type">long</span> <span class="hljs-variable">cutoff</span> <span class="hljs-operator">=</span> now - Duration.ofDays(<span class="hljs-number">7</span>).toMillis();
+            <span class="hljs-keyword">try</span> (<span class="hljs-type">KeyValueIterator</span>&lt;String, Long&gt; <span class="hljs-variable">it</span> <span class="hljs-operator">=</span> store.all()) {
+                <span class="hljs-keyword">while</span> (it.hasNext()) {
+                    <span class="hljs-type">KeyValue</span>&lt;String, Long&gt; <span class="hljs-variable">kv</span> <span class="hljs-operator">=</span> it.next();
+                    <span class="hljs-keyword">if</span> (kv.value &lt; cutoff) store.delete(kv.key);
+                }
+            }
+        });
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">process</span><span class="hljs-params">(Record&lt;String, Event&gt; record)</span> {
+        store.put(record.key(), record.timestamp());
+        context.forward(record);
+    }
+}
+
+<span class="hljs-comment">// 토폴로지 등록</span>
+builder.addStateStore(Stores.keyValueStoreBuilder(
+        Stores.persistentKeyValueStore(<span class="hljs-string">&quot;last-seen&quot;</span>), Serdes.String(), Serdes.Long()));
+
+builder.stream(<span class="hljs-string">&quot;events&quot;</span>, Consumed.with(Serdes.String(), <span class="hljs-keyword">new</span> <span class="hljs-title class_">JsonSerde</span>&lt;&gt;(Event.class)))
+       .process(LastSeenProcessor::<span class="hljs-keyword">new</span>, <span class="hljs-string">&quot;last-seen&quot;</span>)
+       .to(<span class="hljs-string">&quot;events-seen&quot;</span>);</code></pre>
+<p>명명된 store를 IQ v2로 조회하는 엔드포인트이다. 키가 다른 인스턴스에 있으면 <code>RestClient</code>로 전달한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RevenueQueryController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StreamsBuilderFactoryBean factory;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RestClient</span> <span class="hljs-variable">restClient</span> <span class="hljs-operator">=</span> RestClient.create();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> HostInfo self;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RevenueQueryController</span><span class="hljs-params">(StreamsBuilderFactoryBean factory,
+                                  <span class="hljs-meta">@Value(&quot;${spring.kafka.streams.properties.application.server}&quot;)</span> String server)</span> {
+        <span class="hljs-built_in">this</span>.factory = factory;
+        <span class="hljs-built_in">this</span>.self = HostInfo.buildFromEndpoint(server);
+    }
+
+    <span class="hljs-meta">@GetMapping(&quot;/revenue/{category}&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Double</span> <span class="hljs-title function_">revenue</span><span class="hljs-params">(<span class="hljs-meta">@PathVariable</span> String category, <span class="hljs-meta">@RequestParam</span> <span class="hljs-type">long</span> windowStart)</span> {
+        <span class="hljs-type">KafkaStreams</span> <span class="hljs-variable">streams</span> <span class="hljs-operator">=</span> factory.getKafkaStreams();
+        <span class="hljs-type">KeyQueryMetadata</span> <span class="hljs-variable">meta</span> <span class="hljs-operator">=</span> streams.queryMetadataForKey(
+                <span class="hljs-string">&quot;hourly-revenue&quot;</span>, category, Serdes.String().serializer());
+        <span class="hljs-keyword">if</span> (meta == <span class="hljs-literal">null</span> || meta.equals(KeyQueryMetadata.NOT_AVAILABLE)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ResponseStatusException</span>(HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        <span class="hljs-keyword">if</span> (!meta.activeHost().equals(self)) {
+            <span class="hljs-keyword">return</span> restClient.get()
+                    .uri(<span class="hljs-string">&quot;http://{h}:{p}/revenue/{c}?windowStart={w}&quot;</span>,
+                         meta.activeHost().host(), meta.activeHost().port(), category, windowStart)
+                    .retrieve().body(Double.class);
+        }
+        <span class="hljs-type">StateQueryRequest</span>&lt;Double&gt; <span class="hljs-variable">request</span> <span class="hljs-operator">=</span> StateQueryRequest
+                .inStore(<span class="hljs-string">&quot;hourly-revenue&quot;</span>)
+                .withQuery(WindowKeyQuery.&lt;String, Double&gt;withKeyAndWindowStartRange(
+                        category, Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart)))
+                .withPartitions(Set.of(meta.partition()));
+        <span class="hljs-keyword">return</span> streams.query(request).getOnlyPartitionResult().getResult();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>윈도우 상태 누적</strong>: 윈도우 크기·키 카디널리티·grace period가 함께 커지면 state store와 changelog가 비례해 커진다. KStream-KStream 조인 윈도우는 업무상 필요한 최소 범위로 잡는다.</li>
+<li><strong>SerDe 미지정</strong>: <code>Grouped.with</code>·<code>Produced.with</code>·<code>Materialized.with</code>로 명시하지 않으면 기본 SerDe로 떨어지고 타입이 어긋나면 런타임 예외가 난다. 윈도우 결과 출력에는 <code>WindowedSerdes</code>가 필요하다.</li>
+<li><strong>Punctuator 종류</strong>: <code>STREAM_TIME</code>은 레코드가 없으면 호출되지 않으므로 heartbeat·주기적 정리는 <code>WALL_CLOCK_TIME</code>으로 등록한다.</li>
+<li><strong>외부 호출과 iterator 누수</strong>: <code>process</code>에서 HTTP·DB를 동기 호출하면 stream thread가 막힌다. <code>store.all()</code>·<code>range()</code>의 iterator는 try-with-resources로 닫는다.</li>
+<li><strong>IQ 일관성과 메모리</strong>: IQ는 커밋 전 상태와 standby의 지연된 상태를 그대로 보여 주므로 stale read를 허용하는 조회에만 쓴다. RocksDB는 JVM heap 밖 native 메모리를 쓰므로 컨테이너 한도를 heap 기준으로만 잡으면 OOM kill이 난다. store 이름을 바꾸면 상태를 다시 빌드한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/streams-intro-concepts/">Streams — 입문과 핵심 개념</a></li>
+<li><a href="/notes/kafka/streams-testing-operations/">Streams — 테스트와 운영</a></li>
+<li><a href="/notes/kafka/spring-kafka/">Spring Kafka — 배치·에러·트랜잭션·테스트</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka Streams, DSL, Processor API, State Store, Interactive Queries</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/streams-intro-concepts/"><small>이전</small>Streams — 입문과 핵심 개념</a>
+  <a class="next" href="/notes/kafka/streams-testing-operations/"><small>다음</small>Streams — 테스트와 운영</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

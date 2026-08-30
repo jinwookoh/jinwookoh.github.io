@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>운영 패턴과 FAQ · Spring Batch</title>
+  <meta name="description" content="Job 중단·Footer 집계·Driving Query·Step 간 데이터 전달 패턴과 재실행·Chunk 크기·스케줄링 FAQ를 정리한다">
+  <meta property="og:title" content="운영 패턴과 FAQ · Spring Batch">
+  <meta property="og:description" content="Job 중단·Footer 집계·Driving Query·Step 간 데이터 전달 패턴과 재실행·Chunk 크기·스케줄링 FAQ를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/operations-patterns-faq/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>운영 패턴과 FAQ</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · 확장과 운영</p>
+  <h1>운영 패턴과 FAQ</h1>
+  <p class="summary">Job 중단·Footer 집계·Driving Query·Step 간 데이터 전달 패턴과 재실행·Chunk 크기·스케줄링 FAQ를 정리한다</p>
+  <div class="content">
+<p>Reader·Writer·Skip·Retry를 개별로 이해해도 운영에서는 조합 문제가 남는다. 파일 끝 집계가 재시작 후 0부터 시작하고, 특정 데이터에서 Job을 멈춰야 하는데 Skip 설정이 예외를 삼키며, 0건을 읽고도 COMPLETED로 끝나 잘못된 파일명을 뒤늦게 발견한다. 같은 파라미터로 다시 돌리면 <code>JobInstanceAlreadyCompleteException</code>이 나고, 강제 종료 후에는 STARTED 상태가 남아 재시작이 막힌다.</p>
+<h2>핵심 개념</h2>
+<h3>Job을 로직 안에서 멈추는 세 가지 방법</h3>
+<table>
+<thead>
+<tr>
+<th align="left">방법</th>
+<th align="left">BatchStatus</th>
+<th align="left">재시작</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">예외 throw</td>
+<td align="left">FAILED</td>
+<td align="left">가능</td>
+<td align="left">진짜 오류, 즉시 중단</td>
+</tr>
+<tr>
+<td align="left">Reader가 null 반환</td>
+<td align="left">COMPLETED</td>
+<td align="left">불가</td>
+<td align="left">자연스러운 종료</td>
+</tr>
+<tr>
+<td align="left"><code>StepExecution.setTerminateOnly()</code></td>
+<td align="left">STOPPED</td>
+<td align="left">가능</td>
+<td align="left">운영자 검토 후 재개</td>
+</tr>
+</tbody></table>
+<p>예외 방식은 Skip·Retry 대상에서 제외된 예외 타입을 써야 한다. <code>setTerminateOnly()</code>는 플래그만 세우고 프레임워크가 다음 item 처리 직전에 확인해 <code>JobInterruptedException</code>을 던지므로, 현재 chunk는 끝까지 진행된다.</p>
+<h3>Footer 집계</h3>
+<p>Writer가 <code>FlatFileFooterCallback</code>을 함께 구현해 누적 합계를 파일 끝에 쓴다. 합산은 delegate의 <code>write()</code>가 성공한 뒤에 해야 rollback 시 어긋나지 않고, <code>ItemStream</code>으로 합계를 ExecutionContext에 저장해야 재시작 시 복구된다.</p>
+<h3>Driving Query</h3>
+<p>큰 테이블을 cursor로 훑으면 잠금이 길어져 온라인 시스템에 영향을 준다. key만 select하고 ItemProcessor에서 상세를 조회하면 cursor 부담이 줄고 기존 DAO를 재사용한다. 대신 N+1 구조라 throughput이 떨어진다.</p>
+<h3>Step 간 데이터 전달</h3>
+<p>Step ExecutionContext는 chunk commit마다, Job ExecutionContext는 Step 종료 시 저장된다. Step 안에서 Job ExecutionContext에 직접 put하면 Step 실패 시 유실되므로, Step ExecutionContext에 저장한 뒤 <code>ExecutionContextPromotionListener</code>가 Step 종료 시 지정 key를 Job ExecutionContext로 복사하게 한다. 다음 Step은 <code>@StepScope</code> + <code>#{jobExecutionContext[&#39;key&#39;]}</code>로 받는다.</p>
+<h3>운영 FAQ</h3>
+<ul>
+<li><strong>같은 파라미터로 재실행 불가</strong> — identifying parameter가 같은 COMPLETED JobInstance는 다시 실행할 수 없다. <code>RunIdIncrementer</code>를 Job에 등록하거나 실행 시각을 파라미터에 넣는다.</li>
+<li><strong>STARTED로 멈춘 실행</strong> — JVM crash·OOM 이후 남은 상태다. <code>BATCH_JOB_EXECUTION</code>의 STATUS·EXIT_CODE를 ABANDONED로 갱신하고 VERSION을 올린 뒤 재시작한다.</li>
+<li><strong>Chunk 크기</strong> — DB→DB 500<del>1,000, 외부 API 10</del>50, 큰 객체 50~200, 단순 변환 1,000 이상에서 시작해 throughput과 heap을 측정하며 조정한다.</li>
+<li><strong>Skip vs Retry</strong> — 같은 입력을 다시 처리해도 실패하면 Skip, 다시 하면 성공할 수 있으면 Retry다. 예외 타입을 나누어 둘 다 적용할 수 있다.</li>
+<li><strong>스케줄링</strong> — Spring Batch는 scheduler가 아니다. <code>@Scheduled</code>·Quartz·cron이 trigger를 맡는다.</li>
+</ul>
+<h2>코드</h2>
+<p>Footer 집계 Writer. write 성공 후 합산하고, ItemStream으로 합계를 보존한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TradeSummaryWriter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemWriter</span>&lt;Trade&gt;, FlatFileFooterCallback, ItemStream {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">KEY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;trade.total.amount&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ItemWriter&lt;Trade&gt; delegate;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">BigDecimal</span> <span class="hljs-variable">totalAmount</span> <span class="hljs-operator">=</span> BigDecimal.ZERO;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TradeSummaryWriter</span><span class="hljs-params">(ItemWriter&lt;Trade&gt; delegate)</span> {
+        <span class="hljs-built_in">this</span>.delegate = delegate;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">write</span><span class="hljs-params">(Chunk&lt;? extends Trade&gt; chunk)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">BigDecimal</span> <span class="hljs-variable">chunkTotal</span> <span class="hljs-operator">=</span> chunk.getItems().stream()
+            .map(Trade::amount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        delegate.write(chunk);
+        totalAmount = totalAmount.add(chunkTotal);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">writeFooter</span><span class="hljs-params">(Writer writer)</span> <span class="hljs-keyword">throws</span> IOException {
+        writer.write(<span class="hljs-string">&quot;Total Amount Processed: &quot;</span> + totalAmount);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">open</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-keyword">if</span> (context.containsKey(KEY)) {
+            totalAmount = <span class="hljs-keyword">new</span> <span class="hljs-title class_">BigDecimal</span>(context.getString(KEY));
+        }
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(ExecutionContext context)</span> {
+        context.putString(KEY, totalAmount.toPlainString());
+    }
+}</code></pre>
+<p>Step 간 데이터 전달. step1이 Step ExecutionContext에 저장한 값을 Promotion Listener가 올리고, 다음 Step이 Late Binding으로 받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">ExecutionContextPromotionListener</span> <span class="hljs-title function_">promotionListener</span><span class="hljs-params">()</span> {
+    <span class="hljs-type">ExecutionContextPromotionListener</span> <span class="hljs-variable">listener</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ExecutionContextPromotionListener</span>();
+    listener.setKeys(<span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[] {<span class="hljs-string">&quot;processedCount&quot;</span>});
+    listener.setStatuses(<span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[] {<span class="hljs-string">&quot;COMPLETED&quot;</span>});
+    <span class="hljs-keyword">return</span> listener;
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">step1</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                  ItemReader&lt;Order&gt; reader, ItemWriter&lt;Order&gt; writer,
+                  ExecutionContextPromotionListener promotionListener)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;step1&quot;</span>, repo)
+        .&lt;Order, Order&gt;chunk(<span class="hljs-number">100</span>, tx)
+        .reader(reader)
+        .writer(writer)
+        .listener(<span class="hljs-keyword">new</span> <span class="hljs-title class_">StepExecutionListener</span>() {
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">ExitStatus</span> <span class="hljs-title function_">afterStep</span><span class="hljs-params">(StepExecution stepExecution)</span> {
+                stepExecution.getExecutionContext()
+                    .putLong(<span class="hljs-string">&quot;processedCount&quot;</span>, stepExecution.getWriteCount());
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+            }
+        })
+        .listener(promotionListener)
+        .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-meta">@StepScope</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Tasklet</span> <span class="hljs-title function_">reportTasklet</span><span class="hljs-params">(
+        <span class="hljs-meta">@Value(&quot;#{jobExecutionContext[&#x27;processedCount&#x27;]}&quot;)</span> Long processedCount)</span> {
+    <span class="hljs-keyword">return</span> (contribution, chunkContext) -&gt; {
+        System.out.println(<span class="hljs-string">&quot;step1 processed &quot;</span> + processedCount);
+        <span class="hljs-keyword">return</span> RepeatStatus.FINISHED;
+    };
+}</code></pre>
+<p>재실행과 0건 처리. <code>RunIdIncrementer</code>로 매 실행마다 새 JobInstance를 만들고, readCount가 0이면 FAILED로 끝낸다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">dailyJob</span><span class="hljs-params">(JobRepository repo, Step step)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;dailyJob&quot;</span>, repo)
+        .incrementer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RunIdIncrementer</span>())
+        .start(step)
+        .build();
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">NoWorkFoundListener</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">StepExecutionListener</span> {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ExitStatus</span> <span class="hljs-title function_">afterStep</span><span class="hljs-params">(StepExecution stepExecution)</span> {
+        <span class="hljs-keyword">return</span> stepExecution.getReadCount() == <span class="hljs-number">0</span> ? ExitStatus.FAILED : <span class="hljs-literal">null</span>;
+    }
+}
+
+<span class="hljs-meta">@Scheduled(cron = &quot;0 0 2 * * *&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">launch</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+    <span class="hljs-type">JobParameters</span> <span class="hljs-variable">params</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobParametersBuilder</span>(jobExplorer)
+        .getNextJobParameters(dailyJob)
+        .toJobParameters();
+    jobLauncher.run(dailyJob, params);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Listener 안의 DB 로깅이 rollback과 함께 사라진다.</strong> <code>onReadError</code>·<code>onWriteError</code>에서 DB에 기록하면 chunk 트랜잭션 rollback 시 같이 지워진다. <code>REQUIRES_NEW</code>로 분리하거나 commit 직전 호출이 보장되는 <code>SkipListener</code>를 쓴다.</li>
+<li><strong>Multi-threaded Step에서 Reader가 thread-safe하지 않다.</strong> <code>FlatFileItemReader</code>·<code>JdbcCursorItemReader</code>는 동기화되지 않는다. <code>SynchronizedItemStreamReader</code>로 감싸면 재시작 안전성을 잃으므로 <code>saveState(false)</code>를 두거나 Partitioning으로 전환한다.</li>
+<li><strong>Promotion Listener가 동작하지 않는다.</strong> <code>setKeys</code> 누락, ExitStatus와 <code>setStatuses</code> 불일치, Step ExecutionContext에 key 부재가 대부분의 원인이다.</li>
+<li><strong>Driving Query의 N+1.</strong> key별 단건 조회가 throughput을 깎는다. Writer에서 <code>WHERE id IN (...)</code>으로 묶어 조회하면 절충된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/skip-retry/">Skip과 Retry</a></li>
+<li><a href="/notes/spring-batch/scaling-partitioning/">Scaling — Multi-thread·Partitioning·Remote Chunking</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, ExecutionContextPromotionListener, Driving Query, RunIdIncrementer, Chunk Size</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/testing-observability/"><small>이전</small>테스트와 관측성 — @SpringBatchTest·Micrometer·JFR</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

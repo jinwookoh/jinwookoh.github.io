@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flat File Reader·Writer · Spring Batch</title>
+  <meta name="description" content="CSV·고정 길이 파일을 Tokenizer→FieldSet→Mapper 3단계로 읽고 역방향으로 쓰는 구조와 재시작·트랜잭션 함정">
+  <meta property="og:title" content="Flat File Reader·Writer · Spring Batch">
+  <meta property="og:description" content="CSV·고정 길이 파일을 Tokenizer→FieldSet→Mapper 3단계로 읽고 역방향으로 쓰는 구조와 재시작·트랜잭션 함정">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/flat-file-reader-writer/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Flat File Reader·Writer</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Reader·Processor·Writer</p>
+  <h1>Flat File Reader·Writer</h1>
+  <p class="summary">CSV·고정 길이 파일을 Tokenizer→FieldSet→Mapper 3단계로 읽고 역방향으로 쓰는 구조와 재시작·트랜잭션 함정</p>
+  <div class="content">
+<p>정산·결제·파트너 인터페이스 같은 대량 데이터 교환은 여전히 CSV나 고정 길이 텍스트 파일로 오간다. 이 파일을 직접 읽으면 header 건너뛰기, 따옴표 안의 구분자, 셀 안의 줄바꿈, 인코딩, 타입 변환, 중단 지점부터의 재시작을 job마다 다시 구현하게 된다. <code>FlatFileItemReader</code>와 <code>FlatFileItemWriter</code>는 이 과정을 교체 가능한 컴포넌트로 표준화하고 <code>ItemStream</code>으로 재시작 위치까지 관리한다.</p>
+<h2>핵심 개념</h2>
+<p>Flat file은 구분자로 필드를 나누는 Delimited와 position으로 자르는 Fixed length 두 형태다.</p>
+<p>Reader는 한 줄을 세 단계로 객체로 바꾼다. <code>FlatFileItemReader</code>가 한 줄 <code>String</code>을 읽고, <code>LineTokenizer</code>가 <code>FieldSet</code>으로 분리하고, <code>FieldSetMapper</code>가 객체로 매핑한다. 뒤의 둘을 묶는 표준 구현이 <code>DefaultLineMapper</code>다.</p>
+<p><code>LineTokenizer</code>는 <code>DelimitedLineTokenizer</code>, <code>FixedLengthTokenizer</code>(<code>Range</code> 배열, 1-based inclusive), <code>PatternMatchingCompositeLineTokenizer</code>(줄 prefix별로 다른 tokenizer)가 있다. <code>FieldSetMapper</code>는 <code>BeanWrapperFieldSetMapper</code>(setter 매칭), <code>RecordFieldSetMapper</code>(record component 매칭), 직접 구현이 있으며 <code>.targetType(Class)</code>가 대상 타입에 맞는 mapper를 자동 적용한다.</p>
+<p><code>FieldSet</code>은 JDBC <code>ResultSet</code>과 같은 모델로 한 줄을 다루는 추상화다. index나 name으로 접근하고 <code>readInt</code>·<code>readBigDecimal</code>·<code>readDate</code> 계열이 타입 변환을 맡는다. <code>readInt(&quot;count&quot;, 0)</code>처럼 default를 주면 빈 셀을 안전하게 처리하고, 변환 실패는 <code>IllegalArgumentException</code>이라 Skip 정책이 흡수한다. <code>readDate</code>는 <code>java.util.Date</code>를 반환하므로 <code>LocalDate</code>가 필요하면 <code>readString</code> 후 직접 parse한다.</p>
+<p>Writer는 정확히 역방향이다. <code>FieldExtractor</code>가 객체에서 <code>Object[]</code>를 뽑고, <code>LineAggregator</code>가 한 줄로 합치며, <code>FlatFileItemWriter</code>가 파일에 쓴다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">단계</th>
+<th align="left">Reader</th>
+<th align="left">Writer</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">분리·추출</td>
+<td align="left"><code>LineTokenizer</code></td>
+<td align="left"><code>FieldExtractor</code></td>
+</tr>
+<tr>
+<td align="left">중간 표현</td>
+<td align="left"><code>FieldSet</code></td>
+<td align="left"><code>Object[]</code></td>
+</tr>
+<tr>
+<td align="left">변환·조립</td>
+<td align="left"><code>FieldSetMapper</code></td>
+<td align="left"><code>LineAggregator</code></td>
+</tr>
+</tbody></table>
+<p><code>FieldExtractor</code>는 <code>BeanWrapperFieldExtractor</code>(getter 매칭)와 <code>RecordFieldExtractor</code>, <code>LineAggregator</code>는 <code>DelimitedLineAggregator</code>와 <code>FormatterLineAggregator</code>(printf 스타일 고정 폭)가 대표적이며 Builder의 <code>.delimited()</code>·<code>.formatted()</code>가 각 조합을 자동 구성한다.</p>
+<h2>코드</h2>
+<p>Late Binding으로 입력 파일을 받는 표준 CSV reader. record를 대상으로 하면 setter 없이 불변 객체로 매핑된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Customer</span><span class="hljs-params">(Long id, String name, String email, String createdAt)</span> {}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-meta">@StepScope</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">FlatFileItemReader</span>&lt;Customer&gt; <span class="hljs-title function_">customerReader</span><span class="hljs-params">(
+        <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;input.file&#x27;]}&quot;)</span> Resource resource)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">FlatFileItemReaderBuilder</span>&lt;Customer&gt;()
+        .name(<span class="hljs-string">&quot;customerReader&quot;</span>)
+        .resource(resource)
+        .encoding(<span class="hljs-string">&quot;UTF-8&quot;</span>)
+        .linesToSkip(<span class="hljs-number">1</span>)
+        .skippedLinesCallback(line -&gt; log.info(<span class="hljs-string">&quot;header: {}&quot;</span>, line))
+        .recordSeparatorPolicy(<span class="hljs-keyword">new</span> <span class="hljs-title class_">DefaultRecordSeparatorPolicy</span>())
+        .delimited()
+            .delimiter(<span class="hljs-string">&quot;,&quot;</span>)
+            .quoteCharacter(<span class="hljs-string">&#x27;&quot;&#x27;</span>)
+            .names(<span class="hljs-string">&quot;id&quot;</span>, <span class="hljs-string">&quot;name&quot;</span>, <span class="hljs-string">&quot;email&quot;</span>, <span class="hljs-string">&quot;createdAt&quot;</span>)
+        .targetType(Customer.class)
+        .build();
+}</code></pre>
+<p>고정 길이 파일을 <code>Range</code>로 자르고 검증을 겸한 custom <code>FieldSetMapper</code>로 매핑하는 reader. mapper가 던진 예외는 Skip 정책으로 넘어간다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-meta">@StepScope</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">FlatFileItemReader</span>&lt;Order&gt; <span class="hljs-title function_">orderReader</span><span class="hljs-params">(
+        <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;input.file&#x27;]}&quot;)</span> Resource resource)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">FlatFileItemReaderBuilder</span>&lt;Order&gt;()
+        .name(<span class="hljs-string">&quot;orderReader&quot;</span>)
+        .resource(resource)
+        .encoding(<span class="hljs-string">&quot;UTF-8&quot;</span>)
+        .fixedLength()
+            .columns(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Range</span>(<span class="hljs-number">1</span>, <span class="hljs-number">12</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">Range</span>(<span class="hljs-number">13</span>, <span class="hljs-number">15</span>),
+                     <span class="hljs-keyword">new</span> <span class="hljs-title class_">Range</span>(<span class="hljs-number">16</span>, <span class="hljs-number">20</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">Range</span>(<span class="hljs-number">21</span>, <span class="hljs-number">29</span>))
+            .names(<span class="hljs-string">&quot;isin&quot;</span>, <span class="hljs-string">&quot;quantity&quot;</span>, <span class="hljs-string">&quot;price&quot;</span>, <span class="hljs-string">&quot;customer&quot;</span>)
+            .strict(<span class="hljs-literal">false</span>)
+        .fieldSetMapper(fs -&gt; {
+            <span class="hljs-type">int</span> <span class="hljs-variable">quantity</span> <span class="hljs-operator">=</span> fs.readInt(<span class="hljs-string">&quot;quantity&quot;</span>, <span class="hljs-number">0</span>);
+            <span class="hljs-keyword">if</span> (quantity &lt;= <span class="hljs-number">0</span>) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;invalid quantity: &quot;</span> + quantity);
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(
+                fs.readString(<span class="hljs-string">&quot;isin&quot;</span>).trim(),
+                quantity,
+                fs.readBigDecimal(<span class="hljs-string">&quot;price&quot;</span>, BigDecimal.ZERO),
+                fs.readString(<span class="hljs-string">&quot;customer&quot;</span>).trim());
+        })
+        .build();
+}</code></pre>
+<p>header와 통계 footer를 가진 CSV writer. <code>StepExecution</code>을 주입받아 <code>writeCount</code>를 footer에 기록한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-meta">@StepScope</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">FlatFileItemWriter</span>&lt;Customer&gt; <span class="hljs-title function_">customerWriter</span><span class="hljs-params">(
+        <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;output.file&#x27;]}&quot;)</span> WritableResource resource,
+        <span class="hljs-meta">@Value(&quot;#{stepExecution}&quot;)</span> StepExecution stepExecution)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">FlatFileItemWriterBuilder</span>&lt;Customer&gt;()
+        .name(<span class="hljs-string">&quot;customerWriter&quot;</span>)
+        .resource(resource)
+        .encoding(<span class="hljs-string">&quot;UTF-8&quot;</span>)
+        .lineSeparator(<span class="hljs-string">&quot;\n&quot;</span>)
+        .shouldDeleteIfEmpty(<span class="hljs-literal">true</span>)
+        .headerCallback(w -&gt; w.write(<span class="hljs-string">&quot;id,name,email&quot;</span>))
+        .footerCallback(w -&gt; w.write(<span class="hljs-string">&quot;# total=&quot;</span> + stepExecution.getWriteCount()))
+        .delimited()
+            .delimiter(<span class="hljs-string">&quot;,&quot;</span>)
+            .names(<span class="hljs-string">&quot;id&quot;</span>, <span class="hljs-string">&quot;name&quot;</span>, <span class="hljs-string">&quot;email&quot;</span>)
+        .build();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>encoding·lineSeparator 미명시.</strong> 기본값이 JVM 설정을 따라 환경마다 달라진다. Windows에서 저장된 UTF-8 파일은 BOM이 첫 컬럼 값에 섞이므로 전처리로 제거한다.</li>
+<li><strong><code>strict</code>는 두 곳에 있고 의미가 다르다.</strong> Reader의 <code>strict(false)</code>는 resource가 없을 때 예외 대신 0건 처리이고, Tokenizer의 <code>strict(false)</code>는 token 수·line 길이 불일치 시 <code>IncorrectTokenCountException</code> 대신 빈 값으로 padding한다.</li>
+<li><strong><code>transactional(true)</code>(기본)는 chunk commit까지 출력을 buffer에 쌓는다.</strong> rollback 시 파일 변경을 취소하기 위한 장치다. <code>false</code>로 바꾸면 즉시 flush되지만 rollback 후 부분 데이터가 남아 재시도 시 row가 중복된다.</li>
+<li><strong><code>shouldDeleteIfExists(true)</code>는 재시작과 충돌한다.</strong> 재시작 시 <code>open()</code>은 <code>ExecutionContext</code>의 마지막 write 위치까지 파일을 truncate하고 이어서 쓰는데, 시작 시 파일을 삭제하면 이전 결과가 사라진다. 매번 새로 쓰는 멱등 출력일 때만 <code>true</code>를 쓴다.</li>
+<li><strong><code>PatternMatchingCompositeLineMapper</code>는 매치되지 않는 줄에서 예외를 던진다.</strong> <code>*</code> catch-all을 마지막에 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/reader-writer-interfaces/">ItemReader·ItemWriter 인터페이스와 구현체 카탈로그</a></li>
+<li><a href="/notes/spring-batch/xml-json-multifile/">XML·JSON·Multi-file 입출력</a></li>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, FlatFileItemReader, FlatFileItemWriter, FieldSet, LineAggregator</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/reader-writer-interfaces/"><small>이전</small>ItemReader·ItemWriter 인터페이스와 구현체 카탈로그</a>
+  <a class="next" href="/notes/spring-batch/xml-json-multifile/"><small>다음</small>XML·JSON·Multi-file 입출력</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

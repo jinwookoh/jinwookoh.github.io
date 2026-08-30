@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>S3 — Object Lock·Access Points·CloudFront·Lambda 통합 · AWS</title>
+  <meta name="description" content="삭제 불가 보존, 버킷 하나에 여러 접근 경로, CDN 뒤로 버킷 숨기기, 업로드 이벤트 자동 처리를 S3 위에 어떻게 얹는가">
+  <meta property="og:title" content="S3 — Object Lock·Access Points·CloudFront·Lambda 통합 · AWS">
+  <meta property="og:description" content="삭제 불가 보존, 버킷 하나에 여러 접근 경로, CDN 뒤로 버킷 숨기기, 업로드 이벤트 자동 처리를 S3 위에 어떻게 얹는가">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/s3-advanced-cloudfront/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/aws/">AWS</a><span class="sep">›</span><span>S3 — Object Lock·Access Points·CloudFront·Lambda 통합</span></nav>
+    <article class="post">
+  <p class="part">AWS · 컴퓨트와 스토리지</p>
+  <h1>S3 — Object Lock·Access Points·CloudFront·Lambda 통합</h1>
+  <p class="summary">삭제 불가 보존, 버킷 하나에 여러 접근 경로, CDN 뒤로 버킷 숨기기, 업로드 이벤트 자동 처리를 S3 위에 어떻게 얹는가</p>
+  <div class="content">
+<p>버킷·버전 관리·라이프사이클만으로는 남는 요구가 있다. 감사 기록은 관리자 권한으로도 지워지면 안 되고, 한 버킷을 여러 팀이 쓰면 버킷 정책이 수십 개 Statement로 불어난다. 정적 자산을 S3 URL로 직접 서비스하면 HTTPS·캐시가 없고, 업로드 후처리는 폴링 배치가 필요하다. Object Lock, Access Points, CloudFront OAC, 이벤트 알림과 Lambda가 각각 이 빈자리를 채운다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Object Lock</strong> 은 WORM(Write Once Read Many) 보존을 객체 버전 단위로 강제한다. 버킷 생성 시점에 활성화해야 하며 버전 관리가 전제된다. 보존 방식은 세 가지가 조합된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">구분</th>
+<th align="left">해제</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Governance 모드</td>
+<td align="left"><code>s3:BypassGovernanceRetention</code> 권한 + bypass 헤더로 해제 가능</td>
+<td align="left">내부 정책, 실수 방지</td>
+</tr>
+<tr>
+<td align="left">Compliance 모드</td>
+<td align="left">보존 기간 만료 전에는 루트 계정도 해제 불가</td>
+<td align="left">SEC 17a-4 등 외부 규정</td>
+</tr>
+<tr>
+<td align="left">Legal Hold</td>
+<td align="left">기간 없음, <code>s3:PutObjectLegalHold</code> 로 명시적 OFF</td>
+<td align="left">소송·감사 중 증거 보전</td>
+</tr>
+</tbody></table>
+<p>Retention과 Legal Hold는 독립적이며 둘 중 하나라도 살아 있으면 삭제가 거부된다. 버킷 기본 보존 규칙은 신규 객체에 자동 적용된다.</p>
+<p><strong>Access Points</strong> 는 한 버킷에 이름 붙은 엔드포인트를 여러 개 만들고 엔드포인트마다 독립 정책을 두는 기능이다. 클라이언트는 버킷 이름 자리에 Access Point ARN을 넣는다. VPC 전용으로 만들면 인터넷 경로가 막힌다. Access Point 정책은 버킷 정책과 함께 평가되므로 버킷 정책은 &quot;Access Point 경유만 허용&quot;으로 단순화하고 세부 권한을 Access Point로 옮긴다. Multi-Region Access Point는 여러 리전 버킷 위의 글로벌 엔드포인트로 가장 가까운 리전에 라우팅·페일오버하며, 복제는 하지 않으므로 CRR이 선행돼야 한다. Object Lambda Access Point는 GET만 가로채 Lambda 변환 결과를 돌려주고 PUT·DELETE·HEAD는 통과한다.</p>
+<p><strong>CloudFront + OAC</strong> 는 S3를 오리진으로 두고 엣지에서 캐싱하는 표준 구성이다. OAC는 CloudFront 서비스 주체가 SigV4 서명으로 버킷에 접근하고, 버킷 정책의 <code>AWS:SourceArn</code> 조건으로 특정 배포만 허용한다. OAI는 레거시이며 SSE-KMS 오리진을 지원하지 않는다. S3 웹사이트 엔드포인트 단독은 HTTPS가 없으므로 S3 + CloudFront + Route 53으로 운영한다.</p>
+<p><strong>이벤트 알림</strong> 은 ObjectCreated·ObjectRemoved·Restore 등을 SNS·SQS·Lambda·EventBridge로 보낸다. 한 이벤트를 여러 규칙으로 분기하려면 EventBridge를 쓴다. prefix·suffix 필터로 대상을 좁힌다. Lambda 연결은 리소스 정책에 <code>s3.amazonaws.com</code> 주체의 InvokeFunction 허용과 버킷 알림 구성 두 단계다. 전달은 at-least-once 이므로 소비 측은 멱등해야 한다.</p>
+<p><strong>Batch Operations</strong> 는 매니페스트(Inventory 보고서 또는 CSV)의 객체 전체에 복사·태깅·Glacier 복원·Retention·Legal Hold·Lambda 호출을 단일 잡으로 적용하고 보고서를 남긴다. 본문 변환은 LambdaInvoke 로만 가능하다.</p>
+<h2>코드</h2>
+<p>AWS SDK for Java 2.x 로 Compliance 보존과 Legal Hold를 객체 버전에 적용하는 서비스다. <code>bypassGovernanceRetention</code> 은 Governance 모드 해제에만 의미가 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RetentionService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> S3Client s3;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">RetentionService</span><span class="hljs-params">(S3Client s3)</span> {
+        <span class="hljs-built_in">this</span>.s3 = s3;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">lockForYears</span><span class="hljs-params">(String bucket, String key, String versionId, <span class="hljs-type">int</span> years)</span> {
+        <span class="hljs-type">Instant</span> <span class="hljs-variable">until</span> <span class="hljs-operator">=</span> ZonedDateTime.now(ZoneOffset.UTC).plusYears(years).toInstant();
+        s3.putObjectRetention(r -&gt; r.bucket(bucket).key(key).versionId(versionId)
+                .retention(ObjectLockRetention.builder()
+                        .mode(ObjectLockRetentionMode.COMPLIANCE)
+                        .retainUntilDate(until)
+                        .build()));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">setLegalHold</span><span class="hljs-params">(String bucket, String key, <span class="hljs-type">boolean</span> on)</span> {
+        s3.putObjectLegalHold(r -&gt; r.bucket(bucket).key(key)
+                .legalHold(h -&gt; h.status(on
+                        ? ObjectLockLegalHoldStatus.ON
+                        : ObjectLockLegalHoldStatus.OFF)));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">releaseGovernance</span><span class="hljs-params">(String bucket, String key, String versionId)</span> {
+        s3.putObjectRetention(r -&gt; r.bucket(bucket).key(key).versionId(versionId)
+                .bypassGovernanceRetention(<span class="hljs-literal">true</span>)
+                .retention(ObjectLockRetention.builder().build()));
+    }
+}</code></pre>
+<p>Access Point ARN을 버킷 자리에 넣어 읽고, 다운로드용 presigned URL에 응답 파일명을 강제하는 예다. <code>S3Presigner</code> 는 서명한 자격 증명의 만료를 넘는 URL을 만들 수 없다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FinanceObjectService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">ACCESS_POINT</span> <span class="hljs-operator">=</span>
+            <span class="hljs-string">&quot;arn:aws:s3:ap-northeast-2:123456789012:accesspoint/finance-ap&quot;</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> S3Client s3;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> S3Presigner presigner;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">FinanceObjectService</span><span class="hljs-params">(S3Client s3, S3Presigner presigner)</span> {
+        <span class="hljs-built_in">this</span>.s3 = s3;
+        <span class="hljs-built_in">this</span>.presigner = presigner;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">byte</span>[] <span class="hljs-title function_">read</span><span class="hljs-params">(String key)</span> {
+        <span class="hljs-keyword">return</span> s3.getObjectAsBytes(r -&gt; r.bucket(ACCESS_POINT).key(key)).asByteArray();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">URL</span> <span class="hljs-title function_">downloadUrl</span><span class="hljs-params">(String key, String fileName)</span> {
+        <span class="hljs-type">GetObjectRequest</span> <span class="hljs-variable">get</span> <span class="hljs-operator">=</span> GetObjectRequest.builder()
+                .bucket(ACCESS_POINT).key(key)
+                .responseContentDisposition(<span class="hljs-string">&quot;attachment; filename=\&quot;&quot;</span> + fileName + <span class="hljs-string">&quot;\&quot;&quot;</span>)
+                .build();
+        <span class="hljs-keyword">return</span> presigner.presignGetObject(p -&gt; p
+                .signatureDuration(Duration.ofMinutes(<span class="hljs-number">30</span>))
+                .getObjectRequest(get)).url();
+    }
+}</code></pre>
+<p>S3 ObjectCreated 이벤트를 받는 Java Lambda 핸들러다. 키는 URL 디코딩이 필요하고, 결과는 별도 버킷에 써서 재트리거를 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ThumbnailHandler</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">RequestHandler</span>&lt;S3Event, Void&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">S3Client</span> <span class="hljs-variable">s3</span> <span class="hljs-operator">=</span> S3Client.create();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">OUT_BUCKET</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;my-thumbnail-bucket&quot;</span>;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Void</span> <span class="hljs-title function_">handleRequest</span><span class="hljs-params">(S3Event event, Context context)</span> {
+        <span class="hljs-keyword">for</span> (S3EventNotification.S3EventNotificationRecord rec : event.getRecords()) {
+            <span class="hljs-type">String</span> <span class="hljs-variable">bucket</span> <span class="hljs-operator">=</span> rec.getS3().getBucket().getName();
+            <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> URLDecoder.decode(rec.getS3().getObject().getKey(), StandardCharsets.UTF_8);
+            <span class="hljs-type">String</span> <span class="hljs-variable">outKey</span> <span class="hljs-operator">=</span> key.replaceFirst(<span class="hljs-string">&quot;^uploads/&quot;</span>, <span class="hljs-string">&quot;thumbnails/&quot;</span>);
+
+            <span class="hljs-keyword">if</span> (exists(OUT_BUCKET, outKey)) {
+                <span class="hljs-keyword">continue</span>; <span class="hljs-comment">// at-least-once 전달에 대한 멱등 처리</span>
+            }
+            <span class="hljs-type">byte</span>[] <span class="hljs-variable">original</span> <span class="hljs-operator">=</span> s3.getObjectAsBytes(r -&gt; r.bucket(bucket).key(key)).asByteArray();
+            <span class="hljs-type">byte</span>[] <span class="hljs-variable">thumb</span> <span class="hljs-operator">=</span> ImageResizer.resize(original, <span class="hljs-number">200</span>, <span class="hljs-number">200</span>);
+            s3.putObject(r -&gt; r.bucket(OUT_BUCKET).key(outKey).contentType(<span class="hljs-string">&quot;image/jpeg&quot;</span>),
+                    RequestBody.fromBytes(thumb));
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">exists</span><span class="hljs-params">(String bucket, String key)</span> {
+        <span class="hljs-keyword">try</span> {
+            s3.headObject(r -&gt; r.bucket(bucket).key(key));
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        } <span class="hljs-keyword">catch</span> (NoSuchKeyException e) {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Compliance 모드는 되돌릴 수 없다.</strong> 기본 보존 규칙을 잘못 넣으면 그 기간 동안 객체와 저장 비용이 남는다. Governance 로 검증한 뒤 Compliance 로 올린다. 라이프사이클 만료 규칙도 보존 기간 전에는 삭제하지 못한다.</li>
+<li><strong>이벤트 알림이 오지 않는 첫 원인은 Lambda 리소스 정책 누락이다.</strong> 버킷 알림 구성만 넣으면 호출이 일어나지 않고 에러도 남지 않는다. 출력 버킷을 입력 버킷과 같게 두고 prefix 필터를 빼면 재귀 호출로 비용이 폭증한다.</li>
+<li><strong>Presigned URL 만료는 서명 자격 증명 만료에 묶인다.</strong> 인스턴스 프로파일이나 Lambda 실행 역할의 임시 자격 증명으로 7일짜리 URL을 만들어도 자격 증명 갱신 시점에 무효가 된다. 긴 만료가 필요하면 IAM 사용자 키로 서명한다.</li>
+<li><strong>캐시 헤더는 자산 종류별로 나눈다.</strong> 해시 파일명 자산은 1년, <code>index.html</code> 은 <code>no-cache</code> 로 올린다. OAC 전환 시 버킷 정책의 <code>SourceArn</code> 배포 ID가 틀리면 403이 캐시되어 원인 찾기가 오래 걸린다.</li>
+<li><strong>Access Point 는 버킷 정책과 AND 로 평가된다.</strong> 버킷 정책에 <code>s3:DataAccessPointAccount</code> 조건을 두지 않으면 버킷 직접 경로가 그대로 열려 있다. Multi-Region Access Point 는 단일 리전 트래픽에는 과하다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/aws/s3-basics-security/">S3 — 버킷·버전 관리·암호화·버킷 정책</a></li>
+<li><a href="/notes/aws/s3-performance-lifecycle-replication/">S3 — 멀티파트·라이프사이클·복제</a></li>
+<li><a href="/notes/aws/lambda-serverless-containers/">Lambda·SAM·Step Functions·ECS·Fargate</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · S3, Object Lock, Access Points, CloudFront, Lambda</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/aws/s3-performance-lifecycle-replication/"><small>이전</small>S3 — 멀티파트·라이프사이클·복제</a>
+  <a class="next" href="/notes/aws/vpc-networking/"><small>다음</small>VPC·CloudFront·API Gateway</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

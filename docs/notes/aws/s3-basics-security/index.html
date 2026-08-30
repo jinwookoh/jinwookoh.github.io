@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>S3 — 버킷·버전 관리·암호화·버킷 정책 · AWS</title>
+  <meta name="description" content="S3 버킷의 평면 키 구조와 버전 관리, 4종 서버 측 암호화, IAM·버킷 정책·BPA의 평가 순서를 정리한다">
+  <meta property="og:title" content="S3 — 버킷·버전 관리·암호화·버킷 정책 · AWS">
+  <meta property="og:description" content="S3 버킷의 평면 키 구조와 버전 관리, 4종 서버 측 암호화, IAM·버킷 정책·BPA의 평가 순서를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/s3-basics-security/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/aws/">AWS</a><span class="sep">›</span><span>S3 — 버킷·버전 관리·암호화·버킷 정책</span></nav>
+    <article class="post">
+  <p class="part">AWS · 컴퓨트와 스토리지</p>
+  <h1>S3 — 버킷·버전 관리·암호화·버킷 정책</h1>
+  <p class="summary">S3 버킷의 평면 키 구조와 버전 관리, 4종 서버 측 암호화, IAM·버킷 정책·BPA의 평가 순서를 정리한다</p>
+  <div class="content">
+<p>애플리케이션 파일을 EC2 디스크나 EFS에 쌓으면 용량 계획, 다중 AZ 복제, 백업을 직접 운영해야 하고 인스턴스가 사라지면 데이터도 위험해진다. 업로드 파일·정적 자산·로그·백업처럼 한 번 쓰고 여러 번 읽는 데이터는 객체 스토리지에 둔다. S3는 용량 상한이 없고 데이터를 최소 3개 AZ에 복제해 99.999999999%의 내구성을 제공한다. 대신 접근 제어와 암호화는 공유 책임 모델에 따라 고객 몫이며, 유출 사고 대부분이 권한 설정 실수에서 나온다.</p>
+<h2>핵심 개념</h2>
+<h3>버킷과 객체</h3>
+<p>버킷 이름은 <code>https://&lt;bucket&gt;.s3.amazonaws.com</code> 도메인으로 노출되므로 모든 계정·리전에 걸쳐 전역 고유해야 한다. 3~63자, 소문자·숫자·하이픈만 허용한다. 이름은 전역이지만 데이터는 지정한 리전 한 곳에 저장된다. 신규 버킷 기본값은 퍼블릭 액세스 차단, 버전 관리 비활성화, SSE-S3 암호화, ACL 비활성화다.</p>
+<p>객체는 키·값·메타데이터·태그·버전 ID로 구성된다. 키에 슬래시가 들어가도 디렉터리는 없고 키 공간은 평면이며, 콘솔이 접두사(prefix)를 폴더처럼 보여 줄 뿐이다. 객체 최대 크기는 5TB, 단일 PUT은 5GB까지다. 2020년 12월 이후 쓰기·갱신·삭제 후 읽기 모두 강한 일관성을 보장하므로 구 자료의 최종 일관성 설명은 현재와 다르다.</p>
+<h3>버전 관리</h3>
+<p>버전 관리는 버킷 단위로 켜며, 같은 키로 업로드할 때마다 새 버전 ID가 부여되고 이전 버전은 남는다. 활성화 이전에 존재하던 객체의 버전 ID는 <code>null</code>이다. 한 번 켜면 비활성으로 되돌릴 수 없고 Suspended 상태로만 전환되며 기존 버전은 유지된다.</p>
+<p>버전 ID 없이 삭제하면 객체는 지워지지 않고 최상단에 삭제 마커가 얹혀 GET이 404를 반환하며, 삭제 마커를 지우면 복구된다. 버전 ID를 지정해 삭제하면 그 버전이 영구 삭제된다. 모든 버전이 저장 비용을 발생시키므로 라이프사이클 규칙으로 비최신 버전을 만료시켜야 한다.</p>
+<p>MFA Delete는 버전 영구 삭제와 버전 관리 중단에 MFA 코드를 요구하며, 루트 계정만 CLI 또는 API로 설정할 수 있다.</p>
+<h3>암호화</h3>
+<p>전송 중 암호화는 TLS로 처리하고, 버킷 정책에서 <code>aws:SecureTransport</code>가 false인 요청을 거부해 강제한다. 저장 시 암호화는 서버 측 4종과 클라이언트 측 1종이 있다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">방식</th>
+<th align="left">키 관리</th>
+<th align="left">비고</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">SSE-S3</td>
+<td align="left">AWS</td>
+<td align="left">AES-256, 기본값, 추가 비용 없음</td>
+</tr>
+<tr>
+<td align="left">SSE-KMS</td>
+<td align="left">KMS</td>
+<td align="left">CloudTrail 감사, 키 정책으로 세밀 제어, <code>kms:Decrypt</code> 권한 필요</td>
+</tr>
+<tr>
+<td align="left">DSSE-KMS</td>
+<td align="left">KMS</td>
+<td align="left">두 계층 이중 암호화</td>
+</tr>
+<tr>
+<td align="left">SSE-C</td>
+<td align="left">고객</td>
+<td align="left">요청마다 키 전송, HTTPS 필수, 콘솔 설정 불가</td>
+</tr>
+<tr>
+<td align="left">CSE</td>
+<td align="left">고객</td>
+<td align="left">업로드 전 클라이언트가 암호화, AWS는 평문을 보지 않음</td>
+</tr>
+</tbody></table>
+<p>SSE-KMS는 객체를 읽고 쓸 때마다 KMS API를 호출하므로 객체가 많으면 요청 한도와 비용 문제가 생긴다. S3 Bucket Key를 켜면 버킷 수준 데이터 키를 재사용해 호출을 줄인다. 버킷 정책의 암호화 조건은 기본 암호화 설정보다 먼저 평가된다.</p>
+<h3>접근 제어 계층</h3>
+<p>IAM 정책은 주체에, 버킷 정책은 리소스에 붙으며 버킷 정책에는 <code>Principal</code>이 필수다. 어느 한쪽의 Allow가 있고 어디에도 명시적 Deny가 없을 때 허용된다. <code>s3:ListBucket</code>은 버킷 ARN에, <code>s3:GetObject</code>는 <code>bucket/*</code> 객체 ARN에 걸어야 한다.</p>
+<p>Block Public Access(BPA)는 4개 옵션으로 구성되며 버킷 정책이 <code>Principal: &quot;*&quot;</code>를 허용해도 이를 무효화한다. 계정 수준에서 켜면 그 계정의 어떤 버킷도 공개되지 않는다. ACL은 레거시 방식이며 <code>AuthenticatedUsers</code> 그룹이 전 세계 AWS 사용자를 뜻하는 등 위험해 신규 버킷에서는 비활성화가 기본이다.</p>
+<p>Presigned URL은 버킷을 공개하지 않고 특정 객체에 시간 제한 접근을 부여한다. 생성자의 권한을 상속하며, 유효 기간 상한은 자격 증명에 따라 IAM 사용자 7일, STS 임시 자격 증명 36시간, 인스턴스 프로필 6시간이다. VPC 내부에서는 게이트웨이 엔드포인트를 쓰고 버킷 정책에 <code>aws:SourceVpce</code> 조건을 걸어 인터넷 경로를 차단한다.</p>
+<h2>코드</h2>
+<p>AWS SDK for Java 2.x의 <code>S3Client</code>와 <code>S3Presigner</code>를 Spring Boot 3.x 빈으로 등록한다. 자격 증명은 기본 체인에서 가져오고 코드에 키를 넣지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">S3Config</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">S3Client</span> <span class="hljs-title function_">s3Client</span><span class="hljs-params">(<span class="hljs-meta">@Value(&quot;${app.aws.region}&quot;)</span> String region)</span> {
+        <span class="hljs-keyword">return</span> S3Client.builder()
+                .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">S3Presigner</span> <span class="hljs-title function_">s3Presigner</span><span class="hljs-params">(<span class="hljs-meta">@Value(&quot;${app.aws.region}&quot;)</span> String region)</span> {
+        <span class="hljs-keyword">return</span> S3Presigner.builder()
+                .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+}</code></pre>
+<p>SSE-KMS로 업로드하고 응답의 버전 ID를 보관한 뒤, 특정 버전을 읽고 삭제 마커를 제거해 복구하는 서비스다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DocumentStorage</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> S3Client s3;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String bucket;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String kmsKeyId;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DocumentStorage</span><span class="hljs-params">(S3Client s3,
+                           <span class="hljs-meta">@Value(&quot;${app.aws.s3.bucket}&quot;)</span> String bucket,
+                           <span class="hljs-meta">@Value(&quot;${app.aws.kms.key-id}&quot;)</span> String kmsKeyId)</span> {
+        <span class="hljs-built_in">this</span>.s3 = s3;
+        <span class="hljs-built_in">this</span>.bucket = bucket;
+        <span class="hljs-built_in">this</span>.kmsKeyId = kmsKeyId;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">upload</span><span class="hljs-params">(String key, <span class="hljs-type">byte</span>[] body, String contentType)</span> {
+        <span class="hljs-type">PutObjectResponse</span> <span class="hljs-variable">res</span> <span class="hljs-operator">=</span> s3.putObject(PutObjectRequest.builder()
+                        .bucket(bucket)
+                        .key(key)
+                        .contentType(contentType)
+                        .serverSideEncryption(ServerSideEncryption.AWS_KMS)
+                        .ssekmsKeyId(kmsKeyId)
+                        .bucketKeyEnabled(<span class="hljs-literal">true</span>)
+                        .build(),
+                RequestBody.fromBytes(body));
+        <span class="hljs-keyword">return</span> res.versionId();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">byte</span>[] <span class="hljs-title function_">readVersion</span><span class="hljs-params">(String key, String versionId)</span> {
+        <span class="hljs-type">ResponseBytes</span>&lt;GetObjectResponse&gt; <span class="hljs-variable">bytes</span> <span class="hljs-operator">=</span> s3.getObjectAsBytes(
+                GetObjectRequest.builder()
+                        .bucket(bucket).key(key).versionId(versionId).build());
+        <span class="hljs-keyword">return</span> bytes.asByteArray();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">restoreDeleted</span><span class="hljs-params">(String key)</span> {
+        <span class="hljs-type">ListObjectVersionsResponse</span> <span class="hljs-variable">versions</span> <span class="hljs-operator">=</span> s3.listObjectVersions(
+                ListObjectVersionsRequest.builder().bucket(bucket).prefix(key).build());
+        versions.deleteMarkers().stream()
+                .filter(m -&gt; m.key().equals(key) &amp;&amp; Boolean.TRUE.equals(m.isLatest()))
+                .findFirst()
+                .ifPresent(m -&gt; s3.deleteObject(DeleteObjectRequest.builder()
+                        .bucket(bucket).key(key).versionId(m.versionId()).build()));
+    }
+}</code></pre>
+<p>브라우저가 S3에 직접 올리도록 PUT용 Presigned URL을 발급하는 컨트롤러다. 유효 기간은 짧게 잡고 Content-Type을 서명에 포함시킨다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/api/uploads&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UploadUrlController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> S3Presigner presigner;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String bucket;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UploadUrlController</span><span class="hljs-params">(S3Presigner presigner,
+                               <span class="hljs-meta">@Value(&quot;${app.aws.s3.bucket}&quot;)</span> String bucket)</span> {
+        <span class="hljs-built_in">this</span>.presigner = presigner;
+        <span class="hljs-built_in">this</span>.bucket = bucket;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">UploadUrl</span><span class="hljs-params">(String url, String key, Instant expiresAt)</span> {}
+
+    <span class="hljs-meta">@PostMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">UploadUrl</span> <span class="hljs-title function_">issue</span><span class="hljs-params">(<span class="hljs-meta">@RequestParam</span> String contentType)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;uploads/&quot;</span> + LocalDate.now() + <span class="hljs-string">&quot;/&quot;</span> + UUID.randomUUID();
+        <span class="hljs-type">PresignedPutObjectRequest</span> <span class="hljs-variable">presigned</span> <span class="hljs-operator">=</span> presigner.presignPutObject(
+                PutObjectPresignRequest.builder()
+                        .signatureDuration(Duration.ofMinutes(<span class="hljs-number">10</span>))
+                        .putObjectRequest(PutObjectRequest.builder()
+                                .bucket(bucket).key(key)
+                                .contentType(contentType).build())
+                        .build());
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UploadUrl</span>(presigned.url().toString(), key, presigned.expiration());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>SSE-KMS 객체를 읽지 못하는 원인은 대부분 <code>kms:Decrypt</code> 권한 누락이다. IAM 정책과 KMS 키 정책 양쪽에서 허용해야 하며, 크로스 계정이면 키 정책에 상대 계정을 명시한다.</li>
+<li>버전 관리를 라이프사이클 없이 켜면 갱신이 잦은 키의 비최신 버전이 저장 비용을 불린다. 켜는 시점에 비최신 버전 만료 규칙을 같이 넣는다.</li>
+<li>인스턴스 프로필로 만든 Presigned URL은 7일로 설정해도 임시 자격 증명이 갱신되는 6시간 안에 만료된다. 요청 시점에 짧게 재발급하는 구조가 안전하다.</li>
+<li>정적 웹사이트 버킷의 403은 버킷 정책의 <code>s3:GetObject</code> 공개 허용과 BPA 해제 두 가지를 확인한다. 계정 수준 BPA가 켜져 있으면 버킷 수준에서 풀어도 소용없다.</li>
+<li>CORS는 리소스를 제공하는 버킷에 설정하며 <code>AllowedOrigins: [&quot;*&quot;]</code>는 개발 환경에서만 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/aws/kms-secrets-security/">KMS·SSM·Secrets Manager — 암호화와 비밀 관리</a></li>
+<li><a href="/notes/aws/s3-performance-lifecycle-replication/">S3 — 멀티파트·라이프사이클·복제</a></li>
+<li><a href="/notes/aws/s3-advanced-cloudfront/">S3 — Object Lock·Access Points·CloudFront·Lambda 통합</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · S3, Versioning, SSE-KMS, Bucket Policy, Presigned URL</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/aws/elb-autoscaling/"><small>이전</small>ELB와 Auto Scaling</a>
+  <a class="next" href="/notes/aws/s3-performance-lifecycle-replication/"><small>다음</small>S3 — 멀티파트·라이프사이클·복제</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

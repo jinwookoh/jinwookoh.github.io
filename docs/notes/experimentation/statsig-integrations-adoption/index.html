@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>통합·운영·도입 결정 · 실험과 분석</title>
+  <meta name="description" content="Statsig를 사내 도구와 연결하는 통합 계층, 부수 기능의 비용·privacy, 도입 여부를 가르는 결정 기준을 정리한다.">
+  <meta property="og:title" content="통합·운영·도입 결정 · 실험과 분석">
+  <meta property="og:description" content="Statsig를 사내 도구와 연결하는 통합 계층, 부수 기능의 비용·privacy, 도입 여부를 가르는 결정 기준을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/statsig-integrations-adoption/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>통합·운영·도입 결정</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · Statsig</p>
+  <h1>통합·운영·도입 결정</h1>
+  <p class="summary">Statsig를 사내 도구와 연결하는 통합 계층, 부수 기능의 비용·privacy, 도입 여부를 가르는 결정 기준을 정리한다.</p>
+  <div class="content">
+<p>Statsig가 사내 다른 시스템과 단절되어 있으면 운영 부담은 줄지 않는다. Segment로 수집 중인 이벤트를 SDK로 한 번 더 보내야 하고, 실험 결과는 콘솔을 열어야 보이며, gate 변경 이력은 컴플라이언스용 저장소에 남지 않는다. 인프라 지표와 제품 지표가 따로 놓여 실험이 latency에 준 영향을 사람이 두 대시보드를 비교해 추정한다. 통합 계층이 이 단절을 메우고, 부수 기능과 도입 결정은 어디까지 확장할지를 정한다.</p>
+<h2>핵심 개념</h2>
+<p>통합은 네 범주다. CDP(Segment·Rudderstack·Hightouch·mParticle)는 한 번의 <code>track</code> 호출을 여러 destination에 분배하므로 Statsig를 destination으로 추가하면 SDK의 <code>logEvent</code>를 따로 심지 않아도 된다. 핵심은 user ID mapping이다. 로그인 전 anonymousId와 로그인 후 userId를 <code>userID</code>·<code>customIDs</code>에 일관되게 대응시키지 않으면 같은 사용자가 두 entity로 갈라져 variant가 바뀐다.</p>
+<p>메시징은 Slack이다. Product·General·Personal 세 카테고리를 releases·experiments·results·audit·alerts 채널로 나눠 팀별로 구독하고, Daily Digest로 수동 확인을 대체한다.</p>
+<p>운영 통합은 Webhook·Console REST API·MCP다. Webhook은 gate 변경이나 실험 종료 이벤트를 지정 URL로 POST하며, 수신 측은 HMAC-SHA256 서명으로 위조를 차단하고 재시도에 대비해 멱등하게 처리한다. Console API는 콘솔의 모든 작업을 노출하므로 gate 정의를 YAML로 git에 두고 CI에서 동기화하는 gate-as-code가 가능하다. MCP는 Console API를 AI 개발 도구(Claude Code·Cursor 등)가 호출하도록 감싼 서버로 Gate·Experiment·Metric 등 7범주를 조회·생성한다.</p>
+<p>모니터링은 OpenTelemetry가 축이다. 애플리케이션은 vendor-neutral OTel SDK로 metric·trace·log를 내보내고 Collector가 Statsig와 Datadog으로 동시에 export한다. Infra Analytics(Log Explorer·Alerts·Metrics Explorer)를 Product Analytics와 결합하면 gate를 켠 순간의 전환율 상승과 p99 latency 악화를 한 화면에서 대조한다.</p>
+<p>부수 기능은 셋이다. Session Replay는 rrweb 기반으로 DOM 변화와 입력 이벤트 시퀀스를 기록해 재생한다. 5분 세션이 수백 KB라 5~10% 샘플링이나 조건부 기록이 필수이고, <code>maskInputs</code> 활성·<code>data-private</code> 마킹·동의 배너 없이 production에 올리면 privacy 사고가 된다. Web Analytics는 GA를 대체하기보다 실험 결합 분석용으로 병행한다.</p>
+<p>도입 결정은 사용자 규모, 연간 실험 건수, 데이터 통제 요구, 기존 stack, 분석 인력, 예산 등으로 판단한다. 연 실험 4건 미만이거나 사용자 1,000명 미만이면 수작업이 낫고, 통제 요구가 강하면 Warehouse Native를 검토한다. Flag만 필요하면 LaunchDarkly·GrowthBook, self-host가 필수면 PostHog가 대안이며, Flag·실험·분석을 한 데이터로 묶는 가치가 클 때 Statsig가 우세하다. 마이그레이션은 진행 중 실험을 기존 도구에서 끝낸 뒤 새 실험부터 옮긴다.</p>
+<h2>코드</h2>
+<p>Webhook 수신 컨트롤러. 원본 바이트로 HMAC-SHA256을 계산해 서명 헤더와 상수 시간 비교하고, 이벤트 ID 기준으로 중복을 걸러 재시도에 멱등하게 대응한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/webhooks/statsig&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">StatsigWebhookController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String secret;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> AuditEventRepository auditRepo;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">StatsigWebhookController</span><span class="hljs-params">(<span class="hljs-meta">@Value(&quot;${statsig.webhook-secret}&quot;)</span> String secret,
+                                    AuditEventRepository auditRepo)</span> {
+        <span class="hljs-built_in">this</span>.secret = secret;
+        <span class="hljs-built_in">this</span>.auditRepo = auditRepo;
+    }
+
+    <span class="hljs-meta">@PostMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ResponseEntity</span>&lt;Void&gt; <span class="hljs-title function_">receive</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> <span class="hljs-type">byte</span>[] body,
+                                        <span class="hljs-meta">@RequestHeader(&quot;X-Statsig-Signature&quot;)</span> String signature)</span> {
+        <span class="hljs-keyword">if</span> (!MessageDigest.isEqual(hmacHex(body).getBytes(StandardCharsets.UTF_8),
+                                   signature.getBytes(StandardCharsets.UTF_8))) {
+            <span class="hljs-keyword">return</span> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        <span class="hljs-type">StatsigEvent</span> <span class="hljs-variable">event</span> <span class="hljs-operator">=</span> parse(body);
+        <span class="hljs-keyword">if</span> (auditRepo.existsByEventId(event.id())) {
+            <span class="hljs-keyword">return</span> ResponseEntity.ok().build();
+        }
+        auditRepo.save(AuditEvent.from(event, Instant.now()));
+        <span class="hljs-keyword">return</span> ResponseEntity.ok().build();
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">String</span> <span class="hljs-title function_">hmacHex</span><span class="hljs-params">(<span class="hljs-type">byte</span>[] body)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">Mac</span> <span class="hljs-variable">mac</span> <span class="hljs-operator">=</span> Mac.getInstance(<span class="hljs-string">&quot;HmacSHA256&quot;</span>);
+            mac.init(<span class="hljs-keyword">new</span> <span class="hljs-title class_">SecretKeySpec</span>(secret.getBytes(StandardCharsets.UTF_8), <span class="hljs-string">&quot;HmacSHA256&quot;</span>));
+            <span class="hljs-keyword">return</span> HexFormat.of().formatHex(mac.doFinal(body));
+        } <span class="hljs-keyword">catch</span> (GeneralSecurityException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(e);
+        }
+    }
+}</code></pre>
+<p>Console API로 오래된 temporary gate를 archive하는 클라이언트. <code>RestClient</code>를 쓰고, 429 응답에는 지수 backoff로 재시도한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GateCleanupClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">GateCleanupClient</span><span class="hljs-params">(RestClient.Builder builder,
+                             <span class="hljs-meta">@Value(&quot;${statsig.console-key}&quot;)</span> String consoleKey)</span> {
+        <span class="hljs-built_in">this</span>.client = builder
+            .baseUrl(<span class="hljs-string">&quot;https://statsigapi.net/console/v1&quot;</span>)
+            .defaultHeader(<span class="hljs-string">&quot;STATSIG-API-KEY&quot;</span>, consoleKey)
+            .build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Gate&gt; <span class="hljs-title function_">listGates</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> client.get().uri(<span class="hljs-string">&quot;/gates&quot;</span>).retrieve()
+            .body(GatePage.class).data();
+    }
+
+    <span class="hljs-meta">@Retryable(retryFor = HttpClientErrorException.TooManyRequests.class,
+               maxAttempts = 5,
+               backoff = @Backoff(delay = 1000, multiplier = 2))</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">archive</span><span class="hljs-params">(String gateId)</span> {
+        client.patch().uri(<span class="hljs-string">&quot;/gates/{id}&quot;</span>, gateId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(Map.of(<span class="hljs-string">&quot;isArchived&quot;</span>, <span class="hljs-literal">true</span>))
+            .retrieve().toBodilessEntity();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">archiveStale</span><span class="hljs-params">(Instant cutoff)</span> {
+        listGates().stream()
+            .filter(g -&gt; g.lastModified().isBefore(cutoff))
+            .forEach(g -&gt; archive(g.id()));
+    }
+}</code></pre>
+<p>애플리케이션 측 OTel 계측. Spring Boot의 OpenTelemetry 자동 구성이 제공하는 <code>Meter</code>로 카운터를 만들고, Collector가 Statsig와 Datadog으로 분배한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CheckoutService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> LongCounter checkoutCounter;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CheckoutService</span><span class="hljs-params">(OpenTelemetry otel)</span> {
+        <span class="hljs-built_in">this</span>.checkoutCounter = otel.getMeter(<span class="hljs-string">&quot;com.example.checkout&quot;</span>)
+            .counterBuilder(<span class="hljs-string">&quot;checkout.requests&quot;</span>)
+            .setDescription(<span class="hljs-string">&quot;Number of checkout requests&quot;</span>)
+            .build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">process</span><span class="hljs-params">(CheckoutCommand cmd)</span> {
+        <span class="hljs-comment">// 비즈니스 로직</span>
+        checkoutCounter.add(<span class="hljs-number">1</span>, Attributes.of(
+            AttributeKey.stringKey(<span class="hljs-string">&quot;payment.method&quot;</span>), cmd.paymentMethod(),
+            AttributeKey.stringKey(<span class="hljs-string">&quot;service&quot;</span>), <span class="hljs-string">&quot;checkout&quot;</span>));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>Webhook endpoint가 일시 중단되면 Statsig가 재시도하므로 같은 이벤트가 여러 번 도착한다. 이벤트 ID로 중복을 거르지 않으면 audit DB 이중 기록이나 배포 자동화 중복 실행이 생긴다.</li>
+<li>Console API에는 분당 rate limit이 있어 대량 cleanup 시 429가 난다. backoff와 시간 분산이 필요하고, 키가 git history에 남으면 즉시 rotation한다.</li>
+<li>MCP에 콘솔 전체 권한을 주면 AI 도구가 production gate를 실수로 바꿀 수 있다. read-only로 시작해 저위험 범주부터 write를 넓히고 production gate 변경은 사람이 확인한다.</li>
+<li>OTel metric label에 user_id·request_id 같은 high cardinality 값을 넣으면 시계열이 폭증한다. Collector 단일 인스턴스는 단일 실패점이므로 다중 인스턴스로 둔다.</li>
+<li>Daily Digest는 전날 이벤트가 덜 도착한 상태에서 발송되면 지표가 거짓으로 하락해 보이므로 24~48시간 delay window를 둔다. Web Analytics와 GA는 샘플링·bot 필터가 달라 절대값이 아닌 추세로 비교한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/statsig-flags-experiments/">Feature Flags와 Experiments</a></li>
+<li><a href="/notes/experimentation/statsig-analytics-warehouse/">Product Analytics와 Warehouse Native</a></li>
+<li><a href="/notes/experimentation/ab-test-system-implementation/">A/B 테스트 시스템 — Feature Flag와 실험 플랫폼 구현</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Statsig, Webhook, OpenTelemetry, Session Replay, MCP</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/statsig-analytics-warehouse/"><small>이전</small>Product Analytics와 Warehouse Native</a>
+  <a class="next" href="/notes/experimentation/ga4-data-model/"><small>다음</small>GA4 데이터 모델 — 이벤트·세션·사용자</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

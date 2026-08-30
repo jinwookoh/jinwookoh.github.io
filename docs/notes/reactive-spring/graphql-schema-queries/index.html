@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GraphQL — Schema·Query·Mutation·Spring for GraphQL · Reactive Spring</title>
+  <meta name="description" content="GraphQL은 스키마를 계약으로 두고 클라이언트가 필요한 필드만 명시하며, Spring for GraphQL은 이를 애노테이션 컨트롤러로 매핑한다.">
+  <meta property="og:title" content="GraphQL — Schema·Query·Mutation·Spring for GraphQL · Reactive Spring">
+  <meta property="og:description" content="GraphQL은 스키마를 계약으로 두고 클라이언트가 필요한 필드만 명시하며, Spring for GraphQL은 이를 애노테이션 컨트롤러로 매핑한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/graphql-schema-queries/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>GraphQL — Schema·Query·Mutation·Spring for GraphQL</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · GraphQL</p>
+  <h1>GraphQL — Schema·Query·Mutation·Spring for GraphQL</h1>
+  <p class="summary">GraphQL은 스키마를 계약으로 두고 클라이언트가 필요한 필드만 명시하며, Spring for GraphQL은 이를 애노테이션 컨트롤러로 매핑한다.</p>
+  <div class="content">
+<p>REST는 응답 형태를 서버가 결정한다. 이름 하나만 필요해도 <code>GET /users/123</code>의 전체 필드를 받아야 하고(over-fetching), 사용자·게시물·댓글을 한 화면에 그리려면 엔드포인트 세 개를 순서대로 호출해야 한다(under-fetching). GraphQL은 타입 스키마를 계약으로 고정하고 클라이언트가 그 안에서 필요한 필드를 직접 명시하도록 해 이 문제를 푼다.</p>
+<h2>핵심 개념</h2>
+<p>GraphQL은 단일 엔드포인트(<code>/graphql</code>)로 요청을 받고 요청 문서의 필드 구조 그대로 응답을 구성한다. 서버는 SDL로 타입을 정의하며 이 스키마가 양쪽이 지켜야 할 계약이다. 내장 스칼라는 <code>ID</code>·<code>String</code>·<code>Int</code>·<code>Float</code>·<code>Boolean</code> 다섯 가지이고 <code>DateTime</code> 같은 값은 <code>scalar</code> 선언과 Coercing 구현으로 추가한다. <code>!</code>는 non-null이며 리스트는 <code>[User]</code>·<code>[User!]</code>·<code>[User!]!</code>로 null 허용 범위를 구분한다. 출력 타입은 인자로 쓸 수 없으므로 Mutation 인자는 <code>input</code>으로 선언한다.</p>
+<p>루트 작업 타입은 <code>Query</code>(조회)·<code>Mutation</code>(변경)·<code>Subscription</code>(실시간 스트림) 셋이다. Query 최상위 필드는 병렬 실행될 수 있지만 Mutation 최상위 필드는 사양상 순차 실행된다. Mutation도 반환 타입을 가지므로 변경 결과를 같은 응답으로 받는다.</p>
+<p>Argument는 필드에 붙는 인자이고 Variables는 <code>$id: ID!</code>처럼 문서 밖에서 타입을 선언해 주입하는 값으로, 사용자 입력은 쿼리 문자열에 끼워 넣지 않고 변수로 넘긴다. Alias는 같은 필드를 여러 번 호출할 때 응답 키 충돌을 피하고, Fragment는 필드 묶음을 재사용하며 Inline Fragment(<code>... on User</code>)는 union·interface 결과를 타입별로 분기한다.</p>
+<p>에러는 HTTP 상태 코드가 아니라 응답 본문의 <code>errors</code> 배열로 전달되며 전송 계층 문제가 아닌 한 응답은 200이다. 검증 실패처럼 클라이언트가 처리해야 할 실패는 <code>CreateUserPayload { user, errors }</code> 같은 페이로드 타입으로 스키마에 올리는 패턴이 널리 쓰인다.</p>
+<p>Spring for GraphQL은 graphql-java 위에 컨트롤러 모델을 얹는다. 스키마는 <code>classpath:graphql/**/*.graphqls</code>에서 자동 로드되고 애노테이션은 스키마 위치에 대응한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">애노테이션</th>
+<th align="left">스키마 위치</th>
+<th align="left">역할</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>@QueryMapping</code></td>
+<td align="left"><code>Query.field</code></td>
+<td align="left">조회 진입점</td>
+</tr>
+<tr>
+<td align="left"><code>@MutationMapping</code></td>
+<td align="left"><code>Mutation.field</code></td>
+<td align="left">변경 진입점</td>
+</tr>
+<tr>
+<td align="left"><code>@SubscriptionMapping</code></td>
+<td align="left"><code>Subscription.field</code></td>
+<td align="left"><code>Flux</code> 반환 스트림</td>
+</tr>
+<tr>
+<td align="left"><code>@SchemaMapping</code></td>
+<td align="left"><code>Type.field</code></td>
+<td align="left">부모 객체가 첫 인자</td>
+</tr>
+<tr>
+<td align="left"><code>@BatchMapping</code></td>
+<td align="left"><code>Type.field</code></td>
+<td align="left">부모 목록 배치 처리</td>
+</tr>
+</tbody></table>
+<p>메서드 이름이 스키마 필드와 같으면 자동 매핑되고 다르면 <code>name</code>으로 지정한다. 인자는 <code>@Argument</code>로 바인딩하며 <code>Mono</code>·<code>Flux</code> 반환이 그대로 인식된다. 리졸버는 필드 단위로 호출되므로 <code>users { posts }</code> 같은 중첩 조회는 사용자 수만큼 <code>posts</code> 리졸버가 실행되는 N+1 구조가 된다. <code>@BatchMapping</code>은 부모 목록을 한 번 받아 <code>Map&lt;Parent, Result&gt;</code>를 돌려주며 내부적으로 DataLoader를 등록해 배치 조회로 바꾼다.</p>
+<h2>코드</h2>
+<p>스키마 파일 <code>src/main/resources/graphql/schema.graphqls</code>. 출력 타입·input·페이로드·Custom Scalar를 선언한다.</p>
+<pre><code class="hljs language-graphql"><span class="hljs-keyword">scalar</span> DateTime
+
+<span class="hljs-keyword">type</span> <span class="hljs-keyword">Query</span> <span class="hljs-punctuation">{</span>
+  user<span class="hljs-punctuation">(</span><span class="hljs-symbol">id</span><span class="hljs-punctuation">:</span> ID<span class="hljs-punctuation">!</span><span class="hljs-punctuation">)</span><span class="hljs-punctuation">:</span> User
+  users<span class="hljs-punctuation">(</span><span class="hljs-symbol">first</span><span class="hljs-punctuation">:</span> Int <span class="hljs-punctuation">=</span> <span class="hljs-number">20</span><span class="hljs-punctuation">)</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>User<span class="hljs-punctuation">!</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span>
+
+<span class="hljs-keyword">type</span> <span class="hljs-keyword">Mutation</span> <span class="hljs-punctuation">{</span>
+  createUser<span class="hljs-punctuation">(</span><span class="hljs-symbol">input</span><span class="hljs-punctuation">:</span> CreateUserInput<span class="hljs-punctuation">!</span><span class="hljs-punctuation">)</span><span class="hljs-punctuation">:</span> CreateUserPayload<span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span>
+
+<span class="hljs-keyword">type</span> User <span class="hljs-punctuation">{</span>
+  <span class="hljs-symbol">id</span><span class="hljs-punctuation">:</span> ID<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">name</span><span class="hljs-punctuation">:</span> String<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">email</span><span class="hljs-punctuation">:</span> String
+  <span class="hljs-symbol">joinedAt</span><span class="hljs-punctuation">:</span> DateTime<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">posts</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>Post<span class="hljs-punctuation">!</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span>
+
+<span class="hljs-keyword">type</span> Post <span class="hljs-punctuation">{</span>
+  <span class="hljs-symbol">id</span><span class="hljs-punctuation">:</span> ID<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">title</span><span class="hljs-punctuation">:</span> String<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">authorId</span><span class="hljs-punctuation">:</span> ID<span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span>
+
+<span class="hljs-keyword">input</span> CreateUserInput <span class="hljs-punctuation">{</span>
+  <span class="hljs-symbol">name</span><span class="hljs-punctuation">:</span> String<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">email</span><span class="hljs-punctuation">:</span> String<span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span>
+
+<span class="hljs-keyword">type</span> CreateUserPayload <span class="hljs-punctuation">{</span>
+  <span class="hljs-symbol">user</span><span class="hljs-punctuation">:</span> User
+  <span class="hljs-symbol">errors</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>FieldError<span class="hljs-punctuation">!</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span>
+
+<span class="hljs-keyword">type</span> FieldError <span class="hljs-punctuation">{</span>
+  <span class="hljs-symbol">field</span><span class="hljs-punctuation">:</span> String<span class="hljs-punctuation">!</span>
+  <span class="hljs-symbol">message</span><span class="hljs-punctuation">:</span> String<span class="hljs-punctuation">!</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>컨트롤러. <code>User.posts</code>는 <code>@BatchMapping</code>으로 해결하고 <code>@Argument @Valid</code>로 <code>jakarta.validation</code>을 적용한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.validation.Valid;
+<span class="hljs-keyword">import</span> jakarta.validation.constraints.Email;
+<span class="hljs-keyword">import</span> jakarta.validation.constraints.NotBlank;
+<span class="hljs-keyword">import</span> org.springframework.graphql.data.method.annotation.*;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Controller;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Flux;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Mono;
+
+<span class="hljs-meta">@Controller</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserService userService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PostService postService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserController</span><span class="hljs-params">(UserService userService, PostService postService)</span> {
+        <span class="hljs-built_in">this</span>.userService = userService;
+        <span class="hljs-built_in">this</span>.postService = postService;
+    }
+
+    <span class="hljs-meta">@QueryMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;User&gt; <span class="hljs-title function_">user</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> String id)</span> {
+        <span class="hljs-keyword">return</span> userService.findById(id);
+    }
+
+    <span class="hljs-meta">@QueryMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;User&gt; <span class="hljs-title function_">users</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> <span class="hljs-type">int</span> first)</span> {
+        <span class="hljs-keyword">return</span> userService.findAll(first);
+    }
+
+    <span class="hljs-meta">@MutationMapping</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;CreateUserPayload&gt; <span class="hljs-title function_">createUser</span><span class="hljs-params">(<span class="hljs-meta">@Argument</span> <span class="hljs-meta">@Valid</span> CreateUserInput input)</span> {
+        <span class="hljs-keyword">return</span> userService.create(input)
+            .map(user -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">CreateUserPayload</span>(user, List.of()))
+            .onErrorResume(DuplicateEmailException.class, e -&gt;
+                Mono.just(<span class="hljs-keyword">new</span> <span class="hljs-title class_">CreateUserPayload</span>(<span class="hljs-literal">null</span>,
+                    List.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">FieldError</span>(<span class="hljs-string">&quot;email&quot;</span>, e.getMessage())))));
+    }
+
+    <span class="hljs-meta">@BatchMapping(typeName = &quot;User&quot;, field = &quot;posts&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Map&lt;User, List&lt;Post&gt;&gt;&gt; <span class="hljs-title function_">posts</span><span class="hljs-params">(List&lt;User&gt; users)</span> {
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">ids</span> <span class="hljs-operator">=</span> users.stream().map(User::id).toList();
+        <span class="hljs-keyword">return</span> postService.findByAuthorIds(ids)
+            .collectMultimap(Post::authorId)
+            .map(byAuthor -&gt; users.stream().collect(Collectors.toMap(
+                u -&gt; u,
+                u -&gt; List.copyOf(byAuthor.getOrDefault(u.id(), List.of())))));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">CreateUserInput</span><span class="hljs-params">(@NotBlank String name, @Email @NotBlank String email)</span> {}
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">CreateUserPayload</span><span class="hljs-params">(User user, List&lt;FieldError&gt; errors)</span> {}
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">FieldError</span><span class="hljs-params">(String field, String message)</span> {}
+}</code></pre>
+<p>Custom Scalar 등록과 예외 변환. <code>graphql-java-extended-scalars</code>의 <code>DateTime</code>을 연결하고, 컨트롤러 밖으로 새는 예외는 <code>@GraphQlExceptionHandler</code>로 <code>errors</code> 항목으로 바꾼다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GraphQlConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">RuntimeWiringConfigurer</span> <span class="hljs-title function_">runtimeWiringConfigurer</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> wiring -&gt; wiring.scalar(ExtendedScalars.DateTime);
+    }
+}
+
+<span class="hljs-meta">@ControllerAdvice</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">GraphQlExceptionAdvice</span> {
+
+    <span class="hljs-meta">@GraphQlExceptionHandler(NotFoundException.class)</span>
+    <span class="hljs-type">GraphQLError</span> <span class="hljs-title function_">handleNotFound</span><span class="hljs-params">(NotFoundException e, DataFetchingEnvironment env)</span> {
+        <span class="hljs-keyword">return</span> GraphqlErrorBuilder.newError(env)
+            .errorType(ErrorType.NOT_FOUND)
+            .message(e.getMessage())
+            .build();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>응답이 항상 200이라 상태 코드 기반 알람은 동작하지 않으며 <code>errors</code> 배열을 별도로 집계해야 한다.</li>
+<li>목록 응답의 하위 필드에 <code>@SchemaMapping</code>을 쓰면 부모 수만큼 DB 호출이 발생한다. <code>@BatchMapping</code>을 기본으로 하고, 반환 <code>Map</code>의 키는 전달받은 부모 인스턴스 그대로여야 매칭된다.</li>
+<li>조회 깊이를 클라이언트가 정하므로 재귀 타입은 서버 부하를 키운다. <code>MaxQueryDepthInstrumentation</code>을 등록하고 목록 필드에 <code>first</code> 상한을 둔다.</li>
+<li>Introspection과 GraphiQL은 스키마를 노출한다. 운영 프로파일에서 <code>spring.graphql.graphiql.enabled=false</code>, <code>spring.graphql.schema.introspection.enabled=false</code>로 끈다.</li>
+<li>단일 엔드포인트 POST라 HTTP 캐시와 CDN이 응답을 캐시하지 못한다. 캐시가 중요한 조회는 persisted query와 GET을 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/graphql-reactive-subscriptions/">GraphQL — 리액티브 통합과 Subscription</a></li>
+<li><a href="/notes/reactive-spring/graphql-dataloader-security/">GraphQL — DataLoader·Federation·보안·테스트</a></li>
+<li><a href="/notes/reactive-spring/webflux-basics-functional/">WebFlux 기본 — 애노테이션 컨트롤러와 Functional Endpoints</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · GraphQL, SDL, Spring for GraphQL, QueryMapping, BatchMapping</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/grpc-errors-interceptors-security/"><small>이전</small>gRPC — 에러·인터셉터·보안·운영</a>
+  <a class="next" href="/notes/reactive-spring/graphql-reactive-subscriptions/"><small>다음</small>GraphQL — 리액티브 통합과 Subscription</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

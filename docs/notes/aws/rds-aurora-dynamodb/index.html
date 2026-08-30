@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RDS·Aurora·DynamoDB · AWS</title>
+  <meta name="description" content="관계형은 RDS·Aurora, 키-값 대규모 조회는 DynamoDB로 나누고 복제·캐시·키 설계 함정을 정리한다">
+  <meta property="og:title" content="RDS·Aurora·DynamoDB · AWS">
+  <meta property="og:description" content="관계형은 RDS·Aurora, 키-값 대규모 조회는 DynamoDB로 나누고 복제·캐시·키 설계 함정을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/aws/rds-aurora-dynamodb/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/aws/">AWS</a><span class="sep">›</span><span>RDS·Aurora·DynamoDB</span></nav>
+    <article class="post">
+  <p class="part">AWS · 네트워크와 데이터</p>
+  <h1>RDS·Aurora·DynamoDB</h1>
+  <p class="summary">관계형은 RDS·Aurora, 키-값 대규모 조회는 DynamoDB로 나누고 복제·캐시·키 설계 함정을 정리한다</p>
+  <div class="content">
+<p>EC2에 직접 MySQL을 올리면 OS 패치, 백업, 장애 복구, 읽기 분산을 전부 직접 처리해야 하고, 한 AZ가 죽으면 데이터베이스도 함께 사라진다. 반대로 관계형 DB 하나에 세션과 초당 수만 건의 키 조회까지 몰아넣으면 Join이 필요 없는 워크로드가 커넥션과 CPU를 소모한다. AWS는 이를 관리형 관계형 DB(RDS·Aurora)와 서버리스 NoSQL(DynamoDB)로 나눈다. Join과 트랜잭션이 필요하면 관계형, 키 하나로 값을 찾는 조회가 대규모로 반복되면 DynamoDB를 고른다.</p>
+<h2>핵심 개념</h2>
+<h3>RDS</h3>
+<p>RDS는 MySQL, PostgreSQL, MariaDB, Oracle, SQL Server, DB2, Aurora를 지원하는 관리형 관계형 DB다. 인스턴스에 SSH로 접속할 수 없고, OS 접근이 필요하면 Oracle·SQL Server 전용인 RDS Custom을 쓴다.</p>
+<p>자동 백업은 1~35일 보존되고 트랜잭션 로그가 5분마다 저장되어 시점 복구가 가능하며, 수동 스냅샷은 영구 보존된다. 복원은 항상 새 인스턴스를 만든다. 저장 암호화는 생성 시에만 켤 수 있어 기존 DB는 스냅샷을 암호화 옵션으로 복원해야 한다. 스토리지 자동 확장은 여유 공간 10% 미만, 5분 이상 지속, 마지막 수정 후 6시간 경과가 모두 맞을 때만 동작한다.</p>
+<p>Multi-AZ와 Read Replica는 목적이 다르다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">구분</th>
+<th align="left">Multi-AZ</th>
+<th align="left">Read Replica</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">목적</td>
+<td align="left">고가용성</td>
+<td align="left">읽기 확장</td>
+</tr>
+<tr>
+<td align="left">복제</td>
+<td align="left">동기</td>
+<td align="left">비동기</td>
+</tr>
+<tr>
+<td align="left">Standby 접근</td>
+<td align="left">불가</td>
+<td align="left">읽기 전용 쿼리 가능</td>
+</tr>
+<tr>
+<td align="left">장애 조치</td>
+<td align="left">자동, DNS 유지 (60~120초)</td>
+<td align="left">수동 승격</td>
+</tr>
+<tr>
+<td align="left">리전</td>
+<td align="left">동일 리전 다른 AZ</td>
+<td align="left">교차 리전 가능</td>
+</tr>
+</tbody></table>
+<p>Multi-AZ는 활성화에 다운타임이 없고 앱 변경도 없다. 분석 쿼리가 운영 DB를 느리게 하면 Read Replica로 분리한다.</p>
+<p>RDS Proxy는 DB 앞에 두는 관리형 커넥션 풀이다. Lambda 동시 실행이 커넥션을 고갈시키는 문제를 해결하고, 장애 조치 시간을 최대 66% 줄이며, IAM 인증과 Secrets Manager 통합을 제공한다. VPC 내부에서만 접근된다.</p>
+<h3>Aurora</h3>
+<p>Aurora는 MySQL·PostgreSQL 호환 엔진으로, 스토리지를 3개 AZ에 6개 복사본으로 저장한다. 쓰기는 6개 중 4개, 읽기는 3개가 정상이면 가능하다. 스토리지는 10GB에서 128TiB까지 자동 확장되고, 읽기 복제본은 최대 15개, 장애 조치는 30초 이내다. 자동 백업은 끌 수 없다.</p>
+<p>Writer 엔드포인트는 현재 마스터를 가리키고, Reader 엔드포인트는 복제본 전체에 연결 수준으로 로드 밸런싱하며, Custom 엔드포인트는 특정 인스턴스 묶음을 따로 노출한다.</p>
+<p>변형으로 Serverless v2(ACU 단위 자동 확장), Global Database(보조 리전 최대 10개, 복제 지연 1초 미만, 승격 1분 미만), Backtrack(과거 시점 되감기), Cloning(Copy-on-Write), Babelfish(T-SQL 호환)가 있다.</p>
+<h3>DynamoDB</h3>
+<p>DynamoDB는 서버리스 NoSQL로 밀리초 지연과 자동 Multi-AZ 복제를 제공한다. 기본 키는 Partition Key 단독 또는 Sort Key와의 조합이다. 파티션 키는 UUID나 사용자 ID처럼 균등 분포해야 하며, 날짜처럼 값이 몰리는 키는 hot partition으로 스로틀링을 유발한다.</p>
+<p>인덱스는 GSI(다른 파티션 키, 별도 용량, 언제든 추가)와 LSI(같은 파티션 키에 다른 정렬 키, 생성 시에만)로 나뉜다. 용량 모드는 Provisioned와 On-Demand이며, RCU는 강한 일관성 4KB 읽기 1회, WCU는 1KB 쓰기 1회다.</p>
+<p>부가 기능으로 DAX(전용 마이크로초 캐시), Streams(변경 이벤트 24시간 보존, Lambda 트리거), Global Tables(Active-Active 멀티 리전), TTL(자동 삭제), Transactions(최대 100개 항목, 용량 2배), PITR(35일), 용량을 소비하지 않는 S3 Export/Import가 있다.</p>
+<h2>코드</h2>
+<p>Aurora Writer·Reader 엔드포인트를 분리하고 읽기 전용 트랜잭션을 Reader로 라우팅하는 DataSource 구성이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DataSourceConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">DataSource</span> <span class="hljs-title function_">routingDataSource</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;${aurora.writer-url}&quot;)</span> String writerUrl,
+            <span class="hljs-meta">@Value(&quot;${aurora.reader-url}&quot;)</span> String readerUrl,
+            <span class="hljs-meta">@Value(&quot;${aurora.username}&quot;)</span> String user,
+            <span class="hljs-meta">@Value(&quot;${aurora.password}&quot;)</span> String password)</span> {
+
+        <span class="hljs-type">HikariDataSource</span> <span class="hljs-variable">writer</span> <span class="hljs-operator">=</span> hikari(writerUrl, user, password);
+        <span class="hljs-type">HikariDataSource</span> <span class="hljs-variable">reader</span> <span class="hljs-operator">=</span> hikari(readerUrl, user, password);
+
+        <span class="hljs-type">AbstractRoutingDataSource</span> <span class="hljs-variable">routing</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AbstractRoutingDataSource</span>() {
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">protected</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">determineCurrentLookupKey</span><span class="hljs-params">()</span> {
+                <span class="hljs-keyword">return</span> TransactionSynchronizationManager.isCurrentTransactionReadOnly()
+                        ? <span class="hljs-string">&quot;reader&quot;</span> : <span class="hljs-string">&quot;writer&quot;</span>;
+            }
+        };
+        routing.setTargetDataSources(Map.of(<span class="hljs-string">&quot;writer&quot;</span>, writer, <span class="hljs-string">&quot;reader&quot;</span>, reader));
+        routing.setDefaultTargetDataSource(writer);
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">LazyConnectionDataSourceProxy</span>(routing);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">HikariDataSource</span> <span class="hljs-title function_">hikari</span><span class="hljs-params">(String url, String user, String password)</span> {
+        <span class="hljs-type">HikariDataSource</span> <span class="hljs-variable">ds</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HikariDataSource</span>();
+        ds.setJdbcUrl(url);
+        ds.setUsername(user);
+        ds.setPassword(password);
+        ds.setMaximumPoolSize(<span class="hljs-number">10</span>);
+        <span class="hljs-keyword">return</span> ds;
+    }
+}</code></pre>
+<p><code>LazyConnectionDataSourceProxy</code>로 감싸야 <code>@Transactional(readOnly = true)</code>가 설정된 뒤에 커넥션을 얻어 Reader로 갈 수 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderQueryService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository repository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderQueryService</span><span class="hljs-params">(OrderRepository repository)</span> {
+        <span class="hljs-built_in">this</span>.repository = repository;
+    }
+
+    <span class="hljs-meta">@Transactional(readOnly = true)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">recentOrders</span><span class="hljs-params">(<span class="hljs-type">long</span> userId)</span> {
+        <span class="hljs-keyword">return</span> repository.findTop20ByUserIdOrderByCreatedAtDesc(userId);
+    }
+}</code></pre>
+<p>DynamoDB Enhanced Client로 <code>userId</code> 파티션 키 + <code>createdAt</code> 정렬 키 테이블에 TTL 속성을 포함해 저장하고 조회하는 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@DynamoDbBean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Session</span> {
+    <span class="hljs-keyword">private</span> String userId;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> createdAt;
+    <span class="hljs-keyword">private</span> String payload;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> expiresAt;
+
+    <span class="hljs-meta">@DynamoDbPartitionKey</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">getUserId</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> userId; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">setUserId</span><span class="hljs-params">(String userId)</span> { <span class="hljs-built_in">this</span>.userId = userId; }
+
+    <span class="hljs-meta">@DynamoDbSortKey</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">getCreatedAt</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> createdAt; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">setCreatedAt</span><span class="hljs-params">(<span class="hljs-type">long</span> createdAt)</span> { <span class="hljs-built_in">this</span>.createdAt = createdAt; }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">getPayload</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> payload; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">setPayload</span><span class="hljs-params">(String payload)</span> { <span class="hljs-built_in">this</span>.payload = payload; }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">getExpiresAt</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> expiresAt; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">setExpiresAt</span><span class="hljs-params">(<span class="hljs-type">long</span> expiresAt)</span> { <span class="hljs-built_in">this</span>.expiresAt = expiresAt; }
+}
+
+<span class="hljs-meta">@Repository</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SessionRepository</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> DynamoDbTable&lt;Session&gt; table;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SessionRepository</span><span class="hljs-params">(DynamoDbEnhancedClient client)</span> {
+        <span class="hljs-built_in">this</span>.table = client.table(<span class="hljs-string">&quot;sessions&quot;</span>, TableSchema.fromBean(Session.class));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">save</span><span class="hljs-params">(String userId, String payload)</span> {
+        <span class="hljs-type">Session</span> <span class="hljs-variable">s</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Session</span>();
+        s.setUserId(userId);
+        s.setCreatedAt(Instant.now().toEpochMilli());
+        s.setPayload(payload);
+        s.setExpiresAt(Instant.now().plus(Duration.ofHours(<span class="hljs-number">1</span>)).getEpochSecond());
+        table.putItem(s);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Session&gt; <span class="hljs-title function_">latest</span><span class="hljs-params">(String userId)</span> {
+        <span class="hljs-keyword">return</span> table.query(r -&gt; r
+                        .queryConditional(QueryConditional.keyEqualTo(
+                                Key.builder().partitionValue(userId).build()))
+                        .scanIndexForward(<span class="hljs-literal">false</span>)
+                        .limit(<span class="hljs-number">10</span>))
+                .items().stream().toList();
+    }
+}</code></pre>
+<p>TTL은 테이블 설정에서 <code>expiresAt</code> 속성을 지정해야 동작하며, 값은 초 단위 epoch여야 한다.</p>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>Lambda가 RDS에 직접 붙으면 동시 실행 수만큼 커넥션이 생겨 <code>max_connections</code>를 넘긴다. RDS Proxy를 둔다.</li>
+<li>Read Replica와 Aurora Reader는 비동기 복제라 방금 쓴 데이터가 바로 읽히지 않을 수 있다. 쓰기 직후 확인 조회는 Writer로 보내야 한다.</li>
+<li>Multi-AZ 장애 조치 후 JVM DNS 캐시 때문에 앱이 구 IP를 잡을 수 있다. <code>networkaddress.cache.ttl</code>을 짧게 둔다.</li>
+<li>DynamoDB는 파티션 키를 나중에 바꾸기 어렵다. 조회 패턴을 먼저 정의하고 키와 GSI를 설계한다.</li>
+<li>Scan은 테이블 전체를 읽어 RCU를 급격히 소모한다. Query 위주로 접근하고 대량 내보내기는 S3 Export를 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/aws/vpc-networking/">VPC·CloudFront·API Gateway</a></li>
+<li><a href="/notes/aws/kms-secrets-security/">KMS·SSM·Secrets Manager — 암호화와 비밀 관리</a></li>
+<li><a href="/notes/aws/multi-az-dr-migration/">Multi-AZ 아키텍처·DR·마이그레이션</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · RDS, Aurora, DynamoDB, Multi-AZ, RDS Proxy</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/aws/vpc-networking/"><small>이전</small>VPC·CloudFront·API Gateway</a>
+  <a class="next" href="/notes/aws/analytics-athena/"><small>다음</small>분석 — Athena·Glue·Kinesis</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

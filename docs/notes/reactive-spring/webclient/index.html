@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebClient · Reactive Spring</title>
+  <meta name="description" content="이벤트 루프를 막지 않고 외부 HTTP를 호출하는 WebClient의 설정·응답 처리·에러·타임아웃·재시도 패턴을 정리한다.">
+  <meta property="og:title" content="WebClient · Reactive Spring">
+  <meta property="og:description" content="이벤트 루프를 막지 않고 외부 HTTP를 호출하는 WebClient의 설정·응답 처리·에러·타임아웃·재시도 패턴을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/webclient/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>WebClient</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · WebFlux</p>
+  <h1>WebClient</h1>
+  <p class="summary">이벤트 루프를 막지 않고 외부 HTTP를 호출하는 WebClient의 설정·응답 처리·에러·타임아웃·재시도 패턴을 정리한다.</p>
+  <div class="content">
+<p>WebFlux 서버는 적은 수의 이벤트 루프 스레드로 수천 개의 연결을 처리한다. 이 구조에서 <code>RestTemplate</code>이나 <code>RestClient</code>로 외부 API를 호출하면 응답이 올 때까지 이벤트 루프 스레드가 묶이고, 그 스레드가 담당하던 다른 요청이 함께 멈춘다. WebClient는 Reactor Netty 위에서 동작하는 논블로킹 HTTP 클라이언트로, 결과를 <code>Mono</code>·<code>Flux</code>로 돌려주므로 리액티브 체인에 그대로 이어 붙일 수 있다.</p>
+<h2>핵심 개념</h2>
+<p>WebClient는 <code>spring-boot-starter-webflux</code>에 포함되며 인스턴스는 불변이고 스레드 안전하다. 싱글톤 Bean으로 등록해 재사용하며, 요청마다 <code>WebClient.create()</code>로 만들면 Netty 커넥션 풀이 공유되지 않는다. Spring Boot가 자동 구성한 <code>WebClient.Builder</code>를 주입받아 <code>baseUrl</code>·기본 헤더·필터를 붙여 빌드하고, 설정을 바꿔야 하면 <code>mutate()</code>로 새 인스턴스를 만든다.</p>
+<p>요청은 HTTP 메서드 선택, <code>uri()</code>, 본문 설정(<code>bodyValue()</code>), 응답 처리 순으로 이어진다. URI는 <code>uri(&quot;/products/{id}&quot;, id)</code>처럼 가변 인수로 바인딩하거나 <code>UriBuilder</code> 람다로 쿼리 파라미터를 조립한다. 응답 처리 진입점은 두 가지다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">항목</th>
+<th align="left"><code>retrieve()</code></th>
+<th align="left"><code>exchangeToMono()</code> / <code>exchangeToFlux()</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">수준</td>
+<td align="left">고수준</td>
+<td align="left">저수준</td>
+</tr>
+<tr>
+<td align="left">접근 정보</td>
+<td align="left">응답 본문</td>
+<td align="left">상태 코드·헤더·쿠키·본문 전체</td>
+</tr>
+<tr>
+<td align="left">에러 처리</td>
+<td align="left"><code>onStatus()</code>로 등록</td>
+<td align="left">람다 안에서 <code>statusCode()</code> 직접 분기</td>
+</tr>
+<tr>
+<td align="left">본문 소비 책임</td>
+<td align="left">프레임워크</td>
+<td align="left">개발자</td>
+</tr>
+</tbody></table>
+<p><code>retrieve()</code>는 4xx·5xx 응답에 기본적으로 <code>WebClientResponseException</code>을 발생시키고, <code>onStatus()</code>로 상태 코드별 변환 규칙을 추가한다. <code>exchangeToMono()</code>는 응답 객체를 직접 받으므로 본문을 소비하거나 <code>releaseBody()</code>로 해제해야 한다. 과거의 <code>exchange()</code>는 이 책임을 전적으로 호출자에게 맡겨 연결 누수가 잦았기 때문에 Spring 5.3에서 deprecated되었다.</p>
+<p>역직렬화는 <code>bodyToMono(Class)</code>(단일 객체), <code>bodyToFlux(Class)</code>(배열·스트림)로 하며, 타입을 모르는 JSON은 <code>Map</code>이나 <code>JsonNode</code>로 받는다.</p>
+<p>타임아웃은 커넥터 층(<code>HttpClient</code>의 <code>CONNECT_TIMEOUT_MILLIS</code>·<code>responseTimeout()</code>)과 개별 호출의 <code>timeout()</code> 연산자 두 층에서 건다. 재시도는 <code>retryWhen(Retry.backoff(...))</code>로 지수 백오프와 지터를 주되 <code>filter()</code>로 대상을 한정한다. 여러 서비스 동시 호출은 <code>flatMap</code> 체인 대신 <code>Mono.zip()</code>으로 병렬 실행 후 결합한다.</p>
+<p><code>ExchangeFilterFunction</code>은 WebClient 쪽 인터셉터다. 로깅·인증 헤더 주입을 빌더의 <code>filter()</code>에 등록하면 모든 호출에 적용되며, OAuth2 토큰 주입도 <code>ServerOAuth2AuthorizedClientExchangeFilterFunction</code>을 같은 방식으로 등록한다.</p>
+<h2>코드</h2>
+<p>Bean 등록과 커넥터 수준 타임아웃 설정이다. 자동 구성된 <code>WebClient.Builder</code>를 주입받아 서비스별 인스턴스를 만든다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">WebClientConfig</span> {
+
+    <span class="hljs-meta">@Bean(&quot;productWebClient&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">WebClient</span> <span class="hljs-title function_">productWebClient</span><span class="hljs-params">(WebClient.Builder builder)</span> {
+        <span class="hljs-type">HttpClient</span> <span class="hljs-variable">httpClient</span> <span class="hljs-operator">=</span> HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, <span class="hljs-number">5_000</span>)
+                .responseTimeout(Duration.ofSeconds(<span class="hljs-number">10</span>));
+
+        <span class="hljs-keyword">return</span> builder
+                .baseUrl(<span class="hljs-string">&quot;http://product-service:7070&quot;</span>)
+                .clientConnector(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ReactorClientHttpConnector</span>(httpClient))
+                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .filter(logRequest())
+                .build();
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">ExchangeFilterFunction</span> <span class="hljs-title function_">logRequest</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> ExchangeFilterFunction.ofRequestProcessor(request -&gt; {
+            log.info(<span class="hljs-string">&quot;{} {}&quot;</span>, request.method(), request.url());
+            <span class="hljs-keyword">return</span> Mono.just(request);
+        });
+    }
+}</code></pre>
+<p><code>retrieve()</code>와 <code>onStatus()</code>로 상태 코드를 도메인 예외로 변환하고, 호출별 타임아웃과 5xx 한정 재시도를 붙인 조회 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> WebClient webClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductClient</span><span class="hljs-params">(<span class="hljs-meta">@Qualifier(&quot;productWebClient&quot;)</span> WebClient webClient)</span> {
+        <span class="hljs-built_in">this</span>.webClient = webClient;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Product&gt; <span class="hljs-title function_">findById</span><span class="hljs-params">(String id)</span> {
+        <span class="hljs-keyword">return</span> webClient.get()
+                .uri(<span class="hljs-string">&quot;/products/{id}&quot;</span>, id)
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, response -&gt;
+                        response.bodyToMono(ProblemDetail.class)
+                                .flatMap(pd -&gt; Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ProductNotFoundException</span>(pd.getDetail()))))
+                .onStatus(HttpStatusCode::is5xxServerError, response -&gt;
+                        Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ServiceUnavailableException</span>(<span class="hljs-string">&quot;product-service&quot;</span>)))
+                .bodyToMono(Product.class)
+                .timeout(Duration.ofSeconds(<span class="hljs-number">3</span>))
+                .retryWhen(Retry.backoff(<span class="hljs-number">3</span>, Duration.ofMillis(<span class="hljs-number">300</span>))
+                        .maxBackoff(Duration.ofSeconds(<span class="hljs-number">2</span>))
+                        .jitter(<span class="hljs-number">0.3</span>)
+                        .filter(ex -&gt; ex <span class="hljs-keyword">instanceof</span> ServiceUnavailableException
+                                || ex <span class="hljs-keyword">instanceof</span> TimeoutException));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Product&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(<span class="hljs-type">int</span> page, <span class="hljs-type">int</span> size, String name)</span> {
+        <span class="hljs-keyword">return</span> webClient.get()
+                .uri(b -&gt; b.path(<span class="hljs-string">&quot;/products&quot;</span>)
+                        .queryParam(<span class="hljs-string">&quot;page&quot;</span>, page)
+                        .queryParam(<span class="hljs-string">&quot;size&quot;</span>, size)
+                        .queryParamIfPresent(<span class="hljs-string">&quot;name&quot;</span>, Optional.ofNullable(name))
+                        .build())
+                .retrieve()
+                .bodyToFlux(Product.class);
+    }
+}</code></pre>
+<p><code>exchangeToMono()</code>로 헤더를 직접 다루는 예와 <code>Mono.zip()</code> 병렬 호출 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Product&gt; <span class="hljs-title function_">findWithEtag</span><span class="hljs-params">(String id)</span> {
+    <span class="hljs-keyword">return</span> webClient.get()
+            .uri(<span class="hljs-string">&quot;/products/{id}&quot;</span>, id)
+            .exchangeToMono(response -&gt; {
+                <span class="hljs-keyword">if</span> (response.statusCode().is2xxSuccessful()) {
+                    <span class="hljs-type">String</span> <span class="hljs-variable">etag</span> <span class="hljs-operator">=</span> response.headers().header(HttpHeaders.ETAG).stream()
+                            .findFirst().orElse(<span class="hljs-literal">null</span>);
+                    <span class="hljs-keyword">return</span> response.bodyToMono(Product.class)
+                            .map(p -&gt; p.withEtag(etag));
+                }
+                <span class="hljs-keyword">return</span> response.createError();   <span class="hljs-comment">// 본문을 읽어 WebClientResponseException으로 변환</span>
+            });
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;TradeInfo&gt; <span class="hljs-title function_">tradeInfo</span><span class="hljs-params">(Integer customerId, String ticker)</span> {
+    <span class="hljs-keyword">return</span> Mono.zip(
+            stockClient.get().uri(<span class="hljs-string">&quot;/stocks/{t}&quot;</span>, ticker)
+                    .retrieve().bodyToMono(StockPrice.class),
+            customerClient.get().uri(<span class="hljs-string">&quot;/customers/{id}&quot;</span>, customerId)
+                    .retrieve().bodyToMono(CustomerInfo.class))
+            .map(t -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">TradeInfo</span>(t.getT1(), t.getT2()));
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>block()</code> 호출.</strong> 결과를 <code>block()</code>으로 꺼내면 블로킹 클라이언트와 다를 바 없고, Netty 이벤트 루프 스레드에서는 예외가 발생한다. 동기 호출만 필요하면 <code>RestClient</code>가 맞다.</li>
+<li><strong><code>exchangeToMono()</code>에서 본문 미소비.</strong> 에러 분기에서 본문을 읽지 않고 <code>Mono.error()</code>만 반환하면 연결이 풀로 반환되지 않아 누수가 생긴다. <code>createError()</code>·<code>releaseBody()</code>·<code>bodyToMono()</code> 중 하나로 소비한다.</li>
+<li><strong>4xx 재시도.</strong> 필터 없이 <code>Retry.backoff()</code>를 걸면 404·400도 반복 호출해 부하만 준다. 대상은 5xx·타임아웃·연결 오류로 제한하고, 멱등하지 않은 POST는 재시도 자체를 재검토한다.</li>
+<li><strong>응답 버퍼 한도.</strong> 코덱의 기본 인메모리 버퍼는 256KB이며 초과 시 <code>DataBufferLimitException</code>이 발생한다. <code>codecs(c -&gt; c.defaultCodecs().maxInMemorySize(...))</code>로 조정하거나 <code>bodyToFlux()</code>로 스트리밍한다.</li>
+<li><strong>타임아웃과 재시도 순서.</strong> <code>timeout()</code>을 <code>retryWhen()</code> 앞에 둬야 시도마다 타임아웃이 적용된다. 뒤에 두면 전체 재시도 시간에 한 번만 걸린다.</li>
+<li><strong>비동기 테스트 대기.</strong> <code>subscribe()</code> 후 <code>Thread.sleep()</code>으로 기다리면 CI 환경에 따라 실패한다. <code>StepVerifier</code>나 Awaitility를 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/webflux-basics-functional/">WebFlux 기본 — 애노테이션 컨트롤러와 Functional Endpoints</a></li>
+<li><a href="/notes/reactive-spring/retry-stepverifier/">Repeat·Retry와 StepVerifier</a></li>
+<li><a href="/notes/reactive-spring/webfilter-error-handling/">WebFilter·예외 처리·검증</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · WebClient, retrieve, exchangeToMono, Retry, ExchangeFilterFunction</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/webflux-basics-functional/"><small>이전</small>WebFlux 기본 — 애노테이션 컨트롤러와 Functional Endpoints</a>
+  <a class="next" href="/notes/reactive-spring/webfilter-error-handling/"><small>다음</small>WebFilter·예외 처리·검증</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

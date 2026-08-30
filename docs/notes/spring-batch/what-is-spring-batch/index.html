@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spring Batch란 — 아키텍처와 도메인 언어 · Spring Batch</title>
+  <meta name="description" content="대량 일괄 처리의 재시작·트랜잭션·통계를 프레임워크가 맡는 구조를 3계층과 Job·Step·Chunk 어휘로 읽는다.">
+  <meta property="og:title" content="Spring Batch란 — 아키텍처와 도메인 언어 · Spring Batch">
+  <meta property="og:description" content="대량 일괄 처리의 재시작·트랜잭션·통계를 프레임워크가 맡는 구조를 3계층과 Job·Step·Chunk 어휘로 읽는다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/what-is-spring-batch/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Spring Batch란 — 아키텍처와 도메인 언어</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · 개념</p>
+  <h1>Spring Batch란 — 아키텍처와 도메인 언어</h1>
+  <p class="summary">대량 일괄 처리의 재시작·트랜잭션·통계를 프레임워크가 맡는 구조를 3계층과 Job·Step·Chunk 어휘로 읽는다.</p>
+  <div class="content">
+<p>야간 정산, 월말 청구서 발행, CSV 일괄 적재는 사용자 요청 없이 정해진 시점에 수백만 건을 읽고 변환해 저장한다. 반복문으로 직접 짜면 실패 지점부터의 재시작, 커밋 주기, 손상 레코드의 skip·retry, 처리 건수 기록이 전부 개별 코드로 쌓이고 배치마다 구현이 달라진다. Spring Batch는 이 공통 뼈대를 프레임워크가 맡고 개발자는 읽기·가공·쓰기 로직만 구현하도록 만든 경량 배치 프레임워크다. 별도 서버 없이 일반 Java 애플리케이션 안에서 동작한다.</p>
+<h2>핵심 개념</h2>
+<h3>스케줄러가 아니다</h3>
+<p>&quot;언제 실행할지&quot;는 Quartz, Spring <code>@Scheduled</code>, cron, Kubernetes CronJob의 몫이고, Spring Batch는 &quot;실행되었을 때 대량 데이터를 어떻게 안정적으로 처리할지&quot;를 맡는다. 건별 즉시 처리, 사용자 요청 응답, 소량 데이터에는 맞지 않으며, 대량·주기적 실행·재시작 보장이 동시에 요구될 때 선택한다.</p>
+<h3>3계층 아키텍처</h3>
+<ul>
+<li><strong>Application</strong> — 개발자가 작성하는 Job·Step 정의, 커스텀 Processor, 비즈니스 규칙.</li>
+<li><strong>Core</strong> — Job 실행과 라이프사이클 관리. <code>Job</code>, <code>Step</code>, <code>JobLauncher</code>, <code>JobOperator</code>, <code>JobRepository</code>.</li>
+<li><strong>Infrastructure</strong> — 공통 재사용 도구. <code>ItemReader</code>·<code>ItemWriter</code> 구현체, <code>RepeatTemplate</code>, retry, 트랜잭션 관리.</li>
+</ul>
+<p>Application과 Core 모두 Infrastructure 위에 놓인다. 개발자 코드와 프레임워크 코드가 같은 Reader·Writer 인터페이스를 쓰므로 데이터 소스가 바뀌어도 Reader 구현체만 교체하면 된다. I/O 최소화 원칙은 N건씩 묶어 커밋하는 Chunk 지향 처리로, 데이터 무결성 원칙은 실행 상태를 영속화하는 JobRepository로 구현된다.</p>
+<h3>도메인 언어</h3>
+<p>Job은 하나 이상의 Step으로 구성되고, 각 Step은 하나의 ItemReader, 선택적 ItemProcessor, 하나의 ItemWriter를 가진다.</p>
+<ul>
+<li><strong>Job</strong> — 이름, Step 순서, 재시작 가능 여부를 정의하는 템플릿.</li>
+<li><strong>JobParameters</strong> — identifying(기본값)은 JobInstance 식별에 쓰이고, non-identifying은 참조 값이다.</li>
+<li><strong>JobInstance</strong> — Job + identifying JobParameters로 식별되는 논리적 실행 1회. 실패해 다음 날 재실행해도 같은 JobInstance다.</li>
+<li><strong>JobExecution</strong> — JobInstance의 물리적 실행 시도. 재시도마다 새로 생긴다.</li>
+<li><strong>Step</strong> — Reader·Processor·Writer로 흐르는 Chunk 지향 Step과 단일 작업용 Tasklet Step.</li>
+<li><strong>StepExecution</strong> — Step 실행 1회. <code>readCount</code>, <code>writeCount</code>, <code>skipCount</code>를 추적한다.</li>
+<li><strong>ExecutionContext</strong> — Job·Step 단위 key-value 상태 저장소. JobRepository에 자동 영속되어 재시작의 근거가 된다.</li>
+<li><strong>Chunk</strong> — N건 묶음이자 커밋 단위. Reader와 Processor는 한 건씩, Writer만 묶음을 받는다. Processor가 <code>null</code>을 반환하면 필터링된다.</li>
+</ul>
+<h2>코드</h2>
+<p><code>spring-boot-starter-batch</code>와 DB 드라이버만 추가하면 <code>JobRepository</code>, <code>JobLauncher</code>가 자동 구성된다. 메타데이터 영속화를 위해 DB는 필수다.</p>
+<pre><code class="hljs language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">dependency</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">groupId</span>&gt;</span>org.springframework.boot<span class="hljs-tag">&lt;/<span class="hljs-name">groupId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">artifactId</span>&gt;</span>spring-boot-starter-batch<span class="hljs-tag">&lt;/<span class="hljs-name">artifactId</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">dependency</span>&gt;</span>
+<span class="hljs-tag">&lt;<span class="hljs-name">dependency</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">groupId</span>&gt;</span>org.postgresql<span class="hljs-tag">&lt;/<span class="hljs-name">groupId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">artifactId</span>&gt;</span>postgresql<span class="hljs-tag">&lt;/<span class="hljs-name">artifactId</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">scope</span>&gt;</span>runtime<span class="hljs-tag">&lt;/<span class="hljs-name">scope</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">dependency</span>&gt;</span></code></pre>
+<p>Chunk 지향 Step과 Tasklet Step을 순서대로 실행하는 Job. Spring Batch 5부터 <code>JobBuilderFactory</code>·<code>StepBuilderFactory</code>는 제거되었고 <code>JobBuilder</code>·<code>StepBuilder</code>에 <code>JobRepository</code>와 <code>PlatformTransactionManager</code>를 직접 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SettlementJobConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">settlementJob</span><span class="hljs-params">(JobRepository jobRepository, Step loadStep, Step archiveStep)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;settlementJob&quot;</span>, jobRepository)
+                .incrementer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RunIdIncrementer</span>())
+                .start(loadStep)
+                .next(archiveStep)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">loadStep</span><span class="hljs-params">(JobRepository jobRepository, PlatformTransactionManager tx,
+                         ItemReader&lt;Order&gt; orderReader,
+                         ItemProcessor&lt;Order, Settlement&gt; settlementProcessor,
+                         ItemWriter&lt;Settlement&gt; settlementWriter)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;loadStep&quot;</span>, jobRepository)
+                .&lt;Order, Settlement&gt;chunk(<span class="hljs-number">100</span>, tx)
+                .reader(orderReader)
+                .processor(settlementProcessor)
+                .writer(settlementWriter)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">archiveStep</span><span class="hljs-params">(JobRepository jobRepository, PlatformTransactionManager tx)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;archiveStep&quot;</span>, jobRepository)
+                .tasklet((contribution, chunkContext) -&gt; {
+                    <span class="hljs-comment">// 파일 압축·정리 같은 단일 작업</span>
+                    <span class="hljs-keyword">return</span> RepeatStatus.FINISHED;
+                }, tx)
+                .build();
+    }
+}</code></pre>
+<p>JobParameters로 JobInstance를 식별해 실행하고 Step별 통계를 확인하는 코드.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SettlementRunner</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JobLauncher jobLauncher;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Job settlementJob;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SettlementRunner</span><span class="hljs-params">(JobLauncher jobLauncher, Job settlementJob)</span> {
+        <span class="hljs-built_in">this</span>.jobLauncher = jobLauncher;
+        <span class="hljs-built_in">this</span>.settlementJob = settlementJob;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">BatchStatus</span> <span class="hljs-title function_">run</span><span class="hljs-params">(LocalDate targetDate)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">JobParameters</span> <span class="hljs-variable">params</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobParametersBuilder</span>()
+                .addLocalDate(<span class="hljs-string">&quot;targetDate&quot;</span>, targetDate, <span class="hljs-literal">true</span>)
+                .addString(<span class="hljs-string">&quot;requestId&quot;</span>, UUID.randomUUID().toString(), <span class="hljs-literal">false</span>)
+                .toJobParameters();
+
+        <span class="hljs-type">JobExecution</span> <span class="hljs-variable">execution</span> <span class="hljs-operator">=</span> jobLauncher.run(settlementJob, params);
+        <span class="hljs-keyword">for</span> (StepExecution step : execution.getStepExecutions()) {
+            System.out.printf(<span class="hljs-string">&quot;%s read=%d write=%d skip=%d%n&quot;</span>,
+                    step.getStepName(), step.getReadCount(),
+                    step.getWriteCount(), step.getSkipCount());
+        }
+        <span class="hljs-keyword">return</span> execution.getStatus();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>같은 파라미터 재실행</strong> — COMPLETED된 JobInstance를 같은 identifying 파라미터로 다시 실행하면 <code>JobInstanceAlreadyCompleteException</code>이 발생한다. 개발 중 반복 실행에만 <code>RunIdIncrementer</code>를 붙인다.</li>
+<li><strong>기동 시 자동 실행</strong> — Spring Boot는 시작 시 등록된 Job을 자동 실행한다. 실행 시점을 직접 제어하려면 <code>spring.batch.job.enabled=false</code>로 끄고, Job이 여럿이면 <code>spring.batch.job.name</code>으로 대상을 지정한다.</li>
+<li><strong>메타데이터 스키마</strong> — H2 인메모리는 재기동 시 이력이 사라진다. 운영에서는 <code>spring.batch.jdbc.initialize-schema=never</code>로 두고 마이그레이션 도구로 <code>BATCH_*</code> 테이블을 관리한다.</li>
+<li><strong>Chunk 크기</strong> — 키우면 커밋 횟수는 줄지만 메모리 점유, 실패 시 롤백 범위, DB lock 유지 시간이 함께 커진다.</li>
+<li><strong>Tasklet의 <code>CONTINUABLE</code></strong> — 종료 조건 없이 <code>RepeatStatus.CONTINUABLE</code>을 반환하면 무한 반복된다. 기본은 <code>FINISHED</code>다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/first-job-infrastructure/">첫 Job — Infrastructure 설정과 v5/v6 변경 사항</a></li>
+<li><a href="/notes/spring-batch/job-repository-schema/">JobRepository와 메타데이터 스키마</a></li>
+<li><a href="/notes/spring-batch/step-chunk-tasklet/">Step — Chunk 지향과 Tasklet·Commit Interval</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, JobRepository, JobInstance, Chunk, Architecture</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/spring-batch/first-job-infrastructure/"><small>다음</small>첫 Job — Infrastructure 설정과 v5/v6 변경 사항</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability · 인프라 — Kubernetes · Consul</title>
+  <meta name="description" content="환경별 YAML 중복은 Helm 템플릿으로, 배포는 GitOps로, 상태 파악은 Metrics·Logs·Traces 3축으로 묶는다">
+  <meta property="og:title" content="Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability · 인프라 — Kubernetes · Consul">
+  <meta property="og:description" content="환경별 YAML 중복은 Helm 템플릿으로, 배포는 GitOps로, 상태 파악은 Metrics·Logs·Traces 3축으로 묶는다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/infra/k8s-helm-real-world/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/infra/">인프라 — Kubernetes · Consul</a><span class="sep">›</span><span>Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability</span></nav>
+    <article class="post">
+  <p class="part">인프라 — Kubernetes · Consul · Kubernetes</p>
+  <h1>Helm과 실전 운영 — 매니지드 K8s·CI/CD·Observability</h1>
+  <p class="summary">환경별 YAML 중복은 Helm 템플릿으로, 배포는 GitOps로, 상태 파악은 Metrics·Logs·Traces 3축으로 묶는다</p>
+  <div class="content">
+<p>같은 애플리케이션을 dev·staging·prod에 배포하면 이미지 태그와 replicas만 다른 매니페스트가 환경 수만큼 복제되고, 변경이 한 환경에 누락된다. 배포가 수동 <code>kubectl apply</code>면 롤백 기준점이 없고, 메트릭과 로그가 없으면 장애를 사용자 신고로 알게 된다. Helm은 매니페스트 중복을, GitOps는 배포 추적을, Observability 스택은 상태 파악을 해결한다.</p>
+<h2>핵심 개념</h2>
+<h3>Helm — 템플릿 + 패키지</h3>
+<p>Helm은 Kubernetes의 패키지 매니저다. 매니페스트를 Go 템플릿으로 한 번 작성하고 값만 <code>values.yaml</code>로 분리한다. Chart는 <code>Chart.yaml</code>, <code>values.yaml</code>, <code>templates/</code>, 서브 차트용 <code>charts/</code>로 구성되며 <code>_helpers.tpl</code>의 함수를 <code>include</code>로 재사용한다. 문법은 Go 템플릿에 Sprig 함수를 더한 것으로 중첩 구조는 <code>toYaml</code>과 <code>nindent</code>로 들여쓰기를 맞춘다.</p>
+<p><code>helm install</code>은 Release를 만들고 <code>helm upgrade</code>는 Revision을 올리며 <code>helm rollback</code>으로 되돌린다. 생성된 객체에는 <code>app.kubernetes.io/instance</code> 라벨이 붙는다. <code>dependencies</code>로 PostgreSQL·Redis 같은 서브 차트를 함께 설치하고, <code>helm.sh/hook</code> Job은 pre-install·pre-upgrade 시점에 실행되어 마이그레이션에 쓰인다. 차트는 <code>helm package</code> 후 OCI 레지스트리로 <code>helm push</code>한다.</p>
+<p>Kustomize는 템플릿 없이 base 위에 overlay patch를 겹치며 <code>kubectl apply -k</code>로 실행된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">기준</th>
+<th align="left">Helm</th>
+<th align="left">Kustomize</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">방식</td>
+<td align="left">템플릿 + 변수</td>
+<td align="left">overlay·patch</td>
+</tr>
+<tr>
+<td align="left">패키징·의존성</td>
+<td align="left">차트 저장소·서브 차트</td>
+<td align="left">없음</td>
+</tr>
+<tr>
+<td align="left">적합한 경우</td>
+<td align="left">외부 배포 차트, 변수 많은 앱</td>
+<td align="left">자체 앱의 환경별 소규모 차이</td>
+</tr>
+</tbody></table>
+<h3>매니지드 클러스터와 GitOps</h3>
+<p>kubeadm·kops로 직접 세우면 etcd 백업·인증서 갱신·노드 패치가 전부 사용자 책임이다. GKE·EKS·AKS가 컨트롤 플레인을 관리하고, GKE Autopilot과 EKS Auto Mode는 노드까지 자동화한다. 클라우드 IAM과 ServiceAccount는 GKE의 Workload Identity, EKS의 IRSA 또는 Pod Identity로 연결한다.</p>
+<p>GitOps는 Git을 desired state의 단일 진실로 삼는다. CI가 이미지를 푸시하고 Git의 태그를 갱신하면 ArgoCD·Flux가 변경을 감지해 클러스터를 동기화한다. 모든 변경이 커밋으로 남고 롤백은 <code>git revert</code>다.</p>
+<h3>Observability 3축</h3>
+<p>Metrics는 <code>kube-prometheus-stack</code> 차트가 Prometheus·Grafana·Alertmanager를 한 번에 설치하고 <code>ServiceMonitor</code>로 스크레이프 대상을 등록한다. Logs는 stdout으로 내보내고 DaemonSet 수집기가 모은다. Loki는 라벨 인덱스로 가볍고, Elasticsearch 기반 EFK는 풀텍스트 검색용이다. Traces는 OpenTelemetry로 계측해 Jaeger·Tempo로 내보낸다. cert-manager로 TLS 갱신을, Velero로 객체와 PVC 백업을 자동화한다.</p>
+<h2>코드</h2>
+<p>Spring Boot 앱 차트의 Deployment 템플릿이다. 이미지 태그는 <code>appVersion</code>을 기본값으로 삼고 Actuator 포트를 metrics로 노출해 ServiceMonitor가 참조한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># templates/deployment.yaml</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Deployment</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> {{ <span class="hljs-string">include</span> <span class="hljs-string">&quot;order-api.fullname&quot;</span> <span class="hljs-string">.</span> }}
+  <span class="hljs-attr">labels:</span>
+    {{<span class="hljs-bullet">-</span> <span class="hljs-string">include</span> <span class="hljs-string">&quot;order-api.labels&quot;</span> <span class="hljs-string">.</span> <span class="hljs-string">|</span> <span class="hljs-string">nindent</span> <span class="hljs-number">4</span> }}
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">replicas:</span> {{ <span class="hljs-string">.Values.replicaCount</span> }}
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      {{<span class="hljs-bullet">-</span> <span class="hljs-string">include</span> <span class="hljs-string">&quot;order-api.selectorLabels&quot;</span> <span class="hljs-string">.</span> <span class="hljs-string">|</span> <span class="hljs-string">nindent</span> <span class="hljs-number">6</span> }}
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">metadata:</span>
+      <span class="hljs-attr">labels:</span>
+        {{<span class="hljs-bullet">-</span> <span class="hljs-string">include</span> <span class="hljs-string">&quot;order-api.selectorLabels&quot;</span> <span class="hljs-string">.</span> <span class="hljs-string">|</span> <span class="hljs-string">nindent</span> <span class="hljs-number">8</span> }}
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> {{ <span class="hljs-string">.Chart.Name</span> }}
+          <span class="hljs-attr">image:</span> <span class="hljs-string">&quot;<span class="hljs-template-variable">{{ .Values.image.repository }}</span>:<span class="hljs-template-variable">{{ .Values.image.tag | default .Chart.AppVersion }}</span>&quot;</span>
+          <span class="hljs-attr">imagePullPolicy:</span> {{ <span class="hljs-string">.Values.image.pullPolicy</span> }}
+          <span class="hljs-attr">ports:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">http</span>
+              <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8080</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">metrics</span>
+              <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8081</span>
+          <span class="hljs-attr">env:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">SPRING_PROFILES_ACTIVE</span>
+              <span class="hljs-attr">value:</span> {{ <span class="hljs-string">.Values.springProfile</span> <span class="hljs-string">|</span> <span class="hljs-string">quote</span> }}
+          <span class="hljs-attr">readinessProbe:</span>
+            <span class="hljs-attr">httpGet:</span>
+              <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/health/readiness</span>
+              <span class="hljs-attr">port:</span> <span class="hljs-string">metrics</span>
+          <span class="hljs-attr">livenessProbe:</span>
+            <span class="hljs-attr">httpGet:</span>
+              <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/health/liveness</span>
+              <span class="hljs-attr">port:</span> <span class="hljs-string">metrics</span>
+          <span class="hljs-attr">resources:</span>
+            {{<span class="hljs-bullet">-</span> <span class="hljs-string">toYaml</span> <span class="hljs-string">.Values.resources</span> <span class="hljs-string">|</span> <span class="hljs-string">nindent</span> <span class="hljs-number">12</span> }}
+<span class="hljs-meta">---</span>
+<span class="hljs-comment"># templates/servicemonitor.yaml</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">monitoring.coreos.com/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">ServiceMonitor</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> {{ <span class="hljs-string">include</span> <span class="hljs-string">&quot;order-api.fullname&quot;</span> <span class="hljs-string">.</span> }}
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      {{<span class="hljs-bullet">-</span> <span class="hljs-string">include</span> <span class="hljs-string">&quot;order-api.selectorLabels&quot;</span> <span class="hljs-string">.</span> <span class="hljs-string">|</span> <span class="hljs-string">nindent</span> <span class="hljs-number">6</span> }}
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">port:</span> <span class="hljs-string">metrics</span>
+      <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/prometheus</span></code></pre>
+<p>위 템플릿이 기대하는 Spring Boot 3.x 설정이다. 관리 포트를 분리하고 Prometheus 엔드포인트와 probe 그룹을 켠다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># application.yaml</span>
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">server:</span>
+    <span class="hljs-attr">port:</span> <span class="hljs-number">8081</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">health,prometheus</span>
+  <span class="hljs-attr">endpoint:</span>
+    <span class="hljs-attr">health:</span>
+      <span class="hljs-attr">probes:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span></code></pre>
+<pre><code class="hljs language-groovy"><span class="hljs-comment">// build.gradle</span>
+dependencies {
+    implementation <span class="hljs-string">&#x27;org.springframework.boot:spring-boot-starter-actuator&#x27;</span>
+    runtimeOnly <span class="hljs-string">&#x27;io.micrometer:micrometer-registry-prometheus&#x27;</span>
+}</code></pre>
+<p>CI가 차트를 OCI 레지스트리로 푸시하고 ArgoCD Application이 Git의 values와 함께 동기화한다. <code>prune</code>은 Git에서 제거된 리소스를 삭제하고 <code>selfHeal</code>은 수동 변경을 되돌린다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># CI: helm package ./chart &amp;&amp; helm push order-api-1.4.2.tgz oci://registry.example.com/charts</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">argoproj.io/v1alpha1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Application</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">argocd</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">project:</span> <span class="hljs-string">default</span>
+  <span class="hljs-attr">source:</span>
+    <span class="hljs-attr">repoURL:</span> <span class="hljs-string">https://github.com/example/order-api-deploy</span>
+    <span class="hljs-attr">targetRevision:</span> <span class="hljs-string">main</span>
+    <span class="hljs-attr">path:</span> <span class="hljs-string">chart</span>
+    <span class="hljs-attr">helm:</span>
+      <span class="hljs-attr">valueFiles:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-string">values-prod.yaml</span>
+  <span class="hljs-attr">destination:</span>
+    <span class="hljs-attr">server:</span> <span class="hljs-string">https://kubernetes.default.svc</span>
+    <span class="hljs-attr">namespace:</span> <span class="hljs-string">prod</span>
+  <span class="hljs-attr">syncPolicy:</span>
+    <span class="hljs-attr">automated:</span>
+      <span class="hljs-attr">prune:</span> <span class="hljs-literal">true</span>
+      <span class="hljs-attr">selfHeal:</span> <span class="hljs-literal">true</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>latest</code> 태그.</strong> 어느 커밋이 떠 있는지 알 수 없고 롤백 기준도 사라진다. semver 또는 git SHA로 고정한다. 태그를 재사용해 덮어쓰면 노드 캐시 때문에 구버전이 뜬다.</li>
+<li><strong><code>upgrade --install</code>.</strong> 첫 배포에 <code>upgrade</code>만 쓰면 Release가 없어 실패한다. <code>--install</code>을 붙여야 파이프라인이 멱등해진다. 적용 전 <code>helm template</code>·<code>helm lint</code>로 렌더링 결과를 확인한다.</li>
+<li><strong>Hook 리소스 누적.</strong> Hook Job은 Release 관리 대상이 아니어서 삭제 정책이 없으면 실행 후 남고, 이름이 같은 Job은 다음 업그레이드에서 충돌한다. <code>hook-delete-policy: hook-succeeded</code>와 <code>hook-weight</code>를 함께 지정한다.</li>
+<li><strong>selfHeal과 HPA 충돌.</strong> <code>replicas</code>를 차트에 박아 두면 HPA가 늘린 값을 ArgoCD가 되돌린다. 템플릿에서 <code>replicas</code>를 빼거나 <code>ignoreDifferences</code>를 설정한다. <code>kubectl edit</code>한 임시 조치도 즉시 원복된다.</li>
+<li><strong>Prometheus 카디널리티.</strong> URI에 ID가 섞인 메트릭이나 사용자별 태그는 시계열 수를 폭발시킨다. 태그 값 범위를 제한하고, 지연은 percentile이 아니라 histogram으로 내보내야 여러 Pod를 집계할 수 있다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/infra/k8s-scaling-scheduling/">Scaling·Scheduling·Probes</a></li>
+<li><a href="/notes/infra/k8s-security/">Security — RBAC·NetworkPolicy</a></li>
+<li><a href="/notes/infra/consul-architecture-deploy/">Consul 아키텍처와 배포 — Raft·Gossip·클러스터</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Helm, Kustomize, ArgoCD, GitOps, Prometheus</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/infra/k8s-security/"><small>이전</small>Security — RBAC·NetworkPolicy</a>
+  <a class="next" href="/notes/infra/consul-architecture-deploy/"><small>다음</small>Consul 아키텍처와 배포 — Raft·Gossip·클러스터</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

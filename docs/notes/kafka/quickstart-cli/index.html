@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quickstart — 설치·CLI·첫 메시지 · Kafka</title>
+  <meta name="description" content="KRaft 단일 노드를 띄우고 kafka-topics·console-producer·consumer·consumer-groups로 메시지 흐름과 lag를 직접 확인한다">
+  <meta property="og:title" content="Quickstart — 설치·CLI·첫 메시지 · Kafka">
+  <meta property="og:description" content="KRaft 단일 노드를 띄우고 kafka-topics·console-producer·consumer·consumer-groups로 메시지 흐름과 lag를 직접 확인한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/quickstart-cli/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Quickstart — 설치·CLI·첫 메시지</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 기초</p>
+  <h1>Quickstart — 설치·CLI·첫 메시지</h1>
+  <p class="summary">KRaft 단일 노드를 띄우고 kafka-topics·console-producer·consumer·consumer-groups로 메시지 흐름과 lag를 직접 확인한다</p>
+  <div class="content">
+<p>Kafka의 설계 개념은 Topic·Partition·Consumer Group·Offset처럼 추상 용어가 많아, 문서만 읽고 넘어가면 각 용어가 실제로 어떤 모양인지 감이 잡히지 않는다. 이 상태로 Producer 설정이나 Rebalance를 공부하면 원인과 결과를 연결하지 못한다. 로컬에 브로커 한 대를 띄우고 CLI로 메시지를 넣고 빼면서 partition 배분과 lag를 눈으로 확인해 두면 이후 개념 학습의 기준점이 생긴다. 또한 운영 환경에서 장애를 진단할 때도 애플리케이션 코드보다 콘솔 도구가 먼저 손에 잡히므로, 기본 CLI 네 개는 반드시 익혀 둔다.</p>
+<h2>핵심 개념</h2>
+<p><strong>KRaft 모드.</strong> Kafka 4.0부터 Zookeeper가 완전히 제거되었고 브로커가 자체 Raft 합의로 메타데이터를 관리한다. 브로커 실행 환경은 Java 17 이상이 필요하며(클라이언트는 Java 11 이상), 첫 실행 전에 <code>kafka-storage.sh format</code>으로 로그 디렉토리를 초기화해야 한다. 이 단계는 Zookeeper 시절에는 없던 절차라 가장 자주 빠뜨린다. <code>process.roles=broker,controller</code>로 한 노드가 두 역할을 겸하는 것이 단일 노드 구성이고, 운영 규모에서는 controller와 broker를 분리한다.</p>
+<p><strong>Topic과 Partition.</strong> Topic은 메시지가 쌓이는 논리적 단위이고, Partition은 그것을 병렬로 나눈 물리적 로그다. Partition 수는 늘릴 수만 있고 줄일 수 없다. 키 해시와 partition의 매핑이 깨지기 때문이며, 줄이려면 새 topic을 만들어 옮겨야 한다. Replication factor는 단일 노드에서 1이지만 운영 표준은 3이다.</p>
+<p><strong>키와 Partition 선택.</strong> 콘솔 producer의 기본 동작은 key 없이 value만 전송하며, 이 경우 partition은 sticky 방식으로 배치 단위로 분산된다. 키를 지정하면 같은 키는 항상 같은 partition으로 가므로 키 단위 순서가 보장된다.</p>
+<p><strong>Consumer Group과 Offset.</strong> 같은 <code>--group</code>으로 붙은 consumer들은 partition을 나눠 받는다. Partition 3개에 consumer 2개면 한쪽이 2개, 다른 쪽이 1개를 맡고, consumer가 partition보다 많으면 초과분은 아무것도 받지 못한다. 다른 group은 독립적으로 전체 메시지를 받는다. Group마다 partition별 처리 위치(offset)를 <code>__consumer_offsets</code> topic에 커밋하며, 브로커의 마지막 offset과 커밋된 offset의 차이가 lag다. Lag는 운영 모니터링의 가장 기본이 되는 메트릭이다.</p>
+<h2>코드</h2>
+<p>Kafka 4.0 배포판을 받아 KRaft 단일 노드를 기동한다. 4.0부터는 <code>config/server.properties</code>가 곧 KRaft 설정이다.</p>
+<pre><code class="hljs language-bash">wget https://downloads.apache.org/kafka/4.0.0/kafka_2.13-4.0.0.tgz
+tar -xzf kafka_2.13-4.0.0.tgz &amp;&amp; <span class="hljs-built_in">cd</span> kafka_2.13-4.0.0
+
+KAFKA_CLUSTER_ID=<span class="hljs-string">&quot;<span class="hljs-subst">$(bin/kafka-storage.sh random-uuid)</span>&quot;</span>
+bin/kafka-storage.sh format --standalone -t <span class="hljs-string">&quot;<span class="hljs-variable">$KAFKA_CLUSTER_ID</span>&quot;</span> -c config/server.properties
+bin/kafka-server-start.sh config/server.properties
+
+<span class="hljs-comment"># Docker로 대체할 경우 (이후 명령은 docker exec -it kafka /opt/kafka/bin/&lt;cmd&gt;)</span>
+docker run -d --name kafka -p 9092:9092 apache/kafka:4.0.0</code></pre>
+<p>Topic을 만들고, 키 포함 메시지를 보낸 뒤, 두 개의 group으로 소비하며 lag를 확인한다.</p>
+<pre><code class="hljs language-bash">bin/kafka-topics.sh --bootstrap-server localhost:9092 --create \
+  --topic quickstart-events --partitions 3 --replication-factor 1
+bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic quickstart-events
+
+<span class="hljs-comment"># Producer — key:value 형식, 입력 후 Ctrl+C</span>
+bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic quickstart-events \
+  --property parse.key=<span class="hljs-literal">true</span> --property key.separator=:
+&gt;user42:Made a payment
+&gt;user99:Logged <span class="hljs-keyword">in</span>
+
+<span class="hljs-comment"># Consumer — 키·파티션·타임스탬프 출력, 처음부터</span>
+bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic quickstart-events \
+  --group group-1 --from-beginning \
+  --property print.key=<span class="hljs-literal">true</span> --property print.partition=<span class="hljs-literal">true</span> --property print.timestamp=<span class="hljs-literal">true</span>
+
+<span class="hljs-comment"># 같은 명령을 다른 터미널에서 --group group-1로 한 번 더 실행하면 partition이 나뉜다</span>
+<span class="hljs-comment"># --group group-2로 실행하면 전체 메시지를 독립적으로 받는다</span>
+
+bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group group-1
+<span class="hljs-comment"># GROUP    TOPIC              PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG</span>
+<span class="hljs-comment"># group-1  quickstart-events  0          5               5               0</span>
+
+<span class="hljs-comment"># 재처리 — group의 consumer를 모두 내린 뒤 실행</span>
+bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group group-1 \
+  --reset-offsets --to-earliest --topic quickstart-events --execute
+
+bin/kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic quickstart-events</code></pre>
+<p>같은 topic을 Spring Boot 3.x에서 읽고 쓰는 최소 구성이다. <code>spring-kafka</code> 의존성 하나로 <code>KafkaTemplate</code>과 <code>@KafkaListener</code>가 자동 구성된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">QuickstartEvents</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, String&gt; kafkaTemplate;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">QuickstartEvents</span><span class="hljs-params">(KafkaTemplate&lt;String, String&gt; kafkaTemplate)</span> {
+        <span class="hljs-built_in">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String key, String value)</span> {
+        kafkaTemplate.send(<span class="hljs-string">&quot;quickstart-events&quot;</span>, key, value);
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;quickstart-events&quot;, groupId = &quot;spring-group&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">listen</span><span class="hljs-params">(ConsumerRecord&lt;String, String&gt; record)</span> {
+        System.out.printf(<span class="hljs-string">&quot;p=%d key=%s value=%s%n&quot;</span>,
+                record.partition(), record.key(), record.value());
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">bootstrap-servers:</span> <span class="hljs-string">localhost:9092</span>
+    <span class="hljs-attr">consumer:</span>
+      <span class="hljs-attr">auto-offset-reset:</span> <span class="hljs-string">earliest</span>
+      <span class="hljs-attr">key-deserializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringDeserializer</span>
+      <span class="hljs-attr">value-deserializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringDeserializer</span>
+    <span class="hljs-attr">producer:</span>
+      <span class="hljs-attr">key-serializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringSerializer</span>
+      <span class="hljs-attr">value-serializer:</span> <span class="hljs-string">org.apache.kafka.common.serialization.StringSerializer</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>--from-beginning</code>은 커밋된 offset이 없을 때만 동작한다.</strong> 이미 offset을 커밋한 group에 붙이면 커밋 지점부터 이어 읽는다. 처음부터 다시 읽으려면 <code>--reset-offsets</code>를 써야 하고, 이 명령은 해당 group의 consumer가 모두 종료된 상태에서만 적용된다. 애플리케이션의 <code>auto.offset.reset=earliest</code>도 같은 조건으로만 효과가 있다.</li>
+<li><strong>첫 연결은 되는데 그 다음부터 Connection refused가 난다면 <code>advertised.listeners</code>를 본다.</strong> 클라이언트는 <code>bootstrap.servers</code>로 접속한 뒤 메타데이터에 실린 광고 주소로 재연결한다. Docker·Kubernetes·클라우드에서 브로커가 컨테이너 내부 주소를 광고하면 이 두 번째 연결이 실패한다.</li>
+<li><strong>Partition 수 이상의 consumer는 놀고 있다.</strong> Lag가 쌓여 consumer를 늘렸는데 처리량이 그대로라면 partition 수부터 확인한다. 반대로 partition을 과도하게 잡으면 메타데이터·컨트롤러 부담과 장애 복구 시간이 늘어난다.</li>
+<li><strong><code>auto.create.topics.enable</code>에 의존하지 않는다.</strong> 개발용 기본값이 켜져 있으면 오타 난 topic 이름으로 partition 1개짜리 topic이 조용히 생성된다. 운영에서는 끄고 <code>kafka-topics.sh --create</code> 또는 Admin Client로 명시적으로 만든다.</li>
+<li><strong>콘솔 producer는 스모크 테스트 도구이지 부하 도구가 아니다.</strong> 기본 설정이 운영 producer와 다르므로(<code>acks</code>, 배치, 압축) 성능 수치를 여기서 판단하면 안 된다. <code>--producer-property acks=all</code>처럼 설정을 맞춰도 처리량 비교는 별도 도구로 한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/what-is-kafka/">Kafka란 — 이벤트 스트리밍과 활용 영역</a></li>
+<li><a href="/notes/kafka/topic-partition-offset-segment/">Topic·Partition·Offset·Segment</a></li>
+<li><a href="/notes/kafka/operations-kraft/">운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, KRaft, CLI, Consumer Group, Spring Kafka</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/what-is-kafka/"><small>이전</small>Kafka란 — 이벤트 스트리밍과 활용 영역</a>
+  <a class="next" href="/notes/kafka/topic-partition-offset-segment/"><small>다음</small>Topic·Partition·Offset·Segment</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

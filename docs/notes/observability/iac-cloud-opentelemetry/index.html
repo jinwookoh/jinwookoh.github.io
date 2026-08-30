@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IaC·Cloud·OpenTelemetry 연동 · 관측성</title>
+  <meta name="description" content="scrape 대상·대시보드·알림을 코드로 선언하고, 앱은 OTel Collector 하나로만 push하도록 만드는 자동화 뼈대">
+  <meta property="og:title" content="IaC·Cloud·OpenTelemetry 연동 · 관측성">
+  <meta property="og:description" content="scrape 대상·대시보드·알림을 코드로 선언하고, 앱은 OTel Collector 하나로만 push하도록 만드는 자동화 뼈대">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/iac-cloud-opentelemetry/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/observability/">관측성</a><span class="sep">›</span><span>IaC·Cloud·OpenTelemetry 연동</span></nav>
+    <article class="post">
+  <p class="part">관측성 · 운영</p>
+  <h1>IaC·Cloud·OpenTelemetry 연동</h1>
+  <p class="summary">scrape 대상·대시보드·알림을 코드로 선언하고, 앱은 OTel Collector 하나로만 push하도록 만드는 자동화 뼈대</p>
+  <div class="content">
+<p>Prometheus 설정에 타깃을 손으로 적고 Grafana UI에서 패널을 클릭으로 만드는 방식은 서비스가 수십 개로 늘어나면 무너진다. Pod가 재시작되면 IP가 바뀌어 scrape가 끊기고, UI에서 만든 대시보드는 Git 이력이 없다. 팀마다 메트릭 이름이 달라 전사 현황을 모으지 못하고, 백엔드를 추가할 때마다 앱을 재배포해야 한다. 여기에 OpenTelemetry를 들이면 Micrometer와의 경계부터 흔들린다. 이 경계를 정리하고 scrape·대시보드·알림·수집 경로를 코드로 선언하는 뼈대를 세운다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Micrometer와 OpenTelemetry는 같은 계층이 아니다.</strong> Micrometer는 앱 안에서 메트릭과 trace를 생성하는 계측 facade이고, OpenTelemetry(OTel)는 벤더 중립 wire format(OTLP)과 OTel Collector를 포함하는 생태계다. &quot;생성은 Micrometer, 전송은 OTLP&quot;가 현실적인 구도다. <code>micrometer-registry-otlp</code>의 <code>OtlpMeterRegistry</code>가 메트릭을 push하고, <code>micrometer-tracing-bridge-otel</code>이 Micrometer Tracing과 OTel SDK를 잇는다. Spring Boot 3.x는 bridge와 <code>opentelemetry-exporter-otlp</code>만 추가하면 자동 설정된다.</p>
+<p><strong>OTel Collector는 팬아웃 허브다.</strong> 앱은 Collector 하나에만 보내고, Collector가 Prometheus remote write, Grafana Cloud, Elastic 등으로 분배하므로 백엔드를 바꿔도 앱 재배포가 없다. Elastic도 OTel SDK를 받으며 신규 서비스에는 OTel 경로를 권장한다. SDK가 섞여도 W3C <code>traceparent</code> 헤더만 지키면 한 trace로 이어진다.</p>
+<p><strong>scrape 대상은 ServiceMonitor·PodMonitor CRD로 선언한다.</strong> Prometheus Operator가 레이블 셀렉터로 대상을 자동 발견한다. ServiceMonitor가 기본이고, PodMonitor는 Service가 없는 DaemonSet·Job에만 쓴다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">필드</th>
+<th align="left">적용 시점</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>relabelings</code></td>
+<td align="left">scrape 전</td>
+<td align="left">어떤 타깃을 긁을지 결정, 타깃 레이블 변환</td>
+</tr>
+<tr>
+<td align="left"><code>metricRelabelings</code></td>
+<td align="left">scrape 후</td>
+<td align="left">수집된 메트릭 이름·레이블 드롭</td>
+</tr>
+</tbody></table>
+<p><strong>Grafana IaC는 세 계층이다.</strong> Terraform Grafana Provider는 데이터소스·폴더·권한·알림 규칙을, Helm은 배포·업그레이드를 맡고 ArgoCD와 결합하면 git push가 곧 반영이 된다. Provisioning은 <code>/etc/grafana/provisioning/</code> 아래 파일로 운영 설정을 박는 방식이며 <code>editable: false</code>를 강제해야 UI 수정과의 drift를 막는다. Grafana Cloud는 UI·알림만 맡기고 데이터는 자체 운영하는 hybrid가 가장 흔하다.</p>
+<p><strong>커스텀 메트릭은 MeterBinder로 라이브러리화한다.</strong> 사내 공통 jar의 <code>MeterBinder</code> Bean을 Spring Boot가 감지해 <code>bindTo</code>를 호출한다. <code>MeterFilter</code>로 prefix와 공통 태그를 강제하면 대시보드 템플릿을 그대로 재사용할 수 있다.</p>
+<h2>코드</h2>
+<p>Actuator 포트를 분리하고 메트릭·trace를 OTLP로 Collector에 보내는 설정이다. Prometheus export는 꺼서 이중 전송을 막는다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">server:</span>
+  <span class="hljs-attr">port:</span> <span class="hljs-number">8080</span>
+
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">server:</span>
+    <span class="hljs-attr">port:</span> <span class="hljs-number">8081</span>
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-attr">web:</span>
+      <span class="hljs-attr">exposure:</span>
+        <span class="hljs-attr">include:</span> <span class="hljs-string">health,</span> <span class="hljs-string">info,</span> <span class="hljs-string">prometheus,</span> <span class="hljs-string">metrics</span>
+  <span class="hljs-attr">opentelemetry:</span>
+    <span class="hljs-attr">resource-attributes:</span>
+      <span class="hljs-attr">service.name:</span> <span class="hljs-string">order-service</span>
+      <span class="hljs-attr">service.version:</span> <span class="hljs-string">&quot;1.0.0&quot;</span>
+      <span class="hljs-attr">deployment.environment:</span> <span class="hljs-string">production</span>
+  <span class="hljs-attr">otlp:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">url:</span> <span class="hljs-string">http://otel-collector.monitoring:4318/v1/metrics</span>
+        <span class="hljs-attr">step:</span> <span class="hljs-string">30s</span>
+    <span class="hljs-attr">tracing:</span>
+      <span class="hljs-attr">endpoint:</span> <span class="hljs-string">http://otel-collector.monitoring:4317</span>
+  <span class="hljs-attr">tracing:</span>
+    <span class="hljs-attr">sampling:</span>
+      <span class="hljs-attr">probability:</span> <span class="hljs-number">0.1</span>
+  <span class="hljs-attr">prometheus:</span>
+    <span class="hljs-attr">metrics:</span>
+      <span class="hljs-attr">export:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">false</span></code></pre>
+<p><code>MeterBinder</code>·<code>MeterFilter</code>로 표준 메트릭과 prefix·공통 태그·카디널리티 상한을 강제하고, actuator 경로를 IP로 보호하는 설정이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MetricsConfig</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">AUTO_PREFIXES</span> <span class="hljs-operator">=</span>
+            Set.of(<span class="hljs-string">&quot;jvm.&quot;</span>, <span class="hljs-string">&quot;http.&quot;</span>, <span class="hljs-string">&quot;system.&quot;</span>, <span class="hljs-string">&quot;process.&quot;</span>, <span class="hljs-string">&quot;tomcat.&quot;</span>, <span class="hljs-string">&quot;hikaricp.&quot;</span>, <span class="hljs-string">&quot;spring.&quot;</span>);
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">MeterBinder</span> <span class="hljs-title function_">orderMetrics</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> registry -&gt; {
+            Counter.builder(<span class="hljs-string">&quot;company.orders.created.total&quot;</span>)
+                    .description(<span class="hljs-string">&quot;주문 생성 건수&quot;</span>)
+                    .register(registry);
+            Timer.builder(<span class="hljs-string">&quot;company.orders.processing.seconds&quot;</span>)
+                    .publishPercentileHistogram()
+                    .register(registry);
+        };
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">MeterRegistryCustomizer</span>&lt;MeterRegistry&gt; <span class="hljs-title function_">namingConvention</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;${spring.application.name}&quot;)</span> String appName)</span> {
+        <span class="hljs-keyword">return</span> registry -&gt; registry.config()
+                .meterFilter(<span class="hljs-keyword">new</span> <span class="hljs-title class_">MeterFilter</span>() {
+                    <span class="hljs-meta">@Override</span>
+                    <span class="hljs-keyword">public</span> Meter.<span class="hljs-type">Id</span> <span class="hljs-title function_">map</span><span class="hljs-params">(Meter.Id id)</span> {
+                        <span class="hljs-type">String</span> <span class="hljs-variable">name</span> <span class="hljs-operator">=</span> id.getName();
+                        <span class="hljs-type">boolean</span> <span class="hljs-variable">auto</span> <span class="hljs-operator">=</span> AUTO_PREFIXES.stream().anyMatch(name::startsWith);
+                        <span class="hljs-keyword">if</span> (auto || name.startsWith(<span class="hljs-string">&quot;company.&quot;</span>)) {
+                            <span class="hljs-keyword">return</span> id;
+                        }
+                        <span class="hljs-keyword">return</span> id.withName(<span class="hljs-string">&quot;company.&quot;</span> + appName + <span class="hljs-string">&quot;.&quot;</span> + name);
+                    }
+                })
+                .meterFilter(MeterFilter.maximumAllowableTags(
+                        <span class="hljs-string">&quot;company.&quot;</span>, <span class="hljs-string">&quot;userId&quot;</span>, <span class="hljs-number">100</span>, MeterFilter.deny()))
+                .commonTags(<span class="hljs-string">&quot;service&quot;</span>, appName,
+                        <span class="hljs-string">&quot;environment&quot;</span>, System.getenv().getOrDefault(<span class="hljs-string">&quot;ENV&quot;</span>, <span class="hljs-string">&quot;local&quot;</span>));
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">SecurityFilterChain</span> <span class="hljs-title function_">actuatorSecurity</span><span class="hljs-params">(HttpSecurity http)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">return</span> http
+                .securityMatcher(<span class="hljs-string">&quot;/actuator/**&quot;</span>)
+                .authorizeHttpRequests(auth -&gt; auth
+                        .requestMatchers(<span class="hljs-string">&quot;/actuator/health&quot;</span>).permitAll()
+                        .requestMatchers(<span class="hljs-string">&quot;/actuator/prometheus&quot;</span>)
+                                .access(IpAddressAuthorizationManager.hasIpAddress(<span class="hljs-string">&quot;10.0.0.0/8&quot;</span>))
+                        .anyRequest().hasRole(<span class="hljs-string">&quot;ADMIN&quot;</span>))
+                .build();
+    }
+}</code></pre>
+<p>관리 포트 Service를 레이블로 발견하는 ServiceMonitor와, 표준 메트릭 이름을 참조하는 Terraform 대시보드·알림 규칙이다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">monitoring.coreos.com/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">ServiceMonitor</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-service</span>
+  <span class="hljs-attr">namespace:</span> <span class="hljs-string">monitoring</span>
+  <span class="hljs-attr">labels:</span>
+    <span class="hljs-attr">release:</span> <span class="hljs-string">prometheus</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">monitoring:</span> <span class="hljs-string">&quot;true&quot;</span>
+  <span class="hljs-attr">namespaceSelector:</span>
+    <span class="hljs-attr">matchNames:</span> [<span class="hljs-string">production</span>]
+  <span class="hljs-attr">endpoints:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">port:</span> <span class="hljs-string">management</span>
+      <span class="hljs-attr">path:</span> <span class="hljs-string">/actuator/prometheus</span>
+      <span class="hljs-attr">interval:</span> <span class="hljs-string">15s</span>
+      <span class="hljs-attr">relabelings:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">sourceLabels:</span> [<span class="hljs-string">__meta_kubernetes_namespace</span>]
+          <span class="hljs-attr">targetLabel:</span> <span class="hljs-string">environment</span>
+      <span class="hljs-attr">metricRelabelings:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">sourceLabels:</span> [<span class="hljs-string">__name__</span>]
+          <span class="hljs-attr">regex:</span> <span class="hljs-string">&#x27;jvm_gc_pause_seconds_bucket&#x27;</span>
+          <span class="hljs-attr">action:</span> <span class="hljs-string">drop</span></code></pre>
+<pre><code class="hljs language-plaintext">resource &quot;grafana_dashboard&quot; &quot;order_service&quot; {
+  folder = grafana_folder.microservices.uid
+  config_json = templatefile(&quot;${path.module}/dashboards/service.json&quot;, {
+    service = &quot;order-service&quot;
+  })
+}
+
+resource &quot;grafana_rule_group&quot; &quot;order_slo&quot; {
+  name             = &quot;order-slo&quot;
+  folder_uid       = grafana_folder.microservices.uid
+  interval_seconds = 60
+
+  rule {
+    name      = &quot;OrderSloBurnFast&quot;
+    condition = &quot;A&quot;
+    for       = &quot;2m&quot;
+    data {
+      ref_id         = &quot;A&quot;
+      datasource_uid = grafana_data_source.prometheus.uid
+      model = jsonencode({
+        expr = &quot;sum(rate(company_orders_failed_total{service=\&quot;order-service\&quot;}[1h])) / sum(rate(company_orders_created_total{service=\&quot;order-service\&quot;}[1h])) &gt; 0.0144&quot;
+      })
+    }
+    labels = { severity = &quot;critical&quot; }
+  }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>actuator 공개망 노출.</strong> ingress 실수로 <code>/actuator/prometheus</code>가 열리면 JVM 상태와 비즈니스 메트릭이 그대로 읽힌다. 포트 분리, NetworkPolicy, IP 필터 세 겹을 둔다.</li>
+<li><strong>이중 수집.</strong> 같은 Pod를 ServiceMonitor와 PodMonitor가 동시에 잡거나 OTLP와 Prometheus registry가 함께 켜지면 <code>rate()</code>가 두 배로 나온다. OTel Java agent와 tracing bridge를 함께 쓰면 span도 중복된다.</li>
+<li><strong>ServiceMonitor 미발견.</strong> Operator는 <code>serviceMonitorSelector</code>와 맞는 레이블만 처리하므로 <code>metadata.labels</code>를 맞춘다. drop regex는 staging에서 먼저 검증한다.</li>
+<li><strong>Collector 단일 장애점.</strong> 큐 없이 batch만 쓰면 재시작 동안 데이터가 증발한다. <code>sending_queue</code>, <code>retry_on_failure</code>, <code>file_storage</code>로 디스크 큐를 두고 복수 replica를 둔다.</li>
+<li><strong>IaC 상태와 비밀값.</strong> Terraform state는 remote backend에 두고, Helm values의 비밀값은 Vault로 주입한다. Grafana Cloud Free 한도 초과는 자동 과금이므로 usage alert를 건다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/observability/registry-backends-actuator/">Registry·push vs pull·Actuator 연동</a></li>
+<li><a href="/notes/observability/grafana-dashboards/">Grafana Dashboard·Panel·Variable</a></li>
+<li><a href="/notes/observability/operations-incidents/">운영 함정과 사고 케이스·Elasticsearch 모니터링</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · OpenTelemetry, ServiceMonitor, Terraform, Grafana Cloud, IaC</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/observability/alerting-slo/"><small>이전</small>Alerting·Notification·SLO</a>
+  <a class="next" href="/notes/observability/operations-incidents/"><small>다음</small>운영 함정과 사고 케이스·Elasticsearch 모니터링</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

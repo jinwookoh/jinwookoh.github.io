@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Step 재시작과 ItemStream · Spring Batch</title>
+  <meta name="description" content="재시작이 실패 지점부터 이어지려면 Step 재시작 설정과 ItemStream 등록이 함께 맞아야 한다">
+  <meta property="og:title" content="Step 재시작과 ItemStream · Spring Batch">
+  <meta property="og:description" content="재시작이 실패 지점부터 이어지려면 Step 재시작 설정과 ItemStream 등록이 함께 맞아야 한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/step-restart-itemstream/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Step 재시작과 ItemStream</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Step</p>
+  <h1>Step 재시작과 ItemStream</h1>
+  <p class="summary">재시작이 실패 지점부터 이어지려면 Step 재시작 설정과 ItemStream 등록이 함께 맞아야 한다</p>
+  <div class="content">
+<p>천만 건을 적재하는 Step이 600만 건에서 실패했을 때 재시작이 처음부터 다시 돈다면 처리 시간 전체를 잃고 적재한 600만 건은 중복으로 남는다. Spring Batch는 Step별 진행 상태를 JobRepository에 기록해 실패 지점부터 재개하지만, 이 동작은 두 조건이 맞아야 성립한다. 어떤 Step을 건너뛸지 정하는 Step 설정, 그리고 Reader·Writer가 위치를 ExecutionContext에 남기는 ItemStream 구현이다.</p>
+<h2>핵심 개념</h2>
+<h3>재시작 시 Step의 동작</h3>
+<p>같은 JobInstance에서 이전 JobExecution이 FAILED로 끝난 뒤 재시작하면 새 JobExecution이 만들어진다. 이미 COMPLETED인 Step은 건너뛰고, FAILED Step은 직전 StepExecution이 남긴 ExecutionContext를 받아 그 위치부터 재개한다.</p>
+<p><code>allowStartIfComplete(true)</code>는 COMPLETED 상태를 무시하고 매 재시작마다 다시 실행한다. 사전 검증, 외부 lock 해제에 쓴다. <code>startLimit(N)</code>은 총 시작 횟수를 N으로 제한하고 초과하면 <code>StartLimitExceededException</code>을 던진다. 재시작 횟수가 아니라 시작 횟수를 세므로 <code>startLimit(1)</code>은 첫 실행만 허용한다. DDL 실행, 결제 요청에 적용한다. Job 수준의 <code>preventRestart()</code>는 재시작 자체를 거부한다.</p>
+<h3>ItemStream — 위치를 남기는 계약</h3>
+<table>
+<thead>
+<tr>
+<th align="left">메서드</th>
+<th align="left">호출 시점</th>
+<th align="left">책임</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>open(ExecutionContext)</code></td>
+<td align="left">Step 시작 시 1회</td>
+<td align="left">이전 위치 복구, 자원 열기</td>
+</tr>
+<tr>
+<td align="left"><code>update(ExecutionContext)</code></td>
+<td align="left">매 chunk commit 직전</td>
+<td align="left">현재 위치 기록</td>
+</tr>
+<tr>
+<td align="left"><code>close()</code></td>
+<td align="left">Step 종료 시 1회</td>
+<td align="left">자원 정리</td>
+</tr>
+</tbody></table>
+<p><code>update()</code>가 commit 직전에 같은 트랜잭션 안에서 호출된다는 점이 핵심이다. chunk의 write 결과와 ExecutionContext가 원자적으로 commit되므로 commit 직후 프로세스가 죽어도 데이터와 위치가 어긋나지 않고, rollback되면 위치 변경도 함께 되돌아간다. 재시작에서는 직전 실행의 ExecutionContext가 <code>open()</code>에 전달되므로 <code>containsKey</code> 분기 하나로 첫 실행과 재시작을 같은 코드로 처리한다.</p>
+<p>값은 <code>putLong</code>·<code>putString</code> 같은 기본 타입으로 제한한다. 임의 객체는 직렬화에 실패할 수 있고, 내용이 커지면 BLOB 컬럼 부담과 chunk마다 반복되는 쓰기 증폭으로 돌아온다.</p>
+<h3>Step에 ItemStream 등록하기</h3>
+<p>Step은 등록된 ItemStream에 대해서만 세 메서드를 호출한다. ItemStream을 구현한 객체가 <code>StepBuilder</code>의 <code>reader()</code>·<code>processor()</code>·<code>writer()</code> 인자로 직접 전달되면 자동 등록되며, 표준 구현체 대부분이 여기 해당한다. 그 외에는 <code>StepBuilder.stream(itemStream)</code>으로 수동 등록한다.</p>
+<p>자동 등록은 <code>reader()</code>에 넘긴 객체 자체만 검사한다. ItemStream을 구현하지 않은 wrapper 안에 <code>FlatFileItemReader</code>가 있어도 delegate의 <code>open</code>·<code>update</code>는 호출되지 않는다. delegate를 <code>stream()</code>으로 따로 등록하거나, wrapper가 ItemStream을 구현해 delegate에 위임한다. Tasklet 안에서 ItemReader를 직접 쓰는 경우도 수동 등록이 필요하다. <code>ItemStreamSupport</code>를 상속하면 <code>setName()</code>의 이름이 ExecutionContext 키의 접두어가 되어 같은 클래스의 인스턴스가 여럿이어도 키가 충돌하지 않는다.</p>
+<h2>코드</h2>
+<p>재시작 정책을 Step별로 다르게 준 Job이다. 검증 Step은 매 재시작마다 실행되고, DDL Step은 한 번만 허용되며, 적재 Step은 실패 지점부터 재개된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SettlementJobConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">validationStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                               Tasklet validationTasklet)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;validationStep&quot;</span>, repo)
+            .tasklet(validationTasklet, tx)
+            .allowStartIfComplete(<span class="hljs-literal">true</span>)
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">ddlStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                        Tasklet ddlTasklet)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;ddlStep&quot;</span>, repo)
+            .tasklet(ddlTasklet, tx)
+            .startLimit(<span class="hljs-number">1</span>)
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">loadStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                         FlatFileItemReader&lt;Settlement&gt; reader,
+                         JdbcBatchItemWriter&lt;Settlement&gt; writer)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;loadStep&quot;</span>, repo)
+            .&lt;Settlement, Settlement&gt;chunk(<span class="hljs-number">500</span>, tx)
+            .reader(reader)
+            .writer(writer)
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">settlementJob</span><span class="hljs-params">(JobRepository repo, Step validationStep,
+                             Step ddlStep, Step loadStep)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;settlementJob&quot;</span>, repo)
+            .start(validationStep)
+            .next(ddlStep)
+            .next(loadStep)
+            .build();
+    }
+}</code></pre>
+<p>delegate를 감싸면서 자체 상태도 추적하는 Reader다. 세 메서드를 delegate에 위임하므로 <code>reader()</code>에 넘기면 자동 등록된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CountingReader</span>&lt;T&gt; <span class="hljs-keyword">extends</span> <span class="hljs-title class_">ItemStreamSupport</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemReader</span>&lt;T&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">COUNT_KEY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;count&quot;</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ItemReader&lt;T&gt; delegate;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> count;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CountingReader</span><span class="hljs-params">(ItemReader&lt;T&gt; delegate, String name)</span> {
+        <span class="hljs-built_in">this</span>.delegate = delegate;
+        setName(name);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">T</span> <span class="hljs-title function_">read</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">T</span> <span class="hljs-variable">item</span> <span class="hljs-operator">=</span> delegate.read();
+        <span class="hljs-keyword">if</span> (item != <span class="hljs-literal">null</span>) {
+            count++;
+        }
+        <span class="hljs-keyword">return</span> item;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">open</span><span class="hljs-params">(ExecutionContext context)</span> <span class="hljs-keyword">throws</span> ItemStreamException {
+        <span class="hljs-built_in">super</span>.open(context);
+        <span class="hljs-keyword">if</span> (delegate <span class="hljs-keyword">instanceof</span> ItemStream stream) {
+            stream.open(context);
+        }
+        count = context.getLong(getExecutionContextKey(COUNT_KEY), <span class="hljs-number">0L</span>);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(ExecutionContext context)</span> <span class="hljs-keyword">throws</span> ItemStreamException {
+        <span class="hljs-built_in">super</span>.update(context);
+        <span class="hljs-keyword">if</span> (delegate <span class="hljs-keyword">instanceof</span> ItemStream stream) {
+            stream.update(context);
+        }
+        context.putLong(getExecutionContextKey(COUNT_KEY), count);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">close</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> ItemStreamException {
+        <span class="hljs-keyword">if</span> (delegate <span class="hljs-keyword">instanceof</span> ItemStream stream) {
+            stream.close();
+        }
+        <span class="hljs-built_in">super</span>.close();
+    }
+}</code></pre>
+<p>Tasklet 안에서 ItemReader를 직접 사용하는 경우다. <code>stream()</code>으로 등록하지 않으면 <code>open</code>·<code>update</code>가 호출되지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">reportStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                       FlatFileItemReader&lt;Row&gt; rowReader)</span> {
+    <span class="hljs-type">Tasklet</span> <span class="hljs-variable">tasklet</span> <span class="hljs-operator">=</span> (contribution, chunkContext) -&gt; {
+        Row row;
+        <span class="hljs-keyword">while</span> ((row = rowReader.read()) != <span class="hljs-literal">null</span>) {
+            contribution.incrementReadCount();
+        }
+        <span class="hljs-keyword">return</span> RepeatStatus.FINISHED;
+    };
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;reportStep&quot;</span>, repo)
+        .tasklet(tasklet, tx)
+        .stream(rowReader)
+        .build();
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>재시작이 처음부터 다시 처리된다면 원인은 거의 등록 누락이다. wrapper가 ItemStream을 구현하지 않았거나, Tasklet 안 Reader를 <code>stream()</code>에 넣지 않은 경우다.</li>
+<li><code>allowStartIfComplete(true)</code>는 재시작마다 Step 전체를 다시 돌린다. 짧은 Tasklet에만 붙인다.</li>
+<li><code>startLimit(1)</code> Step이 실패하면 코드 수정 후에도 같은 JobInstance로는 재시작할 수 없다. 새 JobInstance로 실행하는 운영 절차가 필요하다.</li>
+<li>multi-threaded Step에서는 <code>read()</code>와 <code>update()</code>가 동시에 호출되므로 상태 변경이 thread-safe하거나 partitioning으로 스레드마다 독립 인스턴스를 준다.</li>
+<li><code>open()</code>에서 이전 위치까지 파일을 처음부터 읽어 skip하면 재시작 자체가 느려진다. <code>close()</code>는 정상 종료에서만 보장되므로 파일 핸들·커넥션은 <code>java.lang.ref.Cleaner</code> 같은 안전망을 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-chunk-tasklet/">Step — Chunk 지향과 Tasklet·Commit Interval</a></li>
+<li><a href="/notes/spring-batch/job-repository-schema/">JobRepository와 메타데이터 스키마</a></li>
+<li><a href="/notes/spring-batch/reader-writer-interfaces/">ItemReader·ItemWriter 인터페이스와 구현체 카탈로그</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, ItemStream, ExecutionContext, allowStartIfComplete, startLimit</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/step-chunk-tasklet/"><small>이전</small>Step — Chunk 지향과 Tasklet·Commit Interval</a>
+  <a class="next" href="/notes/spring-batch/flow-control-late-binding/"><small>다음</small>Flow 제어 — Decision·Split·Late Binding</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

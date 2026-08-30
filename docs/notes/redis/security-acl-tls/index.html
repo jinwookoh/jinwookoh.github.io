@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>보안 — ACL·TLS · Redis</title>
+  <meta name="description" content="default 사용자 잠금과 ACL 최소 권한, 그리고 클라이언트·복제·클러스터 버스까지 TLS로 닫는 방법">
+  <meta property="og:title" content="보안 — ACL·TLS · Redis">
+  <meta property="og:description" content="default 사용자 잠금과 ACL 최소 권한, 그리고 클라이언트·복제·클러스터 버스까지 TLS로 닫는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/security-acl-tls/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>보안 — ACL·TLS</span></nav>
+    <article class="post">
+  <p class="part">Redis · 운영</p>
+  <h1>보안 — ACL·TLS</h1>
+  <p class="summary">default 사용자 잠금과 ACL 최소 권한, 그리고 클라이언트·복제·클러스터 버스까지 TLS로 닫는 방법</p>
+  <div class="content">
+<p>Redis를 기본 설정으로 띄우면 <code>default</code> 사용자가 비밀번호 없이 모든 명령과 모든 키에 접근할 수 있고, 모든 통신은 평문으로 흐른다. 포트가 노출되는 순간 <code>FLUSHALL</code>이나 <code>CONFIG SET</code>으로 데이터가 지워지거나 서버가 장악되고, 네트워크 중간에서 세션 토큰이 그대로 읽힌다. <code>requirepass</code>는 비밀번호 하나로 전권을 주므로 애플리케이션·배치·모니터링 도구가 같은 권한을 공유하는 문제를 풀지 못한다. Redis 6부터는 ACL로 사용자·명령·키·채널 단위 권한을 나누고, TLS로 전송 구간을 암호화한다.</p>
+<h2>핵심 개념</h2>
+<h3>ACL DSL</h3>
+<p>ACL 규칙은 <code>on +@read -flushall ~user:* &amp;notif:* &gt;password</code>처럼 한 줄의 DSL로 표현한다.</p>
+<table>
+<thead>
+<tr>
+<th align="center">구분자</th>
+<th align="left">의미</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="center"><code>on</code> / <code>off</code></td>
+<td align="left">사용자 활성·비활성</td>
+</tr>
+<tr>
+<td align="center"><code>+cmd</code> / <code>-cmd</code></td>
+<td align="left">개별 명령 허용·차단</td>
+</tr>
+<tr>
+<td align="center"><code>+@cat</code> / <code>-@cat</code></td>
+<td align="left">카테고리 단위 허용·차단</td>
+</tr>
+<tr>
+<td align="center"><code>~pattern</code></td>
+<td align="left">접근 가능한 키 glob 패턴</td>
+</tr>
+<tr>
+<td align="center"><code>%R~</code> / <code>%W~</code></td>
+<td align="left">읽기 전용·쓰기 전용 키 패턴 (Redis 7+)</td>
+</tr>
+<tr>
+<td align="center"><code>&amp;pattern</code></td>
+<td align="left">Pub/Sub 채널 패턴</td>
+</tr>
+<tr>
+<td align="center"><code>&gt;pw</code> / <code>&lt;pw</code></td>
+<td align="left">비밀번호 추가·제거 (SHA-256 해시로 저장)</td>
+</tr>
+<tr>
+<td align="center"><code>nopass</code></td>
+<td align="left">비밀번호 없음</td>
+</tr>
+<tr>
+<td align="center"><code>reset</code> / <code>resetkeys</code></td>
+<td align="left">권한 전체·키 패턴 초기화</td>
+</tr>
+</tbody></table>
+<p><code>ACL SETUSER</code>는 누적 동작이라 권한을 다시 정의할 때는 <code>reset</code>을 앞에 붙인다. 명령 카테고리는 <code>@read</code>·<code>@write</code>·<code>@admin</code>·<code>@dangerous</code> 같은 기능 분류와 <code>@string</code>·<code>@hash</code> 같은 자료구조 분류가 있고, <code>ACL CAT &lt;name&gt;</code>으로 소속 명령을 확인한다. <code>@dangerous</code>에는 <code>FLUSHALL</code>·<code>KEYS</code>·<code>SHUTDOWN</code>·<code>CONFIG</code>가 모여 있다. ACL은 메모리에만 반영되므로 <code>aclfile</code>을 지정하고 <code>ACL SAVE</code>로 내려야 재시작 후에도 유지된다.</p>
+<p>운영 환경에서는 역할별로 사용자를 나눈다. 관리자는 <code>+@all</code>에 강한 비밀번호를 두고 사람만 사용한다. 애플리케이션 사용자는 필요한 카테고리와 채널만 열고 <code>-@dangerous</code>를 붙이며 키를 <code>app:*</code> prefix로 묶는다. 모니터링 도구는 <code>+@read -@dangerous</code>, 캐시 전용 클라이언트는 <code>+get +set +del +expire ~cached:*</code> 정도로 좁힌다. <code>default</code>는 비밀번호를 걸거나 <code>off</code>로 비활성화한다.</p>
+<h3>TLS와 통신 경로</h3>
+<p>Redis는 기본 빌드에 TLS가 빠져 있어 <code>make BUILD_TLS=yes</code>로 빌드해야 하며, <code>INFO server</code>의 <code>tls_enabled:1</code>로 확인한다. 클라이언트-서버, 복제, Cluster bus, Sentinel 통신이 각각 별도 옵션으로 암호화되며, <code>tls-port</code>만 켜면 나머지는 평문이다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">경로</th>
+<th align="left">옵션</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">클라이언트</td>
+<td align="left"><code>tls-port</code>, <code>tls-cert-file</code>, <code>tls-key-file</code>, <code>tls-ca-cert-file</code></td>
+</tr>
+<tr>
+<td align="left">복제</td>
+<td align="left"><code>tls-replication yes</code></td>
+</tr>
+<tr>
+<td align="left">Cluster bus</td>
+<td align="left"><code>tls-cluster yes</code></td>
+</tr>
+<tr>
+<td align="left">Sentinel</td>
+<td align="left"><code>sentinel.conf</code>에 동일 옵션 별도 지정</td>
+</tr>
+</tbody></table>
+<p><code>tls-auth-clients yes</code>(기본값)는 클라이언트 인증서까지 요구하는 mTLS 모드다. 유출된 비밀번호만으로는 접속할 수 없지만 클라이언트 인증서 배포·갱신 부담이 따른다. <code>optional</code>은 인증서가 있을 때만 검증하고, <code>no</code>는 서버 인증서만 검증한다.</p>
+<h2>코드</h2>
+<p>역할별 사용자를 만들고 영구 저장하는 ACL 설정이다. <code>reset</code>으로 시작해 누적 규칙을 초기화한다.</p>
+<pre><code class="hljs language-bash">ACL SETUSER admin reset on &gt;admin-strong-pass ~* &amp;* +@all
+ACL SETUSER app reset on &gt;app-pass +@<span class="hljs-built_in">read</span> +@write +@string +@<span class="hljs-built_in">hash</span> +@sorted_set +@stream -@dangerous ~app:* &amp;events:*
+ACL SETUSER reader reset on &gt;read-pass +@<span class="hljs-built_in">read</span> -@dangerous %R~app:*
+ACL SETUSER default off
+ACL SAVE
+CLIENT KILL USER default</code></pre>
+<p>평문 포트를 닫고 모든 경로를 TLS로 통일하는 <code>redis.conf</code>다.</p>
+<pre><code class="hljs language-plaintext">port 0
+tls-port 6379
+tls-cert-file /etc/redis/tls/redis.crt
+tls-key-file /etc/redis/tls/redis.key
+tls-ca-cert-file /etc/redis/tls/ca.crt
+tls-auth-clients yes
+tls-replication yes
+tls-cluster yes
+tls-protocols &quot;TLSv1.2 TLSv1.3&quot;</code></pre>
+<p>Spring Boot 3.x에서 ACL 사용자와 mTLS를 SSL Bundle로 연결하는 설정이다. Lettuce가 <code>username</code>·<code>password</code>로 <code>AUTH</code>를 보내고, 번들의 keystore가 클라이언트 인증서, truststore가 사설 CA를 담는다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">ssl:</span>
+    <span class="hljs-attr">bundle:</span>
+      <span class="hljs-attr">pem:</span>
+        <span class="hljs-attr">redis-tls:</span>
+          <span class="hljs-attr">keystore:</span>
+            <span class="hljs-attr">certificate:</span> <span class="hljs-string">file:/etc/app/tls/client.crt</span>
+            <span class="hljs-attr">private-key:</span> <span class="hljs-string">file:/etc/app/tls/client.key</span>
+          <span class="hljs-attr">truststore:</span>
+            <span class="hljs-attr">certificate:</span> <span class="hljs-string">file:/etc/app/tls/ca.crt</span>
+  <span class="hljs-attr">data:</span>
+    <span class="hljs-attr">redis:</span>
+      <span class="hljs-attr">host:</span> <span class="hljs-string">redis-host</span>
+      <span class="hljs-attr">port:</span> <span class="hljs-number">6379</span>
+      <span class="hljs-attr">username:</span> <span class="hljs-string">app</span>
+      <span class="hljs-attr">password:</span> <span class="hljs-string">${REDIS_APP_PASSWORD}</span>
+      <span class="hljs-attr">ssl:</span>
+        <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">bundle:</span> <span class="hljs-string">redis-tls</span>
+      <span class="hljs-attr">lettuce:</span>
+        <span class="hljs-attr">pool:</span>
+          <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+          <span class="hljs-attr">max-active:</span> <span class="hljs-number">16</span></code></pre>
+<p>권한이 없는 명령은 <code>NOPERM</code> 오류로 돌아오며, 재시도 대상이 아니므로 즉시 실패시킨다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CacheService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CacheService</span><span class="hljs-params">(StringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Optional</span>&lt;String&gt; <span class="hljs-title function_">find</span><span class="hljs-params">(String key)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> Optional.ofNullable(redis.opsForValue().get(<span class="hljs-string">&quot;app:&quot;</span> + key));
+        } <span class="hljs-keyword">catch</span> (RedisSystemException e) {
+            <span class="hljs-keyword">if</span> (e.getMessage() != <span class="hljs-literal">null</span> &amp;&amp; e.getMessage().contains(<span class="hljs-string">&quot;NOPERM&quot;</span>)) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;ACL 권한 부족: &quot;</span> + key, e);
+            }
+            <span class="hljs-keyword">throw</span> e;
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>권한 변경이 기존 연결에 적용되지 않는다.</strong> 이미 인증된 연결은 <code>ACL SETUSER</code> 이후에도 예전 권한을 유지한다. 권한을 줄이거나 비밀번호를 바꾼 뒤에는 <code>CLIENT KILL USER &lt;name&gt;</code>으로 끊어야 즉시 반영된다.</li>
+<li><strong><code>aclfile</code> 없이 만든 사용자는 재시작 시 사라진다.</strong> <code>ACL SAVE</code>가 실패했거나 <code>aclfile</code>이 없으면 재기동 후 애플리케이션이 인증 실패로 멈춘다.</li>
+<li><strong>평문 포트가 남아 있으면 TLS는 우회된다.</strong> <code>port 6379</code>와 <code>tls-port 6380</code>을 같이 열고 방화벽으로 6379를 막지 않으면 평문 접속이 가능하다. 운영 환경은 <code>port 0</code>이 표준이다.</li>
+<li><strong>복제·Cluster bus는 별도 옵션이다.</strong> <code>tls-replication</code>을 켜지 않으면 다른 AZ의 replica로 전체 데이터셋이 평문으로 흐른다. VPC 내부라는 이유로 생략하면 안 된다.</li>
+<li><strong>TLS는 CPU를 쓴다.</strong> 단순 GET 처리량이 평문 대비 15~30% 줄고 핸드셰이크 비용은 연결마다 든다. 연결 풀과 AES-NI로 완화하고, 트래픽이 매우 크면 TLS 종단 프록시 분리를 검토한다.</li>
+<li><strong>인증서 만료는 전면 장애다.</strong> 90일짜리 인증서를 쓰면 자동 갱신과 Redis reload를 함께 자동화해야 한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/replication-sentinel/">Replication과 Sentinel</a></li>
+<li><a href="/notes/redis/cluster-consistent-hashing/">Cluster와 일관된 해싱</a></li>
+<li><a href="/notes/redis/memory-clients/">메모리 최적화와 클라이언트 (Jedis·Lettuce)</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, ACL, TLS, mTLS, Spring Data Redis</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/cluster-consistent-hashing/"><small>이전</small>Cluster와 일관된 해싱</a>
+  <a class="next" href="/notes/redis/memory-clients/"><small>다음</small>메모리 최적화와 클라이언트 (Jedis·Lettuce)</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

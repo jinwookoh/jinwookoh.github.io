@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>파티셔닝과 샤딩 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="파티셔닝은 단일 DB 안에서 테이블을 쪼개고, 샤딩은 여러 서버로 데이터를 나눈다. 둘의 경계와 비용을 정리한다.">
+  <meta property="og:title" content="파티셔닝과 샤딩 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="파티셔닝은 단일 DB 안에서 테이블을 쪼개고, 샤딩은 여러 서버로 데이터를 나눈다. 둘의 경계와 비용을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/partitioning-sharding/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>파티셔닝과 샤딩</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · DB 원리</p>
+  <h1>파티셔닝과 샤딩</h1>
+  <p class="summary">파티셔닝은 단일 DB 안에서 테이블을 쪼개고, 샤딩은 여러 서버로 데이터를 나눈다. 둘의 경계와 비용을 정리한다.</p>
+  <div class="content">
+<p>수억 행이 넘는 테이블은 인덱스만으로 감당하기 어렵다. B-Tree 깊이가 늘어 캐시 적중률이 떨어지고, 오래된 데이터를 지우는 DELETE 한 번이 몇 시간짜리 작업이 되며, VACUUM과 백업 시간이 테이블 크기에 비례해 늘어난다. 테이블을 물리적으로 쪼개면 이 비용이 조각 단위로 줄어드는데, 이것이 파티셔닝이다. 그래도 단일 서버의 CPU·메모리·디스크·연결 수 한계에 닿으면 데이터를 여러 서버로 나눠야 하고, 이것이 샤딩이다. 두 기법은 이름이 비슷하지만 적용 범위와 책임 주체가 다르다.</p>
+<h2>핵심 개념</h2>
+<p>파티셔닝은 큰 테이블을 여러 파티션으로 분할하되 논리적으로는 한 테이블로 다루는 기법이다. 쿼리는 부모 테이블에 대해 작성하고, DBMS가 조건에 맞는 파티션만 읽는다. 행 단위로 나누는 수평 파티셔닝이 일반적인 의미의 파티셔닝이고, 컬럼 단위의 수직 파티셔닝은 정규화에 가깝다.</p>
+<p>PostgreSQL의 선언적 파티셔닝은 세 가지 전략을 제공한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">전략</th>
+<th align="left">분할 기준</th>
+<th align="left">적합한 데이터</th>
+<th align="left">제약</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Range</td>
+<td align="left">값 범위</td>
+<td align="left">시간 기반(로그·주문·거래)</td>
+<td align="left">최근 파티션에 쓰기 집중</td>
+</tr>
+<tr>
+<td align="left">List</td>
+<td align="left">명시적 값 목록</td>
+<td align="left">국가·상태 같은 카테고리</td>
+<td align="left">값 편중(skew) 가능</td>
+</tr>
+<tr>
+<td align="left">Hash</td>
+<td align="left">해시 나머지</td>
+<td align="left">균등 분산이 목적일 때</td>
+<td align="left">범위 쿼리 시 전 파티션 스캔</td>
+</tr>
+</tbody></table>
+<p>파티셔닝의 효과는 Partition Pruning에서 나온다. WHERE 절에 파티션 키 조건이 있으면 플래너가 무관한 파티션을 계획 단계 또는 실행 단계에서 제외한다. 파티션 키가 조건에 없으면 모든 파티션을 스캔하므로 단일 테이블보다 느려질 수 있다. 따라서 파티션 키는 WHERE에 자주 등장하고, 값이 변하지 않으며, 데이터가 고르게 퍼지는 컬럼이어야 한다.</p>
+<p>샤딩은 데이터를 여러 DB 인스턴스(샤드)에 분산하는 기법이다. 각 샤드는 독립된 PostgreSQL 서버이고, 어느 샤드로 갈지는 애플리케이션 또는 Citus 같은 중간 계층이 결정한다. 파티셔닝과의 차이는 다음과 같다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">구분</th>
+<th align="left">Partitioning</th>
+<th align="left">Sharding</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">범위</td>
+<td align="left">단일 DB 안</td>
+<td align="left">여러 DB 서버</td>
+</tr>
+<tr>
+<td align="left">라우팅</td>
+<td align="left">DBMS가 자동 처리</td>
+<td align="left">애플리케이션·라우터</td>
+</tr>
+<tr>
+<td align="left">JOIN</td>
+<td align="left">파티션 간 자유롭게 가능</td>
+<td align="left">Cross-Shard JOIN 어려움</td>
+</tr>
+<tr>
+<td align="left">트랜잭션</td>
+<td align="left">일반 ACID</td>
+<td align="left">분산 트랜잭션(2PC) 필요</td>
+</tr>
+<tr>
+<td align="left">적합</td>
+<td align="left">단일 노드 한계 안</td>
+<td align="left">단일 노드 한계 초과</td>
+</tr>
+</tbody></table>
+<p>샤딩 전략은 파티셔닝과 유사하게 Range·Hash·Geographic/Directory 세 가지로 나뉜다. Range 샤딩은 범위 쿼리가 한 샤드에서 끝나지만 신규 데이터가 마지막 샤드에 몰리는 Hot Spot이 생긴다. Hash 샤딩은 분산이 고르지만 <code>hash(key) % N</code> 방식은 샤드 수가 바뀌면 거의 모든 키의 위치가 바뀌어 대규모 재배치가 필요하다. Directory 샤딩은 매핑 테이블로 유연성을 얻는 대신 그 테이블이 단일 장애점이 된다.</p>
+<p>Consistent Hashing은 modulo 해시의 재배치 문제를 푼다. 해시 공간을 링으로 배치하고 각 샤드를 링 위의 점으로 둔 뒤, 키는 해시값에서 시계 방향으로 가장 가까운 샤드에 배정한다. 샤드를 추가하거나 제거하면 인접 구간의 키만 이동하므로 평균 1/N 데이터만 움직인다. 물리 샤드 하나에 가상 노드를 여러 개 배치하면 링 위 분포가 더 고르게 된다. Cassandra·DynamoDB·Redis Cluster가 이 방식을 쓴다.</p>
+<h2>코드</h2>
+<p>Range 파티션 테이블을 만들고, 분기별 파티션과 기본 파티션을 붙인 뒤 Pruning을 확인하는 SQL이다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE TABLE</span> orders (
+    id          <span class="hljs-type">BIGINT</span> GENERATED ALWAYS <span class="hljs-keyword">AS</span> <span class="hljs-keyword">IDENTITY</span>,
+    customer_id <span class="hljs-type">BIGINT</span> <span class="hljs-keyword">NOT NULL</span>,
+    order_date  <span class="hljs-type">DATE</span>   <span class="hljs-keyword">NOT NULL</span>,
+    amount      <span class="hljs-type">NUMERIC</span>(<span class="hljs-number">12</span>, <span class="hljs-number">2</span>) <span class="hljs-keyword">NOT NULL</span>,
+    <span class="hljs-keyword">PRIMARY KEY</span> (id, order_date)
+) <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">BY</span> <span class="hljs-keyword">RANGE</span> (order_date);
+
+<span class="hljs-keyword">CREATE TABLE</span> orders_2026_q3 <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">OF</span> orders
+    <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">VALUES</span> <span class="hljs-keyword">FROM</span> (<span class="hljs-string">&#x27;2026-07-01&#x27;</span>) <span class="hljs-keyword">TO</span> (<span class="hljs-string">&#x27;2026-10-01&#x27;</span>);
+<span class="hljs-keyword">CREATE TABLE</span> orders_2026_q4 <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">OF</span> orders
+    <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">VALUES</span> <span class="hljs-keyword">FROM</span> (<span class="hljs-string">&#x27;2026-10-01&#x27;</span>) <span class="hljs-keyword">TO</span> (<span class="hljs-string">&#x27;2027-01-01&#x27;</span>);
+<span class="hljs-keyword">CREATE TABLE</span> orders_default <span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">OF</span> orders <span class="hljs-keyword">DEFAULT</span>;
+
+<span class="hljs-keyword">CREATE</span> INDEX <span class="hljs-keyword">ON</span> orders (customer_id, order_date);
+
+EXPLAIN <span class="hljs-keyword">SELECT</span> <span class="hljs-operator">*</span> <span class="hljs-keyword">FROM</span> orders <span class="hljs-keyword">WHERE</span> order_date <span class="hljs-operator">=</span> <span class="hljs-type">DATE</span> <span class="hljs-string">&#x27;2026-08-15&#x27;</span>;
+<span class="hljs-comment">-- Seq Scan 또는 Index Scan on orders_2026_q3 만 나타난다</span>
+
+<span class="hljs-keyword">ALTER TABLE</span> orders DETACH <span class="hljs-keyword">PARTITION</span> orders_2026_q3 CONCURRENTLY;
+<span class="hljs-keyword">DROP</span> <span class="hljs-keyword">TABLE</span> orders_2026_q3;</code></pre>
+<p>Spring Boot 3.x에서 파티션 테이블을 JPA로 다룰 때는 복합 기본 키를 엔티티에 반영해야 한다. 파티션 키를 포함한 <code>@IdClass</code>를 쓴 예다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> jakarta.persistence.Entity;
+<span class="hljs-keyword">import</span> jakarta.persistence.Id;
+<span class="hljs-keyword">import</span> jakarta.persistence.IdClass;
+<span class="hljs-keyword">import</span> jakarta.persistence.Table;
+<span class="hljs-keyword">import</span> java.io.Serializable;
+<span class="hljs-keyword">import</span> java.math.BigDecimal;
+<span class="hljs-keyword">import</span> java.time.LocalDate;
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;)</span>
+<span class="hljs-meta">@IdClass(Order.OrderId.class)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-keyword">private</span> LocalDate orderDate;
+
+    <span class="hljs-keyword">private</span> Long customerId;
+    <span class="hljs-keyword">private</span> BigDecimal amount;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderId</span><span class="hljs-params">(Long id, LocalDate orderDate)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Serializable</span> {}
+}</code></pre>
+<p>애플리케이션 레벨 샤딩은 Spring의 <code>AbstractRoutingDataSource</code>로 구현한다. 샤드 키를 <code>ThreadLocal</code>에 두고 Consistent Hashing 링에서 샤드를 고른다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
+<span class="hljs-keyword">import</span> java.nio.charset.StandardCharsets;
+<span class="hljs-keyword">import</span> java.security.MessageDigest;
+<span class="hljs-keyword">import</span> java.util.SortedMap;
+<span class="hljs-keyword">import</span> java.util.TreeMap;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ShardRoutingDataSource</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">AbstractRoutingDataSource</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">ThreadLocal</span>&lt;Long&gt; <span class="hljs-variable">SHARD_KEY</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ThreadLocal</span>&lt;&gt;();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">TreeMap</span>&lt;Long, String&gt; <span class="hljs-variable">ring</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TreeMap</span>&lt;&gt;();
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ShardRoutingDataSource</span><span class="hljs-params">(java.util.List&lt;String&gt; shardNames, <span class="hljs-type">int</span> virtualNodes)</span> {
+        <span class="hljs-keyword">for</span> (String shard : shardNames) {
+            <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; virtualNodes; i++) {
+                ring.put(hash(shard + <span class="hljs-string">&quot;#&quot;</span> + i), shard);
+            }
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">bind</span><span class="hljs-params">(<span class="hljs-type">long</span> key)</span> { SHARD_KEY.set(key); }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">clear</span><span class="hljs-params">()</span> { SHARD_KEY.remove(); }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">determineCurrentLookupKey</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Long</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> SHARD_KEY.get();
+        <span class="hljs-keyword">if</span> (key == <span class="hljs-literal">null</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;shard key not bound&quot;</span>);
+        <span class="hljs-type">SortedMap</span>&lt;Long, String&gt; <span class="hljs-variable">tail</span> <span class="hljs-operator">=</span> ring.tailMap(hash(Long.toString(key)));
+        <span class="hljs-keyword">return</span> tail.isEmpty() ? ring.firstEntry().getValue() : tail.get(tail.firstKey());
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">long</span> <span class="hljs-title function_">hash</span><span class="hljs-params">(String s)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-type">byte</span>[] <span class="hljs-variable">d</span> <span class="hljs-operator">=</span> MessageDigest.getInstance(<span class="hljs-string">&quot;MD5&quot;</span>).digest(s.getBytes(StandardCharsets.UTF_8));
+            <span class="hljs-keyword">return</span> ((<span class="hljs-type">long</span>) (d[<span class="hljs-number">0</span>] &amp; <span class="hljs-number">0xff</span>) &lt;&lt; <span class="hljs-number">24</span> | (d[<span class="hljs-number">1</span>] &amp; <span class="hljs-number">0xff</span>) &lt;&lt; <span class="hljs-number">16</span> | (d[<span class="hljs-number">2</span>] &amp; <span class="hljs-number">0xff</span>) &lt;&lt; <span class="hljs-number">8</span> | (d[<span class="hljs-number">3</span>] &amp; <span class="hljs-number">0xff</span>)) &amp; <span class="hljs-number">0xffffffffL</span>;
+        } <span class="hljs-keyword">catch</span> (java.security.NoSuchAlgorithmException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(e);
+        }
+    }
+}</code></pre>
+<p><code>bind</code>는 트랜잭션 시작 전에 호출해야 한다. 커넥션이 이미 획득된 뒤에 키를 바꾸면 라우팅이 적용되지 않는다.</p>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>글로벌 UNIQUE 제약이 없다.</strong> 파티션 테이블의 PRIMARY KEY·UNIQUE는 파티션 키를 반드시 포함해야 한다. <code>id</code> 하나로 유일성을 보장하려면 애플리케이션 시퀀스나 별도 검증에 의존해야 하며, 파티션 테이블을 참조하는 외래 키도 PostgreSQL 12 이후에야 허용된다.</li>
+<li><strong>파티션 키 UPDATE는 행 이동이다.</strong> PostgreSQL은 키 변경 시 다른 파티션으로 행을 옮겨 주지만 내부적으로 DELETE + INSERT이며, 동시 UPDATE와 충돌하면 직렬화 오류가 난다. 파티션 키는 생성 후 바뀌지 않는 컬럼으로 잡는다.</li>
+<li><strong>파티션 수가 많으면 계획 시간이 늘어난다.</strong> 수천 개 파티션은 플래너 메모리와 락 획득 비용을 키운다. 일 단위 파티션을 무기한 쌓지 말고 pg_partman 등으로 생성·보관 주기를 자동화하고, 오래된 파티션은 DETACH 후 DROP한다.</li>
+<li><strong>샤딩은 마지막 수단이다.</strong> 인덱스 튜닝, Read Replica, 캐시, 파티셔닝, 수직 확장을 모두 시도한 뒤에 검토한다. 잘못 고른 샤드 키는 되돌리기 어렵고 Resharding은 수일에서 수주가 걸린다. 멀티 테넌트 SaaS는 <code>tenant_id</code>, 소셜 서비스는 <code>user_id</code>처럼 관련 데이터가 한 샤드에 모이는 키를 데이터 모델링 단계에서 정한다.</li>
+<li><strong>Cross-Shard JOIN과 분산 트랜잭션은 비용이 크다.</strong> 두 샤드에 걸친 JOIN은 애플리케이션에서 결합하거나 비정규화로 회피하고, 원자성이 필요한 쓰기는 2PC 대신 Saga 패턴으로 설계한다. 샤딩은 쓰기 확장, 복제는 읽기 확장을 담당하므로 샤드마다 Primary + Replica를 함께 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/ddl-tables-constraints/">DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</a></li>
+<li><a href="/notes/postgresql/replication-cap-saga/">복제·CAP·분산 트랜잭션</a></li>
+<li><a href="/notes/postgresql/index-operations-explain/">인덱스 운영과 EXPLAIN</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, Partitioning, Sharding, Consistent Hashing, Partition Pruning</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/acid-transactions-isolation/"><small>이전</small>ACID·트랜잭션·격리 수준</a>
+  <a class="next" href="/notes/postgresql/replication-cap-saga/"><small>다음</small>복제·CAP·분산 트랜잭션</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

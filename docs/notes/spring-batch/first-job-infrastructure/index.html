@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>첫 Job — Infrastructure 설정과 v5/v6 변경 사항 · Spring Batch</title>
+  <meta name="description" content="Spring Boot 위에서 첫 Job을 띄우는 최소 설정과 v4→v5→v6에서 @EnableBatchProcessing·Builder·JobRepository가 바뀐 지점을 정리한다.">
+  <meta property="og:title" content="첫 Job — Infrastructure 설정과 v5/v6 변경 사항 · Spring Batch">
+  <meta property="og:description" content="Spring Boot 위에서 첫 Job을 띄우는 최소 설정과 v4→v5→v6에서 @EnableBatchProcessing·Builder·JobRepository가 바뀐 지점을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/first-job-infrastructure/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>첫 Job — Infrastructure 설정과 v5/v6 변경 사항</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · 개념</p>
+  <h1>첫 Job — Infrastructure 설정과 v5/v6 변경 사항</h1>
+  <p class="summary">Spring Boot 위에서 첫 Job을 띄우는 최소 설정과 v4→v5→v6에서 @EnableBatchProcessing·Builder·JobRepository가 바뀐 지점을 정리한다.</p>
+  <div class="content">
+<p>Job 하나를 돌리려면 JobRepository·PlatformTransactionManager·JobOperator 같은 인프라 빈이 먼저 있어야 한다. 이 빈들의 출처와 기본값을 모르면 버전에 따라 의미가 뒤집힌 <code>@EnableBatchProcessing</code> 때문에 Boot 자동 구성이 꺼지거나 빌더 빈을 찾지 못하고, 메모리 전용 저장소로 운영에 나가 재시작이 불가능해진다.</p>
+<h2>핵심 개념</h2>
+<h3>인프라 빈</h3>
+<ul>
+<li><strong>JobRepository</strong> — 실행 메타데이터를 저장한다. 재시작과 중복 실행 방지의 근거다.</li>
+<li><strong>PlatformTransactionManager</strong> — chunk 단위 commit/rollback의 기반. v5부터 <code>chunk(size, txManager)</code>·<code>tasklet(tasklet, txManager)</code>로 명시 전달한다.</li>
+<li><strong>JobLauncher / JobOperator</strong> — Job을 시작한다. v6는 JobOperator가 시작·중지·재시작·recover를 맡는 단일 진입점이다.</li>
+<li><strong>JobRegistry, JobScope · StepScope</strong> — 이름 기반 Job 조회와 <code>#{jobParameters[&#39;x&#39;]}</code> late binding을 담당한다.</li>
+</ul>
+<p>의존 방향은 <code>DataSource → TransactionManager → JobRepository → JobOperator → Job</code>이며, Boot는 DataSource가 있으면 JDBC 기반 JobRepository까지 자동 구성한다.</p>
+<h3><code>@EnableBatchProcessing</code>의 버전별 의미</h3>
+<p>Batch 4.x(Boot 2.x, <code>javax.*</code>)에서 이 어노테이션은 JobBuilderFactory·JobRepository를 만드는 필수 선언이었다. Batch 5.x(Boot 3.x, Java 17+, Framework 6, <code>jakarta.*</code>)부터는 Boot의 <code>BatchAutoConfiguration</code>이 그 역할을 하고, 사용자가 <code>@EnableBatchProcessing</code>이나 <code>DefaultBatchConfiguration</code>을 선언하면 Boot가 뒤로 물러난다. Boot에서는 쓰지 않는 것이 기본이며, 남겨 두면 <code>spring.batch.*</code> 프로퍼티가 무시된다. 빌더는 팩토리 대신 <code>new JobBuilder(name, repo)</code>·<code>new StepBuilder(name, repo)</code>로 직접 생성한다.</p>
+<p>Batch 6.x(Boot 4.x, Framework 7)는 저장소를 선언으로 고른다. <code>@EnableBatchProcessing</code> 단독은 <code>ResourcelessJobRepository</code>(메모리 전용), <code>@EnableJdbcJobRepository</code>는 JDBC, <code>@EnableMongoJobRepository</code>는 MongoDB다. 상속 방식은 <code>DefaultBatchConfiguration</code>과 Jdbc·Mongo 변형이 대응하며 <code>getTablePrefix()</code>·<code>getDatabaseType()</code> 등을 override할 수 있다. 이 밖에 Virtual Thread 동시성, <code>ChunkOrientedStep</code>, <code>CommandLineJobOperator</code>, <code>recover</code>, graceful shutdown, JFR, JSpecify, Jackson 3이 추가됐고 Spring Retry는 Framework core retry로 대체됐다. API는 5.x와 거의 호환된다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x + Batch 5.x 기준 최소 Job이다. <code>@EnableBatchProcessing</code> 없이 인프라 빈을 메서드 파라미터로 받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">HelloJobConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">helloJob</span><span class="hljs-params">(JobRepository jobRepository, Step helloStep, Step chunkStep)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;helloJob&quot;</span>, jobRepository)
+            .incrementer(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RunIdIncrementer</span>())
+            .start(helloStep)
+            .next(chunkStep)
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">helloStep</span><span class="hljs-params">(JobRepository jobRepository,
+                          PlatformTransactionManager transactionManager)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;helloStep&quot;</span>, jobRepository)
+            .tasklet((contribution, chunkContext) -&gt; {
+                System.out.println(<span class="hljs-string">&quot;Hello, Spring Batch&quot;</span>);
+                <span class="hljs-keyword">return</span> RepeatStatus.FINISHED;
+            }, transactionManager)
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">chunkStep</span><span class="hljs-params">(JobRepository jobRepository,
+                          PlatformTransactionManager transactionManager)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;chunkStep&quot;</span>, jobRepository)
+            .&lt;Integer, String&gt;chunk(<span class="hljs-number">3</span>, transactionManager)
+            .reader(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ListItemReader</span>&lt;&gt;(List.of(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>, <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">5</span>)))
+            .processor(item -&gt; <span class="hljs-string">&quot;Item-&quot;</span> + item)
+            .writer(chunk -&gt; chunk.forEach(System.out::println))
+            .build();
+    }
+}</code></pre>
+<p><code>RunIdIncrementer</code>는 같은 JobParameters 재실행이 COMPLETED된 JobInstance로 거부되는 문제를 피한다. chunkStep은 5건을 3건씩 두 chunk로 처리한다.</p>
+<p>학습용은 스키마 자동 생성과 부팅 시 실행을 켜고, 운영용은 둘 다 끈다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># 학습용</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:h2:mem:batch</span>
+  <span class="hljs-attr">batch:</span>
+    <span class="hljs-attr">jdbc:</span>
+      <span class="hljs-attr">initialize-schema:</span> <span class="hljs-string">always</span>
+    <span class="hljs-attr">job:</span>
+      <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+
+<span class="hljs-comment"># 운영용</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://db:5432/batch</span>
+  <span class="hljs-attr">batch:</span>
+    <span class="hljs-attr">jdbc:</span>
+      <span class="hljs-attr">initialize-schema:</span> <span class="hljs-string">never</span>
+      <span class="hljs-attr">table-prefix:</span> <span class="hljs-string">BATCH_</span>
+    <span class="hljs-attr">job:</span>
+      <span class="hljs-attr">enabled:</span> <span class="hljs-literal">false</span></code></pre>
+<p>메타데이터 DB를 분리할 때는 <code>DefaultBatchConfiguration</code>을 상속해 배치 전용 DataSource를 지정한다. 이때 Boot의 배치 자동 구성은 꺼진다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BatchInfraConfig</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">DefaultBatchConfiguration</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@ConfigurationProperties(&quot;spring.datasource.batch&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">DataSource</span> <span class="hljs-title function_">batchDataSource</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> DataSourceBuilder.create().build();
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">DataSource</span> <span class="hljs-title function_">getDataSource</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> batchDataSource();
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">PlatformTransactionManager</span> <span class="hljs-title function_">getTransactionManager</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcTransactionManager</span>(batchDataSource());
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">String</span> <span class="hljs-title function_">getTablePrefix</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;BATCH_A_&quot;</span>;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>@EnableBatchProcessing</code>을 4.x 습관으로 남겨 둔다.</strong> Boot 3.x 이상에서 자동 구성이 꺼진다. <code>No qualifying bean of type JobBuilderFactory</code>는 팩토리 제거를 놓친 신호다.</li>
+<li><strong>Resourceless 저장소로 운영에 나간다.</strong> v6에서 <code>@EnableBatchProcessing</code>만 쓰면 메모리 저장소가 기본이라 재시작도 중복 실행 방지도 동작하지 않는다.</li>
+<li><strong><code>initialize-schema: always</code>·<code>job.enabled: true</code>를 운영에 둔다.</strong> 부팅마다 스키마 생성과 전체 Job 실행이 일어난다. <code>schema-&lt;db&gt;.sql</code>을 DBA가 적용하고 명시 실행한다.</li>
+<li><strong>여러 배치가 같은 table prefix를 쓴다.</strong> 메타데이터가 섞이므로 <code>table-prefix</code>로 분리한다.</li>
+<li><strong>메타데이터 DB와 업무 DB를 한 트랜잭션으로 묶는다.</strong> XA 없이는 원자성이 없으므로 분리한다. Boot 3.x 전환 시 <code>javax.*</code>→<code>jakarta.*</code>, <code>com.mysql:mysql-connector-j</code> 전환도 점검한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/what-is-spring-batch/">Spring Batch란 — 아키텍처와 도메인 언어</a></li>
+<li><a href="/notes/spring-batch/job-repository-schema/">JobRepository와 메타데이터 스키마</a></li>
+<li><a href="/notes/spring-batch/running-jobs/">Job 실행 — JobLauncher·JobOperator·JobExplorer</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, @EnableBatchProcessing, JobRepository, Spring Boot, Migration</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/what-is-spring-batch/"><small>이전</small>Spring Batch란 — 아키텍처와 도메인 언어</a>
+  <a class="next" href="/notes/spring-batch/configuring-job/"><small>다음</small>Job 설정 — JobBuilder·Validator·Listener</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

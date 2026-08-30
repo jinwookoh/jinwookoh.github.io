@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XML·JSON·Multi-file 입출력 · Spring Batch</title>
+  <meta name="description" content="XML·JSON도 fragment·object 단위로 스트리밍하고, 여러 파일은 delegate 하나로 묶어 재시작 위치까지 추적한다">
+  <meta property="og:title" content="XML·JSON·Multi-file 입출력 · Spring Batch">
+  <meta property="og:description" content="XML·JSON도 fragment·object 단위로 스트리밍하고, 여러 파일은 delegate 하나로 묶어 재시작 위치까지 추적한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/xml-json-multifile/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>XML·JSON·Multi-file 입출력</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Reader·Processor·Writer</p>
+  <h1>XML·JSON·Multi-file 입출력</h1>
+  <p class="summary">XML·JSON도 fragment·object 단위로 스트리밍하고, 여러 파일은 delegate 하나로 묶어 재시작 위치까지 추적한다</p>
+  <div class="content">
+<p>수 GB짜리 XML이나 JSON을 DOM 파서나 <code>ObjectMapper.readValue(file, List.class)</code>로 읽으면 파일 크기에 비례하는 힙이 필요하고, 중간에 실패하면 처음부터 다시 돌려야 한다. 일자별로 쪼개 들어오는 파일을 파일마다 Step으로 만들면 Step 수가 파일 수만큼 는다. Spring Batch는 XML·JSON을 record 단위로 스트리밍하는 Reader/Writer와, 여러 파일을 하나의 stream으로 합치는 <code>MultiResourceItemReader</code>로 이 문제를 처리한다.</p>
+<h2>핵심 개념</h2>
+<h3>XML — fragment 단위 StAX 스트리밍</h3>
+<p>DOM은 전체 트리를 메모리에 올리고 SAX는 push 방식이라 제어권이 파서에 있다. StAX는 pull 파서라 <code>ItemReader.read()</code> 계약과 맞물린다.</p>
+<p>XML에서는 fragment가 record 단위다. <code>StaxEventItemReader</code>는 <code>addFragmentRootElements(&quot;trade&quot;)</code>로 지정한 element를 만나면 그 fragment를 standalone XML로 감싸 Spring OXM <code>Unmarshaller</code>에 넘긴다. OXM 구현은 JAXB와 Jackson XML 모듈이 주 선택지이고, XStream은 역직렬화 취약점 이력 때문에 신뢰할 수 없는 입력에는 쓰지 않는다.</p>
+<p><code>StaxEventItemWriter</code>는 <code>rootTagName</code>으로 wrapper를 열고 item마다 Marshaller가 만든 fragment를 쌓은 뒤 닫는다. 기본이 transactional이라 chunk commit 시점에 flush되고 rollback 시 파일 변경도 취소된다.</p>
+<h3>JSON — object 단위 스트리밍</h3>
+<p><code>JsonItemReader</code>는 입력이 JSON object의 array라고 가정하고 원소 하나를 item 하나로 읽는다. 파싱은 <code>JsonObjectReader&lt;T&gt;</code>에 위임하며, <code>JacksonJsonObjectReader</code>·<code>GsonJsonObjectReader</code>는 streaming API로 원소를 하나씩 꺼내므로 메모리가 일정하다. Spring Boot가 구성한 <code>ObjectMapper</code>를 넘기면 <code>JavaTimeModule</code>과 record 인식이 따라온다.</p>
+<p><code>JsonFileItemWriter</code>는 <code>JsonObjectMarshaller&lt;T&gt;</code>로 직렬화한 item을 <code>[</code>와 <code>]</code> 사이에 comma로 구분해 쓴다. NDJSON은 지원하지 않으므로 <code>FlatFileItemReader</code>에 Jackson <code>LineMapper</code>를 끼워 읽는다.</p>
+<h3>여러 파일 — MultiResourceItemReader</h3>
+<p><code>Resource[]</code>와 delegate Reader 하나를 받아, 첫 resource를 delegate에 주입해 읽다가 <code>read()</code>가 null이면 다음 resource로 전환하고 마지막까지 끝나면 null을 돌려준다. delegate는 <code>ResourceAwareItemReaderItemStream</code> 구현체여야 하며 빈에 <code>resource</code>를 지정하지 않는다.</p>
+<p>ExecutionContext에는 현재 resource index와 delegate 위치가 함께 저장돼 재시작 시 같은 파일의 같은 위치부터 이어간다. resource 순서가 실행 간에 같아야 성립하므로 <code>Comparator</code>로 순서를 고정한다. 포맷이 다른 Reader의 순차 연결은 Spring Batch 6의 <code>CompositeItemReader</code>가 맡는다.</p>
+<h2>코드</h2>
+<p>JAXB 기반 XML Reader/Writer. <code>jakarta.xml.bind-api</code>와 <code>jaxb-runtime</code> 의존성이 필요하다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@XmlRootElement(name = &quot;trade&quot;)</span>
+<span class="hljs-meta">@XmlAccessorType(XmlAccessType.FIELD)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Trade</span> {
+    <span class="hljs-keyword">private</span> String isin;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> quantity;
+    <span class="hljs-keyword">private</span> BigDecimal price;
+    <span class="hljs-keyword">private</span> String customer;
+    <span class="hljs-comment">// getter/setter</span>
+}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">XmlTradeConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Jaxb2Marshaller</span> <span class="hljs-title function_">tradeMarshaller</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Jaxb2Marshaller</span> <span class="hljs-variable">marshaller</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Jaxb2Marshaller</span>();
+        marshaller.setClassesToBeBound(Trade.class);
+        <span class="hljs-keyword">return</span> marshaller;
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@StepScope</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">StaxEventItemReader</span>&lt;Trade&gt; <span class="hljs-title function_">xmlTradeReader</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;input.file&#x27;]}&quot;)</span> Resource resource,
+            Jaxb2Marshaller marshaller)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StaxEventItemReaderBuilder</span>&lt;Trade&gt;()
+                .name(<span class="hljs-string">&quot;xmlTradeReader&quot;</span>)
+                .resource(resource)
+                .addFragmentRootElements(<span class="hljs-string">&quot;trade&quot;</span>)
+                .unmarshaller(marshaller)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@StepScope</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">StaxEventItemWriter</span>&lt;Trade&gt; <span class="hljs-title function_">xmlTradeWriter</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;output.file&#x27;]}&quot;)</span> WritableResource resource,
+            Jaxb2Marshaller marshaller)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StaxEventItemWriterBuilder</span>&lt;Trade&gt;()
+                .name(<span class="hljs-string">&quot;xmlTradeWriter&quot;</span>)
+                .resource(resource)
+                .marshaller(marshaller)
+                .rootTagName(<span class="hljs-string">&quot;trades&quot;</span>)
+                .overwriteOutput(<span class="hljs-literal">true</span>)
+                .build();
+    }
+}</code></pre>
+<p>Jackson 기반 JSON Reader/Writer와 NDJSON Reader. Boot의 <code>ObjectMapper</code>를 재사용하고 도메인은 record로 둔다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">TradeJson</span><span class="hljs-params">(String isin, <span class="hljs-type">long</span> quantity, BigDecimal price, String customer)</span> {}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">JsonTradeConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ObjectMapper</span> <span class="hljs-title function_">batchObjectMapper</span><span class="hljs-params">(Jackson2ObjectMapperBuilder builder)</span> {
+        <span class="hljs-keyword">return</span> builder.build()
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@StepScope</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">JsonItemReader</span>&lt;TradeJson&gt; <span class="hljs-title function_">jsonTradeReader</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;input.file&#x27;]}&quot;)</span> Resource resource,
+            ObjectMapper batchObjectMapper)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JsonItemReaderBuilder</span>&lt;TradeJson&gt;()
+                .name(<span class="hljs-string">&quot;jsonTradeReader&quot;</span>)
+                .resource(resource)
+                .jsonObjectReader(<span class="hljs-keyword">new</span> <span class="hljs-title class_">JacksonJsonObjectReader</span>&lt;&gt;(batchObjectMapper, TradeJson.class))
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@StepScope</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">JsonFileItemWriter</span>&lt;TradeJson&gt; <span class="hljs-title function_">jsonTradeWriter</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;output.file&#x27;]}&quot;)</span> WritableResource resource,
+            ObjectMapper batchObjectMapper)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JsonFileItemWriterBuilder</span>&lt;TradeJson&gt;()
+                .name(<span class="hljs-string">&quot;jsonTradeWriter&quot;</span>)
+                .resource(resource)
+                .jsonObjectMarshaller(<span class="hljs-keyword">new</span> <span class="hljs-title class_">JacksonJsonObjectMarshaller</span>&lt;&gt;(batchObjectMapper))
+                .shouldDeleteIfExists(<span class="hljs-literal">true</span>)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@StepScope</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">FlatFileItemReader</span>&lt;TradeJson&gt; <span class="hljs-title function_">ndjsonReader</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;input.file&#x27;]}&quot;)</span> Resource resource,
+            ObjectMapper batchObjectMapper)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">FlatFileItemReaderBuilder</span>&lt;TradeJson&gt;()
+                .name(<span class="hljs-string">&quot;ndjsonReader&quot;</span>)
+                .resource(resource)
+                .lineMapper((line, lineNumber) -&gt; batchObjectMapper.readValue(line, TradeJson.class))
+                .build();
+    }
+}</code></pre>
+<p>CSV 여러 파일을 하나의 stream으로 읽는 구성. 파일명 Comparator로 순서를 고정하고, 처리 전 입력 파일을 작업 디렉토리로 옮기는 Tasklet을 앞에 둔다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MultiCsvConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">FlatFileItemReader</span>&lt;Customer&gt; <span class="hljs-title function_">csvDelegate</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">FlatFileItemReaderBuilder</span>&lt;Customer&gt;()
+                .name(<span class="hljs-string">&quot;csvDelegate&quot;</span>)
+                .delimited().delimiter(<span class="hljs-string">&quot;,&quot;</span>).names(<span class="hljs-string">&quot;id&quot;</span>, <span class="hljs-string">&quot;name&quot;</span>, <span class="hljs-string">&quot;email&quot;</span>)
+                .targetType(Customer.class)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@StepScope</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">MultiResourceItemReader</span>&lt;Customer&gt; <span class="hljs-title function_">multiCsvReader</span><span class="hljs-params">(
+            <span class="hljs-meta">@Value(&quot;#{jobParameters[&#x27;input.pattern&#x27;]}&quot;)</span> Resource[] resources,
+            FlatFileItemReader&lt;Customer&gt; csvDelegate)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">MultiResourceItemReaderBuilder</span>&lt;Customer&gt;()
+                .name(<span class="hljs-string">&quot;multiCsvReader&quot;</span>)
+                .resources(resources)
+                .delegate(csvDelegate)
+                .comparator(Comparator.comparing(Resource::getFilename))
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">moveInputFiles</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;moveInputFiles&quot;</span>, repo)
+                .tasklet((contribution, chunkContext) -&gt; {
+                    <span class="hljs-type">Path</span> <span class="hljs-variable">workDir</span> <span class="hljs-operator">=</span> Files.createDirectories(Path.of(<span class="hljs-string">&quot;/data/working&quot;</span>));
+                    <span class="hljs-keyword">try</span> (<span class="hljs-type">Stream</span>&lt;Path&gt; <span class="hljs-variable">files</span> <span class="hljs-operator">=</span> Files.list(Path.of(<span class="hljs-string">&quot;/data/input&quot;</span>))) {
+                        <span class="hljs-keyword">for</span> (Path p : files.filter(f -&gt; f.toString().endsWith(<span class="hljs-string">&quot;.csv&quot;</span>)).toList()) {
+                            Files.move(p, workDir.resolve(p.getFileName()));
+                        }
+                    }
+                    <span class="hljs-keyword">return</span> RepeatStatus.FINISHED;
+                }, tx)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Job</span> <span class="hljs-title function_">multiFileJob</span><span class="hljs-params">(JobRepository repo, Step moveInputFiles, Step processStep, Step archiveStep)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JobBuilder</span>(<span class="hljs-string">&quot;multiFileJob&quot;</span>, repo)
+                .start(moveInputFiles)
+                .next(processStep)
+                .next(archiveStep)
+                .build();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>fragment 이름 불일치.</strong> <code>addFragmentRootElements(&quot;trade&quot;)</code>인데 실제 element가 <code>trades</code>이면 한 건도 읽지 못한 채 정상 종료된다.</li>
+<li><strong>InputStreamResource는 재시작이 안 된다.</strong> 위치 복구는 seek 가능한 resource를 전제하므로 <code>FileSystemResource</code>를 쓴다.</li>
+<li><strong>JSON Writer의 append.</strong> <code>append(true)</code>로 두 번 실행하면 <code>][</code>가 중간에 생겨 유효한 JSON이 아니다. 누적이 필요하면 NDJSON으로 바꾼다.</li>
+<li><strong>Comparator 없는 MultiResourceItemReader.</strong> 파일 시스템의 반환 순서는 보장되지 않아 재시작 시 처리한 파일을 다시 읽거나 건너뛴다. 처리 중 새 파일이 들어와도 같으므로 시작 전에 작업 디렉토리로 옮겨 snapshot을 고정한다.</li>
+<li><strong>delegate 공유와 파일 수.</strong> singleton delegate를 두 Reader가 공유하면 상태가 섞이므로 <code>@StepScope</code>로 분리한다. wildcard가 수만 파일에 매칭되면 <code>MultiResourcePartitioner</code>로 partition을 나눈다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/flat-file-reader-writer/">Flat File Reader·Writer</a></li>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/scaling-partitioning/">Scaling — Multi-thread·Partitioning·Remote Chunking</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, StaxEventItemReader, JsonItemReader, MultiResourceItemReader, Jackson</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/flat-file-reader-writer/"><small>이전</small>Flat File Reader·Writer</a>
+  <a class="next" href="/notes/spring-batch/database-reader-writer/"><small>다음</small>Database Reader·Writer — Cursor vs Paging</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Schedulers·스레딩·Context · Reactive Spring</title>
+  <meta name="description" content="Reactor는 기본이 동기 실행이다. 스레드는 Schedulers로 옮기고, 요청 범위 데이터는 ThreadLocal 대신 Context로 전파한다.">
+  <meta property="og:title" content="Schedulers·스레딩·Context · Reactive Spring">
+  <meta property="og:description" content="Reactor는 기본이 동기 실행이다. 스레드는 Schedulers로 옮기고, 요청 범위 데이터는 ThreadLocal 대신 Context로 전파한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/schedulers-context/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>Schedulers·스레딩·Context</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · Reactor 심화</p>
+  <h1>Schedulers·스레딩·Context</h1>
+  <p class="summary">Reactor는 기본이 동기 실행이다. 스레드는 Schedulers로 옮기고, 요청 범위 데이터는 ThreadLocal 대신 Context로 전파한다.</p>
+  <div class="content">
+<p>Project Reactor는 <code>subscribeOn</code>이나 <code>publishOn</code>을 명시하지 않으면 소스부터 <code>subscribe</code> 콜백까지 호출자 스레드에서 동기적으로 실행한다. 비동기는 기본값이 아니라 개발자가 켜는 옵션이다. 파이프라인에 JDBC 조회를 넣으면 이벤트 루프 스레드가 응답을 기다리며 멈춘다. 반대로 스레드를 옮기면 요청 범위 데이터를 전파하던 <code>ThreadLocal</code>이 값을 잃는다. 전자는 Schedulers가, 후자는 Reactor Context가 담당한다.</p>
+<h2>핵심 개념</h2>
+<h3>Scheduler 종류</h3>
+<p>선택 기준은 작업이 블로킹인지, CPU를 쓰는지, 순서를 보장해야 하는지다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">Scheduler</th>
+<th align="left">스레드 수</th>
+<th align="left">용도</th>
+<th align="left">블로킹 허용</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>boundedElastic()</code></td>
+<td align="left">동적, 상한 CPU 코어×10 (스레드당 대기 큐 100,000)</td>
+<td align="left">블로킹 I/O</td>
+<td align="left">O</td>
+</tr>
+<tr>
+<td align="left"><code>parallel()</code></td>
+<td align="left">CPU 코어 수 고정</td>
+<td align="left">CPU 집약 연산</td>
+<td align="left">X</td>
+</tr>
+<tr>
+<td align="left"><code>single()</code></td>
+<td align="left">1</td>
+<td align="left">순차 처리</td>
+<td align="left">X</td>
+</tr>
+<tr>
+<td align="left"><code>immediate()</code></td>
+<td align="left">현재 스레드</td>
+<td align="left">전환 없음, 테스트용</td>
+<td align="left">-</td>
+</tr>
+</tbody></table>
+<p>글로벌 인스턴스는 JVM 전체가 공유하므로 모듈별 격리가 필요하면 <code>Schedulers.newBoundedElastic(threadCap, queuedTaskCap, name)</code>으로 독립 인스턴스를 만든다.</p>
+<h3>subscribeOn과 publishOn</h3>
+<p>두 연산자는 영향 범위가 반대다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">연산자</th>
+<th align="left">영향 범위</th>
+<th align="left">전파 방향</th>
+<th align="left">여러 개일 때</th>
+<th align="left">위치</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>subscribeOn</code></td>
+<td align="left">소스를 포함한 upstream 전체</td>
+<td align="left">구독 신호 (아래→위)</td>
+<td align="left">소스에 가장 가까운 것만 유효</td>
+<td align="left">무관</td>
+</tr>
+<tr>
+<td align="left"><code>publishOn</code></td>
+<td align="left">해당 지점 이후 downstream</td>
+<td align="left">데이터 신호 (위→아래)</td>
+<td align="left">각각 유효</td>
+<td align="left">결과를 결정</td>
+</tr>
+</tbody></table>
+<p><code>subscribeOn</code>은 구독 신호가 upstream으로 올라가며 처음 만나는 것이 소스의 실행 스레드를 결정하므로 체인 어디에 두어도 같다. <code>publishOn</code>은 데이터가 내려오다가 그 지점에서 스레드를 바꾸므로 그 위의 연산자는 영향을 받지 않고, 두 번 쓰면 두 번 전환된다.</p>
+<p><code>parallel()</code> 연산자는 Flux를 여러 rail로 분기할 뿐 스레드 풀인 <code>Schedulers.parallel()</code>과 다르다. <code>parallel().runOn(scheduler)</code>로 함께 써야 rail이 다른 스레드에서 돈다.</p>
+<h3>Reactor Context</h3>
+<p>Context는 스레드가 아니라 구독에 붙는 불변 키-값 저장소라 스레드가 바뀌어도 유지된다. <code>contextWrite</code>로 쓰고 <code>deferContextual</code>로 읽는다. 전파 방향은 데이터와 반대인 downstream에서 upstream, 즉 구독 신호와 같은 방향이다. 따라서 <code>contextWrite</code>는 읽는 연산자보다 코드상 아래에 있어야 하며, 여러 개면 아래 것이 먼저 적용된다.</p>
+<p><code>ctx.put(k, v)</code>는 새 인스턴스를 반환하므로 반환값을 버리면 아무 변화가 없다. <code>ctx.get(k)</code>는 키가 없으면 <code>NoSuchElementException</code>을 던지므로 <code>getOrDefault</code>로 방어한다.</p>
+<h2>코드</h2>
+<p>블로킹 소스는 <code>boundedElastic</code>에서 읽고, CPU 가공은 <code>publishOn</code>으로 <code>parallel</code>에 넘기는 조합이다. <code>subscribeOn</code>은 소스에, <code>publishOn</code>은 전환 지점에 둔다.</p>
+<pre><code class="hljs language-java">Flux.fromIterable(readLargeFile())          <span class="hljs-comment">// 블로킹 I/O</span>
+    .subscribeOn(Schedulers.boundedElastic())
+    .filter(line -&gt; !line.isBlank())        <span class="hljs-comment">// boundedElastic</span>
+    .publishOn(Schedulers.parallel())
+    .map(<span class="hljs-built_in">this</span>::processLine)                 <span class="hljs-comment">// parallel</span>
+    .subscribe(<span class="hljs-built_in">this</span>::saveResult);</code></pre>
+<p><code>flatMap</code> 안에서 항목마다 <code>subscribeOn</code>을 걸면 블로킹 호출이 항목별로 동시에 실행된다. 블로킹 API인 <code>JdbcClient</code>는 <code>fromCallable</code>로 감싼다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">Flux</span>&lt;String&gt; <span class="hljs-title function_">names</span><span class="hljs-params">(JdbcClient jdbc, List&lt;Long&gt; ids)</span> {
+    <span class="hljs-keyword">return</span> Flux.fromIterable(ids)
+        .flatMap(id -&gt; Mono.fromCallable(() -&gt;
+                jdbc.sql(<span class="hljs-string">&quot;SELECT name FROM users WHERE id = :id&quot;</span>)
+                    .param(<span class="hljs-string">&quot;id&quot;</span>, id)
+                    .query(String.class)
+                    .single())
+            .subscribeOn(Schedulers.boundedElastic()),
+            <span class="hljs-number">8</span>);                                 <span class="hljs-comment">// 동시성 상한</span>
+}</code></pre>
+<p>WebFilter에서 헤더를 Context에 쓰고 서비스에서 읽는다. <code>chain.filter(exchange)</code> 뒤에 붙인 <code>contextWrite</code>는 컨트롤러·서비스 전체에서 보인다. <code>null</code>은 넣을 수 없으므로 헤더 부재를 먼저 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserContextFilter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">WebFilter</span> {
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">USER_ID</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;userId&quot;</span>;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">filter</span><span class="hljs-params">(ServerWebExchange exchange, WebFilterChain chain)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">userId</span> <span class="hljs-operator">=</span> exchange.getRequest().getHeaders().getFirst(<span class="hljs-string">&quot;X-User-Id&quot;</span>);
+        <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-variable">next</span> <span class="hljs-operator">=</span> chain.filter(exchange);
+        <span class="hljs-keyword">return</span> userId == <span class="hljs-literal">null</span>
+            ? next
+            : next.contextWrite(ctx -&gt; ctx.put(USER_ID, userId));
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orders;
+    OrderService(OrderRepository orders) { <span class="hljs-built_in">this</span>.orders = orders; }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;Order&gt; <span class="hljs-title function_">myOrders</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> Flux.deferContextual(ctx -&gt; {
+            <span class="hljs-type">String</span> <span class="hljs-variable">userId</span> <span class="hljs-operator">=</span> ctx.getOrDefault(UserContextFilter.USER_ID, <span class="hljs-string">&quot;anonymous&quot;</span>);
+            <span class="hljs-keyword">return</span> orders.findByUserId(userId);
+        });
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>parallel</code>에서 블로킹.</strong> JDBC나 파일 I/O를 <code>Schedulers.parallel()</code>이나 Netty 이벤트 루프에서 호출하면 코어 수만큼의 요청이 동시에 들어올 때 서버 전체가 멈춘다. 블로킹은 <code>boundedElastic</code>으로 보내고, BlockHound를 테스트에 붙여 검출한다.</li>
+<li><strong>체인 내부 <code>block()</code>.</strong> <code>flatMap</code> 안에서 다른 Mono를 <code>block()</code>하면 같은 풀을 기다리는 데드락이 생길 수 있고, <code>parallel</code> 스레드에서는 <code>IllegalStateException</code>이 난다. 내부 Publisher는 <code>flatMap</code>으로 연결한다.</li>
+<li><strong><code>subscribeOn</code> 중복.</strong> 라이브러리가 반환한 Mono에 이미 <code>subscribeOn</code>이 걸려 있으면 호출 측에서 다시 걸어도 무시된다.</li>
+<li><strong><code>boundedElastic</code> 큐 적체.</strong> 상한을 넘는 작업은 큐에 쌓이고 <code>queuedTaskCap</code>을 초과하면 <code>RejectedExecutionException</code>이 난다. <code>flatMap</code>의 동시성 인자로 유입을 제한한다.</li>
+<li><strong>Context와 MDC 연동.</strong> Context는 로깅 MDC에 자동 반영되지 않는다. Reactor 3.5 이상에서 <code>context-propagation</code> 라이브러리와 <code>Hooks.enableAutomaticContextPropagation()</code>을 쓰면 연산자 경계마다 MDC가 복원되며, Spring Boot 3.x의 Micrometer Tracing이 이 방식으로 traceId를 전파한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/hot-cold-sinks/">Hot/Cold Publisher와 Sinks</a></li>
+<li><a href="/notes/reactive-spring/backpressure/">Backpressure</a></li>
+<li><a href="/notes/reactive-spring/webfilter-error-handling/">WebFilter·예외 처리·검증</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Project Reactor, Schedulers, subscribeOn, publishOn, Reactor Context</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/backpressure/"><small>이전</small>Backpressure</a>
+  <a class="next" href="/notes/reactive-spring/retry-stepverifier/"><small>다음</small>Repeat·Retry와 StepVerifier</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

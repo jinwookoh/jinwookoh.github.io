@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관측성 · Notes</title>
+  <meta name="description" content="Micrometer 메트릭 모델부터 Prometheus·Loki·Tempo 수집·저장, Grafana 시각화·알림, IaC·OpenTelemetry 연동과 운영 함정까지.">
+  <meta property="og:title" content="관측성 · Notes">
+  <meta property="og:description" content="Micrometer 메트릭 모델부터 Prometheus·Loki·Tempo 수집·저장, Grafana 시각화·알림, IaC·OpenTelemetry 연동과 운영 함정까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/observability/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>관측성</span></nav>
+    <header class="series-head"><h1>관측성</h1><p>Micrometer 메트릭 모델부터 Prometheus·Loki·Tempo 수집·저장, Grafana 시각화·알림, IaC·OpenTelemetry 연동과 운영 함정까지.</p><p class="count">10편</p></header>
+<section class="part-group"><h2>개념</h2><ol class="toc"><li><a href="/notes/observability/three-pillars-lgtm/"><span class="n">1</span><span class="t">관측성 3 pillar와 LGTM 스택·Micrometer facade</span><span class="s">Metrics·Logs·Traces를 앱 계측(Micrometer)·저장(LGTM)·시각화(Grafana)로 나눠 각 계층의 역할과 경계를 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>메트릭</h2><ol class="toc"><li><a href="/notes/observability/meter-types-tags-cardinality/"><span class="n">2</span><span class="t">Meter 타입·태그·카디널리티</span><span class="s">측정 대상의 성격에 맞는 Meter 타입을 고르고, 태그 값을 유한 집합으로 제한해 시계열 폭발을 막는다</span></a></li>
+<li><a href="/notes/observability/timer-percentile-slo/"><span class="n">3</span><span class="t">Timer·percentile·histogram·SLO</span><span class="s">평균 latency는 극단값을 숨기므로 histogram 버킷을 노출하고 Prometheus에서 percentile을 계산해야 다중 인스턴스에서도 정확하다</span></a></li>
+<li><a href="/notes/observability/registry-backends-actuator/"><span class="n">4</span><span class="t">Registry·push vs pull·Actuator 연동</span><span class="s">MeterRegistry 구현체가 pull과 push로 어떻게 갈리는지, Actuator가 그 위에 무엇을 자동으로 얹는지 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>수집과 저장</h2><ol class="toc"><li><a href="/notes/observability/prometheus-promql/"><span class="n">5</span><span class="t">Prometheus와 PromQL</span><span class="s">Prometheus가 pull·label·TSDB로 메트릭을 쌓는 원리와 rate·histogram_quantile 중심 PromQL 작성법</span></a></li>
+<li><a href="/notes/observability/loki-tempo/"><span class="n">6</span><span class="t">Loki·LogQL과 Tempo·TraceQL</span><span class="s">Loki와 Tempo는 인덱스를 최소화하고 object storage에 저장해 비용을 낮추며, trace_id로 세 신호를 잇는다</span></a></li></ol></section>
+<section class="part-group"><h2>시각화와 알림</h2><ol class="toc"><li><a href="/notes/observability/grafana-dashboards/"><span class="n">7</span><span class="t">Grafana Dashboard·Panel·Variable</span><span class="s">Panel 선택·Variable 체인·Transformation·Annotation 자동화로 운영 가능한 Grafana 대시보드를 구성하는 기준을 정리한다</span></a></li>
+<li><a href="/notes/observability/alerting-slo/"><span class="n">8</span><span class="t">Alerting·Notification·SLO</span><span class="s">알림은 임계값이 아니라 SLO의 error budget 소진 속도로 설계해야 호출 피로 없이 실제 장애를 잡는다.</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/observability/iac-cloud-opentelemetry/"><span class="n">9</span><span class="t">IaC·Cloud·OpenTelemetry 연동</span><span class="s">scrape 대상·대시보드·알림을 코드로 선언하고, 앱은 OTel Collector 하나로만 push하도록 만드는 자동화 뼈대</span></a></li>
+<li><a href="/notes/observability/operations-incidents/"><span class="n">10</span><span class="t">운영 함정과 사고 케이스·Elasticsearch 모니터링</span><span class="s">카디널리티·Gauge 누수·percentile 합산·alert 폭주·drift 등 관측 스택의 반복 사고와 Elasticsearch 감시 지표를 정리한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

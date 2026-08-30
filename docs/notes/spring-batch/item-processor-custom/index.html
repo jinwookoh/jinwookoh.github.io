@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ItemProcessor·서비스 재사용·커스텀 구현 · Spring Batch</title>
+  <meta name="description" content="ItemProcessor의 null·예외 분기, 기존 서비스를 Adapter로 감싸는 조건, 커스텀 Reader·Writer의 재시작 안전성 확보 방법을 정리한다.">
+  <meta property="og:title" content="ItemProcessor·서비스 재사용·커스텀 구현 · Spring Batch">
+  <meta property="og:description" content="ItemProcessor의 null·예외 분기, 기존 서비스를 Adapter로 감싸는 조건, 커스텀 Reader·Writer의 재시작 안전성 확보 방법을 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/item-processor-custom/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>ItemProcessor·서비스 재사용·커스텀 구현</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · Reader·Processor·Writer</p>
+  <h1>ItemProcessor·서비스 재사용·커스텀 구현</h1>
+  <p class="summary">ItemProcessor의 null·예외 분기, 기존 서비스를 Adapter로 감싸는 조건, 커스텀 Reader·Writer의 재시작 안전성 확보 방법을 정리한다.</p>
+  <div class="content">
+<p>Reader와 Writer만으로는 읽은 것을 그대로 쓰는 복사 작업밖에 못 한다. 변환·필터·검증을 Writer에 밀어 넣으면 테스트가 어렵고 롤백 후 재처리 때 같은 로직이 두 번 적용된다. 온라인 서비스의 DAO를 두고 배치용 Reader를 다시 작성하면 로직이 두 곳으로 갈라지고, 표준 구현체가 없는 소스를 직접 구현하면 재시작 시 처음부터 읽거나 ExecutionContext 키가 충돌한다.</p>
+<h2>핵심 개념</h2>
+<h3>ItemProcessor의 세 가지 반환</h3>
+<p><code>ItemProcessor&lt;I, O&gt;</code>는 <code>O process(I item)</code> 하나짜리 함수형 인터페이스다. 입출력 타입이 달라도 되며 <code>chunk(N, tx)</code>의 <code>&lt;I, O&gt;</code>와 일치해야 한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">반환</th>
+<th align="left">처리</th>
+<th align="left">통계</th>
+<th align="left">의미</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">non-null</td>
+<td align="left">Writer로 전달</td>
+<td align="left">writeCount</td>
+<td align="left">정상 변환</td>
+</tr>
+<tr>
+<td align="left">null</td>
+<td align="left">Writer로 보내지 않음</td>
+<td align="left">filterCount</td>
+<td align="left">대상 아님</td>
+</tr>
+<tr>
+<td align="left">예외</td>
+<td align="left">skip 정책으로 위임</td>
+<td align="left">skipCount</td>
+<td align="left">잘못된 레코드</td>
+</tr>
+</tbody></table>
+<p>지원하지 않는 DELETE 레코드를 제외하는 것은 filter이고, 수량이 음수인 레코드는 skip이다. invalid 레코드를 <code>return null</code>로 처리하면 skipCount가 올라가지 않는다. <code>CompositeItemProcessor</code>는 순차 체인이며 중간 단계의 null은 filter로 집계된다. <code>ValidatingItemProcessor</code>는 <code>Validator&lt;T&gt;</code>를, <code>BeanValidatingItemProcessor</code>는 Jakarta Bean Validation 어노테이션을 쓰고, <code>setFilter(true)</code>면 검증 실패를 예외 대신 null로 바꾼다.</p>
+<p>chunk가 롤백되면 캐시된 item이 다시 <code>process()</code>를 거친다. 입력 객체를 직접 수정하면 변환이 중첩되므로 새 인스턴스를 반환하고, Processor 안의 DB 쓰기나 외부 호출은 UPSERT·idempotency key로 멱등하게 만든다.</p>
+<h3>기존 서비스 재사용</h3>
+<p><code>ItemReaderAdapter</code>는 <code>targetObject</code>·<code>targetMethod</code>로 지정한 메서드를 <code>read()</code>마다 호출한다. 대상 메서드는 소진 시 null을 반환해야 하며 빈 <code>Optional</code>은 종료로 인식되지 않는다. <code>ItemWriterAdapter</code>는 item마다 개별 호출하고, <code>PropertyExtractingDelegatingItemWriter</code>는 item 프로퍼티를 추출해 다중 인자 메서드에 넘긴다. 기존 메서드가 배치 계약과 거의 같을 때만 Adapter를 쓴다.</p>
+<h3>Process Indicator</h3>
+<p>재실행 위치를 입력 row의 flag 컬럼에 기록한다. Reader는 <code>WHERE processed_ind = FALSE</code>로 읽고 Writer는 같은 chunk 트랜잭션에서 <code>TRUE</code>로 갱신한다. 위치가 DB에 있으므로 <code>saveState(false)</code>로 ExecutionContext 저장을 끈다. 운영자가 SQL만으로 진행 상황을 확인하고 되돌릴 수 있다.</p>
+<h3>커스텀 Reader·Writer</h3>
+<p>위치를 보유하는 Reader는 <code>ItemStream</code>을 구현해 <code>open()</code>에서 복구하고 <code>update()</code>에서 저장한다. <code>ItemStreamSupport</code>를 상속하고 <code>setName()</code>을 주면 <code>getExecutionContextKey()</code>가 이름 접두어를 붙여 키 충돌을 막는다. 커스텀 Writer는 누적 count나 footer가 있을 때만 <code>ItemStream</code>을 구현한다.</p>
+<h2>코드</h2>
+<p>filter와 멱등 변환을 결합한 Processor, 그리고 검증·변환·보강 체인이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProcessorConfig</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Order</span><span class="hljs-params">(Long id, BigDecimal amount, String status)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-title function_">applyDiscount</span><span class="hljs-params">(BigDecimal rate)</span> {
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(id, amount.multiply(BigDecimal.ONE.subtract(rate)), status);
+        }
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ItemProcessor</span>&lt;Order, Order&gt; <span class="hljs-title function_">activeDiscountProcessor</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> order -&gt; {
+            <span class="hljs-keyword">if</span> (!<span class="hljs-string">&quot;ACTIVE&quot;</span>.equals(order.status())) {
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;                       <span class="hljs-comment">// filter, skipCount 미증가</span>
+            }
+            <span class="hljs-keyword">return</span> order.applyDiscount(<span class="hljs-keyword">new</span> <span class="hljs-title class_">BigDecimal</span>(<span class="hljs-string">&quot;0.1&quot;</span>));   <span class="hljs-comment">// 새 인스턴스, 멱등</span>
+        };
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">BeanValidatingItemProcessor</span>&lt;Customer&gt; <span class="hljs-title function_">customerValidator</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">BeanValidatingItemProcessor</span>&lt;Customer&gt; <span class="hljs-variable">processor</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BeanValidatingItemProcessor</span>&lt;&gt;();
+        processor.setFilter(<span class="hljs-literal">false</span>);                <span class="hljs-comment">// 검증 실패 = 예외 = skip</span>
+        processor.afterPropertiesSet();
+        <span class="hljs-keyword">return</span> processor;
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">CompositeItemProcessor</span>&lt;Customer, EnrichedCustomerDto&gt; <span class="hljs-title function_">composite</span><span class="hljs-params">(
+            BeanValidatingItemProcessor&lt;Customer&gt; validator,
+            ItemProcessor&lt;Customer, CustomerDto&gt; mapper,
+            ItemProcessor&lt;CustomerDto, EnrichedCustomerDto&gt; enricher)</span> {
+        <span class="hljs-type">CompositeItemProcessor</span>&lt;Customer, EnrichedCustomerDto&gt; <span class="hljs-variable">processor</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">CompositeItemProcessor</span>&lt;&gt;();
+        processor.setDelegates(List.of(validator, mapper, enricher));
+        <span class="hljs-keyword">return</span> processor;
+    }
+}</code></pre>
+<p>기존 서비스를 Adapter로 감싸고, Process Indicator를 <code>saveState(false)</code>·<code>CompositeItemWriter</code>와 결합한 Step이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ReuseConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ItemReaderAdapter</span>&lt;Customer&gt; <span class="hljs-title function_">customerReader</span><span class="hljs-params">(CustomerService service)</span> {
+        <span class="hljs-type">ItemReaderAdapter</span>&lt;Customer&gt; <span class="hljs-variable">reader</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ItemReaderAdapter</span>&lt;&gt;();
+        reader.setTargetObject(service);
+        reader.setTargetMethod(<span class="hljs-string">&quot;findNextActive&quot;</span>);   <span class="hljs-comment">// 소진 시 null 반환 필수</span>
+        <span class="hljs-keyword">return</span> reader;
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">JdbcCursorItemReader</span>&lt;PlayerSummary&gt; <span class="hljs-title function_">summaryReader</span><span class="hljs-params">(DataSource ds)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcCursorItemReaderBuilder</span>&lt;PlayerSummary&gt;()
+            .name(<span class="hljs-string">&quot;summaryReader&quot;</span>)
+            .dataSource(ds)
+            .saveState(<span class="hljs-literal">false</span>)                       <span class="hljs-comment">// 위치는 processed_ind 컬럼이 보유</span>
+            .sql(<span class="hljs-string">&quot;&quot;&quot;
+                SELECT player_id, year_no, completes, attempts
+                FROM player_summary
+                WHERE processed_ind = FALSE
+                ORDER BY player_id
+                FOR UPDATE SKIP LOCKED
+                &quot;&quot;&quot;</span>)
+            .rowMapper(BeanPropertyRowMapper.newInstance(PlayerSummary.class))
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">JdbcBatchItemWriter</span>&lt;PlayerSummary&gt; <span class="hljs-title function_">markProcessed</span><span class="hljs-params">(DataSource ds)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcBatchItemWriterBuilder</span>&lt;PlayerSummary&gt;()
+            .dataSource(ds)
+            .sql(<span class="hljs-string">&quot;UPDATE player_summary SET processed_ind = TRUE WHERE player_id = :playerId AND year_no = :yearNo&quot;</span>)
+            .beanMapped()
+            .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">summaryStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                            JdbcCursorItemReader&lt;PlayerSummary&gt; reader,
+                            ItemWriter&lt;PlayerSummary&gt; aggregateWriter,
+                            JdbcBatchItemWriter&lt;PlayerSummary&gt; markProcessed)</span> {
+        <span class="hljs-type">CompositeItemWriter</span>&lt;PlayerSummary&gt; <span class="hljs-variable">writer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">CompositeItemWriter</span>&lt;&gt;();
+        writer.setDelegates(List.of(aggregateWriter, markProcessed));   <span class="hljs-comment">// 같은 chunk 트랜잭션</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;summaryStep&quot;</span>, repo)
+            .&lt;PlayerSummary, PlayerSummary&gt;chunk(<span class="hljs-number">500</span>, tx)
+            .reader(reader)
+            .writer(writer)
+            .build();
+    }
+}</code></pre>
+<p>외부 API를 페이지 단위로 읽는 stateful Reader와 count를 유지하는 stateful Writer다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ExternalApiReader</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">ItemStreamSupport</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemReader</span>&lt;Customer&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">PAGE_TOKEN_KEY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;pageToken&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ApiClient client;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Queue</span>&lt;Customer&gt; <span class="hljs-variable">buffer</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayDeque</span>&lt;&gt;();
+    <span class="hljs-keyword">private</span> String nextPageToken;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">boolean</span> exhausted;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ExternalApiReader</span><span class="hljs-params">(ApiClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+        setName(<span class="hljs-string">&quot;externalApiReader&quot;</span>);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Customer</span> <span class="hljs-title function_">read</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">if</span> (buffer.isEmpty() &amp;&amp; !exhausted) {
+            <span class="hljs-type">PageResponse</span>&lt;Customer&gt; <span class="hljs-variable">page</span> <span class="hljs-operator">=</span> client.fetchCustomers(nextPageToken);
+            buffer.addAll(page.items());
+            nextPageToken = page.nextPageToken();
+            exhausted = nextPageToken == <span class="hljs-literal">null</span>;
+        }
+        <span class="hljs-keyword">return</span> buffer.poll();                       <span class="hljs-comment">// 비면 null = 종료</span>
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">open</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-built_in">super</span>.open(context);
+        <span class="hljs-type">String</span> <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> getExecutionContextKey(PAGE_TOKEN_KEY);
+        <span class="hljs-keyword">if</span> (context.containsKey(key)) {
+            nextPageToken = context.getString(key);
+        }
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-built_in">super</span>.update(context);
+        <span class="hljs-keyword">if</span> (nextPageToken != <span class="hljs-literal">null</span>) {
+            context.putString(getExecutionContextKey(PAGE_TOKEN_KEY), nextPageToken);
+        }
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CountingFooterWriter</span>&lt;T&gt; <span class="hljs-keyword">extends</span> <span class="hljs-title class_">ItemStreamSupport</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">ItemWriter</span>&lt;T&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">COUNT_KEY</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;totalCount&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ItemWriter&lt;T&gt; delegate;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> count;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CountingFooterWriter</span><span class="hljs-params">(ItemWriter&lt;T&gt; delegate)</span> {
+        <span class="hljs-built_in">this</span>.delegate = delegate;
+        setName(<span class="hljs-string">&quot;countingFooterWriter&quot;</span>);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">write</span><span class="hljs-params">(Chunk&lt;? extends T&gt; items)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-keyword">if</span> (items.isEmpty()) {
+            <span class="hljs-keyword">return</span>;
+        }
+        delegate.write(items);
+        count += items.size();
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">open</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-built_in">super</span>.open(context);
+        <span class="hljs-keyword">if</span> (delegate <span class="hljs-keyword">instanceof</span> ItemStream s) s.open(context);
+        count = context.getLong(getExecutionContextKey(COUNT_KEY), <span class="hljs-number">0L</span>);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(ExecutionContext context)</span> {
+        <span class="hljs-built_in">super</span>.update(context);
+        <span class="hljs-keyword">if</span> (delegate <span class="hljs-keyword">instanceof</span> ItemStream s) s.update(context);
+        context.putLong(getExecutionContextKey(COUNT_KEY), count);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">close</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">if</span> (delegate <span class="hljs-keyword">instanceof</span> ItemStream s) s.close();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Processor 안의 건별 조회.</strong> item마다 DB를 조회하면 N+1이다. Reader에서 join으로 읽거나 캐시로 줄이고, 무거운 외부 호출은 partitioning으로 분산한다.</li>
+<li><strong>ItemWriterAdapter의 대량 처리.</strong> 건별 호출이라 chunk 크기만큼 DB 왕복이 생긴다. bulk 메서드를 커스텀 Writer로 감싸거나 <code>JdbcBatchItemWriter</code>를 쓴다.</li>
+<li><strong>Process Indicator의 동시 실행.</strong> 두 스레드가 같은 row를 읽고 flag를 바꾸면 중복 처리된다. <code>FOR UPDATE SKIP LOCKED</code>나 partitioning으로 row 범위를 분리한다.</li>
+<li><strong>재시작 시 처음부터 읽는 커스텀 Reader.</strong> <code>remove(0)</code>처럼 원본을 변경하는 읽기, <code>ItemStream</code> 미구현, Step에 <code>.stream()</code> 등록 누락, 같은 타입 Reader 두 개의 키 공유가 원인이다.</li>
+<li><strong>롤백되지 않는 리소스.</strong> 이메일·외부 API에 쓰는 Writer는 chunk 실패 시 부분 반영이 남으므로 idempotency key가 필요하다. <code>TransactionAwareProxyFactory.createTransactionalList()</code>는 테스트용이며 운영 대체재가 아니다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-restart-itemstream/">Step 재시작과 ItemStream</a></li>
+<li><a href="/notes/spring-batch/skip-retry/">Skip과 Retry</a></li>
+<li><a href="/notes/spring-batch/database-reader-writer/">Database Reader·Writer — Cursor vs Paging</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, ItemProcessor, ItemReaderAdapter, ItemStream, Process Indicator</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/database-reader-writer/"><small>이전</small>Database Reader·Writer — Cursor vs Paging</a>
+  <a class="next" href="/notes/spring-batch/scaling-partitioning/"><small>다음</small>Scaling — Multi-thread·Partitioning·Remote Chunking</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

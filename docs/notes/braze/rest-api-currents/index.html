@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>REST API와 Currents · Braze</title>
+  <meta name="description" content="서버 이벤트로 Braze 발송을 트리거하고, Braze 안의 이벤트를 자사 데이터 인프라로 되가져오는 두 경로를 정리한다">
+  <meta property="og:title" content="REST API와 Currents · Braze">
+  <meta property="og:description" content="서버 이벤트로 Braze 발송을 트리거하고, Braze 안의 이벤트를 자사 데이터 인프라로 되가져오는 두 경로를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/braze/rest-api-currents/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/braze/">Braze</a><span class="sep">›</span><span>REST API와 Currents</span></nav>
+    <article class="post">
+  <p class="part">Braze · 개념과 통합</p>
+  <h1>REST API와 Currents</h1>
+  <p class="summary">서버 이벤트로 Braze 발송을 트리거하고, Braze 안의 이벤트를 자사 데이터 인프라로 되가져오는 두 경로를 정리한다</p>
+  <div class="content">
+<p>SDK만으로 Braze를 운영하면 두 가지가 막힌다. 결제 완료·배송 상태 변경처럼 서버에서만 아는 사건을 발송 트리거로 쓸 수 없고, 발송·오픈·클릭 데이터가 Braze 콘솔 안에 갇혀 자사 BI나 추천 모델에서 쓸 수 없다. 앞의 문제는 REST API가, 뒤의 문제는 Currents가 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>REST API는 9개 카테고리로 나뉘지만 백엔드가 실제로 손대는 것은 네 가지에 집중된다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">카테고리</th>
+<th align="left">대표 endpoint</th>
+<th align="left">용도</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">User Data</td>
+<td align="left"><code>/users/track</code> <code>/users/identify</code> <code>/users/merge</code> <code>/users/delete</code></td>
+<td align="left">프로필 갱신, alias에 External ID 부여, 중복 통합, 삭제</td>
+</tr>
+<tr>
+<td align="left">Messaging</td>
+<td align="left"><code>/messages/send</code> <code>/campaigns/trigger/send</code> <code>/canvas/trigger/send</code></td>
+<td align="left">발송</td>
+</tr>
+<tr>
+<td align="left">Subscription</td>
+<td align="left"><code>/subscription/status/set</code></td>
+<td align="left">동의 그룹 갱신, 요청당 최대 50명</td>
+</tr>
+<tr>
+<td align="left">Catalogs</td>
+<td align="left"><code>/catalogs/{name}/items</code></td>
+<td align="left">상품·콘텐츠 메타데이터</td>
+</tr>
+</tbody></table>
+<p>그 밖에 Email(bounce 해제·수신거부 목록), Data Export(캠페인·세그먼트 통계), Templates, Schedule, Live Activity·SMS가 있다.</p>
+<h3>Messaging 3 endpoint의 분기</h3>
+<p>세 endpoint는 콘텐츠가 어디에 있느냐로 갈린다. <code>/messages/send</code>는 제목·본문을 요청에 담아 캠페인 없이 바로 보내므로 장애 안내 같은 소량 일회성 발송에 맞는다. <code>/campaigns/trigger/send</code>는 콘솔에서 만든 API-triggered 캠페인을 id로 지정하고 <code>trigger_properties</code>로 개인화 값만 넘긴다. 영수증·주문 상태 알림이 여기에 해당한다. <code>/canvas/trigger/send</code>는 다단계 journey인 Canvas의 진입점을 열고, <code>canvas_entry_properties</code>는 journey 전체 step에서 Liquid로 참조된다.</p>
+<p>실무 호출의 대부분은 뒤의 두 trigger endpoint다. trigger 계열에는 re-eligibility 규칙이 붙어서, 콘솔에서 &quot;사용자당 1회&quot;로 설정된 캠페인은 API를 몇 번 호출해도 초과분을 조용히 건너뛴다. HTTP 201이 발송 성공을 뜻하지 않는다.</p>
+<h3>Catalogs</h3>
+<p>상품·게시글 메타데이터를 Braze 안에 두는 저장소다. 템플릿에서 <code>{% catalog_items %}</code>로 조회하면 가격·재고가 발송 시점 기준으로 치환되므로 매 호출마다 상품 정보를 실어 보낼 필요가 없다.</p>
+<h3>Currents</h3>
+<p>Braze 안의 이벤트를 외부 destination으로 스트리밍하는 export 채널이다. destination은 S3·GCS 같은 스토리지, Snowflake 같은 웨어하우스, Kafka·Kinesis 같은 스트림, Mixpanel·mParticle 같은 분석·CDP 도구로 나뉜다. 이벤트는 채널별 발송·반응을 담는 Message events(<code>messages.email.Click</code> 등)와 사용자 행동·상태 변경을 담는 Behavior events(<code>users.behaviors.Purchase</code> 등) 두 계열이다. 각 이벤트는 <code>external_user_id</code>, Unix epoch <code>time</code>, <code>campaign_id</code> 또는 <code>canvas_id</code>, 그리고 이벤트별 필드를 가진다. destination 자원을 먼저 만들고 콘솔에서 export할 이벤트를 고른 뒤 활성화한다.</p>
+<h2>코드</h2>
+<p>Spring Boot 3.x <code>RestClient</code>로 Braze 호출을 감싼 클라이언트다. 429와 5xx는 지수 백오프로 재시도하고, External ID는 한 곳에서 정규화한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BrazeClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient rest;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">BrazeClient</span><span class="hljs-params">(RestClient.Builder builder,
+                       <span class="hljs-meta">@Value(&quot;${braze.endpoint}&quot;)</span> String endpoint,
+                       <span class="hljs-meta">@Value(&quot;${braze.api-key}&quot;)</span> String apiKey)</span> {
+        <span class="hljs-built_in">this</span>.rest = builder
+                .baseUrl(endpoint)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, <span class="hljs-string">&quot;Bearer &quot;</span> + apiKey)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">String</span> <span class="hljs-title function_">normalizeExternalId</span><span class="hljs-params">(String raw)</span> {
+        <span class="hljs-keyword">return</span> raw.strip().toLowerCase(Locale.ROOT);
+    }
+
+    <span class="hljs-meta">@Retryable(retryFor = BrazeRetryableException.class, maxAttempts = 4,
+               backoff = @Backoff(delay = 1000, multiplier = 2))</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Map</span>&lt;String, Object&gt; <span class="hljs-title function_">post</span><span class="hljs-params">(String path, Object body)</span> {
+        <span class="hljs-keyword">return</span> rest.post()
+                .uri(path)
+                .body(body)
+                .retrieve()
+                .onStatus(s -&gt; s.value() == <span class="hljs-number">429</span> || s.is5xxServerError(),
+                          (req, res) -&gt; { <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BrazeRetryableException</span>(res.getStatusCode()); })
+                .body(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ParameterizedTypeReference</span>&lt;&gt;() {});
+    }
+}</code></pre>
+<p>결제 완료 도메인 이벤트를 받아 콘솔 캠페인을 trigger한다. 같은 주문의 중복 이벤트는 <code>order_id</code>로 걸러 재발송을 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderCompletedListener</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> BrazeClient braze;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProcessedEventRepository processed;
+
+    <span class="hljs-meta">@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">on</span><span class="hljs-params">(OrderCompletedEvent event)</span> {
+        <span class="hljs-keyword">if</span> (!processed.markIfAbsent(<span class="hljs-string">&quot;order-receipt:&quot;</span> + event.orderId())) {
+            <span class="hljs-keyword">return</span>;
+        }
+        <span class="hljs-type">var</span> <span class="hljs-variable">recipient</span> <span class="hljs-operator">=</span> Map.of(
+                <span class="hljs-string">&quot;external_user_id&quot;</span>, BrazeClient.normalizeExternalId(event.userId()),
+                <span class="hljs-string">&quot;trigger_properties&quot;</span>, Map.of(
+                        <span class="hljs-string">&quot;order_id&quot;</span>, event.orderId(),
+                        <span class="hljs-string">&quot;amount&quot;</span>, event.totalAmount()));
+        braze.post(<span class="hljs-string">&quot;/campaigns/trigger/send&quot;</span>, Map.of(
+                <span class="hljs-string">&quot;campaign_id&quot;</span>, <span class="hljs-string">&quot;receipt-email&quot;</span>,
+                <span class="hljs-string">&quot;recipients&quot;</span>, List.of(recipient)));
+    }
+}</code></pre>
+<p>Currents가 Kafka로 내보낸 이메일 클릭 이벤트를 Spring Kafka로 소비한다. 스키마 변경에 대비해 고정 클래스 대신 <code>JsonNode</code>로 받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CurrentsClickConsumer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ObjectMapper mapper;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ClickTracker tracker;
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;braze-currents&quot;, groupId = &quot;engagement-tracker&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">consume</span><span class="hljs-params">(String payload)</span> <span class="hljs-keyword">throws</span> JsonProcessingException {
+        <span class="hljs-type">JsonNode</span> <span class="hljs-variable">event</span> <span class="hljs-operator">=</span> mapper.readTree(payload);
+        <span class="hljs-keyword">if</span> (!<span class="hljs-string">&quot;messages.email.Click&quot;</span>.equals(event.path(<span class="hljs-string">&quot;event_type&quot;</span>).asText())) {
+            <span class="hljs-keyword">return</span>;
+        }
+        tracker.record(
+                event.path(<span class="hljs-string">&quot;external_user_id&quot;</span>).asText(),
+                event.path(<span class="hljs-string">&quot;campaign_id&quot;</span>).asText(<span class="hljs-literal">null</span>),
+                event.path(<span class="hljs-string">&quot;url&quot;</span>).asText(<span class="hljs-literal">null</span>),
+                Instant.ofEpochSecond(event.path(<span class="hljs-string">&quot;time&quot;</span>).asLong()));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>Rate limit. <code>/users/track</code>은 요청당 attributes·events·purchases를 각 75개까지 묶을 수 있다. 대량 마이그레이션은 75건 batch에 백오프를 붙이고 응답 헤더의 잔여 한도를 보며 동시성을 조절한다.</li>
+<li>발송이 안 됐는데 에러가 없다. re-eligibility에 걸린 호출은 정상 응답 후 조용히 버려진다. 콘솔 설정과 Currents의 Send 이벤트를 함께 본다.</li>
+<li>External ID 표기 불일치. SDK와 서버가 대소문자·공백이 다른 값을 보내면 사용자가 둘로 갈라진다. 이미 갈라진 프로필은 <code>/users/merge</code>로 합친다.</li>
+<li>Catalogs 동기화 지연. daily sync만 두면 신규 상품이 최대 하루 늦게 반영된다. 상품 변경 이벤트에 즉시 upsert를 붙이고 daily sync는 정합성 보정용으로 남긴다.</li>
+<li>Currents 비용과 스키마 변경. 모든 이벤트를 모든 destination으로 보내면 비용이 빠르게 오른다. 필요한 이벤트만 고르고 destination을 한두 개로 제한하며, 웨어하우스는 JSON 컬럼으로 받아 필드 추가에 대비한다.</li>
+<li>삭제 요청의 부분 처리. 자사 DB만 지우고 <code>/users/delete</code>를 빠뜨리면 삭제된 사용자에게 메시지가 계속 나간다. 삭제 워크플로에 외부 vendor 호출과 감사 로그를 함께 넣는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/braze/sdk-identity-data-model/">SDK 통합·Identity·데이터 모델</a></li>
+<li><a href="/notes/braze/channels-liquid-personalization/">메시지 채널과 Liquid 개인화</a></li>
+<li><a href="/notes/braze/canvas-operations-adoption/">Canvas·Campaign 운영과 도입 결정</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Braze, REST API, Currents, Messaging, Catalogs</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/braze/sdk-identity-data-model/"><small>이전</small>SDK 통합·Identity·데이터 모델</a>
+  <a class="next" href="/notes/braze/channels-liquid-personalization/"><small>다음</small>메시지 채널과 Liquid 개인화</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

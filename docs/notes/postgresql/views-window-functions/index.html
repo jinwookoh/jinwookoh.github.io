@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>뷰·윈도우 함수·고급 SQL · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="반복되는 쿼리는 VIEW로 이름을 붙이고, 행을 줄이지 않는 그룹 계산은 윈도우 함수와 CTE로 푼다">
+  <meta property="og:title" content="뷰·윈도우 함수·고급 SQL · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="반복되는 쿼리는 VIEW로 이름을 붙이고, 행을 줄이지 않는 그룹 계산은 윈도우 함수와 CTE로 푼다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/views-window-functions/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>뷰·윈도우 함수·고급 SQL</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · SQL 기초</p>
+  <h1>뷰·윈도우 함수·고급 SQL</h1>
+  <p class="summary">반복되는 쿼리는 VIEW로 이름을 붙이고, 행을 줄이지 않는 그룹 계산은 윈도우 함수와 CTE로 푼다</p>
+  <div class="content">
+<p>같은 JOIN과 집계를 애플리케이션 곳곳에서 반복하면 수정 지점이 흩어지고, Soft Delete의 <code>deleted_at IS NULL</code> 필터는 한 곳만 빠져도 삭제된 데이터가 노출된다. 무거운 통계를 대시보드가 열릴 때마다 원본에서 다시 계산하면 비용이 조회 횟수에 비례해 늘어난다. &quot;사용자별 상위 3개 주문&quot;이나 &quot;전일 대비 증감&quot;처럼 그룹 맥락을 유지한 채 행마다 값을 붙이는 요구는 GROUP BY로 표현할 수 없다. 이를 해결하는 도구가 뷰, MATERIALIZED VIEW, 윈도우 함수, CTE다.</p>
+<h2>핵심 개념</h2>
+<h3>VIEW — 저장된 쿼리에 이름을 붙인 것</h3>
+<p><code>CREATE VIEW name AS SELECT ...</code>는 쿼리 정의만 저장한다. 조회 시 뷰 정의와 바깥 쿼리를 합쳐 하나의 SQL로 실행하므로 항상 원본의 현재 상태를 반영하고, 성능도 원본 쿼리와 같다. 뷰 자체에는 인덱스를 만들 수 없다.</p>
+<p>용도는 복잡한 JOIN·집계의 추상화, 민감 컬럼을 뺀 뷰만 GRANT 하는 권한 분리, Soft Delete 필터 고정, 컬럼명 변경 후 옛 인터페이스를 유지하는 마이그레이션 호환이다.</p>
+<p><code>CREATE OR REPLACE VIEW</code>는 기존 컬럼을 유지한 채 끝에 컬럼을 추가하는 변경만 허용하고, 삭제나 이름 변경은 DROP 후 재생성이다. 단일 테이블을 JOIN·GROUP BY·집계·DISTINCT 없이 참조하는 단순 뷰는 INSERT·UPDATE·DELETE가 원본으로 자동 변환되고, 그 외의 뷰는 읽기 전용이라 INSTEAD OF 트리거가 필요하다.</p>
+<h3>MATERIALIZED VIEW — 결과를 저장하는 뷰</h3>
+<p>쿼리 결과를 실제 테이블처럼 저장한다. 조회가 빠르고 인덱스도 만들 수 있지만 원본 변경을 따라가지 않으므로 <code>REFRESH MATERIALIZED VIEW</code>로 다시 계산해야 한다.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>VIEW</th>
+<th>MATERIALIZED VIEW</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>저장 대상</td>
+<td>정의만</td>
+<td>정의 + 결과 데이터</td>
+</tr>
+<tr>
+<td>신선도</td>
+<td>실시간</td>
+<td>REFRESH 시점</td>
+</tr>
+<tr>
+<td>인덱스</td>
+<td>불가</td>
+<td>가능</td>
+</tr>
+</tbody></table>
+<p>기본 REFRESH는 ACCESS EXCLUSIVE 락을 잡아 갱신 중 SELECT까지 막는다. <code>REFRESH ... CONCURRENTLY</code>는 차이만 반영하므로 갱신 중에도 조회가 가능하지만, 모든 행을 식별하는 UNIQUE 인덱스가 있어야 하고 첫 REFRESH 전에는 쓸 수 없다. 내장 스케줄러는 없으므로 <code>pg_cron</code>, OS cron, Spring <code>@Scheduled</code> 중 하나로 주기 실행한다.</p>
+<h3>윈도우 함수 — 행을 줄이지 않는 그룹 계산</h3>
+<p>GROUP BY는 그룹당 한 행을 남기지만, 윈도우 함수는 원래 행을 유지하면서 각 행에 그룹 맥락의 계산값을 붙인다. <code>함수() OVER (PARTITION BY 그룹 ORDER BY 정렬 [프레임])</code> 형태로, PARTITION BY가 계산 단위를 나누고 ORDER BY가 파티션 안의 순서를 정하며 <code>ROWS BETWEEN ... AND ...</code> 프레임이 집계 대상 행의 범위를 제한한다.</p>
+<p>순위 함수는 동률 처리가 다르다. 금액 50000·40000·40000·30000에 대해 <code>ROW_NUMBER()</code>는 1, 2, 3, 4, <code>RANK()</code>는 1, 2, 2, 4, <code>DENSE_RANK()</code>는 1, 2, 2, 3을 돌려준다. <code>LAG()</code>·<code>LEAD()</code>는 이전·다음 행 값을, <code>SUM()</code>·<code>AVG()</code> 같은 집계 함수는 OVER와 함께 쓰면 파티션 합·평균을, ORDER BY까지 주면 누적값을 각 행에 붙인다.</p>
+<p>윈도우 함수는 WHERE·GROUP BY·HAVING이 끝난 뒤 SELECT 단계에서 계산되므로 같은 쿼리의 WHERE에서 결과를 참조할 수 없다. 필터링하려면 서브쿼리나 CTE로 감싼다.</p>
+<h3>CTE와 재귀 CTE</h3>
+<p><code>WITH name AS (...)</code>는 쿼리 안의 임시 결과 집합에 이름을 붙여 여러 단계를 위에서 아래로 읽히게 만들며, 윈도우 결과로 필터링하는 그룹별 TOP-N의 표준 형태다. PostgreSQL 12부터 한 번만 참조되는 CTE는 본문에 인라인되고, 실행을 분리하려면 <code>MATERIALIZED</code>를 붙인다.</p>
+<p><code>WITH RECURSIVE</code>는 앵커 쿼리와 재귀 쿼리를 UNION ALL로 연결해 조직도·카테고리 트리처럼 깊이를 모르는 계층을 순회한다. 재귀 쿼리가 행을 더 만들지 않을 때 끝나므로 종료 조건이 필수다. 테이블 상속(<code>INHERITS</code>)은 선언적 파티셔닝이 대체했다.</p>
+<h2>코드</h2>
+<p>일별 매출 MATERIALIZED VIEW와 CONCURRENTLY 갱신용 UNIQUE 인덱스, pg_cron 스케줄을 정의한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">CREATE</span> MATERIALIZED <span class="hljs-keyword">VIEW</span> dashboard_daily_revenue <span class="hljs-keyword">AS</span>
+<span class="hljs-keyword">SELECT</span>
+    <span class="hljs-type">DATE</span>(o.created_at) <span class="hljs-keyword">AS</span> <span class="hljs-keyword">day</span>,
+    p.category         <span class="hljs-keyword">AS</span> category,
+    <span class="hljs-built_in">COUNT</span>(<span class="hljs-operator">*</span>)           <span class="hljs-keyword">AS</span> orders,
+    <span class="hljs-built_in">SUM</span>(o.amount)      <span class="hljs-keyword">AS</span> revenue
+<span class="hljs-keyword">FROM</span> orders o
+<span class="hljs-keyword">JOIN</span> products p <span class="hljs-keyword">ON</span> o.product_id <span class="hljs-operator">=</span> p.id
+<span class="hljs-keyword">WHERE</span> o.status <span class="hljs-operator">=</span> <span class="hljs-string">&#x27;PAID&#x27;</span>
+<span class="hljs-keyword">GROUP</span> <span class="hljs-keyword">BY</span> <span class="hljs-type">DATE</span>(o.created_at), p.category;
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">UNIQUE</span> INDEX idx_dashboard_day_cat
+    <span class="hljs-keyword">ON</span> dashboard_daily_revenue (<span class="hljs-keyword">day</span>, category);
+
+<span class="hljs-comment">-- 첫 REFRESH는 CONCURRENTLY 없이 실행한다</span>
+REFRESH MATERIALIZED <span class="hljs-keyword">VIEW</span> dashboard_daily_revenue;
+
+<span class="hljs-keyword">SELECT</span> cron.schedule(<span class="hljs-string">&#x27;refresh-dashboard&#x27;</span>, <span class="hljs-string">&#x27;0 3 * * *&#x27;</span>,
+    <span class="hljs-string">&#x27;REFRESH MATERIALIZED VIEW CONCURRENTLY dashboard_daily_revenue&#x27;</span>);</code></pre>
+<p>사용자별 순위, 전일 대비 증감, 누적 매출을 윈도우 함수로 계산한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">SELECT</span> user_id, id, amount,
+       <span class="hljs-built_in">RANK</span>() <span class="hljs-keyword">OVER</span> (<span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">BY</span> user_id <span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> amount <span class="hljs-keyword">DESC</span>) <span class="hljs-keyword">AS</span> rank_in_user
+<span class="hljs-keyword">FROM</span> orders;
+
+<span class="hljs-keyword">SELECT</span> <span class="hljs-keyword">day</span>, amount,
+       amount <span class="hljs-operator">-</span> <span class="hljs-built_in">LAG</span>(amount) <span class="hljs-keyword">OVER</span> (<span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> <span class="hljs-keyword">day</span>) <span class="hljs-keyword">AS</span> diff_from_prev,
+       <span class="hljs-built_in">SUM</span>(amount) <span class="hljs-keyword">OVER</span> (<span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> <span class="hljs-keyword">day</span>
+                         <span class="hljs-keyword">ROWS</span> <span class="hljs-keyword">BETWEEN</span> UNBOUNDED PRECEDING <span class="hljs-keyword">AND</span> <span class="hljs-keyword">CURRENT</span> <span class="hljs-type">ROW</span>) <span class="hljs-keyword">AS</span> cumulative
+<span class="hljs-keyword">FROM</span> daily_sales;</code></pre>
+<p>Spring Data JPA에서 그룹별 TOP-N은 native 쿼리로, 뷰는 Hibernate <code>@Immutable</code> 읽기 전용 엔티티로 다룬다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Order, Long&gt; {
+
+    <span class="hljs-meta">@Query(value = &quot;&quot;&quot;
+        WITH ranked AS (
+            SELECT o.*,
+                   ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY amount DESC) AS rn
+            FROM orders o
+        )
+        SELECT id, user_id, amount, status, created_at
+        FROM ranked
+        WHERE rn &lt;= :limit
+        &quot;&quot;&quot;, nativeQuery = true)</span>
+    <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">findTopOrdersPerUser</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;limit&quot;)</span> <span class="hljs-type">int</span> limit)</span>;
+}
+
+<span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Immutable</span>
+<span class="hljs-meta">@Table(name = &quot;user_order_summary&quot;)</span>   -- 단순 VIEW: user_id 단일 키
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserOrderSummary</span> {
+
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-keyword">private</span> Long userId;
+    <span class="hljs-keyword">private</span> String userName;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> orderCount;
+    <span class="hljs-keyword">private</span> BigDecimal totalAmount;
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>뷰 위에 뷰를 쌓는 중첩</strong>: 3단계 이상 중첩되면 실행 계획 추적이 어렵다. 뷰는 한두 단계까지만 쓰고 그 이상은 CTE로 쿼리 안에서 푼다.</li>
+<li><strong>REFRESH 락과 UNIQUE 인덱스</strong>: CONCURRENTLY 없는 REFRESH는 갱신 동안 조회를 막고, CONCURRENTLY는 UNIQUE 인덱스가 없으면 오류를 낸다. 뷰 생성과 인덱스 생성을 같은 마이그레이션에 묶는다.</li>
+<li><strong>LAST_VALUE의 기본 프레임</strong>: ORDER BY가 있는 윈도우의 기본 프레임은 현재 행까지라서 LAST_VALUE가 현재 행 자신을 돌려준다. 파티션 마지막 값이 필요하면 <code>ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING</code>을 명시한다.</li>
+<li><strong>재귀 CTE의 순환 데이터</strong>: <code>manager_id</code>가 서로를 가리키면 무한히 돈다. PostgreSQL 14부터 <code>CYCLE</code> 절로 감지하고, 이전 버전은 깊이 상한으로 막는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/select-join/">SELECT와 JOIN 표준 패턴</a></li>
+<li><a href="/notes/postgresql/query-structure/">쿼리 구조 — SELECT 절·FROM·WHERE·GROUP BY</a></li>
+<li><a href="/notes/postgresql/index-operations-explain/">인덱스 운영과 EXPLAIN</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, VIEW, MATERIALIZED VIEW, Window Function, CTE</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/insert-update-delete/"><small>이전</small>INSERT·UPDATE·DELETE 표준 패턴</a>
+  <a class="next" href="/notes/postgresql/ddl-tables-constraints/"><small>다음</small>DDL 깊이 — CREATE TABLE·파티션·제약·외래 키</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workloads — Deployment·StatefulSet·DaemonSet·Job · 인프라 — Kubernetes · Consul</title>
+  <meta name="description" content="Pod을 직접 만들지 않고 컨트롤러에 맡겨야 하는 이유와, 다섯 가지 Workload를 상황별로 고르는 기준을 정리한다">
+  <meta property="og:title" content="Workloads — Deployment·StatefulSet·DaemonSet·Job · 인프라 — Kubernetes · Consul">
+  <meta property="og:description" content="Pod을 직접 만들지 않고 컨트롤러에 맡겨야 하는 이유와, 다섯 가지 Workload를 상황별로 고르는 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/infra/k8s-workloads/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/infra/">인프라 — Kubernetes · Consul</a><span class="sep">›</span><span>Workloads — Deployment·StatefulSet·DaemonSet·Job</span></nav>
+    <article class="post">
+  <p class="part">인프라 — Kubernetes · Consul · Kubernetes</p>
+  <h1>Workloads — Deployment·StatefulSet·DaemonSet·Job</h1>
+  <p class="summary">Pod을 직접 만들지 않고 컨트롤러에 맡겨야 하는 이유와, 다섯 가지 Workload를 상황별로 고르는 기준을 정리한다</p>
+  <div class="content">
+<p><code>kind: Pod</code>로 직접 만든 Pod은 노드 장애나 OOM으로 사라지면 되살아나지 않고, 복제본을 늘리거나 이미지를 바꾸려면 손으로 지우고 다시 띄워야 하며 그 사이 트래픽이 끊긴다. Kubernetes는 Pod을 감싸는 상위 컨트롤러, 즉 Workload 리소스로 이 문제를 푼다. 컨트롤러는 원하는 상태를 선언받고 실제 상태가 어긋나면 스스로 맞춘다. 어떤 컨트롤러를 고르느냐가 복구·배포 방식과 스토리지·네트워크 정체성까지 결정한다.</p>
+<h2>핵심 개념</h2>
+<p>다섯 Workload의 사용처는 Deployment는 상태 없는 앱, StatefulSet은 DB·Kafka 같은 상태 있는 앱, DaemonSet은 노드마다 1개, Job은 일회성 작업, CronJob은 스케줄 작업으로 요약된다.</p>
+<p><strong>ReplicaSet과 Deployment.</strong> ReplicaSet은 <code>selector</code>에 매칭되는 Pod 수를 <code>replicas</code>와 일치시키는 것만 한다. Deployment는 이 ReplicaSet을 버전별로 생성하는 상위 컨트롤러다. 이미지를 바꾸면 새 ReplicaSet으로 Pod을 옮겨 가고, 이전 ReplicaSet은 replicas 0으로 남겨 롤백에 쓴다. 사용자는 Deployment만 다루고 ReplicaSet은 조회만 한다.</p>
+<p><strong>롤링 업데이트.</strong> 기본 전략 <code>RollingUpdate</code>는 <code>maxSurge</code>(초과해 띄울 수 있는 Pod 수)와 <code>maxUnavailable</code>(동시에 내릴 수 있는 Pod 수)로 속도를 제어한다. 둘 다 0이면 진행할 방법이 없어 API 서버가 거부한다. <code>Recreate</code>는 전부 내린 뒤 새로 띄우므로 다운타임이 있지만 두 버전이 공존하면 안 되는 앱에는 이쪽이 맞다. 롤백은 <code>kubectl rollout undo</code>로 이전 ReplicaSet을 다시 키우는 것이라 즉시 끝난다.</p>
+<p><strong>StatefulSet.</strong> Deployment의 Pod은 무작위 이름을 받고 동시에 뜨며 스토리지를 공유하거나 갖지 않는다. StatefulSet은 <code>pg-0</code>, <code>pg-1</code>처럼 순번 이름을 부여하고 순서대로 시작해 역순으로 종료하며, <code>volumeClaimTemplates</code>로 Pod마다 별도 PVC를 만들어 재생성 후에도 같은 볼륨을 붙인다. <code>serviceName</code>의 Headless Service(<code>clusterIP: None</code>)와 결합하면 <code>pg-0.postgres-headless.&lt;ns&gt;.svc.cluster.local</code> 형태의 고정 DNS를 얻는다. 복제 토폴로지가 특정 멤버 주소에 의존하는 시스템에는 이 세 안정성이 모두 필요하다.</p>
+<p><strong>DaemonSet.</strong> <code>replicas</code> 없이 Pod 수가 노드 수를 따른다. 노드가 추가되면 자동 배포되고, 일부 노드에만 두려면 <code>nodeSelector</code>나 affinity를 쓴다.</p>
+<p><strong>Job과 CronJob.</strong> Job은 컨테이너가 exit 0으로 끝날 때까지 실행하고 실패하면 <code>backoffLimit</code>까지 재시도한다. <code>restartPolicy</code>는 <code>Never</code>·<code>OnFailure</code>만 허용된다. <code>completions</code>와 <code>parallelism</code>으로 병렬 배치를 표현한다. CronJob은 <code>schedule</code>에 맞춰 Job을 생성하며, 컨트롤 플레인이 멈춰 있던 시각의 실행은 <code>startingDeadlineSeconds</code>를 넘기면 건너뛴다.</p>
+<h2>코드</h2>
+<p>Deployment 매니페스트. <code>maxUnavailable: 0</code>으로 가용 Pod 수를 유지하면서 한 개씩 교체한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Deployment</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-api</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">replicas:</span> <span class="hljs-number">3</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span>
+  <span class="hljs-attr">strategy:</span>
+    <span class="hljs-attr">type:</span> <span class="hljs-string">RollingUpdate</span>
+    <span class="hljs-attr">rollingUpdate:</span>
+      <span class="hljs-attr">maxSurge:</span> <span class="hljs-number">1</span>
+      <span class="hljs-attr">maxUnavailable:</span> <span class="hljs-number">0</span>
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">metadata:</span>
+      <span class="hljs-attr">labels:</span>
+        <span class="hljs-attr">app:</span> <span class="hljs-string">order-api</span>
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app</span>
+          <span class="hljs-attr">image:</span> <span class="hljs-string">registry.local/order-api:1.4.0</span>
+          <span class="hljs-attr">ports:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8080</span></code></pre>
+<p>StatefulSet과 Headless Service. PostgreSQL 3대에 각각 10Gi PVC를 붙이고 고정 DNS를 부여한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Service</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">postgres-headless</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">clusterIP:</span> <span class="hljs-string">None</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">app:</span> <span class="hljs-string">postgres</span>
+  <span class="hljs-attr">ports:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">port:</span> <span class="hljs-number">5432</span>
+<span class="hljs-meta">---</span>
+<span class="hljs-attr">apiVersion:</span> <span class="hljs-string">apps/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">StatefulSet</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">postgres</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">serviceName:</span> <span class="hljs-string">postgres-headless</span>
+  <span class="hljs-attr">replicas:</span> <span class="hljs-number">3</span>
+  <span class="hljs-attr">selector:</span>
+    <span class="hljs-attr">matchLabels:</span>
+      <span class="hljs-attr">app:</span> <span class="hljs-string">postgres</span>
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">metadata:</span>
+      <span class="hljs-attr">labels:</span>
+        <span class="hljs-attr">app:</span> <span class="hljs-string">postgres</span>
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">postgres</span>
+          <span class="hljs-attr">image:</span> <span class="hljs-string">postgres:16</span>
+  <span class="hljs-attr">volumeClaimTemplates:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">metadata:</span>
+        <span class="hljs-attr">name:</span> <span class="hljs-string">data</span>
+      <span class="hljs-attr">spec:</span>
+        <span class="hljs-attr">accessModes:</span> [<span class="hljs-string">ReadWriteOnce</span>]
+        <span class="hljs-attr">resources:</span>
+          <span class="hljs-attr">requests:</span>
+            <span class="hljs-attr">storage:</span> <span class="hljs-string">10Gi</span></code></pre>
+<p>Spring Boot 마이그레이션 앱을 Job으로 실행하는 예. 앱은 작업 후 명시적으로 종료 코드를 반환해야 Job이 성공·실패를 판정할 수 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@SpringBootApplication</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MigrationApplication</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">main</span><span class="hljs-params">(String[] args)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">code</span> <span class="hljs-operator">=</span> SpringApplication.exit(
+                SpringApplication.run(MigrationApplication.class, args));
+        System.exit(code);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">ApplicationRunner</span> <span class="hljs-title function_">migrate</span><span class="hljs-params">(JdbcTemplate jdbc)</span> {
+        <span class="hljs-keyword">return</span> args -&gt; jdbc.execute(<span class="hljs-string">&quot;&quot;&quot;
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipped_at timestamptz
+                &quot;&quot;&quot;</span>);
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">ExitCodeGenerator</span> <span class="hljs-title function_">exitCode</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> () -&gt; <span class="hljs-number">0</span>;
+    }
+}</code></pre>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">batch/v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Job</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-db-migration</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">backoffLimit:</span> <span class="hljs-number">3</span>
+  <span class="hljs-attr">ttlSecondsAfterFinished:</span> <span class="hljs-number">3600</span>
+  <span class="hljs-attr">template:</span>
+    <span class="hljs-attr">spec:</span>
+      <span class="hljs-attr">restartPolicy:</span> <span class="hljs-string">OnFailure</span>
+      <span class="hljs-attr">containers:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">migrate</span>
+          <span class="hljs-attr">image:</span> <span class="hljs-string">registry.local/order-migration:1.4.0</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>롤링 업데이트 중 두 버전 공존.</strong> 교체가 끝날 때까지 구버전과 신버전이 같이 요청을 받는다. 스키마나 API 형식 변경은 양쪽이 읽을 수 있는 중간 단계를 거쳐야 하며, Canary·Blue-Green은 Argo Rollouts 같은 별도 컨트롤러가 필요하다. readinessProbe가 없으면 JVM이 준비되기 전에 옛 Pod이 내려가므로 <code>maxUnavailable: 0</code>도 무중단을 보장하지 못한다.</li>
+<li><strong>StatefulSet의 PVC는 삭제되지 않는다.</strong> StatefulSet을 지워도 PVC는 남아 비용이 계속 나간다. <code>persistentVolumeClaimRetentionPolicy</code>를 설정하거나 정리 절차를 문서화한다. <code>volumeClaimTemplates</code>는 생성 후 수정할 수 없어 용량 변경은 PVC를 직접 편집한다.</li>
+<li><strong>Job의 restartPolicy.</strong> <code>OnFailure</code>는 같은 Pod에서 컨테이너를 재시작하고 <code>Never</code>는 새 Pod을 만든다. 실패 로그 보존에는 <code>Never</code>가 낫지만 Pod이 backoffLimit만큼 쌓이며, 재시도 간격은 지수 백오프로 최대 6분까지 벌어진다.</li>
+<li><strong>CronJob의 동시 실행과 누락.</strong> 이전 Job이 끝나기 전에 다음 스케줄이 오면 기본값 <code>concurrencyPolicy: Allow</code>로 겹쳐 실행되므로 백업류는 <code>Forbid</code>로 막는다. 정확한 실행 보장이 필요하면 Argo Workflows 같은 워크플로 엔진을 쓴다. 완료된 Job은 <code>ttlSecondsAfterFinished</code>로 정리하지 않으면 계속 쌓인다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/infra/k8s-architecture-pod/">Kubernetes 아키텍처와 Pod</a></li>
+<li><a href="/notes/infra/k8s-services-networking/">Services·Networking·Ingress</a></li>
+<li><a href="/notes/infra/k8s-scaling-scheduling/">Scaling·Scheduling·Probes</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · Kubernetes, Deployment, StatefulSet, DaemonSet, Job</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/infra/k8s-architecture-pod/"><small>이전</small>Kubernetes 아키텍처와 Pod</a>
+  <a class="next" href="/notes/infra/k8s-services-networking/"><small>다음</small>Services·Networking·Ingress</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

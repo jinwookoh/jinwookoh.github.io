@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>사용자·역할·권한 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="ROLE 하나로 사용자와 그룹을 통합하고, 그룹 멤버십과 DEFAULT PRIVILEGES로 권한을 최소·자동화하는 방법">
+  <meta property="og:title" content="사용자·역할·권한 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="ROLE 하나로 사용자와 그룹을 통합하고, 그룹 멤버십과 DEFAULT PRIVILEGES로 권한을 최소·자동화하는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/roles-security/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>사용자·역할·권한</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · 운영</p>
+  <h1>사용자·역할·권한</h1>
+  <p class="summary">ROLE 하나로 사용자와 그룹을 통합하고, 그룹 멤버십과 DEFAULT PRIVILEGES로 권한을 최소·자동화하는 방법</p>
+  <div class="content">
+<p>애플리케이션이 postgres 슈퍼유저 하나로 접속하는 구성은 초기에는 편하지만, 커넥션 문자열 하나가 유출되는 순간 DDL·데이터 삭제·설정 변경까지 모두 열린다. 분석가에게 쓰기 권한이 섞여 들어가거나, 새 테이블을 만들 때마다 GRANT를 잊어 서비스가 permission denied로 멈추는 사고도 권한 체계를 세우지 않은 데서 비롯된다. PostgreSQL의 ROLE·GRANT·DEFAULT PRIVILEGES·RLS는 이 문제를 접속 주체 단위로 분리하고, 새 객체에도 권한이 자동 적용되도록 만드는 도구다.</p>
+<h2>핵심 개념</h2>
+<p>PostgreSQL 8.1부터 USER와 GROUP은 ROLE 하나로 통합됐다. <code>LOGIN</code> 속성이 있으면 접속 가능한 사용자로, <code>NOLOGIN</code>이면 권한을 묶는 그룹으로 동작한다. <code>CREATE USER</code>는 <code>CREATE ROLE ... LOGIN</code>의 별칭일 뿐이다. 그룹 역할을 사용자 역할에 <code>GRANT group TO user</code>로 부여하면 멤버십이 생기고, 사용자가 <code>INHERIT</code>(기본값)이면 그룹 권한을 자동으로 사용한다. <code>NOINHERIT</code>이면 <code>SET ROLE</code>로 명시적으로 전환해야만 그룹 권한이 살아난다.</p>
+<p>ROLE 속성은 시스템 수준 능력을 정한다. <code>SUPERUSER</code>, <code>CREATEDB</code>, <code>CREATEROLE</code>, <code>REPLICATION</code>, <code>BYPASSRLS</code>, <code>CONNECTION LIMIT</code>, <code>VALID UNTIL</code>이 대표적이다. <code>CREATEROLE</code>은 PostgreSQL 16부터 자신이 만든 역할만 관리하도록 축소됐다.</p>
+<p>객체 권한은 <code>GRANT 권한 ON 객체 TO 역할</code> 형태로 통일되며, 대상 객체에 따라 권한 종류가 다르다.</p>
+<table>
+<thead>
+<tr>
+<th>객체</th>
+<th>주요 권한</th>
+<th>의미</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DATABASE</td>
+<td>CONNECT, CREATE</td>
+<td>접속 허용, 스키마 생성</td>
+</tr>
+<tr>
+<td>SCHEMA</td>
+<td>USAGE, CREATE</td>
+<td>스키마 내 객체 참조, 객체 생성</td>
+</tr>
+<tr>
+<td>TABLE</td>
+<td>SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES</td>
+<td>행 단위 DML, FK 참조</td>
+</tr>
+<tr>
+<td>COLUMN</td>
+<td>SELECT, INSERT, UPDATE</td>
+<td>컬럼 단위 제한</td>
+</tr>
+<tr>
+<td>SEQUENCE</td>
+<td>USAGE, SELECT, UPDATE</td>
+<td>nextval 호출 등</td>
+</tr>
+<tr>
+<td>FUNCTION</td>
+<td>EXECUTE</td>
+<td>실행</td>
+</tr>
+</tbody></table>
+<p>접속 경로는 계층적이다. 데이터베이스 CONNECT, 스키마 USAGE, 테이블 SELECT가 모두 있어야 한 행을 읽을 수 있다. PostgreSQL 15부터 public 스키마의 CREATE가 PUBLIC에서 제거됐으므로, 일반 역할이 public에 객체를 만들려면 CREATE를 명시적으로 부여한다.</p>
+<p><code>GRANT ... ON ALL TABLES IN SCHEMA</code>는 실행 시점에 존재하는 객체에만 적용된다. 이후 생성되는 객체는 <code>ALTER DEFAULT PRIVILEGES</code>로 처리하며, <code>FOR ROLE</code>로 &quot;어떤 역할이 만드는 객체에&quot; 적용할지를 지정한다.</p>
+<p>Row-Level Security는 테이블 권한 아래에 행 단위 필터를 추가한다. <code>CREATE POLICY</code>의 <code>USING</code>은 읽기·갱신 대상 행을, <code>WITH CHECK</code>는 쓰기 허용 행을 정한다. 테이블 소유자와 <code>BYPASSRLS</code> 역할은 정책을 우회한다.</p>
+<p>비밀번호 해시는 PostgreSQL 14부터 <code>scram-sha-256</code>이 기본값이다. md5는 폐기 예정이며 <code>pg_hba.conf</code>의 인증 방식도 같이 맞춘다.</p>
+<h2>코드</h2>
+<p>운영 표준으로 쓰는 그룹 역할 4종과 사용자 가입 구성이다. 사용자에게는 직접 GRANT하지 않고 그룹 멤버십만 부여한다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-comment">-- 읽기 전용 그룹</span>
+<span class="hljs-keyword">CREATE</span> ROLE readonly NOLOGIN;
+<span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">CONNECT</span> <span class="hljs-keyword">ON</span> DATABASE mydb <span class="hljs-keyword">TO</span> readonly;
+<span class="hljs-keyword">GRANT</span> USAGE <span class="hljs-keyword">ON</span> SCHEMA public <span class="hljs-keyword">TO</span> readonly;
+<span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">SELECT</span> <span class="hljs-keyword">ON</span> <span class="hljs-keyword">ALL</span> TABLES <span class="hljs-keyword">IN</span> SCHEMA public <span class="hljs-keyword">TO</span> readonly;
+
+<span class="hljs-comment">-- 앱 CRUD 그룹</span>
+<span class="hljs-keyword">CREATE</span> ROLE app_rw NOLOGIN;
+<span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">CONNECT</span> <span class="hljs-keyword">ON</span> DATABASE mydb <span class="hljs-keyword">TO</span> app_rw;
+<span class="hljs-keyword">GRANT</span> USAGE <span class="hljs-keyword">ON</span> SCHEMA public <span class="hljs-keyword">TO</span> app_rw;
+<span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">SELECT</span>, <span class="hljs-keyword">INSERT</span>, <span class="hljs-keyword">UPDATE</span>, <span class="hljs-keyword">DELETE</span> <span class="hljs-keyword">ON</span> <span class="hljs-keyword">ALL</span> TABLES <span class="hljs-keyword">IN</span> SCHEMA public <span class="hljs-keyword">TO</span> app_rw;
+<span class="hljs-keyword">GRANT</span> USAGE, <span class="hljs-keyword">SELECT</span> <span class="hljs-keyword">ON</span> <span class="hljs-keyword">ALL</span> SEQUENCES <span class="hljs-keyword">IN</span> SCHEMA public <span class="hljs-keyword">TO</span> app_rw;
+
+<span class="hljs-comment">-- 마이그레이션(DDL) 그룹 — 테이블 소유자</span>
+<span class="hljs-keyword">CREATE</span> ROLE migrator NOLOGIN;
+<span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">CONNECT</span>, <span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">ON</span> DATABASE mydb <span class="hljs-keyword">TO</span> migrator;
+<span class="hljs-keyword">GRANT</span> USAGE, <span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">ON</span> SCHEMA public <span class="hljs-keyword">TO</span> migrator;
+
+<span class="hljs-comment">-- migrator 가 만드는 새 객체에 자동 권한</span>
+<span class="hljs-keyword">ALTER</span> <span class="hljs-keyword">DEFAULT</span> PRIVILEGES <span class="hljs-keyword">FOR</span> ROLE migrator <span class="hljs-keyword">IN</span> SCHEMA public
+    <span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">SELECT</span> <span class="hljs-keyword">ON</span> TABLES <span class="hljs-keyword">TO</span> readonly;
+<span class="hljs-keyword">ALTER</span> <span class="hljs-keyword">DEFAULT</span> PRIVILEGES <span class="hljs-keyword">FOR</span> ROLE migrator <span class="hljs-keyword">IN</span> SCHEMA public
+    <span class="hljs-keyword">GRANT</span> <span class="hljs-keyword">SELECT</span>, <span class="hljs-keyword">INSERT</span>, <span class="hljs-keyword">UPDATE</span>, <span class="hljs-keyword">DELETE</span> <span class="hljs-keyword">ON</span> TABLES <span class="hljs-keyword">TO</span> app_rw;
+<span class="hljs-keyword">ALTER</span> <span class="hljs-keyword">DEFAULT</span> PRIVILEGES <span class="hljs-keyword">FOR</span> ROLE migrator <span class="hljs-keyword">IN</span> SCHEMA public
+    <span class="hljs-keyword">GRANT</span> USAGE, <span class="hljs-keyword">SELECT</span> <span class="hljs-keyword">ON</span> SEQUENCES <span class="hljs-keyword">TO</span> app_rw;
+
+<span class="hljs-comment">-- 로그인 사용자 = 그룹 가입만</span>
+<span class="hljs-keyword">CREATE</span> ROLE app_prod LOGIN PASSWORD <span class="hljs-string">&#x27;from-secret-manager&#x27;</span> CONNECTION LIMIT <span class="hljs-number">50</span>;
+<span class="hljs-keyword">GRANT</span> app_rw <span class="hljs-keyword">TO</span> app_prod;
+
+<span class="hljs-keyword">CREATE</span> ROLE flyway_prod LOGIN PASSWORD <span class="hljs-string">&#x27;from-secret-manager&#x27;</span>;
+<span class="hljs-keyword">GRANT</span> migrator <span class="hljs-keyword">TO</span> flyway_prod;
+
+<span class="hljs-keyword">CREATE</span> ROLE analyst_kim LOGIN PASSWORD <span class="hljs-string">&#x27;from-secret-manager&#x27;</span> VALID UNTIL <span class="hljs-string">&#x27;2026-12-31&#x27;</span>;
+<span class="hljs-keyword">GRANT</span> readonly <span class="hljs-keyword">TO</span> analyst_kim;</code></pre>
+<p>멀티 테넌트 테이블에 RLS를 걸고, 세션 변수로 테넌트를 식별하는 정책이다. 소유자가 아닌 app_rw 계정으로 접속해야 정책이 적용된다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">ALTER TABLE</span> orders ENABLE <span class="hljs-type">ROW</span> LEVEL SECURITY;
+<span class="hljs-keyword">ALTER TABLE</span> orders FORCE <span class="hljs-type">ROW</span> LEVEL SECURITY;   <span class="hljs-comment">-- 소유자에게도 적용</span>
+
+<span class="hljs-keyword">CREATE</span> POLICY orders_tenant <span class="hljs-keyword">ON</span> orders
+    <span class="hljs-keyword">FOR</span> <span class="hljs-keyword">ALL</span>
+    <span class="hljs-keyword">TO</span> app_rw
+    <span class="hljs-keyword">USING</span> (tenant_id <span class="hljs-operator">=</span> current_setting(<span class="hljs-string">&#x27;app.tenant_id&#x27;</span>, <span class="hljs-literal">true</span>)::<span class="hljs-type">BIGINT</span>)
+    <span class="hljs-keyword">WITH</span> <span class="hljs-keyword">CHECK</span> (tenant_id <span class="hljs-operator">=</span> current_setting(<span class="hljs-string">&#x27;app.tenant_id&#x27;</span>, <span class="hljs-literal">true</span>)::<span class="hljs-type">BIGINT</span>);</code></pre>
+<p>Spring Boot 3.x에서 쓰기 경로와 읽기 경로를 다른 계정·다른 호스트로 분리하고, 트랜잭션마다 테넌트 세션 변수를 심는 구성이다. <code>SET LOCAL</code>은 트랜잭션 종료 시 자동 해제되므로 커넥션 풀에 값이 남지 않는다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-comment"># application-prod.yml</span>
+<span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://primary.internal:5432/mydb</span>
+    <span class="hljs-attr">username:</span> <span class="hljs-string">app_prod</span>
+    <span class="hljs-attr">password:</span> <span class="hljs-string">${DB_PASSWORD}</span>
+    <span class="hljs-attr">hikari:</span>
+      <span class="hljs-attr">maximum-pool-size:</span> <span class="hljs-number">20</span>
+  <span class="hljs-attr">flyway:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://primary.internal:5432/mydb</span>
+    <span class="hljs-attr">user:</span> <span class="hljs-string">flyway_prod</span>
+    <span class="hljs-attr">password:</span> <span class="hljs-string">${FLYWAY_PASSWORD}</span>
+
+<span class="hljs-attr">readonly:</span>
+  <span class="hljs-attr">datasource:</span>
+    <span class="hljs-attr">url:</span> <span class="hljs-string">jdbc:postgresql://replica.internal:5432/mydb</span>
+    <span class="hljs-attr">username:</span> <span class="hljs-string">analyst_kim</span>
+    <span class="hljs-attr">password:</span> <span class="hljs-string">${RO_DB_PASSWORD}</span></code></pre>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TenantSessionAspect</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcClient jdbcClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TenantSessionAspect</span><span class="hljs-params">(JdbcClient jdbcClient)</span> {
+        <span class="hljs-built_in">this</span>.jdbcClient = jdbcClient;
+    }
+
+    <span class="hljs-meta">@Transactional(propagation = Propagation.MANDATORY)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">bind</span><span class="hljs-params">(<span class="hljs-type">long</span> tenantId)</span> {
+        <span class="hljs-comment">// SET LOCAL 은 파라미터 바인딩이 안 되므로 set_config 함수를 쓴다</span>
+        jdbcClient.sql(<span class="hljs-string">&quot;SELECT set_config(&#x27;app.tenant_id&#x27;, :tenant, true)&quot;</span>)
+                .param(<span class="hljs-string">&quot;tenant&quot;</span>, String.valueOf(tenantId))
+                .query(String.class)
+                .single();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>앱 계정이 테이블 소유자면 RLS가 무력화된다. 마이그레이션 계정이 소유자가 되고 앱 계정은 별도 역할로 두거나, <code>FORCE ROW LEVEL SECURITY</code>를 걸어야 정책이 실제로 작동한다.</li>
+<li><code>ALTER DEFAULT PRIVILEGES</code>에서 <code>FOR ROLE</code>을 생략하면 명령을 실행한 역할이 만드는 객체에만 적용된다. DBA가 실행하고 migrator가 테이블을 만들면 기본 권한은 한 번도 발동하지 않는다. 스키마 단위이므로 새 스키마마다 다시 건다.</li>
+<li>테이블 DML만 주고 SEQUENCE의 USAGE를 빠뜨리면 <code>bigserial</code>·identity 컬럼 INSERT가 실패한다. <code>ON ALL SEQUENCES</code>를 함께 부여한다.</li>
+<li><code>DROP ROLE</code>은 그 역할이 소유하거나 권한을 받은 객체가 있으면 실패한다. <code>REASSIGN OWNED BY old TO new</code> 후 <code>DROP OWNED BY old</code>로 정리하며, 두 명령 모두 데이터베이스 단위라 클러스터의 모든 DB에서 반복한다.</li>
+<li>PostgreSQL 15 이하에서 <code>CREATEROLE</code>은 사실상 슈퍼유저에 준하므로 앱 계정에 주지 않는다. 16으로 올릴 때 동작이 바뀌어 기존 관리 스크립트가 실패할 수 있다.</li>
+<li>비밀번호를 <code>.env</code>나 설정 파일에 평문으로 두지 않는다. Secrets Manager·Vault에서 주입하고, 임시 계정은 <code>VALID UNTIL</code>로 만료를 걸며, <code>pg_hba.conf</code>에 접속 원 IP 제한을 함께 적용한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/production-install-config/">운영 설치와 postgresql.conf</a></li>
+<li><a href="/notes/postgresql/mvcc-isolation-locking/">MVCC·격리 수준·락</a></li>
+<li><a href="/notes/postgresql/backup-restore-pitr/">백업과 복구 — pg_dump·PITR</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, ROLE, GRANT, DEFAULT PRIVILEGES, Row-Level Security</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/production-install-config/"><small>이전</small>운영 설치와 postgresql.conf</a>
+  <a class="next" href="/notes/postgresql/backup-restore-pitr/"><small>다음</small>백업과 복구 — pg_dump·PITR</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

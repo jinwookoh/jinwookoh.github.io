@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reactive Spring · Notes</title>
+  <meta name="description" content="Project Reactor의 Mono·Flux·연산자·Backpressure부터 WebFlux·R2DBC·리액티브 Redis·RSocket·gRPC·GraphQL까지.">
+  <meta property="og:title" content="Reactive Spring · Notes">
+  <meta property="og:description" content="Project Reactor의 Mono·Flux·연산자·Backpressure부터 WebFlux·R2DBC·리액티브 Redis·RSocket·gRPC·GraphQL까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Reactive Spring</span></nav>
+    <header class="series-head"><h1>Reactive Spring</h1><p>Project Reactor의 Mono·Flux·연산자·Backpressure부터 WebFlux·R2DBC·리액티브 Redis·RSocket·gRPC·GraphQL까지.</p><p class="count">24편</p></header>
+<section class="part-group"><h2>Reactor 기초</h2><ol class="toc"><li><a href="/notes/reactive-spring/reactive-programming-intro/"><span class="n">1</span><span class="t">리액티브 프로그래밍 — 왜 필요한가·Reactive Streams</span><span class="s">스레드당 요청 모델의 한계를 Reactive Streams 명세와 이벤트 루프가 어떻게 넘어서는지 정리한다</span></a></li>
+<li><a href="/notes/reactive-spring/mono-flux/"><span class="n">2</span><span class="t">Mono와 Flux</span><span class="s">Mono는 0~1개, Flux는 0~N개를 지연 방출하는 Publisher이며 팩토리·변환·에러 처리 연산자의 선택 기준을 정리한다.</span></a></li>
+<li><a href="/notes/reactive-spring/operators-combining-batching/"><span class="n">3</span><span class="t">연산자 — 변환·결합·배칭</span><span class="s">flatMap·zip·buffer 계열 연산자를 순서·동시성·완료 조건이라는 세 축으로 골라 쓰는 기준을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>Reactor 심화</h2><ol class="toc"><li><a href="/notes/reactive-spring/hot-cold-sinks/"><span class="n">4</span><span class="t">Hot/Cold Publisher와 Sinks</span><span class="s">구독마다 소스를 다시 실행하는 Cold를 Hot으로 바꾸는 연산자와, 외부에서 직접 신호를 주입하는 Sinks의 선택 기준을 정리한다</span></a></li>
+<li><a href="/notes/reactive-spring/backpressure/"><span class="n">5</span><span class="t">Backpressure</span><span class="s">생산 속도가 소비 속도를 앞지를 때 request(n)과 오버플로우 전략으로 메모리 고갈을 막는 방법을 정리한다.</span></a></li>
+<li><a href="/notes/reactive-spring/schedulers-context/"><span class="n">6</span><span class="t">Schedulers·스레딩·Context</span><span class="s">Reactor는 기본이 동기 실행이다. 스레드는 Schedulers로 옮기고, 요청 범위 데이터는 ThreadLocal 대신 Context로 전파한다.</span></a></li>
+<li><a href="/notes/reactive-spring/retry-stepverifier/"><span class="n">7</span><span class="t">Repeat·Retry와 StepVerifier</span><span class="s">완료·에러 후 재구독하는 repeat/retry 전략과, 비동기 파이프라인을 가상 시간으로 검증하는 StepVerifier 사용법</span></a></li></ol></section>
+<section class="part-group"><h2>WebFlux</h2><ol class="toc"><li><a href="/notes/reactive-spring/webflux-basics-functional/"><span class="n">8</span><span class="t">WebFlux 기본 — 애노테이션 컨트롤러와 Functional Endpoints</span><span class="s">같은 WebFlux 위에서 @RestController와 RouterFunction이 어떻게 다르고 언제 무엇을 고르는지 정리한다</span></a></li>
+<li><a href="/notes/reactive-spring/webclient/"><span class="n">9</span><span class="t">WebClient</span><span class="s">이벤트 루프를 막지 않고 외부 HTTP를 호출하는 WebClient의 설정·응답 처리·에러·타임아웃·재시도 패턴을 정리한다.</span></a></li>
+<li><a href="/notes/reactive-spring/webfilter-error-handling/"><span class="n">10</span><span class="t">WebFilter·예외 처리·검증</span><span class="s">WebFilter로 공통 처리를 모으고, Bean Validation과 ProblemDetail로 실패 응답을 일관되게 만드는 방법</span></a></li>
+<li><a href="/notes/reactive-spring/streaming-sse-ndjson/"><span class="n">11</span><span class="t">스트리밍 응답 — SSE·NDJSON</span><span class="s">Flux 반환만으로는 스트리밍이 되지 않는다. produces가 응답 형식을 결정하고 NDJSON과 SSE는 용도가 다르다.</span></a></li>
+<li><a href="/notes/reactive-spring/webflux-performance-microservices/"><span class="n">12</span><span class="t">WebFlux 성능과 마이크로서비스</span><span class="s">이벤트 루프를 막지 않는 설정과 서비스 조합 패턴을 갖춰야 WebFlux의 처리량이 실제로 나온다.</span></a></li></ol></section>
+<section class="part-group"><h2>리액티브 데이터</h2><ol class="toc"><li><a href="/notes/reactive-spring/r2dbc/"><span class="n">13</span><span class="t">R2DBC — 리액티브 DB 연동과 JPA 비교</span><span class="s">WebFlux 이벤트 루프를 막지 않는 DB 접근 방법과, JPA에서 사라지는 것·얻는 것의 경계를 정리한다</span></a></li>
+<li><a href="/notes/reactive-spring/reactive-redis-basics/"><span class="n">14</span><span class="t">리액티브 Redis — 연동·Template·자료구조</span><span class="s">WebFlux에서 Lettuce 기반 ReactiveRedisTemplate으로 Redis를 연동하고 5대 자료구조를 논블로킹으로 다루는 방법을 정리한다.</span></a></li>
+<li><a href="/notes/reactive-spring/reactive-redis-advanced/"><span class="n">15</span><span class="t">리액티브 Redis — 캐싱·Pub/Sub·트랜잭션·성능</span><span class="s">WebFlux에서 Redis를 캐시·메시지 버스·원자 연산 수단으로 쓸 때 맞는 패턴과 성능이 새는 지점</span></a></li></ol></section>
+<section class="part-group"><h2>RSocket</h2><ol class="toc"><li><a href="/notes/reactive-spring/rsocket-concepts/"><span class="n">16</span><span class="t">RSocket — 개념·프레임·Interaction Model</span><span class="s">RSocket이 단일 연결 위에서 REQUEST_N 백프레셔와 4가지 Interaction Model로 서비스 간 통신을 처리하는 원리</span></a></li>
+<li><a href="/notes/reactive-spring/rsocket-server-client/"><span class="n">17</span><span class="t">RSocket — 서버·클라이언트·메타데이터 라우팅</span><span class="s">Spring에서 @MessageMapping 서버와 RSocketRequester 클라이언트를 만들고 라우트·인증·trace를 Composite Metadata로 싣는 방법</span></a></li>
+<li><a href="/notes/reactive-spring/rsocket-security-lb-testing/"><span class="n">18</span><span class="t">RSocket — 보안·로드 밸런싱·테스트</span><span class="s">영구 연결 프로토콜인 RSocket을 SETUP 인증·TLS·클라이언트 사이드 LB·StepVerifier로 운영 수준까지 끌어올리는 방법</span></a></li></ol></section>
+<section class="part-group"><h2>gRPC</h2><ol class="toc"><li><a href="/notes/reactive-spring/grpc-concepts-protobuf/"><span class="n">19</span><span class="t">gRPC — 개념·HTTP/2·Protobuf</span><span class="s">gRPC는 Protobuf 스키마와 HTTP/2 전송을 결합한 RPC이며, 필드 번호가 와이어 호환성을 결정한다.</span></a></li>
+<li><a href="/notes/reactive-spring/grpc-rpc-modes/"><span class="n">20</span><span class="t">gRPC — Unary·Server/Client/Bidirectional Streaming</span><span class="s">gRPC 4가지 RPC 모드가 StreamObserver 하나로 어떻게 구분되고, 각각 언제 쓰는지 정리한다</span></a></li>
+<li><a href="/notes/reactive-spring/grpc-errors-interceptors-security/"><span class="n">21</span><span class="t">gRPC — 에러·인터셉터·보안·운영</span><span class="s">Status Code로 재시도 가능 여부를 표현하고, 인증·로깅은 인터셉터로 분리하며, 운영에서는 mTLS·Health Check·KeepAlive를 갖춘다</span></a></li></ol></section>
+<section class="part-group"><h2>GraphQL</h2><ol class="toc"><li><a href="/notes/reactive-spring/graphql-schema-queries/"><span class="n">22</span><span class="t">GraphQL — Schema·Query·Mutation·Spring for GraphQL</span><span class="s">GraphQL은 스키마를 계약으로 두고 클라이언트가 필요한 필드만 명시하며, Spring for GraphQL은 이를 애노테이션 컨트롤러로 매핑한다.</span></a></li>
+<li><a href="/notes/reactive-spring/graphql-reactive-subscriptions/"><span class="n">23</span><span class="t">GraphQL — 리액티브 통합과 Subscription</span><span class="s">Spring for GraphQL은 Mono/Flux 반환을 그대로 처리하며, Subscription은 Flux 하나와 Sinks·Pub/Sub 조합으로 실시간 스트림이 된다</span></a></li>
+<li><a href="/notes/reactive-spring/graphql-dataloader-security/"><span class="n">24</span><span class="t">GraphQL — DataLoader·Federation·보안·테스트</span><span class="s">DataLoader로 N+1을 잡고, Depth·Complexity 제한과 필드 권한으로 단일 엔드포인트를 지키며, GraphQlTester로 검증한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

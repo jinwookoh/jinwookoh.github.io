@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Term-level·Compound 쿼리 · Elasticsearch</title>
+  <meta name="description" content="정확 일치 조건은 bool.filter에, 점수가 필요한 풀텍스트만 must·should에 두는 이유와 조립 규칙">
+  <meta property="og:title" content="Term-level·Compound 쿼리 · Elasticsearch">
+  <meta property="og:description" content="정확 일치 조건은 bool.filter에, 점수가 필요한 풀텍스트만 must·should에 두는 이유와 조립 규칙">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/term-compound-queries/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Term-level·Compound 쿼리</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 검색</p>
+  <h1>Term-level·Compound 쿼리</h1>
+  <p class="summary">정확 일치 조건은 bool.filter에, 점수가 필요한 풀텍스트만 must·should에 두는 이유와 조립 규칙</p>
+  <div class="content">
+<p>상품명에 키워드가 들어가고, 가격은 일정 구간이며, 카테고리는 지정 값이고, 단종 상품은 빼고, 베스트셀러는 앞으로 올린다. 이 요구사항은 풀텍스트 쿼리 하나로 표현할 수 없다. 카테고리·가격은 analyzer를 거치지 않는 정확 일치 쿼리가 필요하고, 조건들을 AND·OR·NOT·점수 조정으로 묶는 조합 쿼리가 필요하다. 이 둘을 구분하지 않으면 <code>text</code> 필드에 <code>term</code>을 던져 0건이 나오거나, 캐시를 받지 못하는 쿼리가 운영에 올라간다.</p>
+<h2>핵심 개념</h2>
+<p>Term-level 쿼리는 검색어를 가공하지 않고 색인된 토큰과 1:1로 비교한다. <code>keyword</code>·숫자·날짜·boolean·ip처럼 정확 일치가 의미 있는 필드에서만 의도대로 동작하며, <code>text</code> 필드는 <code>.keyword</code> multi-field로 조회한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">쿼리</th>
+<th align="left">역할</th>
+<th align="left">주의</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>term</code> / <code>terms</code></td>
+<td align="left">한 값 일치 / 여러 값 중 하나 (SQL <code>IN</code>)</td>
+<td align="left">큰 리스트는 <code>terms_lookup</code>으로 다른 인덱스 문서의 배열 참조</td>
+</tr>
+<tr>
+<td align="left"><code>range</code></td>
+<td align="left"><code>gte</code>·<code>lte</code>·<code>gt</code>·<code>lt</code> 구간</td>
+<td align="left">날짜는 <code>format</code>·<code>time_zone</code> 명시, <code>now-7d/d</code> date math 지원</td>
+</tr>
+<tr>
+<td align="left"><code>exists</code></td>
+<td align="left">필드 값 존재 여부</td>
+<td align="left"><code>null</code>·빈 배열은 없는 것으로 판정. <code>IS NULL</code>은 <code>must_not</code> + <code>exists</code></td>
+</tr>
+<tr>
+<td align="left"><code>prefix</code> / <code>wildcard</code> / <code>regexp</code></td>
+<td align="left">시작 일치 / glob / Lucene 정규식</td>
+<td align="left">앞쪽 <code>*</code>는 전체 토큰 스캔</td>
+</tr>
+<tr>
+<td align="left"><code>fuzzy</code></td>
+<td align="left">편집 거리 기반 오타 허용</td>
+<td align="left"><code>fuzziness: AUTO</code> + <code>prefix_length</code> 1~2</td>
+</tr>
+</tbody></table>
+<p>Compound 쿼리는 이 조각들을 조합한다. 실무 쿼리의 대부분은 <code>bool</code> 하나이고, 랭킹 조정이 필요할 때 <code>function_score</code>·<code>dis_max</code>·<code>boosting</code>이 한 겹 더 붙는다. <code>bool</code>의 네 절은 컨텍스트가 다르다. <code>must</code>·<code>should</code>는 query context에서 <code>_score</code>를 계산하고, <code>filter</code>·<code>must_not</code>은 filter context에서 매칭 여부만 판정해 결과가 node-level query cache에 저장된다. <code>must</code>와 <code>filter</code>는 둘 다 AND이지만 점수 계산과 캐시 여부가 갈리므로, 점수가 필요 없는 정확 일치 조건은 <code>filter</code>에 둔다.</p>
+<p><code>should</code>는 위치에 따라 의미가 바뀐다. <code>must</code>나 <code>filter</code>가 함께 있으면 점수만 올리는 옵션이고, <code>should</code>만 있으면 최소 하나는 매칭해야 하는 OR 조건이 된다. <code>minimum_should_match</code>로 명시하며 정수, 퍼센트, 조합식(<code>&quot;3&lt;75%&quot;</code>)을 받는다.</p>
+<p>랭킹 조정 계열은 역할이 나뉜다. <code>constant_score</code>는 매칭된 모든 문서에 같은 점수를 준다. <code>dis_max</code>는 같은 키워드를 여러 필드에 던져 최고 점수를 채택하고 <code>tie_breaker</code>로 나머지를 일부 반영한다. <code>function_score</code>는 쿼리로 후보를 잡은 뒤 <code>field_value_factor</code>·decay(<code>gauss</code>·<code>linear</code>·<code>exp</code>)·<code>script_score</code>·<code>weight</code>로 점수를 재계산하며, 함수끼리 합치는 방식이 <code>score_mode</code>, 쿼리 점수와 합치는 방식이 <code>boost_mode</code>(기본 <code>multiply</code>)다. <code>boosting</code>은 <code>negative</code> 절에 매칭된 문서를 제외하지 않고 <code>negative_boost</code>를 곱해 뒤로 민다.</p>
+<h2>코드</h2>
+<p>상품 검색의 기본형이다. 풀텍스트는 <code>must</code>, 정확 일치는 <code>filter</code>, 제외는 <code>must_not</code>에 둔다.</p>
+<pre><code class="hljs language-json">GET /products/_search
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;query&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;bool&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;must&quot;</span><span class="hljs-punctuation">:</span>     <span class="hljs-punctuation">[</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;match&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;에어팟&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;should&quot;</span><span class="hljs-punctuation">:</span>   <span class="hljs-punctuation">[</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;term&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;is_bestseller&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;must_not&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;term&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;discontinued&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;filter&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;term&quot;</span><span class="hljs-punctuation">:</span>  <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;category&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;audio&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;range&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;price&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;lte&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">100000</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;range&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;created_at&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;gte&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;now-1y/d&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;time_zone&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;+09:00&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>같은 쿼리를 Elasticsearch Java Client로 조립한 Spring 서비스다. Spring Boot 3.x가 자동 구성한 <code>ElasticsearchClient</code> 빈을 주입받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.query_dsl.Query;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.SearchResponse;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductSearchService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductSearchService</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Product&gt; <span class="hljs-title function_">search</span><span class="hljs-params">(String keyword, String category, <span class="hljs-type">long</span> maxPrice)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">Query</span> <span class="hljs-variable">fullText</span> <span class="hljs-operator">=</span> Query.of(q -&gt; q.match(m -&gt; m.field(<span class="hljs-string">&quot;name&quot;</span>).query(keyword)));
+        <span class="hljs-type">Query</span> <span class="hljs-variable">categoryFilter</span> <span class="hljs-operator">=</span> Query.of(q -&gt; q.term(t -&gt; t.field(<span class="hljs-string">&quot;category&quot;</span>).value(category)));
+        <span class="hljs-type">Query</span> <span class="hljs-variable">priceFilter</span> <span class="hljs-operator">=</span> Query.of(q -&gt; q.range(r -&gt; r.number(n -&gt; n.field(<span class="hljs-string">&quot;price&quot;</span>).lte((<span class="hljs-type">double</span>) maxPrice))));
+        <span class="hljs-type">Query</span> <span class="hljs-variable">excludeDiscontinued</span> <span class="hljs-operator">=</span> Query.of(q -&gt; q.term(t -&gt; t.field(<span class="hljs-string">&quot;discontinued&quot;</span>).value(<span class="hljs-literal">true</span>)));
+        <span class="hljs-type">Query</span> <span class="hljs-variable">bestseller</span> <span class="hljs-operator">=</span> Query.of(q -&gt; q.term(t -&gt; t.field(<span class="hljs-string">&quot;is_bestseller&quot;</span>).value(<span class="hljs-literal">true</span>)));
+
+        <span class="hljs-type">SearchResponse</span>&lt;Product&gt; <span class="hljs-variable">response</span> <span class="hljs-operator">=</span> client.search(s -&gt; s
+                .index(<span class="hljs-string">&quot;products&quot;</span>)
+                .query(q -&gt; q.bool(b -&gt; b
+                        .must(fullText)
+                        .filter(categoryFilter, priceFilter)
+                        .mustNot(excludeDiscontinued)
+                        .should(bestseller)))
+                .size(<span class="hljs-number">20</span>),
+            Product.class);
+
+        <span class="hljs-keyword">return</span> response.hits().hits().stream().map(h -&gt; h.source()).toList();
+    }
+}</code></pre>
+<p>판매량과 신선도를 반영한 랭킹이다. <code>log1p</code>는 0 입력에도 0점을 만들지 않아 <code>multiply</code>와 함께 써도 안전하다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.query_dsl.FieldValueFactorModifier;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.query_dsl.FunctionBoostMode;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._types.query_dsl.FunctionScoreMode;
+<span class="hljs-keyword">import</span> co.elastic.clients.json.JsonData;
+
+<span class="hljs-keyword">public</span> <span class="hljs-type">SearchResponse</span>&lt;Product&gt; <span class="hljs-title function_">rankedSearch</span><span class="hljs-params">(String keyword)</span> <span class="hljs-keyword">throws</span> IOException {
+    <span class="hljs-keyword">return</span> client.search(s -&gt; s
+            .index(<span class="hljs-string">&quot;products&quot;</span>)
+            .query(q -&gt; q.functionScore(fs -&gt; fs
+                    .query(inner -&gt; inner.match(m -&gt; m.field(<span class="hljs-string">&quot;name&quot;</span>).query(keyword)))
+                    .functions(
+                        f -&gt; f.fieldValueFactor(fv -&gt; fv
+                                .field(<span class="hljs-string">&quot;sales_count&quot;</span>).modifier(FieldValueFactorModifier.Log1p).factor(<span class="hljs-number">0.1</span>)),
+                        f -&gt; f.gauss(g -&gt; g.date(d -&gt; d
+                                .field(<span class="hljs-string">&quot;released_at&quot;</span>)
+                                .placement(p -&gt; p.origin(JsonData.of(<span class="hljs-string">&quot;now&quot;</span>)).scale(JsonData.of(<span class="hljs-string">&quot;30d&quot;</span>)).decay(<span class="hljs-number">0.5</span>)))))
+                    .scoreMode(FunctionScoreMode.Sum)
+                    .boostMode(FunctionBoostMode.Multiply))),
+        Product.class);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>text</code> 필드에 <code>term</code>을 던져 0건.</strong> 색인된 토큰은 쪼개져 있어 원문 전체와 일치하지 않는다. 정확 일치·집계·정렬은 <code>.keyword</code> multi-field로 간다. 대소문자 문제는 <code>case_insensitive: true</code>보다 색인 시점의 <code>normalizer: lowercase</code>가 빠르다.</li>
+<li><strong>정확 일치를 <code>must</code>에 넣어 캐시를 못 받음.</strong> QPS가 오르면 점수 계산이 CPU를 먼저 소진한다. <code>term</code>·<code>range</code>·<code>exists</code>를 <code>filter</code>로 옮기면 캐시 히트율이 크게 오른다.</li>
+<li><strong><code>should</code>만 있고 <code>minimum_should_match</code> 누락.</strong> 키워드 5개 중 1개만 맞아도 통과해 결과가 수십만 건으로 튄다. 퍼센트는 내림 계산이라 절이 1~2개일 때 의도보다 강한 제약이 걸리므로 조합식으로 명시한다.</li>
+<li><strong>leading wildcard·복잡한 regexp·<code>fuzziness: 2</code> + <code>prefix_length: 0</code>.</strong> 전체 토큰 스캔에 가까워 클러스터 load를 단번에 올린다. 사용자 입력은 게이트웨이에서 검증하고, 자동완성은 <code>search_as_you_type</code>으로 푼다.</li>
+<li><strong><code>script_score</code>에 복잡한 로직.</strong> 매 문서마다 스크립트가 돌아 응답이 수 초로 늘어난다. 간단한 수식만 허용하고 그 이상은 색인 시점에 계산해 필드로 저장한다. 점수 이상은 <code>_name</code>과 <code>explain</code>으로 추적한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/search-api-fulltext/">Search API와 Full-text 쿼리</a></li>
+<li><a href="/notes/elasticsearch/mapping-field-types/">Mapping과 Field Type</a></li>
+<li><a href="/notes/elasticsearch/search-features-suggesters/">검색 기능 — highlight·페이징·Suggester</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Term Query, Bool Query, Filter Context, function_score</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/search-api-fulltext/"><small>이전</small>Search API와 Full-text 쿼리</a>
+  <a class="next" href="/notes/elasticsearch/search-features-suggesters/"><small>다음</small>검색 기능 — highlight·페이징·Suggester</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

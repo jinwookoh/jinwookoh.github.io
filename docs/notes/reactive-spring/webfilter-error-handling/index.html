@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebFilter·예외 처리·검증 · Reactive Spring</title>
+  <meta name="description" content="WebFilter로 공통 처리를 모으고, Bean Validation과 ProblemDetail로 실패 응답을 일관되게 만드는 방법">
+  <meta property="og:title" content="WebFilter·예외 처리·검증 · Reactive Spring">
+  <meta property="og:description" content="WebFilter로 공통 처리를 모으고, Bean Validation과 ProblemDetail로 실패 응답을 일관되게 만드는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/webfilter-error-handling/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>WebFilter·예외 처리·검증</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · WebFlux</p>
+  <h1>WebFilter·예외 처리·검증</h1>
+  <p class="summary">WebFilter로 공통 처리를 모으고, Bean Validation과 ProblemDetail로 실패 응답을 일관되게 만드는 방법</p>
+  <div class="content">
+<p>인증, 로깅, 보안 헤더 추가는 모든 요청에 공통으로 필요하다. 컨트롤러마다 반복하면 누락이 생기고, 검증과 예외 응답도 핸들러마다 달라져 클라이언트는 실패 원인을 상태 코드로 판단할 수 없게 된다. WebFlux는 이를 WebFilter와 <code>@ControllerAdvice</code> + <code>ProblemDetail</code>로 처리한다. Servlet의 <code>Filter</code>, <code>HandlerInterceptor</code>, <code>MethodArgumentNotValidException</code>, ThreadLocal MDC는 WebFlux에서 동작하지 않는다.</p>
+<h2>핵심 개념</h2>
+<p>WebFilter는 서버와 핸들러 사이에서 모든 요청·응답을 가로채는 컴포넌트다. 인터페이스는 <code>Mono&lt;Void&gt; filter(ServerWebExchange, WebFilterChain)</code> 하나이며 <code>@Component</code>로 등록하면 체인에 포함된다. <code>ServerWebExchange</code>는 요청, 응답, 필터 간 공유 맵(<code>getAttributes()</code>)을 묶은 객체다.</p>
+<p><code>chain.filter(exchange)</code>가 다음 필터와 핸들러로 이어지는 지점이다. 이 호출 앞이 전처리, 뒤에 붙는 <code>doFinally</code> 등이 후처리다. 반환된 <code>Mono&lt;Void&gt;</code>를 return하지 않으면 구독이 일어나지 않아 요청이 사라진다. 차단하려면 상태 코드를 설정하고 <code>exchange.getResponse().setComplete()</code>를 반환한다. <code>Mono.empty()</code>를 반환하면 응답이 완료되지 않는다.</p>
+<p>실행 순서는 <code>@Order</code> 값이 낮을수록 앞선다. 애노테이션이 없으면 순서가 보장되지 않아 인증보다 권한 필터가 먼저 실행될 수 있다. CORS·보안은 <code>Ordered.HIGHEST_PRECEDENCE</code>, 인증 → 권한 순으로 낮은 값을 주고, 응답 헤더 필터는 <code>Ordered.LOWEST_PRECEDENCE</code>로 둔다.</p>
+<p>이벤트 루프는 소수 스레드가 다수 요청을 번갈아 처리하므로 ThreadLocal 값은 스레드가 바뀌면 사라지거나 다른 요청의 값으로 오염된다. 요청 단위 값은 <code>getAttributes()</code>에 두거나, 다운스트림까지 전파해야 하면 <code>contextWrite</code>로 Reactor Context에 넣는다.</p>
+<p>검증은 <code>spring-boot-starter-validation</code>을 추가하고 DTO에 Jakarta Bean Validation 제약을 붙인 뒤 <code>@Valid</code>를 붙이면 역직렬화 시점에 수행되며, <code>@RequestBody Mono&lt;Dto&gt;</code>에도 적용된다. 실패 예외는 <code>WebExchangeBindException</code>이다. <code>@PathVariable</code>·<code>@RequestParam</code>은 클래스에 <code>@Validated</code>를 붙이고 파라미터에 제약을 직접 선언해야 한다. 문자열에는 공백만 있는 값까지 거부하는 <code>@NotBlank</code>가 대개 맞다.</p>
+<p>예외 처리는 두 층이다. 파이프라인 안에서는 <code>switchIfEmpty(Mono.error(...))</code>로 빈 결과를 404 예외로 바꾸고, <code>onErrorResume</code>·<code>onErrorReturn</code>·<code>onErrorComplete</code>로 대체 흐름을 만든다. 핸들러 밖으로 나온 에러 신호는 <code>@RestControllerAdvice</code>의 <code>@ExceptionHandler</code>가 받으며, <code>ServerWebExchange</code>를 파라미터로, <code>ProblemDetail</code>(Spring 6 내장, RFC 9457)이나 <code>Mono</code>를 반환으로 쓸 수 있다. 빈 <code>Mono</code>를 그대로 반환하면 404가 아니라 본문 없는 200이 나간다.</p>
+<h2>코드</h2>
+<p>인증 필터. 토큰이 없으면 401로 종료하고, 성공하면 사용자 ID를 attributes와 Reactor Context에 넣는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@Order(1)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AuthenticationFilter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">WebFilter</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">USER_ID</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;userId&quot;</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">WHITELIST</span> <span class="hljs-operator">=</span> List.of(<span class="hljs-string">&quot;/public&quot;</span>, <span class="hljs-string">&quot;/actuator/health&quot;</span>);
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">filter</span><span class="hljs-params">(ServerWebExchange exchange, WebFilterChain chain)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">path</span> <span class="hljs-operator">=</span> exchange.getRequest().getPath().value();
+        <span class="hljs-keyword">if</span> (WHITELIST.stream().anyMatch(path::startsWith)) {
+            <span class="hljs-keyword">return</span> chain.filter(exchange);
+        }
+
+        <span class="hljs-type">String</span> <span class="hljs-variable">token</span> <span class="hljs-operator">=</span> exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        <span class="hljs-keyword">if</span> (token == <span class="hljs-literal">null</span> || token.isBlank()) {
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            <span class="hljs-keyword">return</span> exchange.getResponse().setComplete();
+        }
+
+        <span class="hljs-type">String</span> <span class="hljs-variable">userId</span> <span class="hljs-operator">=</span> resolveUserId(token);
+        exchange.getAttributes().put(USER_ID, userId);
+        <span class="hljs-keyword">return</span> chain.filter(exchange)
+                .contextWrite(ctx -&gt; ctx.put(USER_ID, userId));
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">String</span> <span class="hljs-title function_">resolveUserId</span><span class="hljs-params">(String token)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;user-001&quot;</span>; <span class="hljs-comment">// 실제로는 JWT 파싱 또는 토큰 저장소 조회</span>
+    }
+}</code></pre>
+<p>응답 헤더와 처리 시간 필터. 헤더는 커밋 전에 넣어야 하므로 <code>beforeCommit</code>, 처리 시간은 성공·에러·취소 모두 실행되는 <code>doFinally</code>에서 기록한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-meta">@Order(Ordered.LOWEST_PRECEDENCE)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ResponseDecoratingFilter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">WebFilter</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(ResponseDecoratingFilter.class);
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">filter</span><span class="hljs-params">(ServerWebExchange exchange, WebFilterChain chain)</span> {
+        <span class="hljs-type">long</span> <span class="hljs-variable">start</span> <span class="hljs-operator">=</span> System.nanoTime();
+        <span class="hljs-type">String</span> <span class="hljs-variable">path</span> <span class="hljs-operator">=</span> exchange.getRequest().getPath().value();
+
+        exchange.getResponse().beforeCommit(() -&gt; {
+            <span class="hljs-type">HttpHeaders</span> <span class="hljs-variable">headers</span> <span class="hljs-operator">=</span> exchange.getResponse().getHeaders();
+            headers.set(<span class="hljs-string">&quot;X-Content-Type-Options&quot;</span>, <span class="hljs-string">&quot;nosniff&quot;</span>);
+            headers.set(<span class="hljs-string">&quot;X-Frame-Options&quot;</span>, <span class="hljs-string">&quot;DENY&quot;</span>);
+            <span class="hljs-keyword">return</span> Mono.empty();
+        });
+
+        <span class="hljs-keyword">return</span> chain.filter(exchange)
+                .doFinally(signal -&gt; log.info(<span class="hljs-string">&quot;{} {} {}ms ({})&quot;</span>, path,
+                        exchange.getResponse().getStatusCode(),
+                        (System.nanoTime() - start) / <span class="hljs-number">1_000_000</span>, signal));
+    }
+}</code></pre>
+<p>검증 DTO, <code>switchIfEmpty</code> 패턴, 전역 예외 핸들러. 예상 밖 예외는 내부 메시지를 노출하지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">CustomerDto</span><span class="hljs-params">(
+        Integer id,
+        @NotBlank(message = &quot;이름은 필수다&quot;)</span> <span class="hljs-meta">@Size(min = 2, max = 50)</span> String name,
+        <span class="hljs-meta">@NotBlank</span> <span class="hljs-meta">@Email(message = &quot;이메일 형식이 아니다&quot;)</span> String email) {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CustomerNotFoundException</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">RuntimeException</span> {
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CustomerNotFoundException</span><span class="hljs-params">(Integer id)</span> {
+        <span class="hljs-built_in">super</span>(<span class="hljs-string">&quot;Customer [&quot;</span> + id + <span class="hljs-string">&quot;] not found&quot;</span>);
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CustomerService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> CustomerRepository repository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CustomerService</span><span class="hljs-params">(CustomerRepository repository)</span> { <span class="hljs-built_in">this</span>.repository = repository; }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;CustomerDto&gt; <span class="hljs-title function_">findById</span><span class="hljs-params">(Integer id)</span> {
+        <span class="hljs-keyword">return</span> repository.findById(id)
+                .map(CustomerMapper::toDto)
+                .switchIfEmpty(Mono.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">CustomerNotFoundException</span>(id)));
+    }
+}
+
+<span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/customers&quot;)</span>
+<span class="hljs-meta">@Validated</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CustomerController</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> CustomerService service;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CustomerController</span><span class="hljs-params">(CustomerService service)</span> { <span class="hljs-built_in">this</span>.service = service; }
+
+    <span class="hljs-meta">@GetMapping(&quot;/{id}&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;CustomerDto&gt; <span class="hljs-title function_">get</span><span class="hljs-params">(<span class="hljs-meta">@PathVariable</span> <span class="hljs-meta">@Positive</span> Integer id)</span> {
+        <span class="hljs-keyword">return</span> service.findById(id);
+    }
+
+    <span class="hljs-meta">@PostMapping</span>
+    <span class="hljs-meta">@ResponseStatus(HttpStatus.CREATED)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;CustomerDto&gt; <span class="hljs-title function_">create</span><span class="hljs-params">(<span class="hljs-meta">@RequestBody</span> <span class="hljs-meta">@Valid</span> Mono&lt;CustomerDto&gt; dto)</span> {
+        <span class="hljs-keyword">return</span> dto.flatMap(service::save);
+    }
+}
+
+<span class="hljs-meta">@RestControllerAdvice</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GlobalExceptionHandler</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    <span class="hljs-meta">@ExceptionHandler(CustomerNotFoundException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProblemDetail</span> <span class="hljs-title function_">notFound</span><span class="hljs-params">(CustomerNotFoundException ex, ServerWebExchange exchange)</span> {
+        <span class="hljs-type">ProblemDetail</span> <span class="hljs-variable">pd</span> <span class="hljs-operator">=</span> ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        pd.setTitle(<span class="hljs-string">&quot;Customer Not Found&quot;</span>);
+        pd.setInstance(exchange.getRequest().getURI());
+        <span class="hljs-keyword">return</span> pd;
+    }
+
+    <span class="hljs-meta">@ExceptionHandler(WebExchangeBindException.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProblemDetail</span> <span class="hljs-title function_">invalid</span><span class="hljs-params">(WebExchangeBindException ex)</span> {
+        <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">errors</span> <span class="hljs-operator">=</span> ex.getFieldErrors().stream()
+                .map(fe -&gt; fe.getField() + <span class="hljs-string">&quot;: &quot;</span> + fe.getDefaultMessage())
+                .toList();
+        <span class="hljs-type">ProblemDetail</span> <span class="hljs-variable">pd</span> <span class="hljs-operator">=</span> ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, <span class="hljs-string">&quot;Validation failed&quot;</span>);
+        pd.setTitle(<span class="hljs-string">&quot;Validation Failed&quot;</span>);
+        pd.setProperty(<span class="hljs-string">&quot;errors&quot;</span>, errors);
+        <span class="hljs-keyword">return</span> pd;
+    }
+
+    <span class="hljs-meta">@ExceptionHandler(Exception.class)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProblemDetail</span> <span class="hljs-title function_">unexpected</span><span class="hljs-params">(Exception ex)</span> {
+        log.error(<span class="hljs-string">&quot;Unhandled exception&quot;</span>, ex);
+        <span class="hljs-keyword">return</span> ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR, <span class="hljs-string">&quot;Unexpected error&quot;</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>@ControllerAdvice</code>는 핸들러 단계의 예외만 처리한다. WebFilter에서 난 예외는 기본 <code>ErrorWebExceptionHandler</code>로 가므로, 필터 단계 에러 응답까지 통일하려면 <code>WebExceptionHandler</code>를 직접 등록하거나 필터 안에서 응답을 완성한다.</li>
+<li>응답 헤더를 <code>doOnSuccess</code>에서 추가하면 이미 커밋된 응답에 쓰려다 예외가 나거나 무시된다. <code>beforeCommit</code> 또는 <code>chain.filter</code> 호출 전에 넣는다.</li>
+<li>Reactor Context는 MDC에 자동 반영되지 않는다. 로그에 trace ID를 남기려면 Micrometer Context Propagation을 함께 구성한다.</li>
+<li><code>Exception</code> 핸들러가 <code>ResponseStatusException</code>까지 삼키면 상태 코드가 500으로 바뀐다. <code>ResponseEntityExceptionHandler</code>를 상속하고 <code>spring.webflux.problemdetails.enabled=true</code>를 켠다.</li>
+<li>컨트롤러나 필터에서 <code>subscribe()</code>를 직접 호출하면 이중 구독이 되어 예외가 <code>@ControllerAdvice</code>로 전달되지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/webflux-basics-functional/">WebFlux 기본 — 애노테이션 컨트롤러와 Functional Endpoints</a></li>
+<li><a href="/notes/reactive-spring/schedulers-context/">Schedulers·스레딩·Context</a></li>
+<li><a href="/notes/reactive-spring/retry-stepverifier/">Repeat·Retry와 StepVerifier</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · WebFilter, ServerWebExchange, Bean Validation, ProblemDetail, ControllerAdvice</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/webclient/"><small>이전</small>WebClient</a>
+  <a class="next" href="/notes/reactive-spring/streaming-sse-ndjson/"><small>다음</small>스트리밍 응답 — SSE·NDJSON</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

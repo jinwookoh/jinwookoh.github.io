@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Broker·Topic 설정 · Kafka</title>
+  <meta name="description" content="Broker 기본값과 Topic 단위 override의 관계, 운영에서 실제로 손대는 설정과 적용 시점을 정리한다">
+  <meta property="og:title" content="Broker·Topic 설정 · Kafka">
+  <meta property="og:description" content="Broker 기본값과 Topic 단위 override의 관계, 운영에서 실제로 손대는 설정과 적용 시점을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/broker-topic-config/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Broker·Topic 설정</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 운영</p>
+  <h1>Broker·Topic 설정</h1>
+  <p class="summary">Broker 기본값과 Topic 단위 override의 관계, 운영에서 실제로 손대는 설정과 적용 시점을 정리한다</p>
+  <div class="content">
+<p>Kafka broker 설정은 수백 개가 있고, topic 설정은 그 기본값을 topic 단위로 덮어쓴다. 두 층의 관계를 모르면 <code>acks=all</code>을 걸어 놓고도 <code>min.insync.replicas=1</code> 때문에 사실상 <code>acks=1</code>로 동작하거나, topic의 <code>max.message.bytes</code>만 올려 놓고 broker가 메시지를 거부하는 상황을 겪는다. <code>auto.create.topics.enable</code>이 켜진 운영 클러스터에는 오타 topic이 쌓인다.</p>
+<h2>핵심 개념</h2>
+<h3>Broker 설정의 범주</h3>
+<p>실무에서 조정하는 broker 설정은 다음과 같이 나뉜다.</p>
+<ul>
+<li>Identity: <code>node.id</code>, <code>process.roles</code>(<code>broker</code>, <code>controller</code>, <code>broker,controller</code>), <code>controller.quorum.voters</code>. KRaft 필수 항목이며 소규모는 결합, 대규모는 분리한다.</li>
+<li>Log: <code>log.dirs</code>(콤마 구분 JBOD), <code>log.retention.hours</code>/<code>log.retention.bytes</code>(먼저 도달한 쪽 발동), <code>log.segment.bytes</code>, <code>log.cleanup.policy</code>. <code>log.flush.interval.*</code>는 기본 무한대로 fsync를 OS pagecache에 맡긴다.</li>
+<li>Replication: <code>default.replication.factor=3</code>, <code>min.insync.replicas=2</code>, <code>unclean.leader.election.enable=false</code>.</li>
+<li>Network: <code>listeners</code>(bind 주소), <code>advertised.listeners</code>(클라이언트에게 알려주는 주소), <code>num.network.threads</code>, <code>num.io.threads</code>, <code>message.max.bytes</code>.</li>
+<li>Consumer Group: <code>offsets.retention.minutes</code>(기본 7일), <code>group.initial.rebalance.delay.ms</code>.</li>
+<li>Security·운영: <code>security.inter.broker.protocol</code>, <code>ssl.*</code>, <code>sasl.*</code>, <code>authorizer.class.name</code>, <code>auto.create.topics.enable=false</code>.</li>
+</ul>
+<h3>Topic 설정과 default·override 관계</h3>
+<p>Topic 설정은 broker 설정과 접두사만 다른 짝을 이룬다. <code>log.retention.ms</code>와 <code>retention.ms</code>가 대표적이다. 명시하지 않은 값은 broker 기본값을 따르고 특수한 topic만 override한다. 자주 손대는 항목은 <code>retention.ms</code>/<code>retention.bytes</code>(partition 단위), <code>segment.bytes</code>/<code>segment.ms</code>, <code>cleanup.policy</code>, <code>compression.type</code>(<code>producer</code>가 기본), <code>min.insync.replicas</code>, <code>max.message.bytes</code>, <code>message.timestamp.type</code>이다. compact topic은 <code>min.cleanable.dirty.ratio</code>, <code>delete.retention.ms</code>를 추가로 조정한다.</p>
+<h3>동적 설정과 정적 설정</h3>
+<p>Broker 설정은 read-only(재시작 필요), per-broker, cluster-wide(<code>kafka-configs.sh</code>로 런타임 변경)로 나뉜다. Topic 설정은 전부 동적이며 대부분 즉시 반영된다. 다만 <code>compression.type</code>과 <code>segment.bytes</code>는 새 segment부터 적용되고, <code>cleanup.policy</code>를 <code>compact</code>로 바꿔도 기존 데이터가 즉시 압축되지는 않는다.</p>
+<h2>코드</h2>
+<p>운영 환경 broker 설정의 최소 골격이다. KRaft 결합 모드, RF=3, TLS 내부 통신을 전제로 한다.</p>
+<pre><code class="hljs language-properties"><span class="hljs-attr">node.id</span>=<span class="hljs-string">1</span>
+<span class="hljs-attr">process.roles</span>=<span class="hljs-string">broker,controller</span>
+<span class="hljs-attr">controller.quorum.voters</span>=<span class="hljs-string">1@host1:9093,2@host2:9093,3@host3:9093</span>
+<span class="hljs-attr">controller.listener.names</span>=<span class="hljs-string">CONTROLLER</span>
+
+<span class="hljs-attr">log.dirs</span>=<span class="hljs-string">/var/kafka-data</span>
+<span class="hljs-attr">log.retention.hours</span>=<span class="hljs-string">168</span>
+<span class="hljs-attr">log.segment.bytes</span>=<span class="hljs-string">1073741824</span>
+
+<span class="hljs-attr">default.replication.factor</span>=<span class="hljs-string">3</span>
+<span class="hljs-attr">min.insync.replicas</span>=<span class="hljs-string">2</span>
+<span class="hljs-attr">unclean.leader.election.enable</span>=<span class="hljs-string">false</span>
+<span class="hljs-attr">num.replica.fetchers</span>=<span class="hljs-string">4</span>
+
+<span class="hljs-attr">listeners</span>=<span class="hljs-string">SSL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093</span>
+<span class="hljs-attr">advertised.listeners</span>=<span class="hljs-string">SSL://kafka-1.example.com:9092</span>
+<span class="hljs-attr">num.network.threads</span>=<span class="hljs-string">8</span>
+<span class="hljs-attr">num.io.threads</span>=<span class="hljs-string">16</span>
+<span class="hljs-attr">compression.type</span>=<span class="hljs-string">producer</span>
+
+<span class="hljs-attr">security.inter.broker.protocol</span>=<span class="hljs-string">SSL</span>
+<span class="hljs-attr">ssl.keystore.location</span>=<span class="hljs-string">/etc/kafka/ssl/keystore.jks</span>
+<span class="hljs-attr">ssl.truststore.location</span>=<span class="hljs-string">/etc/kafka/ssl/truststore.jks</span>
+<span class="hljs-attr">authorizer.class.name</span>=<span class="hljs-string">org.apache.kafka.metadata.authorizer.StandardAuthorizer</span>
+
+<span class="hljs-attr">auto.create.topics.enable</span>=<span class="hljs-string">false</span>
+<span class="hljs-attr">delete.topic.enable</span>=<span class="hljs-string">true</span></code></pre>
+<p>CLI로 topic override를 생성·변경·조회하고 broker 동적 설정을 바꾼다.</p>
+<pre><code class="hljs language-bash">kafka-topics.sh --bootstrap-server localhost:9092 --create --topic orders \
+  --partitions 3 --replication-factor 3 \
+  --config retention.ms=86400000 --config compression.type=zstd
+
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type topics --entity-name orders \
+  --alter --add-config <span class="hljs-string">&quot;retention.ms=172800000,min.insync.replicas=2&quot;</span>
+
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type topics --entity-name orders --describe
+
+kafka-configs.sh --bootstrap-server localhost:9092 \
+  --entity-type brokers --entity-name 1 \
+  --alter --add-config <span class="hljs-string">&quot;log.retention.hours=240&quot;</span></code></pre>
+<p>Spring Boot 3.x에서 <code>KafkaAdmin</code>이 기동 시 <code>NewTopic</code> bean을 생성하고, <code>incrementalAlterConfigs</code>로 운영 중 override를 바꾼다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.concurrent.ExecutionException;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.Admin;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.AlterConfigOp;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.ConfigEntry;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.NewTopic;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.config.ConfigResource;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.config.TopicConfig;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.kafka.config.TopicBuilder;
+<span class="hljs-keyword">import</span> org.springframework.kafka.core.KafkaAdmin;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TopicConfiguration</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">NewTopic</span> <span class="hljs-title function_">ordersTopic</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> TopicBuilder.name(<span class="hljs-string">&quot;orders&quot;</span>)
+                .partitions(<span class="hljs-number">3</span>)
+                .replicas(<span class="hljs-number">3</span>)
+                .config(TopicConfig.RETENTION_MS_CONFIG, <span class="hljs-string">&quot;604800000&quot;</span>)
+                .config(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, <span class="hljs-string">&quot;2&quot;</span>)
+                .config(TopicConfig.COMPRESSION_TYPE_CONFIG, <span class="hljs-string">&quot;producer&quot;</span>)
+                .build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">NewTopic</span> <span class="hljs-title function_">productStateTopic</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> TopicBuilder.name(<span class="hljs-string">&quot;product-state&quot;</span>)
+                .partitions(<span class="hljs-number">6</span>)
+                .replicas(<span class="hljs-number">3</span>)
+                .compact()
+                .config(TopicConfig.SEGMENT_BYTES_CONFIG, <span class="hljs-string">&quot;104857600&quot;</span>)
+                .config(TopicConfig.DELETE_RETENTION_MS_CONFIG, <span class="hljs-string">&quot;86400000&quot;</span>)
+                .build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">extendRetention</span><span class="hljs-params">(KafkaAdmin kafkaAdmin, String topic, <span class="hljs-type">long</span> retentionMs)</span>
+            <span class="hljs-keyword">throws</span> ExecutionException, InterruptedException {
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">Admin</span> <span class="hljs-variable">admin</span> <span class="hljs-operator">=</span> Admin.create(kafkaAdmin.getConfigurationProperties())) {
+            <span class="hljs-type">ConfigResource</span> <span class="hljs-variable">resource</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConfigResource</span>(ConfigResource.Type.TOPIC, topic);
+            <span class="hljs-type">AlterConfigOp</span> <span class="hljs-variable">op</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AlterConfigOp</span>(
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConfigEntry</span>(TopicConfig.RETENTION_MS_CONFIG, String.valueOf(retentionMs)),
+                    AlterConfigOp.OpType.SET);
+            admin.incrementalAlterConfigs(Map.of(resource, List.of(op))).all().get();
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>retention.bytes</code>는 partition 단위다. partition 10개에 1GB를 주면 topic 전체는 10GB까지 커진다.</li>
+<li><code>max.message.bytes</code>를 topic에서만 올리면 broker의 <code>message.max.bytes</code>에 걸려 거부된다. 두 값을 함께 조정하고 consumer의 <code>max.partition.fetch.bytes</code>도 맞춘다.</li>
+<li><code>advertised.listeners</code>가 resolve되지 않는 호스트명이면 bootstrap 연결은 되어도 metadata의 주소로 재연결하면서 실패한다.</li>
+<li><code>log.flush.interval.*</code>를 명시하면 매번 fsync가 발생해 처리량이 크게 떨어진다. 내구성은 replication과 <code>min.insync.replicas</code>로 보장한다.</li>
+<li><code>compression.type=producer</code>는 producer가 압축하지 않으면 비압축으로 저장된다. <code>segment.bytes</code>를 너무 낮추면 파일 수가 폭증해 file descriptor를 소진한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/replication-isr/">Replication — ISR·리더 선출·Unclean</a></li>
+<li><a href="/notes/kafka/admin-client/">Admin Client — API 5종 개관과 관리 작업</a></li>
+<li><a href="/notes/kafka/operations-kraft/">운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, Broker Config, Topic Config, KRaft, Retention</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/admin-client/"><small>이전</small>Admin Client — API 5종 개관과 관리 작업</a>
+  <a class="next" href="/notes/kafka/operations-kraft/"><small>다음</small>운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

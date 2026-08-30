@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document CRUD·Bulk·Reindex·Versioning · Elasticsearch</title>
+  <meta name="description" content="Elasticsearch 문서 쓰기는 near-realtime·불변 세그먼트·낙관적 동시성 제어 위에서 Bulk 단위로 설계해야 한다">
+  <meta property="og:title" content="Document CRUD·Bulk·Reindex·Versioning · Elasticsearch">
+  <meta property="og:description" content="Elasticsearch 문서 쓰기는 near-realtime·불변 세그먼트·낙관적 동시성 제어 위에서 Bulk 단위로 설계해야 한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/elasticsearch/document-crud-bulk-reindex/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/elasticsearch/">Elasticsearch</a><span class="sep">›</span><span>Document CRUD·Bulk·Reindex·Versioning</span></nav>
+    <article class="post">
+  <p class="part">Elasticsearch · 인덱스와 매핑</p>
+  <h1>Document CRUD·Bulk·Reindex·Versioning</h1>
+  <p class="summary">Elasticsearch 문서 쓰기는 near-realtime·불변 세그먼트·낙관적 동시성 제어 위에서 Bulk 단위로 설계해야 한다</p>
+  <div class="content">
+<p>Elasticsearch의 문서 API는 RDBMS의 INSERT·UPDATE·DELETE와 이름이 같지만 동작 모델이 다르다. 색인 직후 검색에 보이지 않고, 부분 갱신이 실제로는 재색인이며, 행 단위 락이 없고, 단건 API로 대량 데이터를 넣으면 클러스터가 먼저 무너진다. 이 차이를 모르면 &quot;저장했는데 검색이 안 된다&quot; 같은 장애가 반복된다.</p>
+<h2>핵심 개념</h2>
+<h3>RDBMS와 다른 점</h3>
+<p>검색은 <strong>near-realtime</strong>이다. 색인된 문서는 <code>refresh_interval</code>(기본 1초)마다 segment로 내려가며 그 전에는 <code>_search</code>에 잡히지 않는다. 반면 Get API는 translog를 읽으므로 refresh와 무관하게 최신 값을 돌려준다.</p>
+<p>segment는 불변이므로 <strong>in-place update가 없다</strong>. <code>_update</code>는 원본 조회 → 병합 → 재색인 → 옛 문서 tombstone 순서로 동작하고, 삭제된 공간은 segment merge 때 회수된다.</p>
+<p>락 대신 <strong>Optimistic Concurrency Control</strong>을 쓴다. 모든 문서는 <code>_seq_no</code>(primary shard 안에서 단조 증가하는 일련번호)와 <code>_primary_term</code>(primary 재선출마다 증가하는 임기 번호)을 가진다. <code>if_seq_no</code>·<code>if_primary_term</code>을 붙인 쓰기는 두 값이 일치할 때만 반영되고, 아니면 409 <code>version_conflict_engine_exception</code>이 돌아온다. <code>_version</code> 단독 조건부 쓰기는 primary 교체 시 정확하지 않아 8.x에서 권장되지 않는다. <code>version_type=external</code>은 외부 순번이 저장된 값보다 클 때만 받아들이므로 CDC에서 늦게 도착한 옛 이벤트가 최신 데이터를 덮는 사고를 막는다.</p>
+<h3>단건 API</h3>
+<p><code>PUT /idx/_doc/{id}</code>는 없으면 생성하고 있으면 덮어쓰며, <code>PUT /idx/_create/{id}</code>는 이미 있으면 409를 낸다. <code>POST /idx/_update/{id}</code>는 <code>doc</code> 병합·<code>script</code>·<code>doc_as_upsert</code> 세 모드를 가진다. 쓰기 API 공통의 <code>refresh</code> 파라미터는 <code>false</code>(기본), <code>wait_for</code>(다음 refresh까지 응답을 미룸), <code>true</code>(즉시 강제 refresh) 세 값이다.</p>
+<h3>Bulk API</h3>
+<p>본문은 <strong>NDJSON</strong>이다. action 라인과 source 라인이 짝을 이루고, 마지막 줄도 <code>\n</code>으로 끝나야 하며, <code>Content-Type: application/x-ndjson</code>을 보낸다. action은 <code>index</code>(upsert, 멱등), <code>create</code>(중복 시 항목 단위 409), <code>update</code>(부분 갱신), <code>delete</code>(source 라인 없음) 네 가지다.</p>
+<p>요청 크기는 건수가 아니라 <strong>바이트</strong>로 잡으며 권장은 요청당 5~15MB다. 응답은 HTTP 200이어도 <strong>부분 실패</strong>를 담을 수 있으므로 <code>errors</code>가 true면 <code>items</code>를 순회해 각 <code>status</code>를 본다. 4xx는 재시도 대상이 아니고, 429(write thread pool 큐 포화)와 503은 backoff 후 재시도한다.</p>
+<h3>Reindex·by-query</h3>
+<p><code>_reindex</code>는 source를 scroll로 읽어 dest에 내부 Bulk로 쓴다. <code>source.query</code>로 일부만 복사하고, <code>script</code>로 값을 변환하며, <code>requests_per_second</code>로 속도를 제한하고, <code>wait_for_completion=false</code>로 받은 task ID를 <code>GET /_tasks/{id}</code>로 확인한다. <code>_update_by_query</code>·<code>_delete_by_query</code>도 같은 방식이라 매칭 수에 비례해 비싸며, 대량 삭제는 인덱스 drop이 훨씬 싸다.</p>
+<h2>코드</h2>
+<p>Java API Client로 Bulk 요청을 조립하고 부분 실패를 재시도 가능 여부로 나누는 서비스.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.search;
+
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.BulkRequest;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.BulkResponse;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.io.IOException;
+<span class="hljs-keyword">import</span> java.util.ArrayList;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductIndexer</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ElasticsearchClient client;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> FailedItemSink failedItemSink;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductIndexer</span><span class="hljs-params">(ElasticsearchClient client, FailedItemSink failedItemSink)</span> {
+        <span class="hljs-built_in">this</span>.client = client;
+        <span class="hljs-built_in">this</span>.failedItemSink = failedItemSink;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">bulkIndex</span><span class="hljs-params">(List&lt;Product&gt; products)</span> <span class="hljs-keyword">throws</span> IOException {
+        BulkRequest.<span class="hljs-type">Builder</span> <span class="hljs-variable">br</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">BulkRequest</span>.Builder().index(<span class="hljs-string">&quot;products&quot;</span>);
+        <span class="hljs-keyword">for</span> (Product p : products) {
+            br.operations(op -&gt; op.index(idx -&gt; idx.id(p.id()).document(p)));
+        }
+
+        <span class="hljs-type">BulkResponse</span> <span class="hljs-variable">response</span> <span class="hljs-operator">=</span> client.bulk(br.build());
+        <span class="hljs-keyword">if</span> (!response.errors()) {
+            <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-type">List</span>&lt;Product&gt; <span class="hljs-variable">retryable</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;();
+        <span class="hljs-type">List</span>&lt;BulkResponseItem&gt; <span class="hljs-variable">items</span> <span class="hljs-operator">=</span> response.items();
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; items.size(); i++) {
+            <span class="hljs-type">BulkResponseItem</span> <span class="hljs-variable">item</span> <span class="hljs-operator">=</span> items.get(i);
+            <span class="hljs-keyword">if</span> (item.error() == <span class="hljs-literal">null</span>) <span class="hljs-keyword">continue</span>;
+            <span class="hljs-type">int</span> <span class="hljs-variable">status</span> <span class="hljs-operator">=</span> item.status();
+            <span class="hljs-keyword">if</span> (status == <span class="hljs-number">429</span> || status &gt;= <span class="hljs-number">500</span>) {
+                retryable.add(products.get(i));
+            } <span class="hljs-keyword">else</span> {
+                failedItemSink.deadLetter(products.get(i), item.error().reason());
+            }
+        }
+        <span class="hljs-keyword">if</span> (!retryable.isEmpty()) {
+            failedItemSink.scheduleRetry(retryable);
+        }
+    }
+}</code></pre>
+<p>flush 정책·동시성 제어는 <code>BulkIngester</code>에 맡긴다. 구 High Level REST Client의 <code>BulkProcessor</code> 대체재다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">package</span> com.example.search;
+
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.ElasticsearchClient;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._helpers.bulk.BulkIngester;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch._helpers.bulk.BulkListener;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.BulkRequest;
+<span class="hljs-keyword">import</span> co.elastic.clients.elasticsearch.core.BulkResponse;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.concurrent.TimeUnit;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BulkIngesterConfig</span> {
+
+    <span class="hljs-meta">@Bean(destroyMethod = &quot;close&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">BulkIngester</span>&lt;Void&gt; <span class="hljs-title function_">bulkIngester</span><span class="hljs-params">(ElasticsearchClient client)</span> {
+        <span class="hljs-keyword">return</span> BulkIngester.of(b -&gt; b
+            .client(client)
+            .maxOperations(<span class="hljs-number">2_000</span>)
+            .maxSize(<span class="hljs-number">5L</span> * <span class="hljs-number">1024</span> * <span class="hljs-number">1024</span>)
+            .flushInterval(<span class="hljs-number">1</span>, TimeUnit.SECONDS)
+            .maxConcurrentRequests(<span class="hljs-number">4</span>)
+            .listener(<span class="hljs-keyword">new</span> <span class="hljs-title class_">BulkListener</span>&lt;Void&gt;() {
+                <span class="hljs-meta">@Override</span>
+                <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">beforeBulk</span><span class="hljs-params">(<span class="hljs-type">long</span> id, BulkRequest req, List&lt;Void&gt; ctx)</span> { }
+
+                <span class="hljs-meta">@Override</span>
+                <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterBulk</span><span class="hljs-params">(<span class="hljs-type">long</span> id, BulkRequest req, List&lt;Void&gt; ctx, BulkResponse res)</span> {
+                    <span class="hljs-keyword">if</span> (res.errors()) {
+                        res.items().stream()
+                            .filter(it -&gt; it.error() != <span class="hljs-literal">null</span>)
+                            .forEach(it -&gt; System.err.println(it.id() + <span class="hljs-string">&quot; &quot;</span> + it.error().reason()));
+                    }
+                }
+
+                <span class="hljs-meta">@Override</span>
+                <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterBulk</span><span class="hljs-params">(<span class="hljs-type">long</span> id, BulkRequest req, List&lt;Void&gt; ctx, Throwable t)</span> {
+                    System.err.println(<span class="hljs-string">&quot;bulk &quot;</span> + id + <span class="hljs-string">&quot; failed: &quot;</span> + t.getMessage());
+                }
+            }));
+    }
+}</code></pre>
+<p>재고 차감에 OCC를 적용하는 예. 조회 시 받은 <code>_seq_no</code>·<code>_primary_term</code>을 조건으로 붙이고, 409면 다시 시도한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">decreaseStock</span><span class="hljs-params">(String productId, <span class="hljs-type">int</span> qty)</span> <span class="hljs-keyword">throws</span> IOException {
+    <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">attempt</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; attempt &lt; <span class="hljs-number">5</span>; attempt++) {
+        <span class="hljs-type">var</span> <span class="hljs-variable">got</span> <span class="hljs-operator">=</span> client.get(g -&gt; g.index(<span class="hljs-string">&quot;products&quot;</span>).id(productId), Product.class);
+        <span class="hljs-type">Product</span> <span class="hljs-variable">current</span> <span class="hljs-operator">=</span> got.source();
+        <span class="hljs-keyword">if</span> (current == <span class="hljs-literal">null</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;not found: &quot;</span> + productId);
+
+        <span class="hljs-type">Product</span> <span class="hljs-variable">updated</span> <span class="hljs-operator">=</span> current.withStock(current.stock() - qty);
+        <span class="hljs-keyword">try</span> {
+            client.index(i -&gt; i.index(<span class="hljs-string">&quot;products&quot;</span>).id(productId)
+                .ifSeqNo(got.seqNo())
+                .ifPrimaryTerm(got.primaryTerm())
+                .document(updated));
+            <span class="hljs-keyword">return</span>;
+        } <span class="hljs-keyword">catch</span> (co.elastic.clients.elasticsearch._types.ElasticsearchException e) {
+            <span class="hljs-keyword">if</span> (e.status() != <span class="hljs-number">409</span>) <span class="hljs-keyword">throw</span> e;
+        }
+    }
+    <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;version conflict retry exhausted: &quot;</span> + productId);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>refresh=true</code>를 운영에 끌고 오는 경우.</strong> 요청마다 segment가 생기고 merge가 CPU를 점유해 검색 지연이 수십 배로 뛴다. 즉시 조회는 <code>wait_for</code> 또는 Get API로 풀고, <code>true</code>는 테스트로 한정한다.</li>
+<li><strong>부분 실패를 예외로 잡으려는 코드.</strong> Bulk는 항목이 실패해도 예외를 던지지 않는다. <code>errors()</code> 검사와 <code>items()</code> 순회가 필수다.</li>
+<li><strong>4xx와 5xx를 같은 재시도 큐에 넣는 경우.</strong> <code>create</code>의 409는 정상 케이스이고 400은 매핑 버그라 재시도해도 결과가 같다. 429·503만 exponential backoff로 재시도하고, 429를 받으면 동시 요청 수를 줄인다.</li>
+<li><strong>초기 적재와 운영 설정을 구분하지 않는 경우.</strong> <code>refresh_interval: -1</code>, <code>number_of_replicas: 0</code>은 적재 처리량을 수 배 올리지만 운영 인덱스에 적용하면 가용성이 사라진다. 신규 인덱스에만 쓰고 완료 후 원복한다.</li>
+<li><strong>카운터를 script update로 처리하는 경우.</strong> 같은 문서에 요청이 몰리면 409가 폭증한다. 경합이 큰 값은 Redis에 두고 집계 결과만 반영한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/elasticsearch/index-management-ilm/">Index 관리·ILM·Rollover</a></li>
+<li><a href="/notes/elasticsearch/document-modeling-reindex/">검색 문서 모델링과 무중단 재색인</a></li>
+<li><a href="/notes/elasticsearch/spring-data-elasticsearch/">Spring Data Elasticsearch</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Elasticsearch, Bulk API, Reindex, Optimistic Concurrency Control, NDJSON</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/elasticsearch/index-management-ilm/"><small>이전</small>Index 관리·ILM·Rollover</a>
+  <a class="next" href="/notes/elasticsearch/mapping-field-types/"><small>다음</small>Mapping과 Field Type</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

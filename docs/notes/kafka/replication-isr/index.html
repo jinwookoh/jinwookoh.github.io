@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Replication — ISR·리더 선출·Unclean · Kafka</title>
+  <meta name="description" content="ISR 전원 복제가 committed의 기준이며, RF=3·min.insync.replicas=2·acks=all 조합이 손실 없는 failover를 만든다.">
+  <meta property="og:title" content="Replication — ISR·리더 선출·Unclean · Kafka">
+  <meta property="og:description" content="ISR 전원 복제가 committed의 기준이며, RF=3·min.insync.replicas=2·acks=all 조합이 손실 없는 failover를 만든다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/kafka/replication-isr/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/kafka/">Kafka</a><span class="sep">›</span><span>Replication — ISR·리더 선출·Unclean</span></nav>
+    <article class="post">
+  <p class="part">Kafka · 설계와 내부</p>
+  <h1>Replication — ISR·리더 선출·Unclean</h1>
+  <p class="summary">ISR 전원 복제가 committed의 기준이며, RF=3·min.insync.replicas=2·acks=all 조합이 손실 없는 failover를 만든다.</p>
+  <div class="content">
+<p>Replication Factor가 1이면 브로커 한 대가 내려가는 순간 파티션은 오프라인이 되고 소비되지 않은 메시지는 복구할 수 없다. 복제본을 여럿 두더라도 어떤 복제본이 최신인지, 어느 시점을 &quot;저장됨&quot;으로 볼지, 누가 승격될지에 대한 규칙이 없으면 오래된 복제본이 리더가 되어 확인 응답까지 나간 메시지가 사라진다. ISR, High Watermark, <code>min.insync.replicas</code>, Unclean Leader Election이 이 규칙을 이룬다.</p>
+<h2>핵심 개념</h2>
+<h3>Leader·Follower와 복제 흐름</h3>
+<p>각 파티션은 리더 1개와 팔로워 N개로 구성되며, RF는 리더를 포함한 복제본 수다. 운영 표준은 3이고, 복제본은 서로 다른 브로커에 놓이므로 RF는 브로커 수를 넘을 수 없다. 쓰기는 항상 리더로 가고 읽기도 기본은 리더다(KIP-392로 팔로워 읽기 가능). 팔로워는 리더에서 pull로 가져온다.</p>
+<h3>ISR과 이탈·재진입</h3>
+<p>ISR(In-Sync Replicas)은 리더와 동기화된 복제본 집합이며 리더 자신을 항상 포함한다. 조건은 컨트롤러 heartbeat 세션이 살아 있고, <code>replica.lag.time.max.ms</code>(기본 30초) 안에 리더 LEO에 한 번 이상 도달하는 것이다. 벗어난 팔로워는 ISR에서 제외되고 다시 따라잡으면 자동 재진입한다. ISR 변경은 클러스터 메타데이터에 영속화된다.</p>
+<h3>Committed와 High Watermark</h3>
+<p>메시지는 ISR의 모든 복제본이 기록했을 때 committed로 간주된다. 각 복제본이 마지막으로 기록한 다음 오프셋이 LEO(Log End Offset)이고, ISR 전원이 도달한 최소 지점이 High Watermark(HW)다.</p>
+<pre><code class="hljs language-plaintext">Leader   LEO = 150
+Follower LEO = 140  (ISR)
+Follower LEO = 130  (ISR)
+HW = 130</code></pre>
+<p>컨슈머는 HW 이전만 읽는다. HW 너머를 노출한 뒤 리더가 죽으면 새 리더에 그 메시지가 없어 이미 읽은 메시지가 사라질 수 있기 때문이다.</p>
+<h3>min.insync.replicas와 acks=all</h3>
+<p>ISR이 리더만 남으면 <code>acks=all</code>도 사실상 <code>acks=1</code>과 같다. <code>min.insync.replicas</code>는 <code>acks=all</code> 쓰기를 받기 위한 ISR 최소 크기다. RF=3, <code>min.insync.replicas=2</code>, <code>acks=all</code> 조합에서 브로커 한 대가 죽으면 쓰기가 유지되고, 두 대가 죽으면 <code>NotEnoughReplicasException</code>으로 쓰기가 거부된다. 읽기는 계속 가능하다.</p>
+<h3>Quorum 방식과의 비교</h3>
+<table>
+<thead>
+<tr>
+<th align="left">구분</th>
+<th align="left">Majority Quorum (Raft·Paxos)</th>
+<th align="left">Kafka ISR</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">commit 조건</td>
+<td align="left">2f+1 중 f+1 동의</td>
+<td align="left">ISR 전원 기록</td>
+</tr>
+<tr>
+<td align="left">f개 장애 허용 시 복제본</td>
+<td align="left">2f+1</td>
+<td align="left">f+1</td>
+</tr>
+<tr>
+<td align="left">지연</td>
+<td align="left">빠른 다수만 대기</td>
+<td align="left">가장 느린 ISR까지 대기</td>
+</tr>
+</tbody></table>
+<p>Quorum은 복제본 비용이 커서 대용량 로그에 맞지 않는다. Kafka는 데이터에는 ISR을, 메타데이터에만 KRaft(Raft)를 쓴다.</p>
+<h3>리더 선출과 컨트롤러</h3>
+<p>리더가 죽으면 컨트롤러가 감지하고 ISR 안에서 새 리더를 고른다. 새 리더 정보는 메타데이터 로그로 전파되고 클라이언트는 자동 재접속한다. 파티션마다 preferred replica가 있어 <code>auto.leader.rebalance.enable=true</code>(기본)면 복구 후 리더십이 되돌아간다. KRaft에서는 컨트롤러 3개 또는 5개가 Raft 과반 합의로 Active Controller를 하나만 유지해 스플릿 브레인을 막는다. 매 쓰기마다 fsync를 강제하지 않으므로 복구된 브로커는 리더와 완전히 재동기화한 뒤에만 ISR에 재진입한다.</p>
+<h3>Unclean Leader Election</h3>
+<p>ISR 전원이 죽고 ISR 밖의 뒤처진 복제본만 살아 있을 때의 정책이다. <code>unclean.leader.election.enable=false</code>(기본)면 파티션은 ISR 구성원이 돌아올 때까지 오프라인이 되며 데이터는 보존된다. <code>true</code>면 뒤처진 복제본이 승격되어 서비스는 재개되지만 거기 없는 committed 메시지는 영구 손실된다. 결제·주문·감사 로그는 <code>false</code>, 클릭 스트림·메트릭처럼 가용성이 우선인 데이터만 <code>true</code>를 검토한다. CAP 관점에서 Kafka는 CP 시스템이다.</p>
+<h2>코드</h2>
+<p>토픽 생성 시 복제 설정을 토픽 레벨에서 고정한다. <code>KafkaAdmin</code>이 시작 시점에 <code>NewTopic</code> 빈을 반영한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.NewTopic;
+<span class="hljs-keyword">import</span> org.apache.kafka.common.config.TopicConfig;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.kafka.config.TopicBuilder;
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentTopicConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">NewTopic</span> <span class="hljs-title function_">paymentsTopic</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> TopicBuilder.name(<span class="hljs-string">&quot;payments&quot;</span>)
+                .partitions(<span class="hljs-number">12</span>)
+                .replicas(<span class="hljs-number">3</span>)
+                .config(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, <span class="hljs-string">&quot;2&quot;</span>)
+                .config(TopicConfig.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG, <span class="hljs-string">&quot;false&quot;</span>)
+                .build();
+    }
+}</code></pre>
+<p>프로듀서는 <code>acks=all</code>과 멱등성을 켜고, ISR 부족 거부를 구분해 처리한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">kafka:</span>
+    <span class="hljs-attr">producer:</span>
+      <span class="hljs-attr">acks:</span> <span class="hljs-string">all</span>
+      <span class="hljs-attr">properties:</span>
+        <span class="hljs-attr">enable.idempotence:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">delivery.timeout.ms:</span> <span class="hljs-number">120000</span></code></pre>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.common.errors.NotEnoughReplicasException;
+<span class="hljs-keyword">import</span> org.springframework.kafka.core.KafkaTemplate;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-keyword">import</span> java.util.concurrent.CompletionException;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, String&gt; kafkaTemplate;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PaymentPublisher</span><span class="hljs-params">(KafkaTemplate&lt;String, String&gt; kafkaTemplate)</span> {
+        <span class="hljs-built_in">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">publish</span><span class="hljs-params">(String paymentId, String payload)</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-comment">// 반환된 offset은 ISR 전원이 기록을 마친 committed 오프셋이다</span>
+            <span class="hljs-keyword">return</span> kafkaTemplate.send(<span class="hljs-string">&quot;payments&quot;</span>, paymentId, payload)
+                    .join().getRecordMetadata().offset();
+        } <span class="hljs-keyword">catch</span> (CompletionException e) {
+            <span class="hljs-keyword">if</span> (e.getCause() <span class="hljs-keyword">instanceof</span> NotEnoughReplicasException) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;ISR &lt; min.insync.replicas, 쓰기 거부&quot;</span>, e);
+            }
+            <span class="hljs-keyword">throw</span> e;
+        }
+    }
+}</code></pre>
+<p><code>AdminClient</code>로 파티션별 ISR 크기를 조회해 under-replicated 파티션을 찾는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.AdminClient;
+<span class="hljs-keyword">import</span> org.apache.kafka.clients.admin.TopicDescription;
+
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.concurrent.ExecutionException;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">IsrChecker</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-title function_">underReplicated</span><span class="hljs-params">(AdminClient admin, String topic)</span>
+            <span class="hljs-keyword">throws</span> ExecutionException, InterruptedException {
+        <span class="hljs-type">TopicDescription</span> <span class="hljs-variable">desc</span> <span class="hljs-operator">=</span> admin.describeTopics(List.of(topic))
+                .allTopicNames().get().get(topic);
+        <span class="hljs-keyword">return</span> desc.partitions().stream()
+                .filter(p -&gt; p.isr().size() &lt; p.replicas().size())
+                .map(p -&gt; topic + <span class="hljs-string">&quot;-&quot;</span> + p.partition()
+                        + <span class="hljs-string">&quot; isr=&quot;</span> + p.isr().size() + <span class="hljs-string">&quot;/&quot;</span> + p.replicas().size())
+                .toList();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>acks=all</code>만 켜고 <code>min.insync.replicas</code>를 기본값 1로 두면 ISR이 리더만 남은 순간부터 리더 단독 기록으로 응답이 나간다. 두 설정은 세트로 본다.</li>
+<li><code>min.insync.replicas</code>를 RF와 같게 두면 팔로워 하나만 느려져도 쓰기가 멈춘다. RF=3에는 2가 적정하다.</li>
+<li><code>replica.lag.time.max.ms</code>를 줄이면 짧은 GC 정지에도 ISR이 흔들려 <code>NotEnoughReplicas</code>가 산발한다.</li>
+<li><code>UnderReplicatedPartitions</code>가 0을 넘는 상태는 아직 손실이 아니지만 지속되면 위험하다. <code>UnderMinIsrPartitions</code>와 <code>OfflinePartitionsCount</code>는 즉시 대응 대상이다.</li>
+<li><code>unclean.leader.election.enable=true</code>를 브로커 전역으로 열면 내부 토픽까지 적용된다. 필요한 토픽에만 토픽 레벨로 건다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/kafka/producer-internals/">Producer 동작 원리 — 파티션 선택·ACK·멱등성</a></li>
+<li><a href="/notes/kafka/delivery-semantics-transactions/">전달 보증 — at-most·at-least·exactly-once와 트랜잭션</a></li>
+<li><a href="/notes/kafka/operations-kraft/">운영 기본 — Topic 관리·Reassign·Rolling Restart·KRaft</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Kafka, ISR, Replication, High Watermark, Unclean Leader Election</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/kafka/delivery-semantics-transactions/"><small>이전</small>전달 보증 — at-most·at-least·exactly-once와 트랜잭션</a>
+  <a class="next" href="/notes/kafka/network-layer-message-format/"><small>다음</small>내부 구현 — Network Layer·Message Format</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

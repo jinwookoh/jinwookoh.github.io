@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>INSERT·UPDATE·DELETE 표준 패턴 · DB 원리와 PostgreSQL</title>
+  <meta name="description" content="쓰기 세 동사의 표준 형태와 RETURNING·UPSERT·소프트 삭제·안전 가드를 한 번에 정리한다.">
+  <meta property="og:title" content="INSERT·UPDATE·DELETE 표준 패턴 · DB 원리와 PostgreSQL">
+  <meta property="og:description" content="쓰기 세 동사의 표준 형태와 RETURNING·UPSERT·소프트 삭제·안전 가드를 한 번에 정리한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/postgresql/insert-update-delete/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/postgresql/">DB 원리와 PostgreSQL</a><span class="sep">›</span><span>INSERT·UPDATE·DELETE 표준 패턴</span></nav>
+    <article class="post">
+  <p class="part">DB 원리와 PostgreSQL · SQL 기초</p>
+  <h1>INSERT·UPDATE·DELETE 표준 패턴</h1>
+  <p class="summary">쓰기 세 동사의 표준 형태와 RETURNING·UPSERT·소프트 삭제·안전 가드를 한 번에 정리한다.</p>
+  <div class="content">
+<p>쓰기 SQL은 실수가 곧바로 데이터 손실로 이어진다. WHERE 절이 빠진 UPDATE는 전체 행을 덮어쓰고, 외래 키를 모르고 실행한 DELETE는 에러로 멈추거나 자식 행 수만 건을 함께 지운다. 한 건씩 넣는 루프는 대량 적재에서 수십 배 느리고, 생성된 ID를 다시 SELECT로 찾는 코드는 왕복을 두 배로 만든다. 세 동사의 표준 형태와 PostgreSQL 고유 확장을 알아야 이런 문제를 구조적으로 피할 수 있다.</p>
+<h2>핵심 개념</h2>
+<p>세 문장은 공통으로 <code>RETURNING</code> 절을 지원한다. 변경이 끝난 행을 같은 문장의 결과로 돌려주므로 자동 생성된 ID나 갱신 시각을 추가 SELECT 없이 받고, CTE로 묶으면 삽입 결과를 후속 INSERT의 입력으로 연결하는 다단계 쓰기를 한 문장으로 처리한다.</p>
+<p><strong>INSERT</strong>는 대상 컬럼을 항상 명시한다. 생략하면 테이블 정의 순서에 의존하게 되어 컬럼 추가 시 문장이 깨진다. 생략된 컬럼에는 DEFAULT 또는 NULL이 들어간다. 여러 행은 VALUES 뒤에 튜플을 나열해 한 문장으로 넣는다. 파싱·왕복·트랜잭션이 한 번으로 줄어 단건 반복보다 훨씬 빠르다. <code>INSERT ... SELECT</code>는 이관·아카이브·집계 저장에 쓰고, 파일 단위 대량 적재는 <code>COPY</code>(서버 파일)나 psql의 <code>\copy</code>(클라이언트 파일)가 표준이다.</p>
+<p><code>ON CONFLICT</code>는 유일 제약 충돌 시의 동작을 지정하는 UPSERT 구문이다. <code>DO UPDATE SET col = EXCLUDED.col</code>에서 <code>EXCLUDED</code>는 삽입하려던 행을 가리키고, <code>DO NOTHING</code>은 충돌을 무시해 멱등 입력을 만든다. 충돌 대상 컬럼에는 유일 인덱스가 반드시 있어야 하며, 부분 유일 인덱스라면 <code>ON CONFLICT (email) WHERE deleted_at IS NULL</code>처럼 인덱스 조건을 함께 적어야 추론이 성립한다.</p>
+<p><strong>UPDATE</strong>는 <code>SET</code>에 어떤 표현식이든 올 수 있다. 현재 값 기반 계산, 다른 컬럼 참조, <code>COALESCE</code>, <code>CASE</code> 조건 분기가 모두 가능하다. 다른 테이블 값으로 갱신할 때는 <code>UPDATE ... FROM</code>이 표준이다. 서브쿼리 방식은 행마다 재실행되어 느리고, FROM 절은 조인 한 번으로 끝난다. <code>UPDATE ... LIMIT</code>는 없으므로 분할 처리는 <code>WITH targets AS (SELECT id ... LIMIT n FOR UPDATE)</code> 뒤 <code>WHERE id IN (SELECT id FROM targets)</code>로 우회한다.</p>
+<p><strong>DELETE</strong>는 다른 테이블 조건으로 지울 때 <code>USING</code> 절을 쓴다. 전체 삭제는 <code>TRUNCATE</code>가 훨씬 빠르지만 행 트리거가 발동하지 않고 다른 테이블이 참조 중이면 거부된다. 외래 키가 걸린 부모 행 삭제는 <code>ON DELETE</code> 옵션에 따라 거부(NO ACTION·RESTRICT), 연쇄 삭제(CASCADE), NULL 대입(SET NULL), 기본값 대입(SET DEFAULT) 중 하나로 동작한다.</p>
+<p>Soft Delete는 <code>deleted_at TIMESTAMPTZ</code> 컬럼을 두고 삭제를 UPDATE로 대체하는 방식이며 사용자·주문·결제처럼 감사·복구가 필요한 데이터에 쓴다. 세션·캐시·오래된 로그는 Hard Delete, 테스트 초기화는 TRUNCATE가 맞다. 조회마다 <code>deleted_at IS NULL</code> 필터가 붙어야 하고, 유일 제약은 <code>WHERE deleted_at IS NULL</code> 부분 인덱스로 활성 행에만 걸어야 탈퇴 후 재가입이 가능하다. GDPR 같은 삭제 요청은 실제 삭제 또는 익명화가 필요하므로 Soft Delete만으로 충족되지 않는다.</p>
+<h2>코드</h2>
+<p>Spring Data JDBC의 <code>JdbcClient</code>로 INSERT + RETURNING을 실행해 생성된 ID를 바로 받고, 유일 충돌 시 UPSERT로 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Repository</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserWriter</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcClient jdbc;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserWriter</span><span class="hljs-params">(JdbcClient jdbc)</span> {
+        <span class="hljs-built_in">this</span>.jdbc = jdbc;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">long</span> <span class="hljs-title function_">upsert</span><span class="hljs-params">(String email, String name)</span> {
+        <span class="hljs-keyword">return</span> jdbc.sql(<span class="hljs-string">&quot;&quot;&quot;
+                INSERT INTO users (email, name)
+                VALUES (:email, :name)
+                ON CONFLICT (email) WHERE deleted_at IS NULL
+                DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+                RETURNING id
+                &quot;&quot;&quot;</span>)
+            .param(<span class="hljs-string">&quot;email&quot;</span>, email)
+            .param(<span class="hljs-string">&quot;name&quot;</span>, name)
+            .query(Long.class)
+            .single();
+    }
+}</code></pre>
+<p>JPA 엔티티에 Hibernate 6의 <code>@SQLDelete</code>와 <code>@SQLRestriction</code>을 붙여 <code>deleteById()</code>가 Soft Delete로 동작하고 모든 조회에 활성 필터가 자동으로 붙게 한다. 상태 전이 UPDATE는 현재 상태를 WHERE에 함께 넣어 잘못된 전이를 차단한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;users&quot;)</span>
+<span class="hljs-meta">@SQLDelete(sql = &quot;UPDATE users SET deleted_at = now() WHERE id = ?&quot;)</span>
+<span class="hljs-meta">@SQLRestriction(&quot;deleted_at IS NULL&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">User</span> {
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+    <span class="hljs-keyword">private</span> String email;
+    <span class="hljs-keyword">private</span> String name;
+    <span class="hljs-keyword">private</span> Instant deletedAt;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Order, Long&gt; {
+
+    <span class="hljs-meta">@Modifying(clearAutomatically = true)</span>
+    <span class="hljs-meta">@Query(&quot;&quot;&quot;
+           UPDATE Order o SET o.status = &#x27;SHIPPED&#x27;
+           WHERE o.id = :id AND o.status = &#x27;PAID&#x27;
+           &quot;&quot;&quot;)</span>
+    <span class="hljs-type">int</span> <span class="hljs-title function_">markShipped</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id)</span>;
+}</code></pre>
+<p>대량 삭제는 CTE와 <code>LIMIT</code>으로 분할하고, 서비스에서 영향 행이 0이 될 때까지 트랜잭션을 나눠 반복한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">LogPurger</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcClient jdbc;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> TransactionTemplate tx;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">LogPurger</span><span class="hljs-params">(JdbcClient jdbc, PlatformTransactionManager tm)</span> {
+        <span class="hljs-built_in">this</span>.jdbc = jdbc;
+        <span class="hljs-built_in">this</span>.tx = <span class="hljs-keyword">new</span> <span class="hljs-title class_">TransactionTemplate</span>(tm);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">purgeOlderThan</span><span class="hljs-params">(Duration age)</span> {
+        <span class="hljs-type">int</span> deleted;
+        <span class="hljs-keyword">do</span> {
+            deleted = tx.execute(status -&gt; jdbc.sql(<span class="hljs-string">&quot;&quot;&quot;
+                    WITH targets AS (
+                        SELECT id FROM logs
+                        WHERE created_at &lt; now() - :age::interval
+                        LIMIT 5000 FOR UPDATE SKIP LOCKED
+                    )
+                    DELETE FROM logs WHERE id IN (SELECT id FROM targets)
+                    &quot;&quot;&quot;</span>)
+                .param(<span class="hljs-string">&quot;age&quot;</span>, age.toSeconds() + <span class="hljs-string">&quot; seconds&quot;</span>)
+                .update());
+        } <span class="hljs-keyword">while</span> (deleted &gt; <span class="hljs-number">0</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>WHERE 누락.</strong> UPDATE·DELETE에서 가장 치명적인 사고다. 서버 설정으로 막는 기능은 없으므로 운영 콘솔에서는 <code>BEGIN</code> → <code>SELECT COUNT(*)</code>로 영향 행 확인 → 실행 후 행 수 대조 → <code>RETURNING</code> 검증 → <code>COMMIT</code> 또는 <code>ROLLBACK</code> 순서를 표준 절차로 고정한다.</li>
+<li><strong>한 트랜잭션에 수백만 건.</strong> 락 유지 시간, WAL 양, 메모리를 한꺼번에 키운다. 1,000~10,000건 단위로 나누어 커밋하고, 파일 적재는 COPY로 대체하며, 오래된 데이터의 주기적 삭제는 파티션 DROP이 가장 싸다.</li>
+<li><strong>JPA 변경 감지의 조건.</strong> Dirty Checking은 트랜잭션 안에서만 UPDATE를 만든다. <code>@Modifying</code> 벌크 쿼리는 영속성 컨텍스트를 우회하므로 <code>clearAutomatically</code>로 1차 캐시를 비우지 않으면 같은 트랜잭션에서 읽은 엔티티가 옛 값을 보여준다.</li>
+<li><strong>updated_at과 통계 갱신.</strong> 갱신 시각은 BEFORE UPDATE 트리거로 강제해야 누락이 없다. 대량 삭제 뒤에는 플래너 통계가 낡아 실행 계획이 틀어지므로 <code>ANALYZE</code>를 직접 실행한다.</li>
+<li><strong>CASCADE 남용.</strong> 부모 한 건 삭제로 자식 수만 건이 사라질 수 있다. 운영 테이블은 NO ACTION을 기본으로 두고, 연쇄 삭제가 의도된 종속 관계에만 CASCADE를 명시한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/postgresql/select-join/">SELECT와 JOIN 표준 패턴</a></li>
+<li><a href="/notes/postgresql/insert-bulk-copy-upsert/">INSERT 깊이 — Bulk·COPY·UPSERT</a></li>
+<li><a href="/notes/postgresql/update-delete-hot-bloat-vacuum/">UPDATE·DELETE 깊이 — HOT·bloat·VACUUM</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · PostgreSQL, INSERT, UPDATE, DELETE, RETURNING</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/postgresql/select-join/"><small>이전</small>SELECT와 JOIN 표준 패턴</a>
+  <a class="next" href="/notes/postgresql/views-window-functions/"><small>다음</small>뷰·윈도우 함수·고급 SQL</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

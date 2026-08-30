@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scaling — Multi-thread·Partitioning·Remote Chunking · Spring Batch</title>
+  <meta name="description" content="병목 위치에 따라 Multi-threaded Step·AsyncItemProcessor·Partitioning·Remote Chunking 중 무엇을 고를지 정리한다">
+  <meta property="og:title" content="Scaling — Multi-thread·Partitioning·Remote Chunking · Spring Batch">
+  <meta property="og:description" content="병목 위치에 따라 Multi-threaded Step·AsyncItemProcessor·Partitioning·Remote Chunking 중 무엇을 고를지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/spring-batch/scaling-partitioning/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/spring-batch/">Spring Batch</a><span class="sep">›</span><span>Scaling — Multi-thread·Partitioning·Remote Chunking</span></nav>
+    <article class="post">
+  <p class="part">Spring Batch · 확장과 운영</p>
+  <h1>Scaling — Multi-thread·Partitioning·Remote Chunking</h1>
+  <p class="summary">병목 위치에 따라 Multi-threaded Step·AsyncItemProcessor·Partitioning·Remote Chunking 중 무엇을 고를지 정리한다</p>
+  <div class="content">
+<p>단일 스레드·단일 JVM의 chunk 지향 Step은 수백 MB 파일을 분 단위로 처리한다. 문제는 외부 API 호출이 item당 100ms처럼 처리 시간이 배치 윈도우를 넘길 때다. 전략을 잘못 고르면 스레드 안전성 문제로 데이터가 깨지거나 처리량은 그대로가 된다. 병목이 read·process·write 중 어디인지, 단일 JVM으로 충분한지 측정한 뒤 고른다.</p>
+<h2>핵심 개념</h2>
+<p>확장 전략은 단일 프로세스(Multi-threaded Step, Parallel Steps, AsyncItemProcessor, Spring Batch 6의 Local Chunking)와 다중 프로세스(Remote Chunking, Remote Partitioning, Spring Batch 6의 RemoteStep)로 나뉜다. Partitioning은 PartitionHandler 구현에 따라 양쪽 모두 가능하다.</p>
+<p><strong>Multi-threaded Step</strong>은 <code>.taskExecutor()</code> 한 줄로 각 스레드가 chunk 하나를 read·process·write까지 수행하므로 Reader·Processor·Writer 모두 스레드 안전해야 한다. <code>FlatFileItemReader</code>·<code>JdbcCursorItemReader</code>는 <code>SynchronizedItemStreamReader</code>로 감싸야 하고, 감싸더라도 읽기 위치가 스레드 순서를 보장하지 못해 실패 지점 재시작은 신뢰할 수 없다.</p>
+<p><strong>AsyncItemProcessor</strong>는 process만 TaskExecutor로 넘겨 <code>Future</code>를 반환하고, 짝인 <code>AsyncItemWriter</code>가 chunk의 Future를 전부 resolve한 뒤 delegate에 넘긴다. Reader 안전성이 필요 없고, 예외는 <code>Future.get()</code> 시점인 Writer 단계에서 드러나 skip·retry도 그때 적용된다.</p>
+<p><strong>Partitioning</strong>은 <code>Partitioner</code>가 입력을 N등분한 <code>Map&lt;String, ExecutionContext&gt;</code>를 만들고, <code>PartitionHandler</code>가 각 컨텍스트로 worker Step 인스턴스를 실행한다. worker가 Reader·Writer·트랜잭션을 각자 가지므로 스레드 안전성 문제가 없고 실패한 partition만 재시작된다. 로컬은 <code>TaskExecutorPartitionHandler</code>, 원격은 <code>MessageChannelPartitionHandler</code>다.</p>
+<p><strong>Remote Chunking</strong>은 manager가 read만 하고 <code>ChunkMessageChannelItemWriter</code>가 chunk를 메시지로 보내며, worker의 <code>ChunkProcessorChunkHandler</code>가 process·write 후 응답한다. read보다 process가 확실히 비쌀 때만 유효하고, I/O가 병목이면 Remote Partitioning이 맞다.</p>
+<p>선택 순서는 서로 다른 작업이면 Parallel Steps, process만 무겁고 단일 JVM이면 AsyncItemProcessor, 입력을 나눌 수 있으면 Partitioning, 다중 JVM이 필요하면 Remote Chunking이다. 운영에서 가장 흔한 것은 AsyncItemProcessor와 로컬 Partitioning이다.</p>
+<h2>코드</h2>
+<p>ID 범위 기반 Partitioner와 manager Step. Reader가 <code>stepExecutionContext</code>에서 자기 범위를 받는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Partitioner</span> <span class="hljs-title function_">rangePartitioner</span><span class="hljs-params">(JdbcTemplate jdbc)</span> {
+    <span class="hljs-keyword">return</span> gridSize -&gt; {
+        <span class="hljs-type">long</span> <span class="hljs-variable">minId</span> <span class="hljs-operator">=</span> jdbc.queryForObject(<span class="hljs-string">&quot;SELECT MIN(id) FROM customer&quot;</span>, Long.class);
+        <span class="hljs-type">long</span> <span class="hljs-variable">maxId</span> <span class="hljs-operator">=</span> jdbc.queryForObject(<span class="hljs-string">&quot;SELECT MAX(id) FROM customer&quot;</span>, Long.class);
+        <span class="hljs-type">long</span> <span class="hljs-variable">range</span> <span class="hljs-operator">=</span> (maxId - minId + <span class="hljs-number">1</span>) / gridSize;
+        <span class="hljs-type">Map</span>&lt;String, ExecutionContext&gt; <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">HashMap</span>&lt;&gt;();
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; gridSize; i++) {
+            <span class="hljs-type">ExecutionContext</span> <span class="hljs-variable">ctx</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ExecutionContext</span>();
+            ctx.putLong(<span class="hljs-string">&quot;startId&quot;</span>, minId + i * range);
+            ctx.putLong(<span class="hljs-string">&quot;endId&quot;</span>, i == gridSize - <span class="hljs-number">1</span> ? maxId : minId + (i + <span class="hljs-number">1</span>) * range - <span class="hljs-number">1</span>);
+            result.put(<span class="hljs-string">&quot;partition-&quot;</span> + i, ctx);
+        }
+        <span class="hljs-keyword">return</span> result;
+    };
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-meta">@StepScope</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">JdbcCursorItemReader</span>&lt;Customer&gt; <span class="hljs-title function_">workerReader</span><span class="hljs-params">(
+        DataSource ds,
+        <span class="hljs-meta">@Value(&quot;#{stepExecutionContext[&#x27;startId&#x27;]}&quot;)</span> Long startId,
+        <span class="hljs-meta">@Value(&quot;#{stepExecutionContext[&#x27;endId&#x27;]}&quot;)</span> Long endId)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">JdbcCursorItemReaderBuilder</span>&lt;Customer&gt;()
+        .name(<span class="hljs-string">&quot;workerReader&quot;</span>)
+        .dataSource(ds)
+        .sql(<span class="hljs-string">&quot;SELECT id, name, email FROM customer WHERE id BETWEEN ? AND ?&quot;</span>)
+        .queryArguments(startId, endId)
+        .rowMapper(BeanPropertyRowMapper.newInstance(Customer.class))
+        .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">workerStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                       JdbcCursorItemReader&lt;Customer&gt; workerReader,
+                       JdbcBatchItemWriter&lt;Customer&gt; writer)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;workerStep&quot;</span>, repo)
+        .&lt;Customer, Customer&gt;chunk(<span class="hljs-number">100</span>, tx)
+        .reader(workerReader)
+        .writer(writer)
+        .build();
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">managerStep</span><span class="hljs-params">(JobRepository repo, Partitioner rangePartitioner,
+                        Step workerStep, TaskExecutor taskExecutor)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;managerStep&quot;</span>, repo)
+        .partitioner(<span class="hljs-string">&quot;workerStep&quot;</span>, rangePartitioner)
+        .step(workerStep)
+        .gridSize(<span class="hljs-number">8</span>)
+        .taskExecutor(taskExecutor)
+        .build();
+}</code></pre>
+<p>AsyncItemProcessor·AsyncItemWriter 쌍. chunk 출력 타입이 <code>Future&lt;EnrichedCustomer&gt;</code>가 된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">TaskExecutor</span> <span class="hljs-title function_">asyncTaskExecutor</span><span class="hljs-params">()</span> {
+    <span class="hljs-type">ThreadPoolTaskExecutor</span> <span class="hljs-variable">executor</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ThreadPoolTaskExecutor</span>();
+    executor.setCorePoolSize(<span class="hljs-number">20</span>);
+    executor.setMaxPoolSize(<span class="hljs-number">50</span>);
+    executor.setQueueCapacity(<span class="hljs-number">100</span>);
+    executor.setThreadNamePrefix(<span class="hljs-string">&quot;async-batch-&quot;</span>);
+    executor.initialize();
+    <span class="hljs-keyword">return</span> executor;
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">AsyncItemProcessor</span>&lt;Customer, EnrichedCustomer&gt; <span class="hljs-title function_">asyncProcessor</span><span class="hljs-params">(
+        ApiClient client, TaskExecutor asyncTaskExecutor)</span> {
+    <span class="hljs-type">AsyncItemProcessor</span>&lt;Customer, EnrichedCustomer&gt; <span class="hljs-variable">async</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AsyncItemProcessor</span>&lt;&gt;();
+    async.setDelegate(c -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">EnrichedCustomer</span>(c, client.fetch(c.id())));
+    async.setTaskExecutor(asyncTaskExecutor);
+    <span class="hljs-keyword">return</span> async;
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">AsyncItemWriter</span>&lt;EnrichedCustomer&gt; <span class="hljs-title function_">asyncWriter</span><span class="hljs-params">(ItemWriter&lt;EnrichedCustomer&gt; delegate)</span> {
+    <span class="hljs-type">AsyncItemWriter</span>&lt;EnrichedCustomer&gt; <span class="hljs-variable">async</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AsyncItemWriter</span>&lt;&gt;();
+    async.setDelegate(delegate);
+    <span class="hljs-keyword">return</span> async;
+}
+
+<span class="hljs-meta">@Bean</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">Step</span> <span class="hljs-title function_">asyncStep</span><span class="hljs-params">(JobRepository repo, PlatformTransactionManager tx,
+                      ItemReader&lt;Customer&gt; reader,
+                      AsyncItemProcessor&lt;Customer, EnrichedCustomer&gt; asyncProcessor,
+                      AsyncItemWriter&lt;EnrichedCustomer&gt; asyncWriter)</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StepBuilder</span>(<span class="hljs-string">&quot;asyncStep&quot;</span>, repo)
+        .&lt;Customer, Future&lt;EnrichedCustomer&gt;&gt;chunk(<span class="hljs-number">100</span>, tx)
+        .reader(reader)
+        .processor(asyncProcessor)
+        .writer(asyncWriter)
+        .build();
+}</code></pre>
+<p><code>@EnableBatchIntegration</code>으로 Remote Chunking의 manager와 worker를 구성한다. 채널은 durable 브로커에 연결된 것을 주입한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableBatchIntegration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RemoteChunkingConfig</span> {
+
+    <span class="hljs-meta">@Configuration</span>
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Manager</span> {
+        <span class="hljs-meta">@Bean</span>
+        <span class="hljs-keyword">public</span> <span class="hljs-type">TaskletStep</span> <span class="hljs-title function_">managerStep</span><span class="hljs-params">(RemoteChunkingManagerStepBuilderFactory factory,
+                                       ItemReader&lt;Order&gt; reader,
+                                       DirectChannel requests, QueueChannel replies)</span> {
+            <span class="hljs-keyword">return</span> factory.get(<span class="hljs-string">&quot;managerStep&quot;</span>)
+                .chunk(<span class="hljs-number">500</span>)
+                .reader(reader)
+                .outputChannel(requests)
+                .inputChannel(replies)
+                .build();
+        }
+    }
+
+    <span class="hljs-meta">@Configuration</span>
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Worker</span> {
+        <span class="hljs-meta">@Bean</span>
+        <span class="hljs-keyword">public</span> <span class="hljs-type">IntegrationFlow</span> <span class="hljs-title function_">workerFlow</span><span class="hljs-params">(RemoteChunkingWorkerBuilder&lt;Order, Order&gt; builder,
+                                          ItemProcessor&lt;Order, Order&gt; processor,
+                                          ItemWriter&lt;Order&gt; writer,
+                                          DirectChannel requests, DirectChannel replies)</span> {
+            <span class="hljs-keyword">return</span> builder
+                .itemProcessor(processor)
+                .itemWriter(writer)
+                .inputChannel(requests)
+                .outputChannel(replies)
+                .build();
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>커넥션 풀이 스레드 수보다 작다.</strong> 스레드 16개에 풀 8개면 절반이 커넥션 대기로 멈춘다.</li>
+<li><strong>Multi-threaded Step의 ChunkListener.</strong> 다중 스레드에서 호환성이 보장되지 않으므로 <code>StepExecutionListener</code>로 옮기거나 Partitioning으로 전환한다.</li>
+<li><strong>Async 짝 누락.</strong> <code>AsyncItemProcessor</code>에 일반 Writer를 붙이면 Future 캐스팅에 실패하고, 일반 Processor에 <code>AsyncItemWriter</code>를 붙이면 비동기 효과가 없다. process가 수 ms면 스레드 전환 비용이 이득을 상쇄한다.</li>
+<li><strong>Partition skew와 key 불일치.</strong> 범위 분할이 데이터 분포와 맞지 않으면 한 partition이 대부분을 갖는다. hash 분할로 균등화한다. Partitioner의 key와 <code>#{stepExecutionContext[&#39;key&#39;]}</code>가 다르면 Reader가 null을 받는다.</li>
+<li><strong>원격 구성의 메시지 손실.</strong> <code>DirectChannel</code>은 in-memory라 프로세스가 죽으면 chunk가 사라진다. durable queue와 ack, 멱등한 worker가 필요하다. worker 처리가 <code>MessagingTemplate.receiveTimeout</code>을 넘기면 manager가 먼저 끊는다. manager와 worker는 같은 JobRepository를 공유해야 한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/spring-batch/step-chunk-tasklet/">Step — Chunk 지향과 Tasklet·Commit Interval</a></li>
+<li><a href="/notes/spring-batch/flow-control-late-binding/">Flow 제어 — Decision·Split·Late Binding</a></li>
+<li><a href="/notes/spring-batch/spring-batch-integration/">Spring Batch Integration — 메시지로 Job 실행</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Spring Batch, Partitioning, Remote Chunking, Multi-threaded Step, AsyncItemProcessor</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/spring-batch/item-processor-custom/"><small>이전</small>ItemProcessor·서비스 재사용·커스텀 구현</a>
+  <a class="next" href="/notes/spring-batch/spring-batch-integration/"><small>다음</small>Spring Batch Integration — 메시지로 Job 실행</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

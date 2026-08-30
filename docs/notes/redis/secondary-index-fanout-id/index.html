@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Secondary Index·Fanout·분산 ID · Redis</title>
+  <meta name="description" content="키-값 모델에서 속성 조회·팔로워 피드·충돌 없는 ID를 자료구조 조합으로 풀어내는 세 가지 패턴">
+  <meta property="og:title" content="Secondary Index·Fanout·분산 ID · Redis">
+  <meta property="og:description" content="키-값 모델에서 속성 조회·팔로워 피드·충돌 없는 ID를 자료구조 조합으로 풀어내는 세 가지 패턴">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/redis/secondary-index-fanout-id/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/redis/">Redis</a><span class="sep">›</span><span>Secondary Index·Fanout·분산 ID</span></nav>
+    <article class="post">
+  <p class="part">Redis · 패턴</p>
+  <h1>Secondary Index·Fanout·분산 ID</h1>
+  <p class="summary">키-값 모델에서 속성 조회·팔로워 피드·충돌 없는 ID를 자료구조 조합으로 풀어내는 세 가지 패턴</p>
+  <div class="content">
+<p>Redis는 키로만 값을 찾는다. 가격이 10만 원 미만인 상품, 팔로우한 사람들이 올린 최근 글처럼 키가 아닌 속성으로 조회하려면 RDB의 <code>CREATE INDEX</code>에 해당하는 구조를 애플리케이션이 직접 만들어 유지해야 한다. 소셜 피드는 여기에 한 번의 쓰기를 수만 명의 읽기 뷰에 반영하는 팬아웃 문제가 얹히고, 데이터를 샤딩하는 순간 <code>auto_increment</code>가 샤드마다 독립적으로 발급돼 ID가 충돌한다. 세 문제 모두 키-값 모델 위에 관계형 편의 기능을 재구성하는 일이다.</p>
+<h2>핵심 개념</h2>
+<h3>Secondary Index</h3>
+<p>쿼리 형태에 따라 자료구조를 고른다. 범위·정렬·페이징은 Sorted Set(score=값, member=ID)에 <code>ZRANGE BYSCORE</code>, 카테고리·태그 같은 이산 값 필터는 값을 키에 넣은 Set, 문자열 prefix는 score를 0으로 둔 Sorted Set에 <code>ZRANGE BYLEX</code>, 좌표 반경은 Sorted Set 위에 geohash를 얹은 <code>GEOSEARCH</code>를 쓴다.</p>
+<p>복합 조건은 집합 연산으로 조립한다. <code>AND</code>는 <code>SINTER</code>, <code>OR</code>는 <code>SUNION</code>, <code>AND NOT</code>은 <code>SDIFF</code>다. 범위와 필터가 섞이면 단일 명령으로 끝나지 않는다. 두 구조를 각각 읽어 애플리케이션에서 교집합을 잡거나, 필터 Set을 score 0인 Sorted Set으로도 유지해 <code>ZINTERSTORE WEIGHTS 1 0</code>으로 합치거나, Lua로 처리한다.</p>
+<p>인덱스 유지는 전적으로 애플리케이션 책임이다. Pipelining은 왕복을 줄이지만 기존 값을 읽고 옮기는 조건부 로직이 별도 호출로 빠져 레이스가 생긴다. Lua는 읽기와 쓰기를 원자적으로 묶되 Cluster에서 모든 키가 같은 슬롯에 있어야 한다. 비동기 워커는 쓰기가 빠른 대신 결과적 일관성을 받아들여야 한다.</p>
+<h3>Fanout</h3>
+<p>소셜 서비스는 프로필과 글 본문을 Hash, 팔로우 관계를 양방향 Set(<code>following:{uid}</code>, <code>followers:{uid}</code>), 타임라인을 score=timestamp인 Sorted Set으로 둔다. 팔로우 한 건은 Set 두 개를 함께 갱신하므로 <code>MULTI/EXEC</code> 또는 Lua로 묶는다.</p>
+<p>글을 팔로워에게 전달하는 방식은 둘이다. Fanout-on-Write는 작성 시 팔로워 전원의 <code>home_timeline</code>에 <code>ZADD</code>해 두므로 피드 조회가 <code>ZRANGE REV</code> 한 번으로 끝나지만 쓰기가 팔로워 수만큼 늘어난다. Fanout-on-Read는 자기 <code>user_timeline</code>에만 쓰고 조회 시 팔로잉 N명의 타임라인을 읽어 merge하므로 쓰기는 가볍고 읽기가 비싸다. 팔로워 5,000만 명인 계정이 글 하나에 5,000만 번 <code>ZADD</code>를 하는 것은 현실적이지 않으므로, 임계치 미만 계정은 Push하고 그 이상은 Push를 생략한 뒤 조회 시 셀럽 계정만 Pull해서 merge하는 Hybrid가 실서비스의 표준이다.</p>
+<h3>분산 ID</h3>
+<p>UUID v4는 128비트 랜덤 값이라 중앙 조율 없이 생성할 수 있지만 시간 순서가 없어 B-tree 인덱스의 임의 위치에 삽입되며 page split을 일으키고, 16바이트라 <code>bigint</code>의 두 배 무게가 인덱스와 외래 키마다 누적된다. UUID v7은 상위 비트를 타임스탬프로 채워 정렬 문제를 줄였으나 크기는 그대로다.</p>
+<p>Snowflake는 64비트 정수를 부호 1비트, 밀리초 타임스탬프 41비트(약 69년), 워커 ID 10비트(1,024대), 시퀀스 12비트(1ms당 4,096개)로 나눈다. 타임스탬프가 상위 비트라 시간순 정렬이 보장되고 8바이트라 인덱스 친화적이다. UUID의 무충돌성과 <code>auto_increment</code>의 정렬성을 동시에 얻는다.</p>
+<h2>코드</h2>
+<p>가격 인덱스와 카테고리 인덱스를 원본 Hash와 함께 갱신하는 서비스. 카테고리 이동은 읽기-쓰기가 섞이므로 Lua로 원자성을 확보하고, 키에 해시 태그를 붙여 Cluster에서도 같은 슬롯에 둔다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductIndexService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">RedisScript</span>&lt;Long&gt; <span class="hljs-variable">UPDATE</span> <span class="hljs-operator">=</span> RedisScript.of(<span class="hljs-string">&quot;&quot;&quot;
+        local pid = ARGV[1]
+        local oldCat = redis.call(&#x27;HGET&#x27;, KEYS[1], &#x27;category&#x27;)
+        redis.call(&#x27;HSET&#x27;, KEYS[1], &#x27;price&#x27;, ARGV[2], &#x27;category&#x27;, ARGV[3])
+        redis.call(&#x27;ZADD&#x27;, KEYS[2], ARGV[2], pid)
+        if oldCat and oldCat ~= ARGV[3] then
+            redis.call(&#x27;SREM&#x27;, KEYS[3] .. oldCat, pid)
+        end
+        redis.call(&#x27;SADD&#x27;, KEYS[3] .. ARGV[3], pid)
+        return 1
+        &quot;&quot;&quot;</span>, Long.class);
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">update</span><span class="hljs-params">(<span class="hljs-type">long</span> pid, <span class="hljs-type">long</span> price, String category)</span> {
+        redis.execute(UPDATE,
+            List.of(<span class="hljs-string">&quot;product:{idx}:&quot;</span> + pid, <span class="hljs-string">&quot;products:{idx}:by_price&quot;</span>, <span class="hljs-string">&quot;products:{idx}:category:&quot;</span>),
+            String.valueOf(pid), String.valueOf(price), category);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-title function_">electronicsInRange</span><span class="hljs-params">(<span class="hljs-type">long</span> min, <span class="hljs-type">long</span> max)</span> {
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">inCategory</span> <span class="hljs-operator">=</span> redis.opsForSet().members(<span class="hljs-string">&quot;products:{idx}:category:electronics&quot;</span>);
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">inRange</span> <span class="hljs-operator">=</span> redis.opsForZSet().rangeByScore(<span class="hljs-string">&quot;products:{idx}:by_price&quot;</span>, min, max);
+        inRange.retainAll(inCategory);
+        <span class="hljs-keyword">return</span> inRange;
+    }
+}</code></pre>
+<p>Hybrid 팬아웃. 글 작성 시 팔로워 수가 임계치 미만일 때만 Push하고, 피드 조회 시 Push된 항목과 셀럽 계정의 타임라인을 merge한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TimelineService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">CELEB_THRESHOLD</span> <span class="hljs-operator">=</span> <span class="hljs-number">100_000</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-variable">HOME_LIMIT</span> <span class="hljs-operator">=</span> <span class="hljs-number">800</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> StringRedisTemplate redis;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">post</span><span class="hljs-params">(<span class="hljs-type">long</span> uid, <span class="hljs-type">long</span> tid, <span class="hljs-type">long</span> ts)</span> {
+        redis.opsForZSet().add(<span class="hljs-string">&quot;user_timeline:&quot;</span> + uid, String.valueOf(tid), ts);
+        <span class="hljs-type">Long</span> <span class="hljs-variable">followers</span> <span class="hljs-operator">=</span> redis.opsForSet().size(<span class="hljs-string">&quot;followers:&quot;</span> + uid);
+        <span class="hljs-keyword">if</span> (followers == <span class="hljs-literal">null</span> || followers &gt;= CELEB_THRESHOLD) {
+            <span class="hljs-keyword">return</span>;
+        }
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">fids</span> <span class="hljs-operator">=</span> redis.opsForSet().members(<span class="hljs-string">&quot;followers:&quot;</span> + uid);
+        redis.executePipelined((RedisCallback&lt;Object&gt;) conn -&gt; {
+            <span class="hljs-keyword">for</span> (String fid : fids) {
+                <span class="hljs-type">byte</span>[] <span class="hljs-variable">key</span> <span class="hljs-operator">=</span> (<span class="hljs-string">&quot;home_timeline:&quot;</span> + fid).getBytes(StandardCharsets.UTF_8);
+                conn.zSetCommands().zAdd(key, ts, String.valueOf(tid).getBytes(StandardCharsets.UTF_8));
+                conn.zSetCommands().zRemRange(key, <span class="hljs-number">0</span>, -HOME_LIMIT - <span class="hljs-number">1</span>);
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">null</span>;
+        });
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-title function_">home</span><span class="hljs-params">(<span class="hljs-type">long</span> uid, <span class="hljs-type">int</span> limit)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">ops</span> <span class="hljs-operator">=</span> redis.opsForZSet();
+        Set&lt;ZSetOperations.TypedTuple&lt;String&gt;&gt; pushed =
+            ops.reverseRangeWithScores(<span class="hljs-string">&quot;home_timeline:&quot;</span> + uid, <span class="hljs-number">0</span>, limit - <span class="hljs-number">1</span>);
+        <span class="hljs-type">Set</span>&lt;String&gt; <span class="hljs-variable">celebs</span> <span class="hljs-operator">=</span> redis.opsForSet().members(<span class="hljs-string">&quot;following:&quot;</span> + uid).stream()
+            .filter(f -&gt; Boolean.TRUE.equals(redis.opsForSet().isMember(<span class="hljs-string">&quot;celebs&quot;</span>, f)))
+            .collect(Collectors.toSet());
+        List&lt;ZSetOperations.TypedTuple&lt;String&gt;&gt; merged = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;(pushed);
+        <span class="hljs-keyword">for</span> (String c : celebs) {
+            merged.addAll(ops.reverseRangeWithScores(<span class="hljs-string">&quot;user_timeline:&quot;</span> + c, <span class="hljs-number">0</span>, limit - <span class="hljs-number">1</span>));
+        }
+        <span class="hljs-keyword">return</span> merged.stream()
+            .sorted(Comparator.comparing(ZSetOperations.TypedTuple&lt;String&gt;::getScore).reversed())
+            .map(ZSetOperations.TypedTuple::getValue)
+            .distinct()
+            .limit(limit)
+            .toList();
+    }
+}</code></pre>
+<p>Snowflake ID 생성기. 시계 역행을 감지하면 예외를 던지고, 같은 밀리초 안에서 시퀀스가 고갈되면 다음 밀리초까지 대기한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SnowflakeIdGenerator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">EPOCH</span> <span class="hljs-operator">=</span> <span class="hljs-number">1_700_000_000_000L</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">WORKER_BITS</span> <span class="hljs-operator">=</span> <span class="hljs-number">10</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">SEQUENCE_BITS</span> <span class="hljs-operator">=</span> <span class="hljs-number">12</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> <span class="hljs-variable">MAX_SEQUENCE</span> <span class="hljs-operator">=</span> (<span class="hljs-number">1L</span> &lt;&lt; SEQUENCE_BITS) - <span class="hljs-number">1</span>;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">long</span> workerId;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> <span class="hljs-variable">lastTs</span> <span class="hljs-operator">=</span> -<span class="hljs-number">1L</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> <span class="hljs-variable">sequence</span> <span class="hljs-operator">=</span> <span class="hljs-number">0L</span>;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SnowflakeIdGenerator</span><span class="hljs-params">(<span class="hljs-type">long</span> workerId)</span> {
+        <span class="hljs-keyword">if</span> (workerId &lt; <span class="hljs-number">0</span> || workerId &gt;= (<span class="hljs-number">1L</span> &lt;&lt; WORKER_BITS)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;workerId out of range: &quot;</span> + workerId);
+        }
+        <span class="hljs-built_in">this</span>.workerId = workerId;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">synchronized</span> <span class="hljs-type">long</span> <span class="hljs-title function_">nextId</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">long</span> <span class="hljs-variable">ts</span> <span class="hljs-operator">=</span> System.currentTimeMillis();
+        <span class="hljs-keyword">if</span> (ts &lt; lastTs) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;clock moved backwards by &quot;</span> + (lastTs - ts) + <span class="hljs-string">&quot;ms&quot;</span>);
+        }
+        <span class="hljs-keyword">if</span> (ts == lastTs) {
+            sequence = (sequence + <span class="hljs-number">1</span>) &amp; MAX_SEQUENCE;
+            <span class="hljs-keyword">if</span> (sequence == <span class="hljs-number">0</span>) {
+                <span class="hljs-keyword">while</span> ((ts = System.currentTimeMillis()) &lt;= lastTs) { }
+            }
+        } <span class="hljs-keyword">else</span> {
+            sequence = <span class="hljs-number">0</span>;
+        }
+        lastTs = ts;
+        <span class="hljs-keyword">return</span> ((ts - EPOCH) &lt;&lt; (WORKER_BITS + SEQUENCE_BITS))
+            | (workerId &lt;&lt; SEQUENCE_BITS)
+            | sequence;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>인덱스 갱신 누락과 CROSSSLOT.</strong> 원본만 바꾸고 인덱스를 빠뜨리면 조회 결과가 조용히 틀어진다. 갱신 경로를 한 메서드로 모으고, Cluster에서는 해시 태그로 원본·인덱스를 같은 슬롯에 묶지 않으면 Lua와 <code>MULTI</code>가 CROSSSLOT 오류로 실패한다.</li>
+<li><strong>큰 Set과 <code>SMEMBERS</code>.</strong> 팔로워 Set이 수십만 멤버로 커지면 <code>SMEMBERS</code> 한 번이 이벤트 루프를 붙잡는다. <code>SSCAN</code>으로 나눠 읽고, 집합 연산 결과가 클 때는 <code>SINTERCARD</code>로 카디널리티만 먼저 확인한다.</li>
+<li><strong>타임라인 정리 비용.</strong> <code>home_timeline</code>은 <code>ZREMRANGEBYRANK</code>로 최근 N개만 유지하지 않으면 무한히 자란다. 언팔로우 후 남은 글과 삭제된 글은 팔로워 전원의 타임라인에서 빼야 하므로 팬아웃의 역연산 비용이 든다.</li>
+<li><strong>셀럽 Hot Key.</strong> 임계치 이상 계정의 <code>user_timeline</code>은 피드 조회마다 Pull되어 한 슬롯에 요청이 집중된다. 로컬 캐시나 짧은 TTL 복제본으로 읽기를 분산한다.</li>
+<li><strong>Snowflake 시계와 워커 ID.</strong> NTP 보정으로 시각이 뒤로 가면 예외 또는 대기로 막고, 워커 ID는 배포 설정·DB 등록·Redis <code>SET NX</code> 같은 유일 배정 체계로 관리한다. Sorted Set score는 double이라 2^53을 넘는 ID를 score로 쓰면 정밀도가 깨지므로 ID는 member에, 시각은 score에 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/redis/sorted-set/">Sorted Set — 랭킹과 Rate Limiter</a></li>
+<li><a href="/notes/redis/lua-scripting-functions/">Lua Scripting과 Functions</a></li>
+<li><a href="/notes/redis/cluster-consistent-hashing/">Cluster와 일관된 해싱</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Redis, Secondary Index, Fanout, Snowflake, UUID</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/redis/distributed-lock-redlock/"><small>이전</small>분산 락 — SET NX와 Redlock</a>
+  <a class="next" href="/notes/redis/persistence-rdb-aof/"><small>다음</small>Persistence — RDB·AOF·Hybrid</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

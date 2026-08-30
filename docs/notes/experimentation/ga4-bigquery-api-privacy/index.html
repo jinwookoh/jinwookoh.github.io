@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BigQuery Export·API·운영과 Privacy · 실험과 분석</title>
+  <meta name="description" content="GA4 데이터를 UI 밖으로 꺼내 쓰는 세 경로와, 운영에서 반드시 마주치는 한도·동의·PII 문제를 정리한다">
+  <meta property="og:title" content="BigQuery Export·API·운영과 Privacy · 실험과 분석">
+  <meta property="og:description" content="GA4 데이터를 UI 밖으로 꺼내 쓰는 세 경로와, 운영에서 반드시 마주치는 한도·동의·PII 문제를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/experimentation/ga4-bigquery-api-privacy/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/experimentation/">실험과 분석</a><span class="sep">›</span><span>BigQuery Export·API·운영과 Privacy</span></nav>
+    <article class="post">
+  <p class="part">실험과 분석 · GA4</p>
+  <h1>BigQuery Export·API·운영과 Privacy</h1>
+  <p class="summary">GA4 데이터를 UI 밖으로 꺼내 쓰는 세 경로와, 운영에서 반드시 마주치는 한도·동의·PII 문제를 정리한다</p>
+  <div class="content">
+<p>GA4 UI만으로는 실험 분석이 막히는 지점이 온다. 탐색은 1천만 이벤트를 넘으면 샘플링이 걸리고, 작은 세그먼트는 threshold로 행이 사라지며, dimension 고유값이 500을 넘으면 나머지가 (other)로 뭉개진다. Standard 속성의 보존 기간은 최대 14개월이다. 이를 푸는 경로가 BigQuery Export·Data API·Admin API이고, 동시에 Consent Mode와 PII 처리가 따라붙는다.</p>
+<h2>핵심 개념</h2>
+<p>BigQuery Export는 raw 이벤트를 GCP 데이터셋으로 내보낸다. 샘플링·threshold·cardinality 한도가 사라지고 SQL로 질의한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">종류</th>
+<th align="left">도착 시점</th>
+<th align="left">비용·한도</th>
+<th align="left">테이블</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Daily</td>
+<td align="left">전날 데이터가 다음 날 오후</td>
+<td align="left">무료, Standard는 1M event/일</td>
+<td align="left"><code>events_YYYYMMDD</code></td>
+</tr>
+<tr>
+<td align="left">Streaming</td>
+<td align="left">수 분 내</td>
+<td align="left">$0.05/GB, 무제한</td>
+<td align="left"><code>events_intraday_YYYYMMDD</code></td>
+</tr>
+<tr>
+<td align="left">Fresh Daily</td>
+<td align="left">다음 날 이른 새벽</td>
+<td align="left">360 전용</td>
+<td align="left"><code>events_YYYYMMDD</code></td>
+</tr>
+</tbody></table>
+<p>Streaming은 best-effort라 완전성을 보장하지 않고 신규 사용자의 traffic source가 24시간 뒤에 채워지므로, 실시간 감시에만 쓰고 공식 리포트는 daily로 만든다.</p>
+<p>이벤트 한 건이 한 행이며 <code>event_params</code>·<code>user_properties</code>·<code>items</code>는 repeated record라 UNNEST가 필요하고, 파라미터 value는 <code>string_value</code>·<code>int_value</code>·<code>double_value</code> 중 하나만 채워진다. 날짜 suffix가 파티션이어서 <code>events_*</code>에는 <code>_TABLE_SUFFIX</code> 필터가 필수이고, clustering은 없으므로 scheduled query로 요약 테이블을 만들어 분석가와 BI 도구가 그쪽만 보게 한다. 일일 테이블은 2일까지 소급 갱신되므로 확정 수치는 3일 전 기준이다. 비용은 스토리지 $0.02/GB/월, 온디맨드 쿼리 $6.25/TB scanned다.</p>
+<p>Data API는 집계 report를 코드로 꺼낸다. <code>runReport</code>·<code>batchRunReports</code>(최대 5개)·<code>runPivotReport</code>·<code>runRealtimeReport</code>(최근 30분) 네 메서드를 dimension·metric·dateRange·filter·orderBy·limit·offset으로 조립하며, Standard 속성은 하루 core token 25,000이 상한이다. Admin API는 Property·Stream·Custom Dimension·Audience·Key Event·Property Linking을 CRUD하므로 Terraform 같은 IaC와 결합한다. 서버 자동화는 Service Account를 쓰고 속성 Access Management에 등록해야 하며, Data API는 Viewer, Admin API는 Editor 이상이 필요하다.</p>
+<p>Privacy의 핵심은 Consent Mode v2다. <code>analytics_storage</code>·<code>ad_storage</code>·<code>ad_user_data</code>·<code>ad_personalization</code> 네 유형을 배너 전 <code>default</code>에서 denied로 두고 선택 후 <code>update</code>한다. 뒤의 두 유형은 EU DMA 의무라 빠지면 EU 전환 데이터가 비고, 한국 PIPA는 명시 동의와 국외 이전 동의를 요구한다. 미동의 사용자는 cookieless ping으로 modeling에 쓰인다. 이메일·전화번호·주민번호는 약관이 금지하는 PII이며 대개 URL 파라미터·page_title로 자동 유입된다. User ID는 SHA-256 해시로 넘긴다.</p>
+<h2>코드</h2>
+<p>BigQuery 클라이언트로 어제 purchase의 items를 UNNEST해 상품별 매출을 집계하고, dry run으로 스캔 비용이 임계치를 넘으면 중단한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PurchaseQueryService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">double</span> <span class="hljs-variable">USD_PER_TB</span> <span class="hljs-operator">=</span> <span class="hljs-number">6.25</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">BigQuery</span> <span class="hljs-variable">bigQuery</span> <span class="hljs-operator">=</span> BigQueryOptions.getDefaultInstance().getService();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;ItemRevenue&gt; <span class="hljs-title function_">topItemsYesterday</span><span class="hljs-params">(String dataset)</span> <span class="hljs-keyword">throws</span> InterruptedException {
+        <span class="hljs-type">String</span> <span class="hljs-variable">sql</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&quot;&quot;
+            SELECT i.item_id, i.item_name, SUM(i.item_revenue) AS revenue
+            FROM `%s.events_*`, UNNEST(items) AS i
+            WHERE _TABLE_SUFFIX = FORMAT_DATE(&#x27;%%Y%%m%%d&#x27;, DATE_SUB(CURRENT_DATE(&#x27;Asia/Seoul&#x27;), INTERVAL 1 DAY))
+              AND event_name = &#x27;purchase&#x27;
+            GROUP BY i.item_id, i.item_name
+            ORDER BY revenue DESC
+            LIMIT 10
+            &quot;&quot;&quot;</span>.formatted(dataset);
+
+        <span class="hljs-type">Job</span> <span class="hljs-variable">dryRun</span> <span class="hljs-operator">=</span> bigQuery.create(JobInfo.of(
+                QueryJobConfiguration.newBuilder(sql).setDryRun(<span class="hljs-literal">true</span>).setUseQueryCache(<span class="hljs-literal">false</span>).build()));
+        <span class="hljs-type">long</span> <span class="hljs-variable">bytes</span> <span class="hljs-operator">=</span> ((JobStatistics.QueryStatistics) dryRun.getStatistics()).getTotalBytesProcessed();
+        <span class="hljs-type">double</span> <span class="hljs-variable">cost</span> <span class="hljs-operator">=</span> bytes / Math.pow(<span class="hljs-number">1024</span>, <span class="hljs-number">4</span>) * USD_PER_TB;
+        <span class="hljs-keyword">if</span> (cost &gt; <span class="hljs-number">5.0</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;scan cost %.2f USD exceeds limit&quot;</span>.formatted(cost));
+        }
+
+        <span class="hljs-type">TableResult</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> bigQuery.query(QueryJobConfiguration.newBuilder(sql).build());
+        <span class="hljs-type">List</span>&lt;ItemRevenue&gt; <span class="hljs-variable">rows</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;();
+        <span class="hljs-keyword">for</span> (FieldValueList row : result.iterateAll()) {
+            rows.add(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ItemRevenue</span>(
+                    row.get(<span class="hljs-string">&quot;item_id&quot;</span>).getStringValue(),
+                    row.get(<span class="hljs-string">&quot;item_name&quot;</span>).getStringValue(),
+                    row.get(<span class="hljs-string">&quot;revenue&quot;</span>).getDoubleValue()));
+        }
+        <span class="hljs-keyword">return</span> rows;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">ItemRevenue</span><span class="hljs-params">(String itemId, String itemName, <span class="hljs-type">double</span> revenue)</span> {}
+}</code></pre>
+<p>Data API <code>runReport</code>로 어제 국가별 사용자·매출을 가져온다. <code>rowCount</code>와 받은 행 수를 비교해 페이지네이션 누락을 막는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DailyReportService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String property;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DailyReportService</span><span class="hljs-params">(<span class="hljs-meta">@Value(&quot;${ga4.property-id}&quot;)</span> String propertyId)</span> {
+        <span class="hljs-built_in">this</span>.property = <span class="hljs-string">&quot;properties/&quot;</span> + propertyId;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Row&gt; <span class="hljs-title function_">yesterdayByCountry</span><span class="hljs-params">()</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">LocalDate</span> <span class="hljs-variable">yesterday</span> <span class="hljs-operator">=</span> LocalDate.now(ZoneId.of(<span class="hljs-string">&quot;Asia/Seoul&quot;</span>)).minusDays(<span class="hljs-number">1</span>);
+        <span class="hljs-type">List</span>&lt;Row&gt; <span class="hljs-variable">rows</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;();
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">BetaAnalyticsDataClient</span> <span class="hljs-variable">client</span> <span class="hljs-operator">=</span> BetaAnalyticsDataClient.create()) {
+            <span class="hljs-type">long</span> <span class="hljs-variable">offset</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+            <span class="hljs-type">int</span> <span class="hljs-variable">limit</span> <span class="hljs-operator">=</span> <span class="hljs-number">1000</span>;
+            <span class="hljs-keyword">while</span> (<span class="hljs-literal">true</span>) {
+                <span class="hljs-type">RunReportRequest</span> <span class="hljs-variable">request</span> <span class="hljs-operator">=</span> RunReportRequest.newBuilder()
+                        .setProperty(property)
+                        .addDimensions(Dimension.newBuilder().setName(<span class="hljs-string">&quot;country&quot;</span>))
+                        .addMetrics(Metric.newBuilder().setName(<span class="hljs-string">&quot;activeUsers&quot;</span>))
+                        .addMetrics(Metric.newBuilder().setName(<span class="hljs-string">&quot;totalRevenue&quot;</span>))
+                        .addDateRanges(DateRange.newBuilder()
+                                .setStartDate(yesterday.toString()).setEndDate(yesterday.toString()))
+                        .setReturnPropertyQuota(<span class="hljs-literal">true</span>)
+                        .setLimit(limit).setOffset(offset)
+                        .build();
+                <span class="hljs-type">RunReportResponse</span> <span class="hljs-variable">response</span> <span class="hljs-operator">=</span> client.runReport(request);
+                rows.addAll(response.getRowsList());
+                <span class="hljs-keyword">if</span> (rows.size() &gt;= response.getRowCount() || response.getRowsCount() &lt; limit) {
+                    <span class="hljs-keyword">break</span>;
+                }
+                offset += limit;
+            }
+        }
+        <span class="hljs-keyword">return</span> rows;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>SELECT * FROM events_*</code>를 <code>_TABLE_SUFFIX</code> 없이 실행하면 전체 이력이 스캔된다. 컬럼을 명시하고 <code>INFORMATION_SCHEMA.JOBS</code>로 비용 상위 쿼리를 점검하며, Looker Studio는 요약 테이블에만 연결한다.</li>
+<li><code>event_timestamp</code>와 <code>event_date</code>는 UTC다. 한국 일자는 <code>DATE(TIMESTAMP_MICROS(event_timestamp), &#39;Asia/Seoul&#39;)</code>로 변환하고, 데이터셋 location은 BI 도구와 같은 리전으로 맞춘다.</li>
+<li>Custom Dimension의 scope와 Audience의 filter는 생성 후 변경할 수 없어 삭제 후 재생성뿐이다. Terraform 관리 리소스를 UI에서 손대면 drift가 생겨 다음 apply에서 되돌아간다.</li>
+<li>대시보드가 수 초마다 <code>runReport</code>를 호출하면 quota가 소진되어 429가 온다. 결과를 캐시하고 <code>batchRunReports</code>로 묶으며 지수 backoff를 건다.</li>
+<li>GA 매출은 ad blocker·동의 거부 때문에 DB 매출의 85~95%가 정상이다. 매일 reconcile해 편차 5% 초과 시 알리고, 같은 배치에서 PII 정규식 스캔과 page_location cardinality 감시를 돌린다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/experimentation/ga4-data-model/">GA4 데이터 모델 — 이벤트·세션·사용자</a></li>
+<li><a href="/notes/experimentation/ga4-measurement-gtm-events/">측정 구현 — gtag·GTM·이벤트·전자상거래</a></li>
+<li><a href="/notes/experimentation/ga4-conversions-reports/">전환·잠재고객·보고서·탐색</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-30 · GA4, BigQuery, Data API, Admin API, Consent Mode</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/experimentation/ga4-conversions-reports/"><small>이전</small>전환·잠재고객·보고서·탐색</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

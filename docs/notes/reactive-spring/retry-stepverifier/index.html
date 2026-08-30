@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Repeat·Retry와 StepVerifier · Reactive Spring</title>
+  <meta name="description" content="완료·에러 후 재구독하는 repeat/retry 전략과, 비동기 파이프라인을 가상 시간으로 검증하는 StepVerifier 사용법">
+  <meta property="og:title" content="Repeat·Retry와 StepVerifier · Reactive Spring">
+  <meta property="og:description" content="완료·에러 후 재구독하는 repeat/retry 전략과, 비동기 파이프라인을 가상 시간으로 검증하는 StepVerifier 사용법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/reactive-spring/retry-stepverifier/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/reactive-spring/">Reactive Spring</a><span class="sep">›</span><span>Repeat·Retry와 StepVerifier</span></nav>
+    <article class="post">
+  <p class="part">Reactive Spring · Reactor 심화</p>
+  <h1>Repeat·Retry와 StepVerifier</h1>
+  <p class="summary">완료·에러 후 재구독하는 repeat/retry 전략과, 비동기 파이프라인을 가상 시간으로 검증하는 StepVerifier 사용법</p>
+  <div class="content">
+<p>외부 API 호출은 일시적으로 실패한다. 배포 중인 업스트림의 503은 몇 초 뒤 다시 시도하면 대부분 성공하지만, 재시도 로직이 없으면 순간적 장애가 그대로 사용자 에러가 되고, 루프와 <code>Thread.sleep</code>으로 직접 구현하면 논블로킹 파이프라인 안에서 스레드를 점유한다. Reactor는 이를 <code>repeat</code>와 <code>retry</code>로 파이프라인 안에 선언한다. 검증도 문제다. <code>subscribe()</code>는 즉시 반환되므로 단언을 둘 곳이 없고, <code>block()</code>은 <code>delayElements</code>가 붙은 스트림을 실제 시간만큼 기다린다. reactor-test의 <code>StepVerifier</code>가 이 공백을 채운다.</p>
+<h2>핵심 개념</h2>
+<p><code>repeat</code>와 <code>retry</code>는 구조가 같고 트리거만 다르다. <code>repeat</code>는 <code>onComplete</code>, <code>retry</code>는 <code>onError</code>를 받으면 업스트림을 다시 구독한다. 파이프라인 바깥의 상태는 초기화되지 않는다. 횟수 인자는 추가 실행 횟수라 <code>repeat(3)</code>은 총 4회 실행, <code>retry(2)</code>는 총 3회 시도다. 인자 없는 <code>repeat()</code>는 <code>take</code>·<code>takeUntil</code>로 종료 조건을 붙여야 하고, <code>retry()</code>는 영구 오류에 붙이면 CPU를 점유하는 무한 루프가 된다. <code>repeatWhen</code>은 완료 신호를 담은 companion Flux에 <code>delayElements</code>를 걸어 주기 폴링을 만든다.</p>
+<p>정교한 재시도는 <code>retryWhen(Retry)</code>이 담당한다.</p>
+<table>
+<thead>
+<tr>
+<th align="left">전략</th>
+<th align="left">메서드</th>
+<th align="left">특징</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">즉시</td>
+<td align="left"><code>Retry.max(n)</code></td>
+<td align="left">서버 부하 집중</td>
+</tr>
+<tr>
+<td align="left">고정 지연</td>
+<td align="left"><code>Retry.fixedDelay(n, Duration)</code></td>
+<td align="left">동시 재시도가 몰림</td>
+</tr>
+<tr>
+<td align="left">지수 백오프</td>
+<td align="left"><code>Retry.backoff(n, Duration)</code></td>
+<td align="left">실무 기본</td>
+</tr>
+<tr>
+<td align="left">무한</td>
+<td align="left"><code>Retry.indefinitely()</code></td>
+<td align="left"><code>filter</code> 필수</td>
+</tr>
+</tbody></table>
+<p><code>Retry.backoff</code>는 기본 지터가 0.5라 대기 시간에 최대 50% 무작위 편차를 더해 thundering herd를 막고, <code>maxBackoff</code>로 상한을 둔다. <code>filter</code>는 재시도 대상 예외를 제한하고, <code>doBeforeRetry</code>는 <code>RetrySignal</code>을 받아 로깅에 쓴다. 재시도가 소진되면 원본 대신 <code>Retries exhausted: n/n</code> 메시지의 <code>IllegalStateException</code>이 전파되고 원본은 <code>getCause()</code>에 들어간다. 원본을 그대로 전파하려면 <code>onRetryExhaustedThrow((spec, signal) -&gt; signal.failure())</code>를 쓴다.</p>
+<p>StepVerifier는 Publisher를 구독하며 신호를 하나씩 소비해 선언된 기대와 대조한다. <code>create</code>는 시나리오만 만들고, <code>verify()</code>·<code>verifyComplete()</code>·<code>verifyError()</code> 같은 종결 메서드를 호출해야 구독과 검증이 시작된다. 종결 메서드가 빠지면 아무 검증 없이 통과한다. 값 검증은 <code>expectNext</code>(정확한 값), <code>expectNextMatches</code>(술어), <code>assertNext</code>(JUnit·AssertJ 단언), <code>expectNextCount</code>(개수만), <code>thenConsumeWhile</code>(술어가 참인 동안 전부 소비)로 나뉘고, 에러는 <code>expectError(Class)</code>, <code>expectErrorMessage</code>로 검증한다.</p>
+<p><code>withVirtualTime</code>은 스케줄러를 <code>VirtualTimeScheduler</code>로 교체해 <code>delayElements</code>, <code>interval</code>, <code>Retry.backoff</code> 같은 시간 기반 연산자를 실제 대기 없이 검증한다. <code>thenAwait</code>로 가상 시계를 진행하고 <code>expectNoEvent</code>로 구간에 신호가 없었음을 단언하는데, 구독도 이벤트이므로 그 앞에 <code>expectSubscription()</code>이 필요하다. 가상 스케줄러는 <code>withVirtualTime</code> 호출 시점에 설치되므로 Publisher는 반드시 <code>Supplier</code> 안에서 생성한다. <code>TestPublisher</code>는 테스트 코드가 직접 <code>next</code>·<code>error</code>·<code>complete</code>를 발행하며, 구독 전에 발행한 값은 사라지므로 <code>then()</code> 블록 안에서 발행한다.</p>
+<h2>코드</h2>
+<p>일시 장애 서비스에 지수 백오프 재시도를 적용하고, 소진 시 원본 예외를 전파하는 예제다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> java.util.concurrent.atomic.AtomicInteger;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Mono;
+<span class="hljs-keyword">import</span> reactor.util.retry.Retry;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FlakyClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">AtomicInteger</span> <span class="hljs-variable">attempts</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AtomicInteger</span>();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;String&gt; <span class="hljs-title function_">call</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> Mono.fromSupplier(() -&gt; {
+            <span class="hljs-type">int</span> <span class="hljs-variable">n</span> <span class="hljs-operator">=</span> attempts.incrementAndGet();
+            <span class="hljs-keyword">if</span> (n &lt; <span class="hljs-number">3</span>) {
+                <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ServiceUnavailableException</span>(<span class="hljs-string">&quot;attempt &quot;</span> + n);
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;ok&quot;</span>;
+        });
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;String&gt; <span class="hljs-title function_">callWithRetry</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> call().retryWhen(
+            Retry.backoff(<span class="hljs-number">3</span>, Duration.ofMillis(<span class="hljs-number">200</span>))
+                .maxBackoff(Duration.ofSeconds(<span class="hljs-number">2</span>))
+                .jitter(<span class="hljs-number">0.5</span>)
+                .filter(ServiceUnavailableException.class::isInstance)
+                .doBeforeRetry(signal -&gt;
+                    System.out.printf(<span class="hljs-string">&quot;retry #%d cause=%s%n&quot;</span>,
+                        signal.totalRetries() + <span class="hljs-number">1</span>, signal.failure().getMessage()))
+                .onRetryExhaustedThrow((spec, signal) -&gt; signal.failure())
+        );
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ServiceUnavailableException</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">RuntimeException</span> {
+        ServiceUnavailableException(String message) { <span class="hljs-built_in">super</span>(message); }
+    }
+}</code></pre>
+<p>2초 간격 폴링에 5xx 재시도를 결합한 예제다. <code>retryWhen</code>을 <code>repeat</code> 아래에 두어야 재시도가 폴링 루프 전체를 다시 구독한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-type">Flux</span>&lt;String&gt; <span class="hljs-title function_">pollUntilDone</span><span class="hljs-params">(WebClient client)</span> {
+    <span class="hljs-keyword">return</span> client.get().uri(<span class="hljs-string">&quot;/orders/status&quot;</span>)
+        .retrieve()
+        .bodyToMono(String.class)
+        .repeatWhen(done -&gt; done.delayElements(Duration.ofSeconds(<span class="hljs-number">2</span>)))
+        .takeUntil(<span class="hljs-string">&quot;DONE&quot;</span>::equals)
+        .retryWhen(
+            Retry.fixedDelay(<span class="hljs-number">20</span>, Duration.ofSeconds(<span class="hljs-number">1</span>))
+                .filter(ex -&gt; ex <span class="hljs-keyword">instanceof</span> WebClientResponseException wcre
+                    &amp;&amp; wcre.getStatusCode().is5xxServerError())
+        );
+}</code></pre>
+<p>StepVerifier 테스트다. 백오프 대기는 가상 시간으로 건너뛴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> <span class="hljs-keyword">static</span> org.assertj.core.api.Assertions.assertThat;
+
+<span class="hljs-keyword">import</span> java.time.Duration;
+<span class="hljs-keyword">import</span> org.junit.jupiter.api.Test;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Flux;
+<span class="hljs-keyword">import</span> reactor.core.publisher.Mono;
+<span class="hljs-keyword">import</span> reactor.test.StepVerifier;
+<span class="hljs-keyword">import</span> reactor.test.publisher.TestPublisher;
+<span class="hljs-keyword">import</span> reactor.util.retry.Retry;
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">FlakyClientTest</span> {
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">retriesUntilSuccessWithoutRealWaiting</span><span class="hljs-params">()</span> {
+        StepVerifier.withVirtualTime(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">FlakyClient</span>().callWithRetry())
+            .expectSubscription()
+            .expectNoEvent(Duration.ofMillis(<span class="hljs-number">100</span>))
+            .thenAwait(Duration.ofSeconds(<span class="hljs-number">5</span>))
+            .expectNext(<span class="hljs-string">&quot;ok&quot;</span>)
+            .verifyComplete();
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">nonRetryableErrorFailsImmediately</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Mono</span>&lt;String&gt; <span class="hljs-variable">source</span> <span class="hljs-operator">=</span> Mono.&lt;String&gt;error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;bad request&quot;</span>))
+            .retryWhen(Retry.max(<span class="hljs-number">3</span>)
+                .filter(FlakyClient.ServiceUnavailableException.class::isInstance)
+                .onRetryExhaustedThrow((spec, signal) -&gt; signal.failure()));
+
+        StepVerifier.create(source)
+            .expectError(IllegalArgumentException.class)
+            .verify();
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">delayedStreamWithVirtualTime</span><span class="hljs-params">()</span> {
+        StepVerifier.withVirtualTime(() -&gt;
+                Flux.range(<span class="hljs-number">1</span>, <span class="hljs-number">5</span>).delayElements(Duration.ofSeconds(<span class="hljs-number">10</span>)))
+            .expectSubscription()
+            .expectNoEvent(Duration.ofSeconds(<span class="hljs-number">10</span>))
+            .expectNext(<span class="hljs-number">1</span>)
+            .thenAwait(Duration.ofSeconds(<span class="hljs-number">40</span>))
+            .expectNext(<span class="hljs-number">2</span>, <span class="hljs-number">3</span>, <span class="hljs-number">4</span>, <span class="hljs-number">5</span>)
+            .verifyComplete();
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">manualEmissionWithTestPublisher</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">TestPublisher</span>&lt;String&gt; <span class="hljs-variable">publisher</span> <span class="hljs-operator">=</span> TestPublisher.create();
+
+        StepVerifier.create(publisher.flux().map(String::toUpperCase))
+            .then(() -&gt; {
+                publisher.next(<span class="hljs-string">&quot;hi&quot;</span>);
+                publisher.error(<span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;boom&quot;</span>));
+            })
+            .expectNext(<span class="hljs-string">&quot;HI&quot;</span>)
+            .expectErrorMessage(<span class="hljs-string">&quot;boom&quot;</span>)
+            .verify();
+    }
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">collectListThenAssert</span><span class="hljs-params">()</span> {
+        StepVerifier.create(Flux.range(<span class="hljs-number">1</span>, <span class="hljs-number">50</span>).map(i -&gt; i * <span class="hljs-number">2</span>).collectList())
+            .assertNext(list -&gt; {
+                assertThat(list).hasSize(<span class="hljs-number">50</span>);
+                assertThat(list).allMatch(i -&gt; i % <span class="hljs-number">2</span> == <span class="hljs-number">0</span>);
+            })
+            .verifyComplete();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>filter</code> 없는 <code>retryWhen</code>은 4xx처럼 반복해도 결과가 같은 예외에 대기 시간만 소모한다. 5xx·타임아웃·커넥션 예외로 대상을 한정한다.</li>
+<li>타임아웃으로 실패한 POST는 서버에서 이미 처리됐을 수 있다. 멱등 키 없는 재시도는 중복 실행이 된다.</li>
+<li>WebClient·서비스·게이트웨이에 각각 재시도가 있으면 시도 횟수가 곱해진다. 재시도는 한 곳에서만 선언한다.</li>
+<li>소진 예외 타입이 바뀌므로 <code>retryWhen</code> 아래의 <code>onErrorResume(TimeoutException.class, ...)</code>는 매칭되지 않는다. <code>onRetryExhaustedThrow</code>로 원본을 전파하거나 <code>getCause()</code>로 분기한다.</li>
+<li>시간 기반 연산자를 실제 시간으로 테스트하면 CI가 느려지고 타이밍에 따라 실패한다. 부분 소비 테스트는 <code>cancel()</code> 후 <code>verify()</code>로 끝내 무한 대기를 피한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/reactive-spring/schedulers-context/">Schedulers·스레딩·Context</a></li>
+<li><a href="/notes/reactive-spring/hot-cold-sinks/">Hot/Cold Publisher와 Sinks</a></li>
+<li><a href="/notes/reactive-spring/webclient/">WebClient</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Project Reactor, retryWhen, backoff, StepVerifier, withVirtualTime</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/reactive-spring/schedulers-context/"><small>이전</small>Schedulers·스레딩·Context</a>
+  <a class="next" href="/notes/reactive-spring/webflux-basics-functional/"><small>다음</small>WebFlux 기본 — 애노테이션 컨트롤러와 Functional Endpoints</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

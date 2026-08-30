@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>서비스 분해와 아키텍처 · 실전 프로젝트 — SNS 마이크로서비스</title>
+  <meta name="description" content="SNS를 서비스 4개로 나누고 Database-per-Service·Gateway·Kafka·Healthcheck로 묶는 기준을 정리한다">
+  <meta property="og:title" content="서비스 분해와 아키텍처 · 실전 프로젝트 — SNS 마이크로서비스">
+  <meta property="og:description" content="SNS를 서비스 4개로 나누고 Database-per-Service·Gateway·Kafka·Healthcheck로 묶는 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/sns-project/microservices-architecture/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/sns-project/">실전 프로젝트 — SNS 마이크로서비스</a><span class="sep">›</span><span>서비스 분해와 아키텍처</span></nav>
+    <article class="post">
+  <p class="part">실전 프로젝트 — SNS 마이크로서비스 · 아키텍처</p>
+  <h1>서비스 분해와 아키텍처</h1>
+  <p class="summary">SNS를 서비스 4개로 나누고 Database-per-Service·Gateway·Kafka·Healthcheck로 묶는 기준을 정리한다</p>
+  <div class="content">
+<p>회원·게시글·알림을 한 프로젝트에 컨트롤러 세 개로 두면 처음에는 빠르다. 문제는 운영에 들어간 뒤 나타난다. 게시글 트래픽이 폭주할 때 로그인까지 느려지고, 댓글 테이블 스키마를 바꾸면 알림 코드가 깨지며, DB 한 대가 멈추면 서비스 전체가 멈춘다. 배포 단위와 장애 단위가 하나로 묶여 있기 때문이다. 이 시리즈의 SNS는 그 결합을 끊기 위해 api-gateway·user·post·notification 네 개의 Spring Boot 3.x(Java 21) 서비스로 나누고, PostgreSQL 3대·Redis·Kafka·Elasticsearch·LocalStack S3·Mailhog를 Docker Compose 한 파일로 묶어 기동한다.</p>
+<h2>핵심 개념</h2>
+<h3>요청 경로</h3>
+<p>브라우저 요청은 Next.js(3000)를 거쳐 API Gateway(8080) 한 곳으로 들어온다. 게이트웨이는 Path 조건으로 <code>/v1/users/**</code>를 User Service(8081), <code>/v1/posts/**</code>와 <code>/v1/media/**</code>를 Post Service(8082), <code>/v1/notifications/**</code>를 Notification Service(8083)로 라우팅한다. 각 서비스는 전용 PostgreSQL을 가지며, Redis(캐시·블랙리스트·랭킹)·Kafka(서비스 간 이벤트)·Elasticsearch(게시글 검색)·S3(미디어 저장)는 공용 인프라로 둔다.</p>
+<h3>Database-per-Service</h3>
+<p>서비스 분해의 첫 번째 규칙은 DB를 서비스별로 분리하고 다른 서비스의 DB를 직접 조회하지 않는 것이다. 서비스를 나눴어도 DB를 공유하면 스키마 변경이 다른 서비스로 전파되므로 실질적으로 모놀리스와 같다.</p>
+<table>
+<thead>
+<tr>
+<th>서비스</th>
+<th>DB</th>
+<th>호스트 포트</th>
+<th>보관 데이터</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>User Service</td>
+<td>userdb</td>
+<td>5435</td>
+<td>회원, 구독 관계, RefreshToken</td>
+</tr>
+<tr>
+<td>Post Service</td>
+<td>postdb</td>
+<td>5433</td>
+<td>게시글, 댓글, 좋아요, 미디어 메타, Outbox</td>
+</tr>
+<tr>
+<td>Notification Service</td>
+<td>notifdb</td>
+<td>5434</td>
+<td>알림 로그, 이메일 발송 기록</td>
+</tr>
+</tbody></table>
+<p>분리로 얻는 것은 세 가지다. 독립 배포와 스케일링(postdb만 증설 가능), 스키마 변경 격리(댓글 테이블을 나눠도 다른 서비스 코드는 변경 없음), 장애 격리(postdb 장애 시에도 가입·로그인 유지). 대가로 서비스 사이에는 외래 키가 없다. <code>posts.user_id</code>는 <code>users.id</code>를 가리키지만 DB 제약은 없으며, 교차 서비스 일관성은 REST 호출과 Kafka 이벤트로 애플리케이션 수준에서 맞춘다.</p>
+<h3>API Gateway의 책임</h3>
+<p>게이트웨이는 Spring Cloud Gateway를 사용하며 WebFlux 기반 논블로킹으로 동작한다. 책임은 두 가지다. 첫째, Authorization 헤더의 Bearer 토큰 서명을 검증하고 jti가 Redis 블랙리스트에 있으면(로그아웃된 토큰) 거부한다. 둘째, 통과한 요청에 <code>X-User-Id</code>·<code>X-User-Email</code> 헤더를 주입해 하위 서비스로 넘긴다. 하위 서비스는 토큰을 다시 파싱하지 않고 헤더만 읽는다. 이벤트 루프 위에서 동작하므로 Redis 접근은 <code>ReactiveStringRedisTemplate</code> 같은 리액티브 클라이언트로만 해야 한다.</p>
+<h3>포트 배치</h3>
+<p>호스트 포트 일부는 로컬에 설치된 기본 인스턴스와의 충돌을 피하기 위해 기본값에서 비켜 둔다. postgres-user 5435, redis 6380, elasticsearch 9203이 그 예이며, 컨테이너 내부 포트는 5432·6379·9200 그대로다.</p>
+<h2>코드</h2>
+<p>게이트웨이 GlobalFilter에서 검증이 끝난 사용자 정보를 헤더로 주입해 하위 서비스로 전달한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserHeaderFilter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">GlobalFilter</span>, Ordered {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JwtVerifier jwtVerifier;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ReactiveStringRedisTemplate redis;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserHeaderFilter</span><span class="hljs-params">(JwtVerifier jwtVerifier, ReactiveStringRedisTemplate redis)</span> {
+        <span class="hljs-built_in">this</span>.jwtVerifier = jwtVerifier;
+        <span class="hljs-built_in">this</span>.redis = redis;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">filter</span><span class="hljs-params">(ServerWebExchange exchange, GatewayFilterChain chain)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">token</span> <span class="hljs-operator">=</span> jwtVerifier.extract(exchange.getRequest());
+        <span class="hljs-keyword">if</span> (token == <span class="hljs-literal">null</span>) {
+            <span class="hljs-keyword">return</span> chain.filter(exchange);
+        }
+        <span class="hljs-type">Claims</span> <span class="hljs-variable">claims</span> <span class="hljs-operator">=</span> jwtVerifier.verify(token);
+        <span class="hljs-keyword">return</span> redis.hasKey(<span class="hljs-string">&quot;blacklist:&quot;</span> + claims.getId())
+            .flatMap(blocked -&gt; {
+                <span class="hljs-keyword">if</span> (blocked) {
+                    exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+                    <span class="hljs-keyword">return</span> exchange.getResponse().setComplete();
+                }
+                <span class="hljs-type">ServerWebExchange</span> <span class="hljs-variable">mutated</span> <span class="hljs-operator">=</span> exchange.mutate()
+                    .request(r -&gt; r.header(<span class="hljs-string">&quot;X-User-Id&quot;</span>, claims.getSubject())
+                                   .header(<span class="hljs-string">&quot;X-User-Email&quot;</span>, claims.get(<span class="hljs-string">&quot;email&quot;</span>, String.class)))
+                    .build();
+                <span class="hljs-keyword">return</span> chain.filter(mutated);
+            });
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getOrder</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> -<span class="hljs-number">1</span>;
+    }
+}</code></pre>
+<p>하위 서비스는 주입된 헤더로 사용자를 식별한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/v1/users&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UserController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> UserService userService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UserController</span><span class="hljs-params">(UserService userService)</span> {
+        <span class="hljs-built_in">this</span>.userService = userService;
+    }
+
+    <span class="hljs-meta">@GetMapping(&quot;/me&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">UserDto</span> <span class="hljs-title function_">me</span><span class="hljs-params">(<span class="hljs-meta">@RequestHeader(&quot;X-User-Id&quot;)</span> Long userId)</span> {
+        <span class="hljs-keyword">return</span> userService.findById(userId);
+    }
+}</code></pre>
+<p>Compose에서 Kafka 이중 리스너와 healthcheck 기반 기동 순서를 정의한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">zookeeper:</span>
+  <span class="hljs-attr">image:</span> <span class="hljs-string">confluentinc/cp-zookeeper</span>
+  <span class="hljs-attr">healthcheck:</span>
+    <span class="hljs-attr">test:</span> [<span class="hljs-string">&quot;CMD-SHELL&quot;</span>, <span class="hljs-string">&quot;echo srvr | nc localhost 2181 | grep -q Mode&quot;</span>]
+    <span class="hljs-attr">interval:</span> <span class="hljs-string">10s</span>
+    <span class="hljs-attr">retries:</span> <span class="hljs-number">10</span>
+
+<span class="hljs-attr">kafka:</span>
+  <span class="hljs-attr">image:</span> <span class="hljs-string">confluentinc/cp-kafka</span>
+  <span class="hljs-attr">depends_on:</span>
+    <span class="hljs-attr">zookeeper:</span>
+      <span class="hljs-attr">condition:</span> <span class="hljs-string">service_healthy</span>
+  <span class="hljs-attr">environment:</span>
+    <span class="hljs-attr">KAFKA_LISTENERS:</span> <span class="hljs-string">PLAINTEXT_INTERNAL://0.0.0.0:29092,PLAINTEXT_EXTERNAL://0.0.0.0:9092</span>
+    <span class="hljs-attr">KAFKA_ADVERTISED_LISTENERS:</span> <span class="hljs-string">PLAINTEXT_INTERNAL://kafka:29092,PLAINTEXT_EXTERNAL://localhost:9092</span>
+    <span class="hljs-attr">KAFKA_INTER_BROKER_LISTENER_NAME:</span> <span class="hljs-string">PLAINTEXT_INTERNAL</span>
+
+<span class="hljs-attr">postgres-user:</span>
+  <span class="hljs-attr">image:</span> <span class="hljs-string">postgres:16</span>
+  <span class="hljs-attr">ports:</span> [<span class="hljs-string">&quot;5435:5432&quot;</span>]
+  <span class="hljs-attr">healthcheck:</span>
+    <span class="hljs-attr">test:</span> [<span class="hljs-string">&quot;CMD-SHELL&quot;</span>, <span class="hljs-string">&quot;pg_isready -U appuser -d userdb&quot;</span>]
+
+<span class="hljs-attr">elasticsearch:</span>
+  <span class="hljs-attr">image:</span> <span class="hljs-string">elasticsearch:8.13.0</span>
+  <span class="hljs-attr">ports:</span> [<span class="hljs-string">&quot;9203:9200&quot;</span>]
+  <span class="hljs-attr">environment:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">ES_JAVA_OPTS=-Xms128m</span> <span class="hljs-string">-Xmx128m</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-string">discovery.type=single-node</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong><code>X-User-Id</code> 위장.</strong> 클라이언트가 게이트웨이를 우회해 8081~8083으로 직접 접속하면서 <code>X-User-Id: 1</code>을 넣으면 해당 사용자로 위장된다. 운영에서는 서비스 포트를 외부에 노출하지 않고 게이트웨이만 열어야 한다.</li>
+<li><strong>Kafka advertised.listeners.</strong> 클라이언트는 최초 접속 후 브로커가 알려준 advertised 주소로 재접속한다. 컨테이너는 <code>kafka:29092</code>, 호스트에서 실행한 Spring Boot는 <code>localhost:9092</code>를 써야 하며, 주소가 잘못되면 첫 핸드셰이크는 성공하고 두 번째 요청부터 끊기는 증상이 나타난다.</li>
+<li><strong>Zookeeper healthcheck.</strong> Confluent 이미지는 <code>ruok</code> 4글자 명령을 기본 화이트리스트에서 제외한다. <code>ruok</code>로 작성하면 영원히 unhealthy 상태로 남으므로 <code>srvr</code> 출력에 <code>Mode</code>가 포함되는지로 확인한다.</li>
+<li><strong>Elasticsearch OOM.</strong> 기본 힙이 512MB~1GB라 Docker VM 메모리가 부족하면 exit code 137로 종료된다. 로컬에서 컨테이너 14개를 함께 띄울 때는 힙을 128MB로 제한하되, 운영 값으로 쓰면 안 된다.</li>
+<li><strong>게이트웨이 블로킹 호출.</strong> WebFlux 이벤트 루프에서 동기 <code>StringRedisTemplate</code>이나 블로킹 HTTP 클라이언트를 호출하면 게이트웨이 전체 처리량이 떨어진다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/sns-project/gateway-jwt-oauth2/">API Gateway·JWT·OAuth2 인증</a></li>
+<li><a href="/notes/sns-project/kafka-outbox-redis-patterns/">Kafka 이벤트 흐름·Outbox·Redis 활용 패턴</a></li>
+<li><a href="/notes/sns-project/elasticsearch-s3/">Elasticsearch 검색과 S3 업로드</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-08-29 · Microservices, Spring Cloud Gateway, Database-per-Service, Kafka, Docker Compose</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/sns-project/gateway-jwt-oauth2/"><small>다음</small>API Gateway·JWT·OAuth2 인증</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
