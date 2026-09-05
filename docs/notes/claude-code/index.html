@@ -19,7 +19,7 @@
 <main class="sheet">
   <div class="wrap">
     <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>Claude Code</span></nav>
-    <header class="series-head"><h1>Claude Code</h1><p>Anthropic의 CLI 코딩 에이전트 — CLAUDE.md·권한 모델, 스킬·서브에이전트·훅·MCP·플러그인, SDK와 CI 자동화.</p><p class="count">10편</p></header>
+    <header class="series-head"><h1>Claude Code</h1><p>Anthropic의 CLI 코딩 에이전트 — CLAUDE.md·권한 모델, 스킬·서브에이전트·훅·MCP·플러그인, SDK와 CI 자동화.</p><p class="count">11편</p></header>
 <section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/claude-code/what-is-claude-code/"><span class="n">1</span><span class="t">Claude Code란 무엇인가 — 설치와 기본 사용법</span><span class="s">Claude Code는 저장소를 직접 읽고 고치고 명령을 실행하는 터미널 에이전트이며, 도입의 관문은 권한 모델이다</span></a></li>
 <li><a href="/notes/claude-code/claude-md-memory/"><span class="n">2</span><span class="t">CLAUDE.md와 메모리 — 프로젝트 컨텍스트 관리</span><span class="s">CLAUDE.md는 매 세션 로딩되는 컨텍스트일 뿐 강제 설정이 아니므로, 분량과 배치가 준수율을 결정한다</span></a></li>
 <li><a href="/notes/claude-code/settings-permissions/"><span class="n">3</span><span class="t">설정과 권한 모델 — settings.json·permission mode</span><span class="s">권한 규칙은 deny·ask·allow 순으로 첫 일치가 결과를 결정하며, 와일드카드 위치가 허용 범위를 좌우한다</span></a></li></ol></section>
@@ -27,7 +27,8 @@
 <li><a href="/notes/claude-code/subagents/"><span class="n">5</span><span class="t">서브에이전트 — 작업 분리와 병렬화</span><span class="s">독립 컨텍스트와 도구 제한을 가진 서브에이전트로 탐색·검증 작업을 본 대화에서 떼어내는 방법을 정리한다.</span></a></li>
 <li><a href="/notes/claude-code/hooks/"><span class="n">6</span><span class="t">훅 — 도구 호출 전후 자동화</span><span class="s">모델의 판단에 맡기지 않고 포맷·차단·감사를 결정론적으로 강제하는 훅의 이벤트·입출력 규약을 정리한다.</span></a></li>
 <li><a href="/notes/claude-code/mcp/"><span class="n">7</span><span class="t">MCP 서버 연동 — 외부 도구와 데이터 연결</span><span class="s">이슈 트래커·DB·사내 API를 표준 프로토콜로 붙이는 MCP의 전송·스코프·네이밍 규약과 운영상 한도를 정리한다.</span></a></li>
-<li><a href="/notes/claude-code/plugins/"><span class="n">8</span><span class="t">플러그인 — 마켓플레이스와 추천 플러그인</span><span class="s">스킬·훅·MCP 묶음에 이름과 버전을 붙여 설치 가능한 단위로 만들고 팀에 배포하는 방법</span></a></li></ol></section>
+<li><a href="/notes/claude-code/plugins/"><span class="n">8</span><span class="t">플러그인 — 마켓플레이스와 추천 플러그인</span><span class="s">스킬·훅·MCP 묶음에 이름과 버전을 붙여 설치 가능한 단위로 만들고 팀에 배포하는 방법</span></a></li>
+<li><a href="/notes/claude-code/superpowers-workflow-plugins/"><span class="n">11</span><span class="t">Superpowers — 워크플로 스킬 플러그인과 비슷한 도구들</span><span class="s">설계·계획·TDD·검증 순서를 사람의 말 대신 자동 트리거 스킬로 고정하는 플러그인의 동작 원리와 대가</span></a></li></ol></section>
 <section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/claude-code/sdk-headless-ci/"><span class="n">9</span><span class="t">Agent SDK와 headless 모드 — CI 자동화</span><span class="s">claude -p 와 Agent SDK로 사람이 지켜보지 않는 파이프라인 안에 에이전트를 넣는 방법</span></a></li>
 <li><a href="/notes/claude-code/workflows-best-practices/"><span class="n">10</span><span class="t">실무 워크플로 — 계획·TDD·비용 관리</span><span class="s">컨텍스트를 유한한 자원으로 다루는 계획·검증·정리 습관과 토큰 비용을 줄이는 조치</span></a></li></ol></section>
   </div>

@@ -12,3 +12,4 @@
 | 8 | plugins | 플러그인 — 마켓플레이스와 추천 플러그인 | 확장 | https://code.claude.com/docs/en/plugins, https://code.claude.com/docs/en/plugin-marketplaces |
 | 9 | sdk-headless-ci | Agent SDK와 headless 모드 — CI 자동화 | 운영 | https://code.claude.com/docs/en/sdk, https://code.claude.com/docs/en/github-actions |
 | 10 | workflows-best-practices | 실무 워크플로 — 계획·TDD·비용 관리 | 운영 | https://www.anthropic.com/engineering/claude-code-best-practices, https://code.claude.com/docs/en/common-workflows, https://code.claude.com/docs/en/costs |
+| 11 | superpowers-workflow-plugins | Superpowers — 워크플로 스킬 플러그인과 비슷한 도구들 | 확장 | https://github.com/obra/superpowers, https://blog.fsck.com/2025/10/09/superpowers/, https://code.claude.com/docs/en/plugins |
