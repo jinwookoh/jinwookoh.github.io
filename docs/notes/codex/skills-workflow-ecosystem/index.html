@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex 스킬 생태계 — Superpowers식 워크플로 만들기 · Codex</title>
+  <meta name="description" content="Codex의 확장 표면은 스킬·AGENTS.md·MCP·플러그인 네 층이며, 이것만으로 규율 있는 워크플로를 조립하는 방법을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Codex 스킬 생태계 — Superpowers식 워크플로 만들기 · Codex">
+  <meta property="og:description" content="Codex의 확장 표면은 스킬·AGENTS.md·MCP·플러그인 네 층이며, 이것만으로 규율 있는 워크플로를 조립하는 방법을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/codex/skills-workflow-ecosystem/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/codex/">Codex</a><span class="sep">›</span><span>Codex 스킬 생태계 — Superpowers식 워크플로 만들기</span></nav>
+    <article class="post">
+  <p class="part">Codex · 확장</p>
+  <h1>Codex 스킬 생태계 — Superpowers식 워크플로 만들기</h1>
+  <p class="summary">Codex의 확장 표면은 스킬·AGENTS.md·MCP·플러그인 네 층이며, 이것만으로 규율 있는 워크플로를 조립하는 방법을 정리한다</p>
+  <div class="content">
+<p>에이전트에게 같은 규율을 반복해서 요구하는 일은 금방 한계에 부딪힌다. 계획을 먼저 세우고, 테스트를 먼저 쓰고, 커밋 전에 검증하라는 요구를 매 세션 프롬프트로 재구성하면 문장이 조금씩 달라지고 지켜지는 정도도 같이 흔들린다. 팀에 퍼뜨리려면 위키에 적어 두는 방법밖에 없는데 그 위키를 읽는 쪽은 사람이지 에이전트가 아니다. Codex는 이 문제를 스킬, AGENTS.md, MCP, 플러그인 네 층으로 나눠 푼다. 반복 지시를 담던 커스텀 프롬프트는 이 구도에서 폐기 대상으로 밀려났고, 공식 문서는 재사용 가능한 지시를 스킬로 쓰라고 못박는다.</p>
+<h2>핵심 개념</h2>
+<p>스킬은 <code>SKILL.md</code> 한 장을 담은 디렉터리다. 프런트매터에 <code>name</code>과 <code>description</code> 두 필드가 필수이고, 나머지 본문은 에이전트가 따를 절차다. 필요하면 같은 디렉터리에 <code>scripts/</code>, <code>references/</code>, <code>assets/</code>, 그리고 표시 이름과 도구 의존성을 적는 <code>agents/openai.yaml</code>을 둔다. 이 구조는 Codex 전용 규격이 아니라 공개된 에이전트 스킬 표준을 따른다.</p>
+<p>동작 방식의 핵심은 점진적 공개다. Codex는 세션 시작 시 각 스킬의 이름과 설명, 파일 경로만 목록으로 올려 두고, 실제로 그 스킬을 쓰기로 정한 시점에야 <code>SKILL.md</code> 본문을 읽는다. 그래서 <code>description</code>은 문서용 설명이 아니라 선택 조건식이다. 무엇을 할 때 켜지고 무엇을 할 때 켜지지 말아야 하는지를 함께 적어야 한다.</p>
+<p>탐색 위치는 여섯 갈래다. 저장소 범위로 현재 작업 디렉터리의 <code>.agents/skills</code>, 그 위 상위 폴더들의 <code>.agents/skills</code>, 저장소 루트의 <code>.agents/skills</code>를 훑고, 사용자 범위로 <code>$HOME/.agents/skills</code>, 관리자 범위로 <code>/etc/codex/skills</code>, 그리고 Codex에 기본 내장된 시스템 스킬이 더해진다. 심볼릭 링크로 걸어 둔 스킬 폴더도 대상을 따라가 읽는다. 호출은 CLI에서 <code>$스킬명</code>을 치거나 <code>/skills</code>로 고르는 명시 호출과, 프롬프트가 설명과 맞으면 Codex가 스스로 고르는 암시 호출 두 가지다.</p>
+<p>AGENTS.md는 성격이 다르다. 조건부로 켜지는 스킬과 달리 항상 프롬프트에 실리는 상시 규칙이다. 루트에서 현재 디렉터리 방향으로 내려오며 각 층의 파일을 이어 붙이고, 가까운 파일이 뒤에 붙어 앞의 지침을 덮는다. <mark>합쳐진 크기가 <code>project_doc_max_bytes</code> 기본값 32 KiB에 닿으면 그 뒤 파일은 조용히 빠지므로, 하위 패키지 규칙이 무시되는 증상은 대개 상위 문서가 길어서 생긴다</mark>.</p>
+<p>배포 단위는 플러그인이다. 스킬 여러 개와 MCP 커넥터 설정을 <code>.codex-plugin/plugin.json</code> 매니페스트로 묶어 하나로 설치한다. 카탈로그는 공개 디렉터리, 저장소의 <code>.agents/plugins/marketplace.json</code>, 개인용 <code>~/.agents/plugins/marketplace.json</code> 세 종류이고, CLI에서는 <code>/plugins</code>로 탐색하고 <code>codex plugin marketplace</code>로 소스를 관리한다. 즉 Codex에도 마켓플레이스는 존재하며, 다만 워크플로 규율 자체를 파는 생태계라기보다 도구 연동 번들 쪽이 두텁다. 공식 저장소가 예시로 내놓은 것도 figma, notion, expo, netlify처럼 외부 서비스와 붙는 묶음이다.</p>
+<p>Spring에 대응시키면 스킬은 조건이 맞을 때만 올라오는 자동 구성 클래스에 가깝고 <code>description</code>이 그 조건식 역할을 한다. AGENTS.md는 프로필 계층이 병합되는 <code>application.yml</code>에, 플러그인은 자동 구성과 커넥션 설정을 한 번에 끌고 오는 스타터 의존성에, MCP 서버는 외부 시스템 어댑터에 대응한다.</p>
+<h2>코드</h2>
+<p>규율을 강제하는 스킬은 절차를 명령형으로 쓰고, 켜지지 말아야 할 상황까지 설명에 적는다. 아래는 직접 작성한 예시다.</p>
+<pre><code class="hljs language-markdown">---
+name: tdd-guard
+<span class="hljs-section">description: 기능 추가나 버그 수정 구현을 시작할 때 실패하는 테스트부터 작성하도록 강제한다. 문서 수정, 설정 변경, 코드 탐색·질의응답에는 쓰지 않는다.
+---</span>
+
+<span class="hljs-bullet">1.</span> 변경 대상의 기존 테스트 파일을 먼저 찾아 명명 규칙과 픽스처를 파악한다.
+<span class="hljs-bullet">2.</span> 요구사항을 재현하는 테스트를 먼저 작성하고, 실행해 실패를 확인한다.
+   실패 메시지를 그대로 사용자에게 보고한다.
+<span class="hljs-bullet">3.</span> 실패를 통과시키는 최소 구현만 작성한다. 리팩터링은 통과 이후로 미룬다.
+<span class="hljs-bullet">4.</span> 전체 테스트를 다시 돌려 회귀가 없는지 확인한다.
+<span class="hljs-bullet">5.</span> 테스트를 먼저 쓰지 못한 경우 그 사실과 이유를 명시한다. 임의로 건너뛰지 않는다.</code></pre>
+<p>스킬은 켜질 수도, 안 켜질 수도 있으므로 확인 절차 자체는 AGENTS.md에 상시 규칙으로 박아 둔다.</p>
+<pre><code class="hljs language-markdown"><span class="hljs-section"># AGENTS.md</span>
+
+<span class="hljs-section">## 작업 시작 규칙</span>
+
+<span class="hljs-bullet">-</span> 코드를 수정하기 전에 <span class="hljs-code">`/skills`</span> 목록을 확인하고, 해당 작업에 맞는 스킬이
+  있으면 반드시 먼저 호출한다. 없으면 없다고 밝히고 진행한다.
+<span class="hljs-bullet">-</span> 구현 작업은 tdd-guard 스킬의 절차를 따른다.
+<span class="hljs-bullet">-</span> 파일 3개 이상을 건드리는 변경은 계획을 먼저 제시하고 승인을 받는다.
+
+<span class="hljs-section">## 검증</span>
+
+<span class="hljs-bullet">-</span> 커밋 전 <span class="hljs-code">`./gradlew test`</span>가 통과해야 한다. 실패를 남긴 채 완료를 보고하지 않는다.</code></pre>
+<p>내장 스킬이나 팀 스킬이 방해될 때는 지우지 말고 설정으로 끈다.</p>
+<pre><code class="hljs language-toml"><span class="hljs-comment"># ~/.codex/config.toml</span>
+<span class="hljs-section">[[skills.config]]</span>
+<span class="hljs-attr">path</span> = <span class="hljs-string">&quot;/etc/codex/skills/legacy-release/SKILL.md&quot;</span>
+<span class="hljs-attr">enabled</span> = <span class="hljs-literal">false</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p>스킬 발견은 실행 디렉터리에 종속된다. 저장소 루트와 현재 디렉터리 사이 경로만 훑기 때문에, 모노레포에서 패키지 하나에 들어가 Codex를 띄우면 형제 패키지의 스킬은 목록에 아예 오르지 않는다. 팀 전체가 써야 하는 규율은 루트 <code>.agents/skills</code>에 두는 편이 안전하다.</p>
+<p>스킬 목록에는 컨텍스트 예산이 걸려 있다. <mark>초기 목록은 모델 컨텍스트의 2퍼센트, 크기를 모를 때는 8,000자를 넘지 못하며 초과하면 설명이 먼저 줄고 그래도 모자라면 일부 스킬이 목록에서 빠진다</mark>. 스킬을 잔뜩 쌓아 두면 암시 호출이 조용히 멈추므로, 개수를 늘리기보다 하나를 좁게 유지하는 쪽이 낫다.</p>
+<p>이름이 겹쳐도 병합되지 않는다. <mark>개인 폴더와 저장소에 같은 <code>name</code>의 스킬이 있으면 상위가 하위를 덮는 것이 아니라 둘 다 선택지에 나타난다</mark>. 개인용 실험 사본을 만들 때 이름을 그대로 복사하면 어느 쪽이 적용됐는지 추적하기 어려워진다.</p>
+<p>암시 호출은 보장이 아니다. 설명 매칭에 실패하면 스킬은 그냥 안 켜지므로, 반드시 지켜야 하는 절차라면 AGENTS.md에 확인 규칙을 함께 적어 두 층으로 묶는다. 반대로 특정 스킬이 원치 않게 끼어든다면 <code>agents/openai.yaml</code>의 <code>policy.allow_implicit_invocation</code>을 <code>false</code>로 두어 명시 호출만 받게 할 수 있다.</p>
+<p>이전 자산의 이관 시점을 미루면 비용이 커진다. 커스텀 프롬프트는 폐기 예정이고 <code>~/.codex/prompts</code>에 있어 저장소로 공유되지 않는다. 플러그인 쪽에도 제약이 있어 설치 후에는 새 세션을 시작해야 스킬과 도구가 잡히고, IDE 확장은 플러그인을 지원하지 않아 CLI나 데스크톱 앱을 써야 한다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/codex/custom-prompts-extensions/">커스텀 프롬프트와 확장 — 슬래시 커맨드·프로필</a></li>
+<li><a href="/notes/codex/agents-md/">AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</a></li>
+<li><a href="/notes/codex/mcp/">MCP 서버 연동</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · Codex, Skills, Plugins, AGENTS.md, MCP</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/codex/operations-best-practices/"><small>이전</small>운영 팁 — 모델 선택·비용·팀 도입</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

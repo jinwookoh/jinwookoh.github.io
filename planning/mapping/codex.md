@@ -10,3 +10,4 @@
 | 6 | custom-prompts-extensions | 커스텀 프롬프트와 확장 — 슬래시 커맨드·프로필 | 확장 | https://developers.openai.com/codex/custom-prompts, https://developers.openai.com/codex/local-config |
 | 7 | cloud-ci-automation | Codex Cloud와 CI 자동화 — exec·GitHub 연동 | 운영 | https://developers.openai.com/codex/cloud, https://developers.openai.com/codex/exec |
 | 8 | operations-best-practices | 운영 팁 — 모델 선택·비용·팀 도입 | 운영 | https://developers.openai.com/codex/overview, https://github.com/openai/codex |
+| 9 | skills-workflow-ecosystem | Codex 스킬 생태계 — Superpowers식 워크플로 만들기 | 확장 | https://developers.openai.com/codex/skills, https://github.com/openai/codex, https://agents.md/ |
