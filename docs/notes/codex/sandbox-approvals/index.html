@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>샌드박스와 승인 모드 — 안전한 자율 실행 · Codex</title>
+  <meta name="description" content="샌드박스는 할 수 있는 범위를, 승인 정책은 멈춰 묻는 시점을 정하며 둘은 독립적으로 조합된다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="샌드박스와 승인 모드 — 안전한 자율 실행 · Codex">
+  <meta property="og:description" content="샌드박스는 할 수 있는 범위를, 승인 정책은 멈춰 묻는 시점을 정하며 둘은 독립적으로 조합된다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/codex/sandbox-approvals/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/codex/">Codex</a><span class="sep">›</span><span>샌드박스와 승인 모드 — 안전한 자율 실행</span></nav>
+    <article class="post">
+  <p class="part">Codex · 기초</p>
+  <h1>샌드박스와 승인 모드 — 안전한 자율 실행</h1>
+  <p class="summary">샌드박스는 할 수 있는 범위를, 승인 정책은 멈춰 묻는 시점을 정하며 둘은 독립적으로 조합된다</p>
+  <div class="content">
+<p>에이전트가 코드를 고치는 것보다 위험한 것은 명령을 실행하는 것이다. 테스트를 돌리려면 셸이 필요하고, 셸이 열리면 의존성 설치도 파일 삭제도 외부 전송도 같은 통로로 가능해진다. 매 명령을 사람이 승인하면 자율 실행의 이점이 사라지고, 전부 허용하면 되돌릴 수 없는 작업이 검토 없이 지나간다. Codex는 이 문제를 하나의 스위치로 풀지 않고 두 축으로 나눈다. 실행 자체를 OS 수준에서 가둬 두고, 그 경계를 넘으려 할 때만 사람에게 묻는다.</p>
+<h2>핵심 개념</h2>
+<p>첫 번째 축은 <code>sandbox_mode</code>다. 모델이 만들어 낸 명령이 기술적으로 무엇을 할 수 있는지를 정한다. <code>read-only</code>는 읽기만 허용하고, <code>workspace-write</code>는 현재 워크스페이스에 쓰기를 허용하되 네트워크는 막으며, <code>danger-full-access</code>는 아무것도 막지 않는다. 두 번째 축은 <code>approval_policy</code>이고 언제 멈춰 물어볼지를 정한다. <code>untrusted</code>는 안전한 읽기 작업만 자동으로 돌리고 상태를 바꾸는 명령마다 확인을 받으며, <code>on-request</code>는 샌드박스 경계를 넘어야 할 때만 묻고, <code>never</code>는 묻지 않는다. <code>granular</code> 형태로 승인 범주별로 나눠 일부는 대화형으로, 나머지는 자동 거부로 둘 수도 있다.</p>
+<p>Spring에 대응시키면 <code>sandbox_mode</code>는 프로세스가 실제로 닿을 수 있는 자원을 제한하는 실행 경계이고, <code>approval_policy</code>는 요청이 그 경계를 넘으려 할 때 개입하는 인가 계층이다. 필터가 통과시켜도 컨테이너 권한이 없으면 실패하듯, 승인 정책이 느슨해도 샌드박스가 좁으면 명령은 실행되지 않는다.</p>
+<p>두 축은 독립이라 조합으로 쓴다. 기본값에 해당하는 Auto 프리셋은 <code>--sandbox workspace-write --ask-for-approval on-request</code>이며, Codex는 실행 위치가 버전 관리되는 폴더인지 확인해 그렇지 않으면 <code>read-only</code>를 권한다. 워크스페이스에는 현재 디렉터리와 <code>/tmp</code> 같은 임시 디렉터리가 포함되고, 실제 범위는 <code>/status</code>로 확인한다. 세션 중에는 <code>/permissions</code>로 바꾼다.</p>
+<p>샌드박스는 OS 기능으로 강제된다. macOS는 Seatbelt 프로파일을 붙여 <code>sandbox-exec</code>로, Linux는 <code>bwrap</code>과 <code>seccomp</code>로 명령을 감싼다. Windows는 WSL2에서 Linux 구현을 그대로 쓰거나 네이티브 Windows 샌드박스를 쓰며, 네이티브 모드는 <code>[windows]</code> 테이블의 <code>sandbox</code> 값으로 고른다.</p>
+<p>네트워크는 <code>workspace-write</code>에서 기본으로 꺼져 있고 <code>sandbox_workspace_write.network_access = true</code>로만 열린다. 목적지를 제한하려면 <code>features.network_proxy</code>를 켜고 도메인 규칙을 준다. 규칙은 허용 목록 방식이라 <code>*.example.com</code>은 하위 도메인만, <code>**.example.com</code>은 apex까지 매칭하고, <code>deny</code>가 <code>allow</code>를 항상 이긴다.</p>
+<h2>코드</h2>
+<p>의도별 플래그 조합이다. 비대화형 실행에서도 같은 두 축을 그대로 쓴다.</p>
+<pre><code class="hljs language-bash"><span class="hljs-comment"># 기본값과 동일한 Auto 프리셋</span>
+codex --sandbox workspace-write --ask-for-approval on-request
+
+<span class="hljs-comment"># 읽기만 하며 질문에 답하게 한다</span>
+codex --sandbox read-only --ask-for-approval on-request
+
+<span class="hljs-comment"># CI: 읽기 전용에 승인 없음</span>
+codex <span class="hljs-built_in">exec</span> --sandbox read-only --ask-for-approval never <span class="hljs-string">&quot;이 변경의 위험 지점을 정리해 줘&quot;</span>
+
+<span class="hljs-comment"># 쓰기는 허용하되 신뢰할 수 없는 명령만 승인받는다</span>
+codex --sandbox workspace-write --ask-for-approval untrusted
+
+<span class="hljs-comment"># 쓰기 범위를 넓힐 때는 전체 개방 대신 디렉터리를 추가한다</span>
+codex --add-dir /Users/me/.pyenv/shims</code></pre>
+<p>정책을 파일로 고정한 예다. 네트워크를 여는 경우 프록시로 목적지를 함께 좁힌다.</p>
+<pre><code class="hljs language-toml"><span class="hljs-comment"># ~/.codex/config.toml</span>
+<span class="hljs-attr">approval_policy</span> = <span class="hljs-string">&quot;on-request&quot;</span>
+<span class="hljs-attr">approvals_reviewer</span> = <span class="hljs-string">&quot;user&quot;</span>      <span class="hljs-comment"># &quot;auto_review&quot; 로 두면 리뷰어 에이전트가 먼저 판단한다</span>
+<span class="hljs-attr">sandbox_mode</span> = <span class="hljs-string">&quot;workspace-write&quot;</span>
+<span class="hljs-attr">allow_login_shell</span> = <span class="hljs-literal">false</span>        <span class="hljs-comment"># 셸 도구의 로그인 셸 사용을 막는다</span>
+
+<span class="hljs-section">[sandbox_workspace_write]</span>
+<span class="hljs-attr">network_access</span> = <span class="hljs-literal">true</span>
+<span class="hljs-attr">writable_roots</span> = [<span class="hljs-string">&quot;/tmp/build-cache&quot;</span>]
+
+<span class="hljs-section">[features.network_proxy]</span>
+<span class="hljs-attr">enabled</span> = <span class="hljs-literal">true</span>
+<span class="hljs-attr">domains</span> = { <span class="hljs-string">&quot;**.npmjs.org&quot;</span> = <span class="hljs-string">&quot;allow&quot;</span>, <span class="hljs-string">&quot;api.openai.com&quot;</span> = <span class="hljs-string">&quot;allow&quot;</span> }</code></pre>
+<p>정책이 실제로 어떻게 걸리는지는 실행해 보고 확인한다. 샌드박스 헬퍼는 Codex가 내부에서 쓰는 것과 같은 정책으로 임의 명령을 돌려 준다.</p>
+<pre><code class="hljs language-bash"><span class="hljs-comment"># macOS / Linux 에서 샌드박스 안의 동작을 재현한다</span>
+codex sandbox macos --log-denials -- curl -sS https://example.com
+codex sandbox linux -- ./gradlew <span class="hljs-built_in">test</span>
+
+<span class="hljs-comment"># 샌드박스 밖 실행 규칙이 의도대로 판정되는지 검사한다</span>
+codex execpolicy check --pretty \
+  --rules ~/.codex/rules/default.rules \
+  -- gh <span class="hljs-built_in">pr</span> view 7888 --json title,body</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>프록시를 켜도 네트워크가 열리지는 않는다.</strong> <mark><code>features.network_proxy</code>는 이미 허용된 트래픽을 정책으로 좁히는 기능이라, 도메인 규칙만 추가하고 프록시를 켜지 않으면 명령은 아무 제한 없이 외부로 나간다.</mark> 네트워크 허용과 목적지 제한은 항상 함께 설정한다.</li>
+<li><strong>워크스페이스 안에도 읽기 전용 경로가 있다.</strong> <code>workspace-write</code>에서 <code>&lt;writable_root&gt;</code> 아래의 <code>.git</code>, <code>.agents</code>, <code>.codex</code>는 재귀적으로 보호된다. <code>git commit</code>이 매번 승인을 요구하는 이유가 이것이며, 특정 명령을 아예 막고 싶다면 <code>prefix_rule</code>로 처리한다.</li>
+<li><strong>전체 개방은 웹 검색 동작까지 바꾼다.</strong> <mark><code>--dangerously-bypass-approvals-and-sandbox</code>를 쓰면 웹 검색이 캐시 대신 라이브 조회로 기본 전환되어, 프롬프트 인젝션에 노출되는 표면이 함께 넓어진다.</mark></li>
+<li><strong>프록시가 걸러 주지 않는 통로가 있다.</strong> 네트워크 정책은 샌드박스 안에서 실행되는 명령과 자식 프로세스에만 적용된다. 웹 검색, MCP 서버 연결, 브라우저 도구, 클라우드 작업, 모델 요청 자체는 별도 경로라 도메인 규칙으로 통제되지 않는다.</li>
+<li><strong>컨테이너 안에서는 샌드박스가 실패할 수 있다.</strong> Docker나 Dev Container가 네임스페이스나 <code>seccomp</code> 사용을 막으면 Codex는 내부 샌드박스를 만들지 못한다. 이 경우 컨테이너 자체를 경계로 삼고 그 안에서 <code>--sandbox danger-full-access</code>로 돌리되, 신뢰하는 저장소에서만 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/codex/install-config/">설치와 config.toml 설정</a></li>
+<li><a href="/notes/codex/agents-md/">AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</a></li>
+<li><a href="/notes/codex/what-is-codex/">Codex란 무엇인가 — CLI·IDE·클라우드</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · Codex, sandbox, approval policy, seatbelt, network access</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/codex/agents-md/"><small>이전</small>AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</a>
+  <a class="next" href="/notes/codex/mcp/"><small>다음</small>MCP 서버 연동</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

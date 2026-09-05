@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG · Notes</title>
+  <meta name="description" content="검색 증강 생성 — 임베딩·벡터 DB·청킹·하이브리드 검색·리랭킹, GraphRAG와 온톨로지, 평가와 프로덕션 운영.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="RAG · Notes">
+  <meta property="og:description" content="검색 증강 생성 — 임베딩·벡터 DB·청킹·하이브리드 검색·리랭킹, GraphRAG와 온톨로지, 평가와 프로덕션 운영.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/rag/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>RAG</span></nav>
+    <header class="series-head"><h1>RAG</h1><p>검색 증강 생성 — 임베딩·벡터 DB·청킹·하이브리드 검색·리랭킹, GraphRAG와 온톨로지, 평가와 프로덕션 운영.</p><p class="count">10편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/rag/what-is-rag/"><span class="n">1</span><span class="t">RAG란 무엇인가 — LLM의 한계와 검색 증강 생성</span><span class="s">RAG는 질문 시점에 관련 문서를 찾아 프롬프트에 붙이는 구조이며, 품질은 검색 단계가 결정한다</span></a></li>
+<li><a href="/notes/rag/embeddings-vector-search/"><span class="n">2</span><span class="t">임베딩과 벡터 유사도 검색</span><span class="s">임베딩은 텍스트를 의미 좌표로 바꾸며, 검색 품질은 모델 선택과 질의·문서 처리의 대칭에서 갈린다</span></a></li>
+<li><a href="/notes/rag/vector-databases/"><span class="n">3</span><span class="t">벡터 데이터베이스 — pgvector·전용 벡터 스토어 선택</span><span class="s">벡터 저장소 선택은 규모보다 필터 요구와 운영 부담이 가르며, ANN 인덱스 파라미터가 재현율을 결정한다</span></a></li></ol></section>
+<section class="part-group"><h2>검색 파이프라인</h2><ol class="toc"><li><a href="/notes/rag/chunking-indexing/"><span class="n">4</span><span class="t">청킹과 인덱싱 전략</span><span class="s">청크는 검색 단위이자 생성 단위이며, 둘을 분리하고 증분 인덱싱을 설계해야 운영이 굴러간다</span></a></li>
+<li><a href="/notes/rag/hybrid-search-rerank/"><span class="n">5</span><span class="t">하이브리드 검색과 리랭킹</span><span class="s">BM25와 벡터 검색을 RRF로 합치고 cross-encoder 리랭커로 다시 정렬해 상위 k개의 정확도를 끌어올린다</span></a></li>
+<li><a href="/notes/rag/query-transformation/"><span class="n">6</span><span class="t">쿼리 변환 — 멀티 쿼리·HyDE·라우팅</span><span class="s">사용자 질의를 그대로 검색하지 않고 재작성·확장·분해·라우팅해 검색 단계의 recall을 끌어올린다</span></a></li></ol></section>
+<section class="part-group"><h2>그래프와 온톨로지</h2><ol class="toc"><li><a href="/notes/rag/graph-rag/"><span class="n">7</span><span class="t">GraphRAG — 지식 그래프 기반 검색 증강</span><span class="s">여러 문서에 흩어진 사실과 코퍼스 전역 요약 질의를 지식 그래프와 커뮤니티 요약으로 답하는 구조를 정리한다</span></a></li>
+<li><a href="/notes/rag/ontology-knowledge-graph/"><span class="n">8</span><span class="t">온톨로지와 지식 그래프 모델링 — RDF·OWL·프로퍼티 그래프</span><span class="s">RDF·OWL의 트리플과 공리, 프로퍼티 그래프의 레이블·관계를 비교해 어느 쪽으로 지식 그래프를 설계할지 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/rag/rag-evaluation/"><span class="n">9</span><span class="t">RAG 평가 — 검색 품질과 생성 품질을 따로 잰다</span><span class="s">검색 단계와 생성 단계를 분리해 지표를 세우고 회귀를 잡는 RAG 평가 파이프라인을 정리한다</span></a></li>
+<li><a href="/notes/rag/production-rag/"><span class="n">10</span><span class="t">프로덕션 RAG — 캐싱·비용·보안·에이전틱 패턴</span><span class="s">프롬프트 캐싱과 검색 파라미터로 비용을 잡고 권한·인젝션을 막으며 에이전틱 검색을 예산 안에 가두는 방법을 정리한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

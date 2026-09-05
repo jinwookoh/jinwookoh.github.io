@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Cloud와 CI 자동화 — exec·GitHub 연동 · Codex</title>
+  <meta name="description" content="대화형 세션 밖에서 Codex를 돌리는 두 경로인 codex exec와 Codex Cloud를, 출력 처리와 권한 통제 중심으로 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Codex Cloud와 CI 자동화 — exec·GitHub 연동 · Codex">
+  <meta property="og:description" content="대화형 세션 밖에서 Codex를 돌리는 두 경로인 codex exec와 Codex Cloud를, 출력 처리와 권한 통제 중심으로 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/codex/cloud-ci-automation/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/codex/">Codex</a><span class="sep">›</span><span>Codex Cloud와 CI 자동화 — exec·GitHub 연동</span></nav>
+    <article class="post">
+  <p class="part">Codex · 운영</p>
+  <h1>Codex Cloud와 CI 자동화 — exec·GitHub 연동</h1>
+  <p class="summary">대화형 세션 밖에서 Codex를 돌리는 두 경로인 codex exec와 Codex Cloud를, 출력 처리와 권한 통제 중심으로 정리한다</p>
+  <div class="content">
+<p>에이전트를 대화형으로만 쓰면 사람이 터미널 앞에 앉아 있는 동안에만 일이 진행된다. PR이 열릴 때마다 같은 관점으로 리뷰를 붙이거나, 야간에 의존성 업데이트로 깨진 테스트를 고치거나, 릴리스 노트를 자동으로 뽑는 작업은 사람이 매번 세션을 열어 프롬프트를 붙여 넣어야 한다. 게다가 로컬에서 오래 걸리는 작업을 돌리면 그동안 그 저장소로 다른 일을 하기 어렵다. Codex는 이 두 문제를 서로 다른 경로로 나눠 푼다. 스크립트와 CI에 끼워 넣는 비대화형 실행이 <code>codex exec</code>이고, 격리된 원격 환경에서 작업을 병렬로 돌리는 것이 Codex Cloud다.</p>
+<h2>핵심 개념</h2>
+<p><code>codex exec &quot;&lt;프롬프트&gt;&quot;</code>는 TUI 없이 한 턴을 끝까지 실행하고 종료한다. 진행 상황은 표준 에러로 흐르고 에이전트의 최종 메시지만 표준 출력으로 나가므로, 결과를 그대로 파이프에 태울 수 있다. 기계가 읽어야 하면 <code>--json</code>으로 JSON Lines 스트림을 받는다. <code>thread.started</code>, <code>turn.started</code>와 <code>turn.completed</code>, <code>item.*</code>, <code>error</code> 같은 이벤트가 한 줄씩 나온다. 최종 메시지만 따로 파일로 남기려면 <code>-o</code> 또는 <code>--output-last-message</code>를, 응답 형태를 고정하려면 JSON Schema 파일을 가리키는 <code>--output-schema</code>를 쓴다.</p>
+<p>권한은 <code>--sandbox</code>로 정한다. 값은 <code>read-only</code>, <code>workspace-write</code>, <code>danger-full-access</code>다. 예전에 쓰이던 <code>--full-auto</code>는 폐기 표시가 붙었다. 세션을 이어 가려면 <code>codex exec resume &lt;SESSION_ID&gt;</code>나 <code>codex exec resume --last</code>를 쓰고, 세션 파일을 디스크에 남기고 싶지 않으면 <code>--ephemeral</code>을 붙인다. CI처럼 사용자 설정을 신뢰할 수 없는 환경에서는 <code>--ignore-user-config</code>로 <code>config.toml</code> 로딩을 건너뛰고, Git 저장소가 아닌 경로에서 실행할 때는 <code>--skip-git-repo-check</code>가 필요하다. 프롬프트를 표준 입력으로 넘기려면 <code>codex exec -</code> 형태를 쓴다.</p>
+<p>GitHub 워크플로에서는 <code>openai/codex-action@v1</code>이 이 실행을 감싼다. <code>prompt</code> 또는 <code>prompt-file</code>로 지시를 주고 <code>model</code>, <code>effort</code>, <code>sandbox</code>로 실행 조건을, <code>allow-users</code>와 <code>allow-bots</code>로 누가 트리거할 수 있는지를 정한다. 권한 강등 방식은 <code>safety-strategy</code>가 맡고 기본값은 <code>drop-sudo</code>다. 실행 결과는 <code>final-message</code> 출력으로 나와 다음 스텝에 넘길 수 있다.</p>
+<p>Codex Cloud는 저장소별로 의존성·도구·환경 변수·셋업 스텝을 정의한 격리 환경에서 작업을 병렬로 돌린다. 에이전트의 인터넷 접근 여부도 환경 설정에서 정한다. 시작 지점은 웹뿐 아니라 GitHub·GitLab·Linear·Slack이고, CLI에서는 <code>codex cloud</code>로 진행 중이거나 끝난 작업을 훑어 결과를 로컬 저장소에 반영한다. Spring 쪽에 대응시키면 <code>codex exec</code>는 잡 하나를 실행하고 종료 코드를 남기는 배치 러너에, Codex Cloud는 그 잡을 별도 워커 환경에서 큐에 태워 돌리는 구조에 가깝다.</p>
+<h2>코드</h2>
+<p>비대화형 실행은 셸 파이프라인의 한 단계로 다룬다. 표준 출력에는 최종 메시지만 담기므로 그대로 받아 쓴다.</p>
+<pre><code class="hljs language-bash">codex <span class="hljs-built_in">exec</span> --sandbox read-only \
+  <span class="hljs-string">&quot;스테이징된 변경분을 읽고 커밋 메시지 한 줄을 출력한다&quot;</span> &gt; msg.txt
+
+git <span class="hljs-built_in">log</span> --oneline v1.4.0..HEAD | codex <span class="hljs-built_in">exec</span> - --sandbox read-only
+
+codex <span class="hljs-built_in">exec</span> --json --sandbox workspace-write \
+  -o result.md <span class="hljs-string">&quot;실패한 테스트를 고친다&quot;</span> | <span class="hljs-built_in">tee</span> events.jsonl</code></pre>
+<p>GitHub Actions에서는 액션에 권한과 트리거 조건을 명시한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">name:</span> <span class="hljs-string">codex-review</span>
+<span class="hljs-attr">on:</span>
+  <span class="hljs-attr">pull_request:</span>
+    <span class="hljs-attr">types:</span> [<span class="hljs-string">opened</span>, <span class="hljs-string">synchronize</span>]
+
+<span class="hljs-attr">jobs:</span>
+  <span class="hljs-attr">review:</span>
+    <span class="hljs-attr">runs-on:</span> <span class="hljs-string">ubuntu-latest</span>
+    <span class="hljs-attr">permissions:</span>
+      <span class="hljs-attr">contents:</span> <span class="hljs-string">read</span>
+      <span class="hljs-attr">pull-requests:</span> <span class="hljs-string">write</span>
+    <span class="hljs-attr">steps:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">uses:</span> <span class="hljs-string">actions/checkout@v4</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">id:</span> <span class="hljs-string">codex</span>
+        <span class="hljs-attr">uses:</span> <span class="hljs-string">openai/codex-action@v1</span>
+        <span class="hljs-attr">with:</span>
+          <span class="hljs-attr">openai-api-key:</span> <span class="hljs-string">${{</span> <span class="hljs-string">secrets.OPENAI_API_KEY</span> <span class="hljs-string">}}</span>
+          <span class="hljs-attr">prompt-file:</span> <span class="hljs-string">.github/codex/review.md</span>
+          <span class="hljs-attr">sandbox:</span> <span class="hljs-string">read-only</span>
+          <span class="hljs-attr">effort:</span> <span class="hljs-string">medium</span>
+          <span class="hljs-attr">allow-bots:</span> <span class="hljs-literal">false</span>
+          <span class="hljs-attr">output-file:</span> <span class="hljs-string">review.md</span></code></pre>
+<p>원격에서 끝난 작업은 CLI로 확인하고 로컬 브랜치에 반영한다.</p>
+<pre><code class="hljs language-bash">codex cloud
+codex apply</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p>출력 스트림이 나뉘어 있다는 점을 놓치기 쉽다. <mark>진행 로그는 표준 에러, 최종 메시지는 표준 출력으로 나가므로 <code>2&gt;&amp;1</code>로 합쳐 파이프에 태우면 파싱이 깨진다</mark>. 로그를 남기려면 에러 스트림만 따로 파일로 돌린다.</p>
+<p><code>--full-auto</code>는 폐기 표시가 붙었다. <mark>권한은 <code>--sandbox workspace-write</code>처럼 명시하는 편이 안전하고, <code>danger-full-access</code>는 되돌릴 수 있는 격리 환경에서만 쓴다</mark>. CI 러너는 일회용이라 안전해 보이지만 러너에 주입된 시크릿에는 그대로 접근할 수 있다.</p>
+<p>트리거 통제를 비워 두면 위험하다. <mark><code>allow-users</code>와 <code>allow-bots</code>를 지정하지 않고 이슈나 코멘트 이벤트로 워크플로를 걸면 저장소 외부인이 에이전트 실행을 유발할 수 있다</mark>. 리뷰 목적이라면 샌드박스를 읽기 전용으로 고정하는 조합을 함께 건다.</p>
+<p>Codex Cloud 환경의 인터넷 접근은 설정으로 켜고 끄는 항목이다. 꺼 둔 상태에서 셋업 스텝 이후 패키지를 받아야 하는 테스트를 돌리면 원인이 드러나지 않는 실패로 이어지므로, 필요한 의존성은 셋업 단계에서 미리 설치해 둔다.</p>
+<p>CI 인증은 로컬 로그인 정보가 아니라 <code>CODEX_API_KEY</code> 같은 시크릿으로 주입한다. 개인 계정 인증에 기대면 토큰이 만료되는 순간 파이프라인 전체가 멈추고, 사용량도 개인 한도에서 빠져나간다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/codex/sandbox-approvals/">샌드박스와 승인 모드 — 안전한 자율 실행</a></li>
+<li><a href="/notes/codex/agents-md/">AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</a></li>
+<li><a href="/notes/codex/operations-best-practices/">운영 팁 — 모델 선택·비용·팀 도입</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · Codex, codex exec, GitHub Actions, Codex Cloud, CI</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/codex/custom-prompts-extensions/"><small>이전</small>커스텀 프롬프트와 확장 — 슬래시 커맨드·프로필</a>
+  <a class="next" href="/notes/codex/operations-best-practices/"><small>다음</small>운영 팁 — 모델 선택·비용·팀 도입</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

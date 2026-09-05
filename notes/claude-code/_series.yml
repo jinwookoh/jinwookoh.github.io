@@ -1,0 +1,7 @@
+name: Claude Code
+description: Anthropic의 CLI 코딩 에이전트 — CLAUDE.md·권한 모델, 스킬·서브에이전트·훅·MCP·플러그인, SDK와 CI 자동화.
+order: 20
+parts:
+  - 기초
+  - 확장
+  - 운영

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AGENTS.md — 프로젝트 규칙을 에이전트에게 전달 · Codex</title>
+  <meta name="description" content="AGENTS.md는 전역과 디렉터리별 파일이 루트에서 아래로 병합되는 지시문 체인이며, 가까운 파일이 이긴다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="AGENTS.md — 프로젝트 규칙을 에이전트에게 전달 · Codex">
+  <meta property="og:description" content="AGENTS.md는 전역과 디렉터리별 파일이 루트에서 아래로 병합되는 지시문 체인이며, 가까운 파일이 이긴다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/codex/agents-md/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/codex/">Codex</a><span class="sep">›</span><span>AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</span></nav>
+    <article class="post">
+  <p class="part">Codex · 기초</p>
+  <h1>AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</h1>
+  <p class="summary">AGENTS.md는 전역과 디렉터리별 파일이 루트에서 아래로 병합되는 지시문 체인이며, 가까운 파일이 이긴다</p>
+  <div class="content">
+<p>에이전트에게 작업을 맡길 때마다 같은 말을 반복하게 된다. 테스트는 무엇으로 돌리는지, 의존성 관리자는 무엇인지, 어떤 디렉터리는 건드리면 안 되는지. 프롬프트에 매번 적으면 길어지고 빠뜨리기 쉬우며, 사람마다 다른 문장을 쓰니 같은 저장소인데 결과가 갈린다. README에 적어 두는 방법도 있지만 README는 사람을 위한 문서라 설치 안내와 배경 설명이 섞여 있고, 에이전트가 그중 무엇을 규칙으로 받아들일지 예측할 수 없다. <code>AGENTS.md</code>는 이 규칙을 정해진 위치에 정해진 방식으로 두기 위한 파일이다.</p>
+<h2>핵심 개념</h2>
+<p><code>AGENTS.md</code>는 형식 요구가 없는 일반 마크다운이다. 정해진 필드도 스키마도 없고, 빌드·테스트 명령, 코드 스타일, 보안 주의 사항, 배포 절차 같은 항목을 자유롭게 적는다. Codex 전용 규약이 아니라 여러 코딩 에이전트가 공유하는 공개 관례이며, 이미 상당수 오픈소스 저장소가 이 파일을 두고 있다. README가 사람을 위한 문서라면 <code>AGENTS.md</code>는 기계를 위한 문서이고, 둘을 분리하는 것이 이 파일의 목적이다.</p>
+<p>Codex는 세션을 시작할 때 지시문 체인을 만든다. 먼저 Codex 홈 디렉터리, 기본값으로는 <code>~/.codex</code>에서 <code>AGENTS.override.md</code>가 있으면 그것을, 없으면 <code>AGENTS.md</code>를 읽는다. 이 단계에서는 비어 있지 않은 첫 파일 하나만 쓴다. 다음으로 프로젝트 루트, 보통 Git 루트에서 현재 작업 디렉터리까지 내려오면서 각 디렉터리마다 <code>AGENTS.override.md</code>, <code>AGENTS.md</code>, 그리고 <code>project_doc_fallback_filenames</code>에 등록한 이름 순으로 검사해 디렉터리당 최대 한 개를 고른다. 모아진 파일은 루트에서 아래 순서로 이어 붙는다. 프롬프트에서 뒤에 오는 문장이 앞을 덮으므로 작업 디렉터리에 가까운 파일이 이긴다.</p>
+<p>Spring 프로젝트에 대응시키면, 전역 파일과 저장소 루트 파일의 관계는 <code>application.yml</code>과 프로파일별 오버라이드가 겹치는 구조와 같다. 멀티모듈 저장소에서 모듈마다 <code>AGENTS.md</code>를 두는 것은 서브모듈이 자기 빌드 규약을 따로 선언하는 것과 같은 역할을 한다.</p>
+<p>병합에는 두 가지 제한이 있다. 빈 파일은 건너뛰고, 합쳐진 크기가 <code>project_doc_max_bytes</code>에 도달하면 거기서 멈춘다. 기본값은 32 KiB다. GitHub 코드 리뷰를 쓴다면 규칙을 지배하는 코드에 가장 가까운 <code>AGENTS.md</code>에 <code>## Code Review Rules</code> 섹션을 추가한다. 새 저장소에서는 TUI에서 <code>/init</code>을 실행해 초안을 만든 뒤 다듬는 방식이 빠르다.</p>
+<h2>코드</h2>
+<p>모든 저장소에 적용할 개인 기본값이다. 도구 선호나 확인 절차처럼 프로젝트와 무관한 항목만 둔다.</p>
+<pre><code class="hljs language-md">&lt;!-- ~/.codex/AGENTS.md --&gt;
+<span class="hljs-section"># 작업 규약</span>
+
+<span class="hljs-bullet">-</span> JavaScript 파일을 수정하면 항상 <span class="hljs-code">`npm test`</span>를 실행한다.
+<span class="hljs-bullet">-</span> 의존성 설치는 <span class="hljs-code">`pnpm`</span>을 사용한다.
+<span class="hljs-bullet">-</span> 운영 의존성을 새로 추가하기 전에 반드시 확인을 받는다.</code></pre>
+<p>저장소 루트 파일이다. 빌드·테스트 명령과 리뷰 규칙을 함께 담는다.</p>
+<pre><code class="hljs language-md">&lt;!-- <span class="language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">repo</span>&gt;</span></span>/AGENTS.md --&gt;
+<span class="hljs-section"># 저장소 규약</span>
+
+<span class="hljs-section">## 빌드와 테스트</span>
+<span class="hljs-bullet">-</span> 전체 테스트: <span class="hljs-code">`./gradlew test`</span>
+<span class="hljs-bullet">-</span> 풀 리퀘스트를 열기 전 <span class="hljs-code">`./gradlew spotlessApply check`</span>를 통과시킨다.
+
+<span class="hljs-section">## Code Review Rules</span>
+
+<span class="hljs-section">### 실험 코호트</span>
+<span class="hljs-bullet">-</span> 전환·리텐션 같은 노출 이후 행동으로 처리군을 필터링하지 않는다.
+  안전한 방법: 배정 또는 노출 시점으로 코호트를 만들고 전환은 결과 지표로 보고한다.</code></pre>
+<p>하위 디렉터리에서 상위 규칙을 갈아엎을 때는 <code>AGENTS.override.md</code>를 쓴다. 저장소가 다른 파일명을 쓰고 있다면 설정에 등록해야 인식된다.</p>
+<pre><code class="hljs language-md">&lt;!-- services/payments/AGENTS.override.md --&gt;
+<span class="hljs-section"># 결제 서비스 규칙</span>
+
+<span class="hljs-bullet">-</span> <span class="hljs-code">`npm test`</span> 대신 <span class="hljs-code">`make test-payments`</span>를 사용한다.
+<span class="hljs-bullet">-</span> API 키 교체는 보안 채널 공지 없이 수행하지 않는다.</code></pre>
+<pre><code class="hljs language-toml"><span class="hljs-comment"># ~/.codex/config.toml</span>
+<span class="hljs-attr">project_doc_fallback_filenames</span> = [<span class="hljs-string">&quot;TEAM_GUIDE.md&quot;</span>, <span class="hljs-string">&quot;.agents.md&quot;</span>]
+<span class="hljs-attr">project_doc_max_bytes</span> = <span class="hljs-number">65536</span></code></pre>
+<pre><code class="hljs language-bash"><span class="hljs-comment"># 어떤 지시문이 실제로 로드됐는지 확인한다</span>
+codex --<span class="hljs-built_in">cd</span> services/payments --ask-for-approval never <span class="hljs-string">&quot;로드한 지시문 출처를 나열해 줘&quot;</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>크기 상한에서 조용히 잘린다.</strong> <mark>합쳐진 지시문이 <code>project_doc_max_bytes</code>(기본 32 KiB)를 넘으면 나머지 파일이 오류 없이 빠지므로, 가장 아래 디렉터리의 규칙이 통째로 사라질 수 있다.</mark> 상한을 올리거나 규칙을 디렉터리별로 쪼개야 한다.</li>
+<li><strong>override는 대체이지 추가가 아니다.</strong> <mark>같은 디렉터리에 <code>AGENTS.override.md</code>가 있으면 그 디렉터리의 <code>AGENTS.md</code>는 읽히지 않는다.</mark> 상위 디렉터리나 Codex 홈에 남겨 둔 override 파일이 원인 모를 규칙 변화를 만든다.</li>
+<li><strong>작업 디렉터리 아래는 읽지 않는다.</strong> 체인은 루트에서 현재 디렉터리까지만 내려간다. 저장소 루트에서 세션을 열면 하위 모듈의 규칙은 적용되지 않으므로, 특정 모듈 작업은 <code>--cd</code>로 그 디렉터리에서 시작한다.</li>
+<li><strong>수정은 재시작해야 반영된다.</strong> 지시문 체인은 실행 시점에, TUI에서는 세션 시작 시점에 한 번 만들어진다. 파일을 고쳤다면 세션을 다시 열어야 하고, 대신 따로 지울 캐시는 없다.</li>
+<li><strong>파일명 관례를 벗어나면 무시된다.</strong> <code>project_doc_fallback_filenames</code>에 등록하지 않은 이름은 지시문 탐색 대상이 아니다. 오타가 있어도 경고 없이 그냥 읽히지 않는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/codex/what-is-codex/">Codex란 무엇인가 — CLI·IDE·클라우드</a></li>
+<li><a href="/notes/codex/install-config/">설치와 config.toml 설정</a></li>
+<li><a href="/notes/codex/sandbox-approvals/">샌드박스와 승인 모드 — 안전한 자율 실행</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · AGENTS.md, Codex, monorepo, project instructions</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/codex/install-config/"><small>이전</small>설치와 config.toml 설정</a>
+  <a class="next" href="/notes/codex/sandbox-approvals/"><small>다음</small>샌드박스와 승인 모드 — 안전한 자율 실행</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

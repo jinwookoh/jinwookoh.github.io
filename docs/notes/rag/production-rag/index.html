@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로덕션 RAG — 캐싱·비용·보안·에이전틱 패턴 · RAG</title>
+  <meta name="description" content="프롬프트 캐싱과 검색 파라미터로 비용을 잡고 권한·인젝션을 막으며 에이전틱 검색을 예산 안에 가두는 방법을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="프로덕션 RAG — 캐싱·비용·보안·에이전틱 패턴 · RAG">
+  <meta property="og:description" content="프롬프트 캐싱과 검색 파라미터로 비용을 잡고 권한·인젝션을 막으며 에이전틱 검색을 예산 안에 가두는 방법을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/rag/production-rag/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/rag/">RAG</a><span class="sep">›</span><span>프로덕션 RAG — 캐싱·비용·보안·에이전틱 패턴</span></nav>
+    <article class="post">
+  <p class="part">RAG · 운영</p>
+  <h1>프로덕션 RAG — 캐싱·비용·보안·에이전틱 패턴</h1>
+  <p class="summary">프롬프트 캐싱과 검색 파라미터로 비용을 잡고 권한·인젝션을 막으며 에이전틱 검색을 예산 안에 가두는 방법을 정리한다</p>
+  <div class="content">
+<p>프로토타입에서 잘 돌던 RAG가 운영에 올라가면 성격이 달라진다. 요청마다 시스템 프롬프트와 문서 수만 토큰을 새로 밀어 넣어 청구서가 예상의 몇 배로 나오고, 검색과 생성이 직렬로 붙어 p95 지연이 초 단위로 늘어난다. 더 심각한 쪽은 조용히 새는 문제다. 사내 문서 인덱스에 권한 개념이 없어 다른 팀 문서가 답변에 인용되거나, 크롤링한 문서에 박힌 문장이 시스템 지시를 덮어써도 로그만 봐서는 알아채지 못한다. 프로덕션 RAG의 작업 목록은 정확도 개선이 아니라 캐싱·비용·보안·제어 흐름 쪽에 있다.</p>
+<h2>핵심 개념</h2>
+<p>캐싱은 세 층으로 나뉜다. 가장 효과가 큰 것은 프롬프트 캐싱이다. Anthropic API는 <code>cache_control</code>을 <code>ephemeral</code>로 표시한 블록까지의 프리픽스를 캐시하고, 이후 요청이 같은 프리픽스로 시작하면 그 구간을 읽기 요금으로 처리한다. 프리픽스 순서는 <code>tools</code>, <code>system</code>, <code>messages</code>이며 앞 단계가 바뀌면 뒤도 함께 무효화된다. TTL은 기본 5분이고 1시간을 선택할 수 있는데, 쓰기 요금이 각각 기본 입력의 1.25배와 2배, 읽기는 0.1배 수준이다. 명시적 중단점은 요청당 최대 4개다. 아래 두 층은 애플리케이션이 직접 만든다. 질의 텍스트를 정규화해 해시로 임베딩 결과를 재사용하는 임베딩 캐시, 유사한 질의에 지난 응답을 그대로 돌려주는 의미 캐시다.</p>
+<p>비용은 검색 파라미터에서 결정된다. OpenAI 벡터 스토어의 기본 청킹은 800 토큰 청크에 400 토큰 겹침이고, file search는 기본 10건, 최대 50건까지 돌려준다. 반환 건수를 늘리면 컨텍스트 토큰이 선형으로 늘고 생성 지연도 같이 오른다. <code>score_threshold</code>로 점수가 낮은 청크를 잘라 내고 속성 필터로 후보를 먼저 좁히는 편이 top-k를 키우는 것보다 싸다.</p>
+<p>보안의 핵심은 필터를 어디에 거느냐다. 접근 제어는 검색 쿼리 자체에 들어가야 한다. 문서마다 테넌트·부서·기밀 등급을 메타데이터로 붙이고 벡터 검색 조건에 결합한다. Spring 감각으로는 <code>@PreAuthorize</code> 같은 메서드 단위 검사보다 Hibernate 필터나 행 수준 보안에 가깝다. 프롬프트 캐싱은 <code>@Cacheable</code>이 아니라 프리픽스가 고정된 구간에만 걸리는 캐시라고 보면 된다.</p>
+<p>에이전틱 패턴은 한 번 검색하고 한 번 답하는 구조를 넘어선다. GraphRAG는 커뮤니티 요약을 훑는 global search, 특정 개체와 이웃을 파고드는 local search, 둘을 섞은 DRIFT search를 나눠 두고 질문 성격에 따라 경로를 고른다. 라우팅이든 도구 호출 루프든 공통 요구는 같다. 반복 횟수와 토큰 예산에 상한을 두고, 매 단계 근거를 남긴다.</p>
+<h2>코드</h2>
+<p>문서와 지시를 시스템 프롬프트에 고정하고 마지막 정적 블록에 중단점을 건다. 질문은 중단점 뒤에 둔다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> <span class="hljs-title class_">Anthropic</span> <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;@anthropic-ai/sdk&#x27;</span>;
+
+<span class="hljs-keyword">const</span> client = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Anthropic</span>();
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">ask</span>(<span class="hljs-params"><span class="hljs-attr">corpus</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">question</span>: <span class="hljs-built_in">string</span></span>) {
+  <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> client.<span class="hljs-property">messages</span>.<span class="hljs-title function_">create</span>({
+    <span class="hljs-attr">model</span>: <span class="hljs-string">&#x27;claude-opus-5&#x27;</span>,
+    <span class="hljs-attr">max_tokens</span>: <span class="hljs-number">1024</span>,
+    <span class="hljs-attr">system</span>: [
+      { <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;text&#x27;</span>, <span class="hljs-attr">text</span>: <span class="hljs-string">&#x27;너는 사내 문서만 근거로 답한다.&#x27;</span> },
+      {
+        <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;text&#x27;</span>,
+        <span class="hljs-attr">text</span>: corpus,
+        <span class="hljs-attr">cache_control</span>: { <span class="hljs-attr">type</span>: <span class="hljs-string">&#x27;ephemeral&#x27;</span>, <span class="hljs-attr">ttl</span>: <span class="hljs-string">&#x27;1h&#x27;</span> },
+      },
+    ],
+    <span class="hljs-attr">messages</span>: [{ <span class="hljs-attr">role</span>: <span class="hljs-string">&#x27;user&#x27;</span>, <span class="hljs-attr">content</span>: question }],
+  });
+
+  <span class="hljs-keyword">const</span> u = res.<span class="hljs-property">usage</span>;
+  <span class="hljs-variable language_">console</span>.<span class="hljs-title function_">log</span>({
+    <span class="hljs-attr">write</span>: u.<span class="hljs-property">cache_creation_input_tokens</span>,
+    <span class="hljs-attr">read</span>: u.<span class="hljs-property">cache_read_input_tokens</span>,
+    <span class="hljs-attr">fresh</span>: u.<span class="hljs-property">input_tokens</span>,
+  });
+  <span class="hljs-keyword">return</span> res;
+}</code></pre>
+<p>pgvector 검색에서 권한 조건을 SQL 술어로 직접 결합한다. 인덱스를 타도록 필터 컬럼에 별도 인덱스를 둔다.</p>
+<pre><code class="hljs language-sql"><span class="hljs-keyword">SELECT</span> id, content, <span class="hljs-number">1</span> <span class="hljs-operator">-</span> (embedding <span class="hljs-operator">&lt;=&gt;</span> $<span class="hljs-number">1</span>) <span class="hljs-keyword">AS</span> score
+<span class="hljs-keyword">FROM</span> chunks
+<span class="hljs-keyword">WHERE</span> tenant_id <span class="hljs-operator">=</span> $<span class="hljs-number">2</span>
+  <span class="hljs-keyword">AND</span> acl_group <span class="hljs-operator">=</span> <span class="hljs-keyword">ANY</span>($<span class="hljs-number">3</span>)
+  <span class="hljs-keyword">AND</span> classification <span class="hljs-operator">&lt;=</span> $<span class="hljs-number">4</span>
+<span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> embedding <span class="hljs-operator">&lt;=&gt;</span> $<span class="hljs-number">1</span>
+LIMIT <span class="hljs-number">20</span>;</code></pre>
+<p>에이전틱 검색 루프는 반복과 토큰 예산을 하드 리밋으로 감싼다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">type</span> <span class="hljs-title class_">Budget</span> = { <span class="hljs-attr">maxSteps</span>: <span class="hljs-built_in">number</span>; <span class="hljs-attr">maxTokens</span>: <span class="hljs-built_in">number</span> };
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">agenticSearch</span>(<span class="hljs-params">
+  <span class="hljs-attr">question</span>: <span class="hljs-built_in">string</span>,
+  <span class="hljs-attr">step</span>: (q: <span class="hljs-built_in">string</span>) =&gt; <span class="hljs-title class_">Promise</span>&lt;{ done: <span class="hljs-built_in">boolean</span>; next: <span class="hljs-built_in">string</span>; tokens: <span class="hljs-built_in">number</span> }&gt;,
+  <span class="hljs-attr">budget</span>: <span class="hljs-title class_">Budget</span>,
+</span>) {
+  <span class="hljs-keyword">let</span> used = <span class="hljs-number">0</span>;
+  <span class="hljs-keyword">let</span> query = question;
+  <span class="hljs-keyword">for</span> (<span class="hljs-keyword">let</span> i = <span class="hljs-number">0</span>; i &lt; budget.<span class="hljs-property">maxSteps</span>; i++) {
+    <span class="hljs-keyword">const</span> r = <span class="hljs-keyword">await</span> <span class="hljs-title function_">step</span>(query);
+    used += r.<span class="hljs-property">tokens</span>;
+    <span class="hljs-keyword">if</span> (r.<span class="hljs-property">done</span>) <span class="hljs-keyword">return</span> { <span class="hljs-attr">answer</span>: r.<span class="hljs-property">next</span>, <span class="hljs-attr">steps</span>: i + <span class="hljs-number">1</span>, used };
+    <span class="hljs-keyword">if</span> (used &gt;= budget.<span class="hljs-property">maxTokens</span>) <span class="hljs-keyword">break</span>;
+    query = r.<span class="hljs-property">next</span>;
+  }
+  <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`budget exhausted: steps or <span class="hljs-subst">${used}</span> tokens`</span>);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p>캐시 중단점 위치가 절반이다. <mark>타임스탬프나 검색 결과처럼 요청마다 달라지는 블록에 <code>cache_control</code>을 걸면 프리픽스 해시가 매번 달라져 히트가 한 번도 나지 않고 1.25배 쓰기 요금만 계속 낸다.</mark> 중단점은 요청 사이에 동일하게 유지되는 마지막 블록에 둔다.</p>
+<p>캐시가 안 걸려도 오류가 나지 않는다. <mark>모델별 최소 캐시 토큰 수에 못 미치면 캐싱이 조용히 생략되므로 <code>cache_read_input_tokens</code> 값을 로그로 남겨 실제 적중을 확인해야 한다.</mark> 도구 정의를 하나만 수정해도 그 뒤 시스템과 메시지까지 전부 무효화된다는 점도 배포 단위 설계에 반영한다.</p>
+<p>권한 필터를 검색 뒤에 거는 구현은 이미 늦다. <mark>모델이 본 문서는 인용하지 않아도 요약과 추론에 스며들므로, 후처리 필터링은 응답 유출을 막지 못한다.</mark> 필터는 반드시 벡터 검색 쿼리 안에서 평가한다.</p>
+<p>검색된 문서는 신뢰할 수 없는 입력이다. 문서 본문에 삽입된 지시문이 시스템 프롬프트를 무시하도록 유도할 수 있으므로 컨텍스트는 데이터 영역으로 명확히 구분해 넣고, 출력 쪽에서도 도구 호출과 외부 링크를 검증한다.</p>
+<p>의미 캐시의 유사도 임계값은 낮게 잡으면 사고가 된다. 질문 두 개가 임베딩 공간에서 가까워도 조건 한 단어가 다르면 답이 완전히 달라지는데, 캐시는 그 차이를 구분하지 못한 채 지난 답을 돌려준다. 캐시 키에 테넌트와 권한 범위를 반드시 포함한다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/rag/rag-evaluation/">RAG 평가 — 검색 품질과 생성 품질을 따로 잰다</a></li>
+<li><a href="/notes/rag/graph-rag/">GraphRAG — 지식 그래프 기반 검색 증강</a></li>
+<li><a href="/notes/rag/vector-databases/">벡터 데이터베이스 — pgvector·전용 벡터 스토어 선택</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · RAG, Prompt Caching, GraphRAG, Cost, Security</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/rag/rag-evaluation/"><small>이전</small>RAG 평가 — 검색 품질과 생성 품질을 따로 잰다</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

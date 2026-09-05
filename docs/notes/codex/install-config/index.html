@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>설치와 config.toml 설정 · Codex</title>
+  <meta name="description" content="Codex 설정은 CLI 플래그부터 내장 기본값까지 6단계로 겹쳐지며, 계층을 알아야 값이 왜 안 먹는지 설명된다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="설치와 config.toml 설정 · Codex">
+  <meta property="og:description" content="Codex 설정은 CLI 플래그부터 내장 기본값까지 6단계로 겹쳐지며, 계층을 알아야 값이 왜 안 먹는지 설명된다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/codex/install-config/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/codex/">Codex</a><span class="sep">›</span><span>설치와 config.toml 설정</span></nav>
+    <article class="post">
+  <p class="part">Codex · 기초</p>
+  <h1>설치와 config.toml 설정</h1>
+  <p class="summary">Codex 설정은 CLI 플래그부터 내장 기본값까지 6단계로 겹쳐지며, 계층을 알아야 값이 왜 안 먹는지 설명된다</p>
+  <div class="content">
+<p>설치 직후의 Codex는 모든 저장소를 같은 방식으로 대한다. 그래서 실험용 저장소에서는 승인 프롬프트가 성가시고, 운영 코드가 있는 저장소에서는 반대로 너무 헐겁다. 매번 플래그를 붙여 보정하면 명령이 길어지고 팀원마다 다른 조합을 쓰게 된다. 저장소마다 다른 값을 쓰되 공통 기본값은 한 곳에서 관리하려면 설정이 계층으로 겹쳐져야 하고, 그 계층이 어떤 순서로 합쳐지는지 알아야 값이 무시될 때 원인을 짚을 수 있다.</p>
+<h2>핵심 개념</h2>
+<p>설치 경로는 네 가지다. macOS와 Linux는 공식 셸 설치 스크립트를, Windows는 PowerShell 설치 스크립트를 쓴다. 패키지 관리자를 선호하면 <code>npm install -g @openai/codex</code>나 <code>brew install --cask codex</code>도 지원한다. 설치 스크립트로 넣었다면 업데이트도 같은 명령을 다시 실행하면 되고, 릴리스 빌드라면 <code>codex update</code>로도 갱신된다.</p>
+<p>로컬 상태는 <code>CODEX_HOME</code>이 가리키는 디렉터리에 모인다. 기본값은 <code>~/.codex</code>이고 그 아래에 사용자 설정 <code>config.toml</code>, 자격 증명, 세션 기록 <code>history.jsonl</code>, 로그가 놓인다. 환경 변수를 바꿔 다른 프로필로 실행할 수 있어서, 자동화 계정과 개인 계정을 한 머신에서 분리할 때 쓴다.</p>
+<p>설정은 여섯 계층이 겹쳐서 최종값이 된다. 위에서부터 CLI 플래그와 <code>-c</code> 오버라이드, 프로젝트의 <code>.codex/config.toml</code>, <code>--profile</code>로 고른 프로파일 파일, 사용자 설정 <code>~/.codex/config.toml</code>, 시스템 설정 <code>/etc/codex/config.toml</code>, 내장 기본값 순이다. Spring Boot의 PropertySource 우선순위와 같은 구조이고, 프로젝트 설정은 저장소 루트에서 현재 작업 디렉터리까지 내려오며 발견한 파일을 모두 읽되 가까운 파일이 이긴다.</p>
+<p>프로파일은 Spring의 <code>spring.profiles.active</code>와 역할이 같지만 파일 배치가 다르다. <code>codex --profile deep-review</code>를 실행하면 사용자 설정 위에 <code>~/.codex/deep-review.config.toml</code>이 얹힌다. 프로파일 파일 안에는 최상위 키를 그대로 쓰고 별도 테이블로 감싸지 않는다. <mark>Codex 0.134.0부터 <code>config.toml</code> 안의 <code>[profiles.&lt;name&gt;]</code> 테이블과 최상위 <code>profile</code> 선택자는 더 이상 읽히지 않으므로, 예전 방식으로 적어 둔 프로파일은 조용히 적용되지 않는다.</mark></p>
+<p>자주 바꾸는 키는 많지 않다. <code>model</code>과 <code>model_reasoning_effort</code>가 모델과 추론 강도를, <code>approval_policy</code>와 <code>sandbox_mode</code>가 승인과 실행 범위를 정한다. <code>web_search</code>는 <code>cached</code>, <code>indexed</code>, <code>live</code>, <code>disabled</code> 중 하나로 웹 검색 동작을 고르고 기본값은 캐시된 색인이다. 그 밖에 <code>personality</code>로 응답 톤을, <code>log_dir</code>로 로그 위치를, <code>[features]</code> 테이블로 실험적 기능 토글을, <code>[history]</code>로 세션 기록 보존을 조정한다.</p>
+<h2>코드</h2>
+<p>사용자 기본값을 정하는 <code>~/.codex/config.toml</code>이다. 여기 적은 값이 CLI와 IDE 확장 양쪽에 적용된다.</p>
+<pre><code class="hljs language-toml"><span class="hljs-comment"># ~/.codex/config.toml</span>
+<span class="hljs-attr">model</span> = <span class="hljs-string">&quot;gpt-5.6&quot;</span>
+<span class="hljs-attr">model_reasoning_effort</span> = <span class="hljs-string">&quot;high&quot;</span>
+<span class="hljs-attr">approval_policy</span> = <span class="hljs-string">&quot;on-request&quot;</span>
+<span class="hljs-attr">sandbox_mode</span> = <span class="hljs-string">&quot;workspace-write&quot;</span>
+<span class="hljs-attr">web_search</span> = <span class="hljs-string">&quot;cached&quot;</span>
+<span class="hljs-attr">file_opener</span> = <span class="hljs-string">&quot;vscode&quot;</span>
+
+<span class="hljs-section">[sandbox_workspace_write]</span>
+<span class="hljs-attr">network_access</span> = <span class="hljs-literal">false</span>
+
+<span class="hljs-section">[history]</span>
+<span class="hljs-attr">persistence</span> = <span class="hljs-string">&quot;none&quot;</span>   <span class="hljs-comment"># 세션 기록을 남기지 않는다</span>
+
+<span class="hljs-section">[shell_environment_policy]</span>
+<span class="hljs-attr">ignore_default_excludes</span> = <span class="hljs-literal">false</span>   <span class="hljs-comment"># KEY/SECRET/TOKEN 자동 필터를 켠다</span></code></pre>
+<p>저장소 안에 두는 프로젝트 설정이다. 신뢰한 프로젝트에서만 로드되며, 팀이 공유해야 하는 값만 최소로 적는다.</p>
+<pre><code class="hljs language-toml"><span class="hljs-comment"># &lt;repo&gt;/.codex/config.toml</span>
+<span class="hljs-attr">approval_policy</span> = <span class="hljs-string">&quot;untrusted&quot;</span>
+<span class="hljs-attr">sandbox_mode</span> = <span class="hljs-string">&quot;workspace-write&quot;</span>
+<span class="hljs-attr">project_doc_max_bytes</span> = <span class="hljs-number">65536</span>
+
+<span class="hljs-section">[sandbox_workspace_write]</span>
+<span class="hljs-attr">writable_roots</span> = [<span class="hljs-string">&quot;/tmp/build-cache&quot;</span>]</code></pre>
+<p>프로파일 파일과 일회성 오버라이드다. <code>-c</code> 값은 JSON이 아니라 TOML로 파싱되므로 문자열에는 따옴표가 한 겹 더 필요하다.</p>
+<pre><code class="hljs language-bash"><span class="hljs-comment"># ~/.codex/deep-review.config.toml 을 사용자 설정 위에 얹는다</span>
+codex --profile deep-review
+codex <span class="hljs-built_in">exec</span> --profile deep-review <span class="hljs-string">&quot;이 변경을 리뷰해 줘&quot;</span>
+
+<span class="hljs-comment"># 전용 플래그가 있으면 그쪽이 낫다</span>
+codex --model gpt-5.6-terra
+
+<span class="hljs-comment"># 임의 키는 -c 로 덮어쓴다</span>
+codex -c <span class="hljs-string">&#x27;model=&quot;gpt-5.6-terra&quot;&#x27;</span>
+codex -c sandbox_workspace_write.network_access=<span class="hljs-literal">true</span>
+codex -c <span class="hljs-string">&#x27;shell_environment_policy.filters={ &quot;PATH&quot; = &quot;include&quot; }&#x27;</span>
+
+codex doctor   <span class="hljs-comment"># 설치·설정·인증 상태를 한 번에 점검한다</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>환경 변수 필터의 기본값이 반대다.</strong> <mark><code>shell_environment_policy.ignore_default_excludes</code>는 기본값이 <code>true</code>여서, 이름에 <code>KEY</code>·<code>SECRET</code>·<code>TOKEN</code>이 들어간 변수를 걸러 내는 자동 필터가 꺼진 상태로 동작한다.</mark> 자격 증명을 셸에 export 해 두고 쓰는 환경이라면 <code>false</code>로 명시해야 한다.</li>
+<li><strong>프로젝트 설정이 못 쓰는 키가 있다.</strong> <code>openai_base_url</code>, <code>model_provider</code>, <code>model_providers</code>, <code>notify</code>, <code>otel</code>, <code>profile</code>, <code>profiles</code> 같은 키는 저장소의 <code>.codex/config.toml</code>에서 무시되고 시작 시 경고만 뜬다. 자격 증명 경로와 텔레메트리를 저장소가 바꾸지 못하게 막는 설계이므로 사용자 설정에 적어야 한다.</li>
+<li><strong>신뢰하지 않은 프로젝트는 계층 하나가 통째로 빠진다.</strong> 프로젝트를 신뢰하지 않으면 <code>.codex/</code> 계층 전체, 즉 프로젝트 설정과 프로젝트 로컬 훅·룰이 로드되지 않는다. 사용자와 시스템 계층만 남으므로 동작이 달라진다.</li>
+<li><strong>세션 기록은 기본으로 남는다.</strong> 전사 기록이 <code>CODEX_HOME</code> 아래에 쌓이므로 보존 정책이 있는 조직이라면 <code>history.persistence</code>나 <code>history.max_bytes</code>를 명시해야 한다.</li>
+<li><strong><code>-c</code> 파싱 실패는 오류가 아니다.</strong> TOML로 해석되지 않는 값은 문자열로 처리된다. 따옴표를 빠뜨린 오타가 오류 없이 엉뚱한 문자열로 들어갈 수 있다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/codex/what-is-codex/">Codex란 무엇인가 — CLI·IDE·클라우드</a></li>
+<li><a href="/notes/codex/agents-md/">AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</a></li>
+<li><a href="/notes/codex/sandbox-approvals/">샌드박스와 승인 모드 — 안전한 자율 실행</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · Codex, config.toml, CLI, profiles, CODEX_HOME</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/codex/what-is-codex/"><small>이전</small>Codex란 무엇인가 — CLI·IDE·클라우드</a>
+  <a class="next" href="/notes/codex/agents-md/"><small>다음</small>AGENTS.md — 프로젝트 규칙을 에이전트에게 전달</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

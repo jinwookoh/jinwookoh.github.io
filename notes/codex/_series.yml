@@ -1,0 +1,7 @@
+name: Codex
+description: OpenAI의 코딩 에이전트 — CLI·IDE·클라우드, AGENTS.md·샌드박스·승인 모드, MCP·커스텀 프롬프트, CI 자동화.
+order: 21
+parts:
+  - 기초
+  - 확장
+  - 운영

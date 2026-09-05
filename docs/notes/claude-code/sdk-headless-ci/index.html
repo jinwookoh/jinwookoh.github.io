@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent SDK와 headless 모드 — CI 자동화 · Claude Code</title>
+  <meta name="description" content="claude -p 와 Agent SDK로 사람이 지켜보지 않는 파이프라인 안에 에이전트를 넣는 방법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Agent SDK와 headless 모드 — CI 자동화 · Claude Code">
+  <meta property="og:description" content="claude -p 와 Agent SDK로 사람이 지켜보지 않는 파이프라인 안에 에이전트를 넣는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/claude-code/sdk-headless-ci/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/claude-code/">Claude Code</a><span class="sep">›</span><span>Agent SDK와 headless 모드 — CI 자동화</span></nav>
+    <article class="post">
+  <p class="part">Claude Code · 운영</p>
+  <h1>Agent SDK와 headless 모드 — CI 자동화</h1>
+  <p class="summary">claude -p 와 Agent SDK로 사람이 지켜보지 않는 파이프라인 안에 에이전트를 넣는 방법</p>
+  <div class="content">
+<p>대화형 세션은 사람이 화면 앞에 있다는 전제 위에서 돈다. 파일을 쓰기 전에 물어보고, 결과는 사람이 읽으라고 만든 텍스트로 나온다. 같은 판단을 PR마다 반복하고 싶으면 이 전제가 그대로 걸림돌이 된다. 아무도 승인 프롬프트에 답하지 않으니 실행이 멈추고, 답이 나와도 스크립트가 읽을 형식이 아니다. 비대화형 모드와 Agent SDK는 권한 결정을 실행 전에 확정하고 출력을 기계가 읽을 형태로 바꾼다.</p>
+<h2>핵심 개념</h2>
+<p><code>claude -p &quot;프롬프트&quot;</code> 는 세션 UI 없이 한 번 실행하고 결과를 표준 출력으로 내보낸다. <code>--output-format</code> 은 <code>text</code>, <code>json</code>, <code>stream-json</code> 세 가지를 받는다. <code>json</code> 은 본문이 <code>result</code> 필드에 담긴 객체 하나를 돌려주고 <code>session_id</code>, <code>total_cost_usd</code> 같은 메타데이터가 함께 온다. 응답 모양까지 고정하려면 <code>--json-schema</code> 로 JSON Schema를 넘긴다. 결과는 <code>structured_output</code> 에 들어간다. 성공하면 종료 코드 0, 실패하면 0이 아니므로 셸에서 분기할 수 있다.</p>
+<p>권한은 실행 전에 정한다. <code>--allowedTools</code> 는 도구 이름이나 <code>Bash(git diff *)</code> 같은 규칙을 받고, 별표 앞의 공백까지 포함해야 접두 일치가 의도대로 걸린다. 세션 전체의 기준선을 바꾸려면 <code>--permission-mode</code> 에 <code>auto</code>, <code>acceptEdits</code>, <code>dontAsk</code> 중 하나를 준다. 답할 사람이 아예 없는 스케줄 작업이면 <code>--permission-prompts none</code> 을 붙여 승인 대기 자체를 없앤다.</p>
+<p><code>--bare</code> 는 훅·스킬·커스텀 커맨드·서브에이전트·플러그인·MCP 서버·CLAUDE.md 의 자동 탐색을 건너뛴다. 어느 머신에서 돌려도 같은 입력이 들어가야 하는 CI에서는 이쪽이 권장 모드다. 대신 bare 모드는 OAuth 자격증명과 키체인을 읽지 않으므로 <code>ANTHROPIC_API_KEY</code> 를 환경 변수로 넣어야 한다.</p>
+<p>Agent SDK는 같은 에이전트 루프를 라이브러리로 제공한다. TypeScript는 <code>@anthropic-ai/claude-agent-sdk</code>, Python도 별도 패키지가 있다. <code>query({ prompt, options })</code> 가 비동기 이터레이터를 돌려주고, <code>options</code> 로 <code>allowedTools</code>, <code>permissionMode</code>, <code>maxTurns</code>, <code>cwd</code>, <code>model</code>, <code>mcpServers</code>, <code>hooks</code>, <code>agents</code>, <code>resume</code>, <code>forkSession</code>, <code>settingSources</code>, <code>canUseTool</code> 을 넘긴다. 다른 언어에서 쓰려면 CLI를 서브프로세스로 띄우고 <code>-p</code> 와 <code>--output-format json</code> 을 붙인다. Java/Spring 감각으로 보면 Agent SDK는 애플리케이션에 임베드하는 라이브러리, <code>claude -p</code> 는 <code>ProcessBuilder</code> 로 부르는 외부 프로세스에 가깝다. 도구 호출마다 실행 여부를 결정하는 <code>canUseTool</code> 콜백은 요청 단위로 인가를 판단하는 시큐리티 필터, 어떤 설정 파일을 읽을지 고르는 <code>settingSources</code> 는 프로파일별 프로퍼티 소스 선택에 대응한다.</p>
+<p>GitHub에서는 <code>anthropics/claude-code-action@v1</code> 이 이 CLI를 감싼다. <code>/install-github-app</code> 이 앱 설치와 시크릿 등록, 워크플로 PR 생성까지 처리한다. <code>prompt</code> 입력이 없으면 <code>@claude</code> 멘션을 기다리는 대화형 모드로, 있으면 이벤트가 오는 즉시 도는 자동 모드로 동작한다. CLI 인자는 <code>claude_args</code> 로 그대로 전달된다.</p>
+<h2>코드</h2>
+<p>빌드 로그를 파이프로 넣고 결과를 JSON으로 받아 <code>jq</code> 로 꺼낸다. 파일을 만지지 않으므로 <code>Read</code> 만 허용한다.</p>
+<pre><code class="hljs language-bash"><span class="hljs-built_in">cat</span> build-error.txt | claude --bare -p <span class="hljs-string">&quot;이 빌드 실패의 근본 원인만 요약해라&quot;</span> \
+  --allowedTools <span class="hljs-string">&quot;Read&quot;</span> \
+  --output-format json | jq -r <span class="hljs-string">&#x27;.result&#x27;</span>
+
+<span class="hljs-comment"># 세션 ID를 잡아 두면 이어서 물어볼 수 있다</span>
+session_id=$(claude -p <span class="hljs-string">&quot;리뷰를 시작해라&quot;</span> --output-format json | jq -r <span class="hljs-string">&#x27;.session_id&#x27;</span>)
+claude -p <span class="hljs-string">&quot;데이터베이스 쿼리에 집중해라&quot;</span> --resume <span class="hljs-string">&quot;<span class="hljs-variable">$session_id</span>&quot;</span></code></pre>
+<p>같은 루프를 라이브러리로 부르는 쪽이다. <code>query()</code> 는 메시지를 순서대로 흘려보내고 마지막에 <code>result</code> 타입 메시지가 온다.</p>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">import</span> { query } <span class="hljs-keyword">from</span> <span class="hljs-string">&quot;@anthropic-ai/claude-agent-sdk&quot;</span>;
+
+<span class="hljs-keyword">for</span> <span class="hljs-keyword">await</span> (<span class="hljs-keyword">const</span> message <span class="hljs-keyword">of</span> <span class="hljs-title function_">query</span>({
+  <span class="hljs-attr">prompt</span>: <span class="hljs-string">&quot;src/auth 의 테스트를 돌리고 실패를 고쳐라&quot;</span>,
+  <span class="hljs-attr">options</span>: {
+    <span class="hljs-attr">cwd</span>: process.<span class="hljs-title function_">cwd</span>(),
+    <span class="hljs-attr">maxTurns</span>: <span class="hljs-number">8</span>,
+    <span class="hljs-attr">allowedTools</span>: [<span class="hljs-string">&quot;Read&quot;</span>, <span class="hljs-string">&quot;Edit&quot;</span>, <span class="hljs-string">&quot;Bash&quot;</span>],
+    <span class="hljs-attr">permissionMode</span>: <span class="hljs-string">&quot;acceptEdits&quot;</span>,
+  },
+})) {
+  <span class="hljs-keyword">if</span> (message.<span class="hljs-property">type</span> === <span class="hljs-string">&quot;result&quot;</span>) {
+    <span class="hljs-variable language_">console</span>.<span class="hljs-title function_">log</span>(message);
+  }
+}</code></pre>
+<p>PR이 열릴 때마다 리뷰 스킬을 돌리는 워크플로다. <code>id-token: write</code> 는 액션의 기본 GitHub App 인증에 필요하다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">name:</span> <span class="hljs-string">Code</span> <span class="hljs-string">Review</span>
+<span class="hljs-attr">on:</span>
+  <span class="hljs-attr">pull_request:</span>
+    <span class="hljs-attr">types:</span> [<span class="hljs-string">opened</span>, <span class="hljs-string">synchronize</span>, <span class="hljs-string">reopened</span>]
+<span class="hljs-attr">jobs:</span>
+  <span class="hljs-attr">review:</span>
+    <span class="hljs-attr">runs-on:</span> <span class="hljs-string">ubuntu-latest</span>
+    <span class="hljs-attr">permissions:</span>
+      <span class="hljs-attr">contents:</span> <span class="hljs-string">read</span>
+      <span class="hljs-attr">pull-requests:</span> <span class="hljs-string">read</span>
+      <span class="hljs-attr">id-token:</span> <span class="hljs-string">write</span>
+    <span class="hljs-attr">steps:</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">uses:</span> <span class="hljs-string">actions/checkout@v6</span>
+      <span class="hljs-bullet">-</span> <span class="hljs-attr">uses:</span> <span class="hljs-string">anthropics/claude-code-action@v1</span>
+        <span class="hljs-attr">with:</span>
+          <span class="hljs-attr">anthropic_api_key:</span> <span class="hljs-string">${{</span> <span class="hljs-string">secrets.ANTHROPIC_API_KEY</span> <span class="hljs-string">}}</span>
+          <span class="hljs-attr">prompt:</span> <span class="hljs-string">&quot;변경된 diff를 리뷰하고 정확성 문제만 보고해라&quot;</span>
+          <span class="hljs-attr">claude_args:</span> <span class="hljs-string">&quot;--max-turns 8 --allowedTools Read,Grep&quot;</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><mark><code>--bare</code> 없이 <code>-p</code> 를 돌리면 그 디렉터리의 <code>.claude/settings.json</code> 훅과 <code>.mcp.json</code> 서버가 신뢰 대화상자 없이 실행된다.</mark> 포크에서 온 코드를 체크아웃한 러너에서는 이 경로가 그대로 공격면이 되므로 CI에서는 <code>--bare</code> 를 기본으로 두고 필요한 것만 플래그로 명시한다.</li>
+<li><code>-p</code> 의 시작 권한 모드는 어느 플랜에서도 Manual이다. <code>--allowedTools</code> 나 <code>--permission-mode</code> 를 주지 않으면 편집과 명령이 조용히 거부된 채 &quot;하지 못했다&quot;는 요약만 돌아온다.</li>
+<li><mark>워크플로에 <code>github_token: ${{ secrets.GITHUB_TOKEN }}</code> 을 넘기면 그 토큰으로 만든 커밋이 다른 워크플로를 트리거하지 않는다.</mark> 이 입력을 생략해 Claude GitHub App으로 인증하게 두면 CI가 정상적으로 돈다.</li>
+<li>한 실행이 GitHub Actions 분과 토큰을 동시에 태운다. <code>claude_args</code> 의 <code>--max-turns</code>, 잡 단위 <code>timeout-minutes</code>, <code>concurrency</code> 를 함께 걸어 폭주를 막는다.</li>
+<li>표준 입력 파이프는 10MB에서 잘린다. 그보다 큰 입력은 파일로 두고 경로만 프롬프트에 넣는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/claude-code/settings-permissions/">설정과 권한 모델 — settings.json·permission mode</a></li>
+<li><a href="/notes/claude-code/subagents/">서브에이전트 — 작업 분리와 병렬화</a></li>
+<li><a href="/notes/claude-code/workflows-best-practices/">실무 워크플로 — 계획·TDD·비용 관리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · Claude Code, Agent SDK, headless, GitHub Actions, CI</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/claude-code/plugins/"><small>이전</small>플러그인 — 마켓플레이스와 추천 플러그인</a>
+  <a class="next" href="/notes/claude-code/workflows-best-practices/"><small>다음</small>실무 워크플로 — 계획·TDD·비용 관리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

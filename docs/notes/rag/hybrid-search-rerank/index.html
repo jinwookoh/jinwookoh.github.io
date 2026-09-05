@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>하이브리드 검색과 리랭킹 · RAG</title>
+  <meta name="description" content="BM25와 벡터 검색을 RRF로 합치고 cross-encoder 리랭커로 다시 정렬해 상위 k개의 정확도를 끌어올린다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="하이브리드 검색과 리랭킹 · RAG">
+  <meta property="og:description" content="BM25와 벡터 검색을 RRF로 합치고 cross-encoder 리랭커로 다시 정렬해 상위 k개의 정확도를 끌어올린다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/rag/hybrid-search-rerank/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/rag/">RAG</a><span class="sep">›</span><span>하이브리드 검색과 리랭킹</span></nav>
+    <article class="post">
+  <p class="part">RAG · 검색 파이프라인</p>
+  <h1>하이브리드 검색과 리랭킹</h1>
+  <p class="summary">BM25와 벡터 검색을 RRF로 합치고 cross-encoder 리랭커로 다시 정렬해 상위 k개의 정확도를 끌어올린다</p>
+  <div class="content">
+<p>벡터 검색만으로 후보를 뽑으면 두 지점에서 무너진다. 하나는 문자열이 결정적인 질의다. 사번, 에러 코드, 제품 모델명, 사내 약어는 임베딩 공간에서 이웃이 촘촘해 dense 검색이 &quot;의미가 비슷한 다른 것&quot;을 함께 끌어온다. 사용자는 정확히 그 토큰을 입력했는데 결과는 인접 개념으로 채워진다. 다른 하나는 순서다. 임베딩 유사도는 질의와 문서를 각각 따로 벡터로 만든 뒤 거리만 재기 때문에, 상위 50개 안에 정답 청크가 들어 있어도 그것이 1위라는 보장이 없다. 컨텍스트에 5개만 넣는 파이프라인에서 46위의 정답은 존재하지 않는 것과 같다. 앞의 문제는 키워드 검색을 함께 돌려 결과를 합치는 하이브리드 검색으로, 뒤의 문제는 리랭킹으로 나눠 푼다.</p>
+<h2>핵심 개념</h2>
+<p>키워드 쪽 검색은 역색인 위에서 BM25로 점수를 매긴다. 질의 토큰이 문서에 몇 번 나오는지, 그 토큰이 코퍼스 전체에서 얼마나 희귀한지, 문서가 얼마나 긴지를 조합한 값이다. Java 진영에서 익숙한 Lucene의 BM25Similarity가 그대로 Elasticsearch의 기본 스코어러이고, 새로 배울 개념이 아니라 이미 쓰던 전문 검색을 벡터 옆에 다시 세우는 일이다. 최근에는 SPLADE·ELSER처럼 학습된 sparse 임베딩으로 토큰 가중치를 확장해 어휘 불일치를 줄이기도 한다. Qdrant는 이 표현을 <code>indices</code>와 <code>values</code> 쌍의 sparse 벡터로 받아 dense 벡터와 같은 컬렉션에 둔다.</p>
+<p>두 결과를 합칠 때 걸리는 것이 점수 스케일이다. BM25는 0부터 수십까지 열려 있고 코사인 유사도는 0에서 1 사이라 그대로 더하면 한쪽이 다른 쪽을 삼킨다. 그래서 표준 해법은 점수 대신 순위를 쓰는 Reciprocal Rank Fusion이다. 각 결과 목록에서 문서의 순위 r에 <code>1/(k + r)</code>을 부여해 전부 더하고, 여러 목록에 공통으로 등장한 문서가 자연히 위로 올라온다. k는 낮은 순위 문서의 영향력을 조절하는 상수인데 <mark>구현마다 기본값이 달라서 Elasticsearch의 rank_constant는 60, Qdrant의 rrf k는 2다</mark>. 점수의 크기 정보를 살리고 싶으면 Qdrant의 DBSF처럼 각 목록의 평균과 표준편차로 정규화한 뒤 합치는 방식을 쓴다. 다만 RRF는 순위만 보기 때문에 압도적으로 높은 점수를 받은 문서의 우위도 함께 버린다.</p>
+<p>리랭킹은 모델 구조가 다르다. 임베딩 모델은 질의와 문서를 독립적으로 인코딩하는 bi-encoder라 문서 벡터를 미리 만들어 둘 수 있어 빠르다. 리랭커는 질의와 문서를 한 입력으로 붙여 넣고 토큰 사이 상호작용을 계산하는 cross-encoder라 정확도가 높은 대신 후보 하나마다 모델을 한 번씩 돌려야 한다. 미리 계산해 둘 수 있는 값이 없다. 그래서 검색은 항상 2단계가 된다. 하이브리드로 50<del>100개를 넓게 건지고, 리랭커로 상위 5</del>10개만 남긴다. Cohere Rerank는 이 단계를 API로 제공하며 3.5와 4.0 계열은 100개 이상의 언어를 하나의 다국어 모델로 처리한다. 호출 자체는 외부 동기 HTTP 의존이므로 Spring에서 결제 게이트웨이를 부를 때와 같은 취급이 필요하다. 타임아웃, 재시도 한도, 서킷브레이커를 붙이고 실패 시 융합 순위를 그대로 쓰는 폴백을 준비한다.</p>
+<h2>코드</h2>
+<p>Elasticsearch는 <code>rrf</code> retriever 안에 자식 retriever를 넣어 한 요청으로 두 검색을 돌리고 융합까지 끝낸다.</p>
+<pre><code class="hljs language-json">GET /docs/_search
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;retriever&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;rrf&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">&quot;retrievers&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;standard&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;query&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;match&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;text&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;결제 실패 재시도 정책&quot;</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;knn&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;field&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;vector&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;query_vector&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-number">0.12</span><span class="hljs-punctuation">,</span> <span class="hljs-number">-0.03</span><span class="hljs-punctuation">,</span> <span class="hljs-number">0.55</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+                   <span class="hljs-attr">&quot;k&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">50</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;num_candidates&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">200</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;rank_window_size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">50</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;rank_constant&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">60</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;size&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">10</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>Qdrant는 <code>prefetch</code>로 sparse·dense 후보를 각각 뽑고 본 쿼리에서 융합한다.</p>
+<pre><code class="hljs language-python"><span class="hljs-keyword">from</span> qdrant_client <span class="hljs-keyword">import</span> QdrantClient, models
+
+client = QdrantClient(url=<span class="hljs-string">&quot;http://localhost:6333&quot;</span>)
+
+hits = client.query_points(
+    collection_name=<span class="hljs-string">&quot;docs&quot;</span>,
+    prefetch=[
+        models.Prefetch(
+            query=models.SparseVector(indices=[<span class="hljs-number">12</span>, <span class="hljs-number">480</span>], values=[<span class="hljs-number">0.9</span>, <span class="hljs-number">0.4</span>]),
+            using=<span class="hljs-string">&quot;sparse&quot;</span>, limit=<span class="hljs-number">50</span>,
+        ),
+        models.Prefetch(query=dense_vector, using=<span class="hljs-string">&quot;dense&quot;</span>, limit=<span class="hljs-number">50</span>),
+    ],
+    query=models.FusionQuery(fusion=models.Fusion.RRF),
+    limit=<span class="hljs-number">20</span>,
+).points</code></pre>
+<p>융합 결과를 리랭커에 넘겨 최종 컨텍스트를 고른다. 응답의 <code>index</code>는 입력 배열의 위치이므로 원본 후보와 다시 매핑한다.</p>
+<pre><code class="hljs language-python"><span class="hljs-keyword">import</span> cohere
+
+co = cohere.ClientV2()
+docs = [h.payload[<span class="hljs-string">&quot;text&quot;</span>] <span class="hljs-keyword">for</span> h <span class="hljs-keyword">in</span> hits]
+
+reranked = co.rerank(
+    model=<span class="hljs-string">&quot;rerank-v3.5&quot;</span>,
+    query=<span class="hljs-string">&quot;결제 실패 시 재시도는 몇 번까지 하나&quot;</span>,
+    documents=docs,
+    top_n=<span class="hljs-number">5</span>,
+)
+context = [hits[r.index] <span class="hljs-keyword">for</span> r <span class="hljs-keyword">in</span> reranked.results <span class="hljs-keyword">if</span> r.relevance_score &gt;= <span class="hljs-number">0.3</span>]</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p><mark>Elasticsearch의 rank_window_size는 size보다 넉넉히 크게 잡지 않으면 각 검색기가 최종 개수만큼만 후보를 내놓아 융합할 여지가 사라진다.</mark> Qdrant도 같은 이유로 prefetch의 limit이 본 쿼리의 limit과 offset 합보다 커야 한다. 설정을 빼먹어도 오류 없이 결과는 나오고 품질만 조용히 떨어진다.</p>
+<p>RRF 점수는 문서 개수와 k에만 의존하는 작은 값이라 절대 임계로 무관 문서를 잘라내는 데 쓸 수 없다. 관련 없는 결과를 컨텍스트에서 제외하려면 리랭커의 relevance_score처럼 의미가 있는 척도로 컷오프를 걸어야 한다.</p>
+<p>리랭커 지연은 후보 수에 거의 비례한다. 100개를 넘기면 수백 ms 단위로 늘고 과금 단위도 함께 커지므로, 후보 개수를 늘리는 결정은 반드시 Recall@k 개선폭과 함께 본다. 리랭커에는 문서당 토큰 상한이 있어 <mark>상한을 넘긴 긴 청크는 뒤쪽이 잘린 채 점수가 매겨지고, 잘린 부분에 정답이 있으면 그 문서는 영구히 하위로 밀린다</mark>.</p>
+<p>한국어에서는 분석기 설정이 하이브리드의 성패를 가른다. 형태소 분석기 없이 기본 토크나이저로 색인하면 BM25 쪽이 사실상 무력해져 융합해도 dense 단독과 결과가 거의 같아진다. 가중치를 손으로 조정하기 전에 분석기부터 확인한다.</p>
+<p>융합 가중치와 k는 감으로 만지지 않는다. 질의와 정답 문서 쌍 100건 정도의 평가 셋을 만들어 두고 Recall@k와 NDCG로 비교해야 변경이 개선인지 판별된다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/rag/embeddings-vector-search/">임베딩과 벡터 유사도 검색</a></li>
+<li><a href="/notes/rag/chunking-indexing/">청킹과 인덱싱 전략</a></li>
+<li><a href="/notes/rag/query-transformation/">쿼리 변환 — 멀티 쿼리·HyDE·라우팅</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · RAG, Hybrid Search, RRF, Reranking, Qdrant</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/rag/chunking-indexing/"><small>이전</small>청킹과 인덱싱 전략</a>
+  <a class="next" href="/notes/rag/query-transformation/"><small>다음</small>쿼리 변환 — 멀티 쿼리·HyDE·라우팅</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

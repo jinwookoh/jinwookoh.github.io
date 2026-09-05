@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>설정과 권한 모델 — settings.json·permission mode · Claude Code</title>
+  <meta name="description" content="권한 규칙은 deny·ask·allow 순으로 첫 일치가 결과를 결정하며, 와일드카드 위치가 허용 범위를 좌우한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="설정과 권한 모델 — settings.json·permission mode · Claude Code">
+  <meta property="og:description" content="권한 규칙은 deny·ask·allow 순으로 첫 일치가 결과를 결정하며, 와일드카드 위치가 허용 범위를 좌우한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/claude-code/settings-permissions/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">오진욱</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/claude-code/">Claude Code</a><span class="sep">›</span><span>설정과 권한 모델 — settings.json·permission mode</span></nav>
+    <article class="post">
+  <p class="part">Claude Code · 기초</p>
+  <h1>설정과 권한 모델 — settings.json·permission mode</h1>
+  <p class="summary">권한 규칙은 deny·ask·allow 순으로 첫 일치가 결과를 결정하며, 와일드카드 위치가 허용 범위를 좌우한다</p>
+  <div class="content">
+<p>에이전트에게 셸을 쥐여 주면 두 가지 실패가 번갈아 나타난다. 모든 동작을 승인하게 하면 열 번째 프롬프트부터는 읽지 않고 통과시키게 되고, 승인을 통째로 끄면 되돌릴 수 없는 명령이 조용히 실행된다. 그 사이를 메우는 것이 규칙 파일이다. 어떤 명령을 묻지 않고 허용할지, 어떤 경로는 읽는 것조차 막을지를 저장소에 커밋해 두면 팀 전원이 같은 경계를 공유하고, 각자는 자기 파일에서 예외만 더한다.</p>
+<h2>핵심 개념</h2>
+<p>설정은 JSON 파일 네 계층으로 나뉜다. 우선순위는 관리 설정, <code>--settings</code> 플래그, 프로젝트 로컬, 공유 프로젝트, 사용자 순이며 위쪽이 아래쪽을 덮는다.</p>
+<table>
+<thead>
+<tr>
+<th>범위</th>
+<th>파일</th>
+<th>적용 대상</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>관리</td>
+<td><code>managed-settings.json</code>, MDM, 콘솔</td>
+<td>조직이 배포한 모든 머신</td>
+</tr>
+<tr>
+<td>프로젝트 로컬</td>
+<td><code>.claude/settings.local.json</code></td>
+<td>본인, 이 프로젝트만</td>
+</tr>
+<tr>
+<td>공유 프로젝트</td>
+<td><code>.claude/settings.json</code></td>
+<td>저장소를 클론한 전원</td>
+</tr>
+<tr>
+<td>사용자</td>
+<td><code>~/.claude/settings.json</code></td>
+<td>본인의 모든 프로젝트</td>
+</tr>
+</tbody></table>
+<p>같은 키를 여러 파일이 설정하면 스칼라 값은 우선순위대로 하나가 이기지만, <code>permissions.allow</code> 같은 리스트 키는 덮어쓰지 않고 합쳐진다. 조직이 깐 허용 규칙 위에 개인 규칙이 더해지는 구조다.</p>
+<p>권한 규칙은 <code>Tool</code> 또는 <code>Tool(specifier)</code> 형태로 쓴다. 평가 순서는 deny, ask, allow로 고정돼 있고 그 순서에서 처음 일치한 규칙이 결과를 정한다. Spring Security의 요청 매처 체인이 선언 순서대로 첫 일치를 채택하는 것과 같은 방식이며, <mark>규칙이 더 구체적이라고 순서가 앞당겨지지 않기 때문에 <code>Bash(aws *)</code> 같은 넓은 deny에는 예외를 둘 수 없다.</mark> 도구 이름만 쓴 deny는 그 도구를 컨텍스트에서 아예 제거하고, 괄호로 범위를 좁힌 deny는 도구는 남긴 채 매칭되는 호출만 막는다.</p>
+<p>Bash 규칙은 명령 문자열 전체에 매칭되며 <code>*</code>가 임의 텍스트를 대신한다. 와일드카드를 어디에 두느냐가 곧 허용 범위다. <code>*</code> 앞의 단어들은 문자 그대로 매칭되므로 <code>Bash(git log *)</code>는 <code>git log</code> 계열만 허용하지만 <code>Bash(git *)</code>는 모든 git 하위 명령을 허용한다. 셸 연산자도 인식해서 <code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>로 이어 붙인 복합 명령은 각 하위 명령이 개별적으로 규칙에 걸려야 통과한다.</p>
+<p>파일 경로 규칙에는 앵커가 세 종류 있다. <code>//path</code>는 파일시스템 루트 기준 절대 경로, <code>~/path</code>는 홈 디렉터리 기준, 앞의 <code>/</code>는 규칙이 적힌 설정 파일의 기준 디렉터리 상대 경로다. 사용자 설정에 적은 <code>Read(/secrets/**)</code>는 프로젝트의 <code>secrets</code>가 아니라 <code>~/.claude/secrets/**</code>를 막는다.</p>
+<p>권한 모드는 규칙 위의 기본선이다. 세션 중에는 <code>Shift+Tab</code>으로 순환하고, 시작 모드는 <code>--permission-mode</code> 플래그나 <code>permissions.defaultMode</code>로 정한다. Manual 모드의 설정값은 <code>default</code>이며 <code>manual</code>이 별칭이다.</p>
+<h2>코드</h2>
+<p>린트와 테스트, 커밋은 묻지 않고 실행하되 푸시는 확인을 받고 비밀 파일은 읽지 못하게 하는 팀 공유 설정이다.</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;$schema&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;https://json.schemastore.org/claude-code-settings.json&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;permissions&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;allow&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-string">&quot;Bash(pnpm run lint)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">&quot;Bash(pnpm run test *)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">&quot;Bash(git commit *)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">&quot;Read(src/**)&quot;</span>
+    <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;ask&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;Bash(git push *)&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;deny&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-string">&quot;Read(./.env)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">&quot;Read(./.env.*)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">&quot;Edit(//etc/**)&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">&quot;Bash(rm -rf *)&quot;</span>
+    <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;additionalDirectories&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;../shared-types&quot;</span><span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>조직 관리 설정에서 위험한 모드를 아예 제거한다. 개인 파일에서 되돌릴 수 없다.</p>
+<pre><code class="hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;permissions&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">&quot;defaultMode&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;default&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;disableBypassPermissionsMode&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;disable&quot;</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">&quot;disableAutoMode&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;disable&quot;</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span></code></pre>
+<p>CI에서는 사전 승인 목록만 허용하는 모드로 고정한다. 목록 밖 도구는 프롬프트 없이 거부된다.</p>
+<pre><code class="hljs language-bash">claude -p <span class="hljs-string">&quot;테스트 스위트를 실행하고 실패를 요약해&quot;</span> \
+  --permission-mode dontAsk \
+  --allowedTools <span class="hljs-string">&quot;Bash(pnpm test)&quot;</span> <span class="hljs-string">&quot;Read&quot;</span>
+
+<span class="hljs-comment"># 파일을 저장하지 않고 한 세션에만 키를 적용</span>
+claude --settings <span class="hljs-string">&#x27;{&quot;permissions&quot;:{&quot;defaultMode&quot;:&quot;plan&quot;}}&#x27;</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>와일드카드 위치를 잘못 두면 규칙이 무력해진다.</strong> <code>Bash(git * main)</code>은 <code>*</code>가 하위 명령 자리를 대신하므로 <code>git push origin main</code>까지 허용한다. 끝의 <code>*</code> 앞 공백도 의미가 있어서 <mark><code>Bash(ls *)</code>는 <code>lsof</code>에 매칭되지 않지만 공백 없는 <code>Bash(ls*)</code>는 <code>lsof</code>까지 허용한다.</mark></li>
+<li><strong>경로 규칙은 Read와 Edit로만 검사한다.</strong> <mark><code>Write(docs/**)</code>나 <code>Glob(docs/**)</code> 같은 규칙은 저장은 되지만 권한 검사에 쓰이지 않는다.</mark> 쓰기는 <code>Edit(docs/**)</code>, 탐색은 <code>Read(docs/**)</code>로 적어야 실제로 걸린다.</li>
+<li><strong>프로젝트 allow 규칙은 신뢰 수락 전까지 놀고 있다.</strong> <mark><code>.claude/settings.json</code>의 <code>permissions.allow</code>와 <code>additionalDirectories</code>는 해당 폴더의 워크스페이스 신뢰 대화를 수락한 뒤에야 적용된다.</mark> deny와 ask는 제한만 하므로 즉시 적용된다. 팀원이 클론한 뒤 여전히 프롬프트를 본다면 대개 이 단계가 남아 있다.</li>
+<li><strong>프로젝트 파일이 설정하지 못하는 값이 있다.</strong> <code>permissions.defaultMode</code>의 <code>auto</code>와 <code>bypassPermissions</code>는 프로젝트나 로컬 설정에서 적용되지 않는다. 사용자 설정이나 관리 설정에 두거나 플래그로 한 세션만 지정한다.</li>
+<li><strong>설정 파일은 엄격한 JSON이다.</strong> <code>//</code> 주석이나 후행 쉼표는 문법 오류이고, 파일이 깨지면 그 파일은 통째로 건너뛴다. <code>-p</code> 실행은 오류 대화를 띄우지 않으므로 무시된 항목은 <code>claude doctor</code>로 확인한다.</li>
+<li><strong>어떤 파일이 읽혔는지 먼저 확인한다.</strong> 값이 안 먹으면 <code>/status</code>의 설정 소스 줄로 로드된 파일을 확인하고, 규칙 목록과 출처 파일은 <code>/permissions</code>에서 본다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/claude-code/what-is-claude-code/">Claude Code란 무엇인가 — 설치와 기본 사용법</a></li>
+<li><a href="/notes/claude-code/claude-md-memory/">CLAUDE.md와 메모리 — 프로젝트 컨텍스트 관리</a></li>
+<li><a href="/notes/claude-code/hooks/">훅 — 도구 호출 전후 자동화</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-05 · settings.json, permissions, permission mode, Claude Code, workspace trust</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/claude-code/claude-md-memory/"><small>이전</small>CLAUDE.md와 메모리 — 프로젝트 컨텍스트 관리</a>
+  <a class="next" href="/notes/claude-code/skills-slash-commands/"><small>다음</small>스킬과 슬래시 커맨드</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
