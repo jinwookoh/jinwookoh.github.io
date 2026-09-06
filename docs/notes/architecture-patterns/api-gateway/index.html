@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API 게이트웨이 — 단일 진입점과 BFF · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="클라이언트가 서비스를 직접 호출하지 않도록 진입점을 하나로 모으고, 클라이언트 유형이 갈리면 BFF로 나눈다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="API 게이트웨이 — 단일 진입점과 BFF · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="클라이언트가 서비스를 직접 호출하지 않도록 진입점을 하나로 모으고, 클라이언트 유형이 갈리면 BFF로 나눈다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/api-gateway/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>API 게이트웨이 — 단일 진입점과 BFF</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 서비스 통신</p>
+  <h1>API 게이트웨이 — 단일 진입점과 BFF</h1>
+  <p class="summary">클라이언트가 서비스를 직접 호출하지 않도록 진입점을 하나로 모으고, 클라이언트 유형이 갈리면 BFF로 나눈다</p>
+  <div class="content">
+<p>마이크로서비스 환경에서 클라이언트가 각 서비스를 직접 호출하면 몇 가지 문제가 동시에 생긴다. 모바일 앱이 메인 화면 하나를 그리기 위해 회원·주문·추천·알림 서비스를 각각 호출해야 하므로 왕복 횟수가 화면당 수 회로 늘어나고, 이동통신망처럼 지연이 큰 환경에서 체감 속도가 급격히 나빠진다. 모든 서비스가 인증·TLS·CORS·처리율 제한을 각자 구현해야 하고, 서비스 주소나 분할 구조가 바뀌면 클라이언트 배포까지 따라가야 한다. 내부 서비스가 외부에 그대로 노출되는 것 자체가 공격 표면을 넓힌다. API 게이트웨이는 이 문제를 클라이언트와 서비스 사이에 진입점 하나를 두는 방식으로 해결한다.</p>
+<h2>핵심 개념</h2>
+<p>게이트웨이는 클라이언트의 모든 요청을 받아 경로·헤더·호스트 기준으로 뒤쪽 서비스에 라우팅하는 리버스 프록시다. 라우팅 위에 인증 토큰 검증, 처리율 제한, TLS 종료, 요청·응답 로깅, 상관관계 ID 부여 같은 횡단 관심사를 얹는다. 서비스 쪽은 이 처리를 게이트웨이가 끝냈다고 가정하고 비즈니스 로직에만 집중한다. 클라이언트는 도메인 하나만 알면 되므로 내부 서비스 구성이 바뀌어도 라우팅 규칙만 고치면 된다.</p>
+<p>게이트웨이를 어떤 단위로 두느냐에 따라 두 방식으로 갈린다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>단일 중앙 게이트웨이</th>
+<th>BFF (Backend For Frontend)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>진입점</td>
+<td>1개</td>
+<td>클라이언트 유형별 N개 (Web·Mobile·Public API)</td>
+</tr>
+<tr>
+<td>응답 형태</td>
+<td>모든 클라이언트에 동일</td>
+<td>클라이언트별로 조합·축소</td>
+</tr>
+<tr>
+<td>소유 팀</td>
+<td>백엔드·플랫폼 팀</td>
+<td>각 프론트엔드 팀</td>
+</tr>
+<tr>
+<td>적합한 시점</td>
+<td>클라이언트 종류가 적은 초기</td>
+<td>클라이언트별 요구가 뚜렷하게 갈릴 때</td>
+</tr>
+</tbody></table>
+<p>단일 중앙 게이트웨이는 구축과 운영이 단순하고 보안 정책을 한곳에서 일관되게 적용할 수 있다. 대신 모든 트래픽이 한 지점을 지나므로 장애와 성능 병목이 집중되고, 클라이언트별 요구가 쌓이면 게이트웨이 안에 클라이언트 종류로 분기하는 조건문이 늘어나 여러 팀의 변경이 한 배포 단위에서 충돌한다.</p>
+<p>BFF는 클라이언트 유형마다 전용 게이트웨이를 두는 방식이다. 모바일 BFF는 대시보드 요청 하나를 받아 회원·주문·알림 서비스를 병렬로 호출한 뒤 모바일 화면에 필요한 필드만 남겨 응답하고, 웹 BFF는 같은 화면에 고해상도 이미지와 상세 설명을 포함해 응답한다. 각 BFF를 해당 프론트엔드 팀이 소유하므로 백엔드 팀의 일정을 기다리지 않고 응답 구조를 바꿀 수 있다. 대가로 배포 단위가 늘고, 인증 같은 공통 로직이 BFF마다 중복될 수 있다. 실무에서는 두 방식을 계층으로 겹친다. 앞단에 TLS 종료·인증·처리율 제한만 맡는 얇은 엣지 게이트웨이를 두고, 그 뒤에 클라이언트별 BFF가 집계와 응답 변환을 담당하는 구성이 일반적이다.</p>
+<h2>코드</h2>
+<p>Spring Cloud Gateway로 경로 기반 라우팅과 처리율 제한을 선언한다. 처리율 제한 카운터는 Redis에 저장한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">cloud:</span>
+    <span class="hljs-attr">gateway:</span>
+      <span class="hljs-attr">routes:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">id:</span> <span class="hljs-string">product-service</span>
+          <span class="hljs-attr">uri:</span> <span class="hljs-string">lb://product-service</span>
+          <span class="hljs-attr">predicates:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">Path=/api/v1/products/**</span>
+          <span class="hljs-attr">filters:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">StripPrefix=2</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">RequestRateLimiter</span>
+              <span class="hljs-attr">args:</span>
+                <span class="hljs-attr">redis-rate-limiter.replenishRate:</span> <span class="hljs-number">100</span>
+                <span class="hljs-attr">redis-rate-limiter.burstCapacity:</span> <span class="hljs-number">200</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">id:</span> <span class="hljs-string">order-service</span>
+          <span class="hljs-attr">uri:</span> <span class="hljs-string">lb://order-service</span>
+          <span class="hljs-attr">predicates:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">Path=/api/v1/orders/**</span>
+          <span class="hljs-attr">filters:</span>
+            <span class="hljs-bullet">-</span> <span class="hljs-string">StripPrefix=2</span></code></pre>
+<p>모든 요청에 상관관계 ID를 부여해 뒤쪽 서비스로 전달하는 글로벌 필터다. WebFlux 기반이므로 필터 안에서 블로킹 호출을 하지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CorrelationIdFilter</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">GlobalFilter</span>, Ordered {
+
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">String</span> <span class="hljs-variable">HEADER</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;X-Correlation-Id&quot;</span>;
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Mono</span>&lt;Void&gt; <span class="hljs-title function_">filter</span><span class="hljs-params">(ServerWebExchange exchange, GatewayFilterChain chain)</span> {
+        <span class="hljs-type">String</span> <span class="hljs-variable">id</span> <span class="hljs-operator">=</span> Optional.ofNullable(exchange.getRequest().getHeaders().getFirst(HEADER))
+                .orElse(UUID.randomUUID().toString());
+        <span class="hljs-type">ServerHttpRequest</span> <span class="hljs-variable">request</span> <span class="hljs-operator">=</span> exchange.getRequest().mutate()
+                .header(HEADER, id)
+                .build();
+        exchange.getResponse().getHeaders().add(HEADER, id);
+        <span class="hljs-keyword">return</span> chain.filter(exchange.mutate().request(request).build());
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">getOrder</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> Ordered.HIGHEST_PRECEDENCE;
+    }
+}</code></pre>
+<p>모바일 BFF가 세 서비스를 가상 스레드로 병렬 호출해 화면 전용 응답으로 조합하는 예다. 알림 서비스가 실패해도 화면은 그려야 하므로 해당 항목만 기본값으로 대체한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@RestController</span>
+<span class="hljs-meta">@RequestMapping(&quot;/mobile-api&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MobileDashboardController</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient members;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient orders;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient notifications;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">ExecutorService</span> <span class="hljs-variable">executor</span> <span class="hljs-operator">=</span> Executors.newVirtualThreadPerTaskExecutor();
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">MobileDashboardController</span><span class="hljs-params">(RestClient.Builder builder)</span> {
+        <span class="hljs-built_in">this</span>.members = builder.baseUrl(<span class="hljs-string">&quot;http://member-service&quot;</span>).build();
+        <span class="hljs-built_in">this</span>.orders = builder.baseUrl(<span class="hljs-string">&quot;http://order-service&quot;</span>).build();
+        <span class="hljs-built_in">this</span>.notifications = builder.baseUrl(<span class="hljs-string">&quot;http://notification-service&quot;</span>).build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">DashboardResponse</span><span class="hljs-params">(String nickname, List&lt;String&gt; recentOrderIds, <span class="hljs-type">int</span> unreadCount)</span> {}
+
+    <span class="hljs-meta">@GetMapping(&quot;/dashboard&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">DashboardResponse</span> <span class="hljs-title function_">dashboard</span><span class="hljs-params">(<span class="hljs-meta">@RequestHeader(&quot;X-User-Id&quot;)</span> String userId)</span> <span class="hljs-keyword">throws</span> Exception {
+        <span class="hljs-type">var</span> <span class="hljs-variable">member</span> <span class="hljs-operator">=</span> executor.submit(() -&gt;
+                members.get().uri(<span class="hljs-string">&quot;/members/{id}&quot;</span>, userId).retrieve().body(Member.class));
+        <span class="hljs-type">var</span> <span class="hljs-variable">recent</span> <span class="hljs-operator">=</span> executor.submit(() -&gt;
+                orders.get().uri(<span class="hljs-string">&quot;/orders?userId={id}&amp;limit=3&quot;</span>, userId).retrieve().body(OrderPage.class));
+        <span class="hljs-type">var</span> <span class="hljs-variable">unread</span> <span class="hljs-operator">=</span> executor.submit(() -&gt; {
+            <span class="hljs-keyword">try</span> {
+                <span class="hljs-keyword">return</span> notifications.get().uri(<span class="hljs-string">&quot;/notifications/unread-count?userId={id}&quot;</span>, userId)
+                        .retrieve().body(Integer.class);
+            } <span class="hljs-keyword">catch</span> (RestClientException e) {
+                <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+            }
+        });
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">DashboardResponse</span>(
+                member.get(<span class="hljs-number">2</span>, TimeUnit.SECONDS).nickname(),
+                recent.get(<span class="hljs-number">2</span>, TimeUnit.SECONDS).orders().stream().map(Order::id).toList(),
+                unread.get(<span class="hljs-number">2</span>, TimeUnit.SECONDS));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>단일 장애점. 게이트웨이가 죽으면 뒤쪽 서비스가 모두 정상이어도 전체가 멈춘다. 게이트웨이는 상태를 갖지 않게 만들어 여러 인스턴스로 띄우고, 처리율 제한 카운터나 세션 같은 상태는 Redis 등 외부 저장소에 둔다. <mark>처리율 제한 카운터를 인스턴스 메모리에 두면 인스턴스 수만큼 한도가 배로 늘어나 제한이 사실상 동작하지 않는다.</mark></li>
+<li>타임아웃 계층. <mark>게이트웨이의 응답 타임아웃이 뒤쪽 서비스의 타임아웃보다 길면, 서비스가 이미 실패를 돌려준 뒤에도 게이트웨이가 연결을 붙들고 있어 장애 때 스레드와 커넥션이 고갈된다.</mark> 바깥 계층일수록 타임아웃을 짧게 잡고, BFF 집계에서는 가장 느린 호출이 전체 응답 시간을 결정하므로 호출별 타임아웃과 부분 실패 시 대체값을 정한다.</li>
+<li>블로킹 호출. Spring Cloud Gateway는 WebFlux 위에서 소수의 이벤트 루프 스레드로 동작한다. <mark>필터 안에서 JDBC 조회나 동기 HTTP 호출을 하면 이벤트 루프가 막혀 게이트웨이 전체 처리량이 무너진다.</mark> 토큰 검증처럼 외부 조회가 필요한 작업은 논블로킹 클라이언트를 쓰거나 결과를 캐시한다.</li>
+<li>비즈니스 로직 유입. 게이트웨이에 클라이언트 종류로 분기하는 조건문이나 도메인 규칙이 들어가기 시작하면 모든 팀의 변경이 한 배포 단위로 몰린다. 게이트웨이에는 라우팅과 횡단 관심사만 남기고, 클라이언트별 조합은 BFF로 옮긴다.</li>
+<li>헤더 전파. 게이트웨이나 BFF가 요청을 다시 만들면서 Authorization, 상관관계 ID, 추적 헤더를 빠뜨리면 뒤쪽 서비스에서 인증이 실패하거나 분산 추적이 끊긴다. 반대로 BFF가 백엔드 응답을 그대로 반환하면 내부용 필드가 외부에 노출되므로, 응답은 항상 화면 전용 DTO로 다시 만든다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/service-discovery/">서비스 디스커버리 — 클라이언트 사이드와 서버 사이드</a></li>
+<li><a href="/notes/architecture-patterns/rate-limiter/">처리율 제한 — 고정 윈도·슬라이딩 윈도·토큰 버킷</a></li>
+<li><a href="/notes/architecture-patterns/circuit-breaker/">서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · API Gateway, BFF, Spring Cloud Gateway, MSA</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/event-sourcing/"><small>이전</small>이벤트 소싱 — 상태 대신 이벤트를 저장하기</a>
+  <a class="next" href="/notes/architecture-patterns/service-discovery/"><small>다음</small>서비스 디스커버리 — 클라이언트 사이드와 서버 사이드</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

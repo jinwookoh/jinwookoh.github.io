@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>의존성 주입 — 필드·생성자·세터 주입의 차이 · 디자인 패턴</title>
+  <meta name="description" content="생성자 주입은 불변성·컴파일 시점 검증·순환 참조 조기 감지를 보장하고, 필드 주입은 컨테이너 없이는 객체를 완성할 수 없다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="의존성 주입 — 필드·생성자·세터 주입의 차이 · 디자인 패턴">
+  <meta property="og:description" content="생성자 주입은 불변성·컴파일 시점 검증·순환 참조 조기 감지를 보장하고, 필드 주입은 컨테이너 없이는 객체를 완성할 수 없다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/dependency-injection/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>의존성 주입 — 필드·생성자·세터 주입의 차이</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 확장</p>
+  <h1>의존성 주입 — 필드·생성자·세터 주입의 차이</h1>
+  <p class="summary">생성자 주입은 불변성·컴파일 시점 검증·순환 참조 조기 감지를 보장하고, 필드 주입은 컨테이너 없이는 객체를 완성할 수 없다.</p>
+  <div class="content">
+<p>객체 A가 객체 B를 사용하려면 누군가 B의 인스턴스를 만들어 A에 건네야 한다. A가 직접 <code>new B()</code>를 호출하면 A는 B의 구체 클래스와 생성 방법까지 알게 되고, B를 다른 구현으로 바꾸거나 테스트에서 가짜 객체로 대체하려면 A의 코드를 고쳐야 한다. B가 DB 커넥션이나 외부 API 클라이언트를 필요로 하면 A는 그 설정까지 떠안는다. 의존성 주입은 이 생성 책임을 외부로 옮겨, A는 B의 인터페이스만 알고 인스턴스는 밖에서 받도록 만든다. Spring 같은 컨테이너는 이 &quot;밖&quot;의 역할을 맡아 빈을 생성하고 연결하는데, 어느 지점에서 주입받느냐에 따라 객체의 불변성·테스트 방법·오류가 드러나는 시점이 달라진다.</p>
+<h2>핵심 개념</h2>
+<p>의존성 주입 방식은 세 가지다. 필드 주입은 멤버 변수에 <code>@Autowired</code>를 붙이고 컨테이너가 리플렉션으로 값을 넣는다. 세터 주입은 <code>setXxx</code> 메서드에 <code>@Autowired</code>를 붙여 객체 생성 후 메서드 호출로 넣는다. 생성자 주입은 생성자 파라미터로 받으며, Spring 4.3부터 생성자가 하나면 <code>@Autowired</code>를 생략할 수 있다.</p>
+<p>세 방식의 차이는 객체가 완성되는 시점에 있다. 생성자 주입은 생성자가 끝나는 순간 모든 의존성이 채워져 있고, 필드를 <code>final</code>로 선언할 수 있다. 필드 주입과 세터 주입은 기본 생성자로 객체를 먼저 만든 뒤 나중에 값을 채우므로, 그 사이에는 의존성이 <code>null</code>인 상태가 존재한다. 컨테이너 안에서는 이 간격이 문제되지 않지만, 컨테이너 없이 <code>new</code>로 만든 객체는 의존성이 영원히 <code>null</code>이다. <code>@Autowired</code> 필드는 <code>final</code>로 선언할 수 없으므로 언어 차원의 불변성 보장도 포기하게 된다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>필드 주입</th>
+<th>세터 주입</th>
+<th>생성자 주입</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>불변성</td>
+<td>불가</td>
+<td>불가</td>
+<td><code>final</code> 가능</td>
+</tr>
+<tr>
+<td>의존성 누락</td>
+<td>실행 시 <code>NullPointerException</code></td>
+<td>실행 시 <code>NullPointerException</code></td>
+<td>컴파일 오류</td>
+</tr>
+<tr>
+<td>컨테이너 없는 테스트</td>
+<td>리플렉션 필요</td>
+<td>세터 호출</td>
+<td><code>new</code>로 직접 생성</td>
+</tr>
+<tr>
+<td>선택적 의존성</td>
+<td><code>required = false</code></td>
+<td><code>required = false</code></td>
+<td><code>Optional&lt;T&gt;</code>, <code>ObjectProvider&lt;T&gt;</code></td>
+</tr>
+<tr>
+<td>순환 참조</td>
+<td>기동 시 실패</td>
+<td>기동 시 실패</td>
+<td>기동 시 실패</td>
+</tr>
+</tbody></table>
+<p>순환 참조 항목은 원래 방식마다 달랐다. Spring Boot 2.5까지는 필드·세터 주입으로 연결된 싱글톤 사이의 순환 참조를 미완성 빈 참조로 허용했고, 생성자 주입만 <code>BeanCurrentlyInCreationException</code>으로 기동 시 실패했다. Spring Boot 2.6부터 <code>spring.main.allow-circular-references</code> 기본값이 <code>false</code>가 되어 방식에 관계없이 기동 시 실패한다. 생성자 주입은 이 설정과 무관하게 항상 실패하므로, 설계상의 순환을 가장 이른 시점에 드러낸다.</p>
+<p>세터 주입이 여전히 의미 있는 경우는 의존성이 선택적이고 실행 중 교체가 필요할 때뿐이다. 그 밖의 경우 public 세터는 외부에서 언제든 의존성을 바꿔치기할 수 있는 통로가 된다.</p>
+<h2>코드</h2>
+<p>생성자 주입. 생성자가 하나이므로 <code>@Autowired</code>가 없어도 Spring이 이 생성자를 사용한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> MemberRepository memberRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentClient paymentClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(MemberRepository memberRepository, PaymentClient paymentClient)</span> {
+        <span class="hljs-built_in">this</span>.memberRepository = memberRepository;
+        <span class="hljs-built_in">this</span>.paymentClient = paymentClient;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">createOrder</span><span class="hljs-params">(Long memberId, <span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">member</span> <span class="hljs-operator">=</span> memberRepository.findById(memberId).orElseThrow();
+        paymentClient.charge(member, amount);
+    }
+}</code></pre>
+<p>Lombok의 <code>@RequiredArgsConstructor</code>는 <code>final</code> 필드만 골라 위와 같은 생성자를 생성한다. 선택적 의존성은 <code>ObjectProvider</code>로 받아 빈이 없을 때의 동작을 코드 안에서 결정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> lombok.RequiredArgsConstructor;
+<span class="hljs-keyword">import</span> org.springframework.beans.factory.ObjectProvider;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> MemberRepository memberRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ObjectProvider&lt;AuditLogger&gt; auditLogger;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">createOrder</span><span class="hljs-params">(Long memberId, <span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">member</span> <span class="hljs-operator">=</span> memberRepository.findById(memberId).orElseThrow();
+        auditLogger.ifAvailable(logger -&gt; logger.record(<span class="hljs-string">&quot;order&quot;</span>, memberId));
+    }
+}</code></pre>
+<p>컨테이너 없이 단위 테스트를 작성하는 예. 생성자에 Mockito 목을 직접 넣으므로 Spring 컨텍스트가 필요 없다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> <span class="hljs-keyword">static</span> org.mockito.Mockito.*;
+
+<span class="hljs-keyword">import</span> java.util.Optional;
+<span class="hljs-keyword">import</span> org.junit.jupiter.api.Test;
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderServiceTest</span> {
+
+    <span class="hljs-meta">@Test</span>
+    <span class="hljs-type">void</span> <span class="hljs-title function_">createOrder_chargesMember</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">MemberRepository</span> <span class="hljs-variable">repo</span> <span class="hljs-operator">=</span> mock(MemberRepository.class);
+        <span class="hljs-type">PaymentClient</span> <span class="hljs-variable">client</span> <span class="hljs-operator">=</span> mock(PaymentClient.class);
+        <span class="hljs-keyword">when</span>(repo.findById(<span class="hljs-number">1L</span>)).thenReturn(Optional.of(<span class="hljs-keyword">new</span> <span class="hljs-title class_">Member</span>(<span class="hljs-number">1L</span>)));
+
+        <span class="hljs-type">var</span> <span class="hljs-variable">service</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderService</span>(repo, client);
+        service.createOrder(<span class="hljs-number">1L</span>, <span class="hljs-number">10_000</span>);
+
+        verify(client).charge(any(Member.class), eq(<span class="hljs-number">10_000L</span>));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>필드 주입 클래스를 <code>new</code>로 만들어 테스트하면 컴파일은 통과하고 실행 시점에 <code>NullPointerException</code>이 난다. Mockito의 <code>@InjectMocks</code>나 <code>ReflectionTestUtils.setField</code>로 우회할 수 있지만 필드 이름에 묶인 테스트가 되어 리팩터링에 취약하다. <mark><code>@SpringBootTest</code> 테스트 클래스에서만 필드 주입을 허용하고 프로덕션 코드에서는 생성자 주입으로 통일한다.</mark></li>
+<li>생성자 파라미터가 6~7개를 넘기면 그 클래스가 여러 책임을 지고 있다는 신호다. 필드 주입은 이 신호를 숨기고, 생성자 주입은 생성자 시그니처로 드러낸다. 파라미터를 줄이려고 필드 주입으로 돌아가는 대신 클래스를 분리한다.</li>
+<li>순환 참조를 <code>@Lazy</code>로 끊으면 기동은 성공하지만 프록시가 실제 빈을 처음 호출하는 시점으로 문제가 미뤄진다. <mark><code>@Lazy</code>로 가린 순환은 프로덕션에서 첫 요청이 들어올 때 터지므로, 순환이 발견되면 이벤트 발행이나 공통 의존성 추출로 구조를 고친다.</mark> <code>allow-circular-references=true</code>로 되돌리는 것은 같은 문제를 전역으로 확장하는 선택이다.</li>
+<li><code>@Autowired</code> 필드나 세터로 받은 의존성은 <code>final</code>이 아니므로 다른 스레드가 값을 바꿀 수 있고, 생성자 완료 이후 값이 채워지므로 Java 메모리 모델의 <code>final</code> 필드 초기화 보장을 받지 못한다. 싱글톤 빈이 여러 스레드에서 쓰인다는 점을 고려하면 생성자 주입이 안전하다.</li>
+<li>JUnit 5 테스트 클래스에서 생성자 주입을 쓰려면 <code>@TestConstructor(autowireMode = ALL)</code>을 붙이거나 <code>spring.test.constructor.autowire.mode=all</code> 속성을 설정해야 한다. <mark>이 설정 없이 테스트 클래스에 생성자를 선언하면 <code>ParameterResolutionException</code>으로 테스트가 시작조차 되지 않는다.</mark></li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/singleton/">싱글톤 — 인스턴스 하나를 안전하게 보장하는 다섯 가지 구현</a></li>
+<li><a href="/notes/design-patterns/factory/">팩토리 — Simple Factory·Factory Method·Abstract Factory</a></li>
+<li><a href="/notes/design-patterns/proxy/">프록시 — 접근 제어·지연 로딩·Spring 동적 프록시</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Dependency Injection, Constructor Injection, Autowired, Spring, Lombok</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/null-object/"><small>이전</small>널 객체 — null 검사 대신 아무것도 안 하는 객체</a>
+  <a class="next" href="/notes/design-patterns/callback/"><small>다음</small>콜백 — 동기·비동기 콜백과 제어 흐름</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

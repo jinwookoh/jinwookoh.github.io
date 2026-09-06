@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인터프리터 — 작은 DSL을 AST로 해석하기 · 디자인 패턴</title>
+  <meta name="description" content="문법 규칙을 객체 트리로 만들어 문자열 규칙을 해석하는 방법과, 직접 만들 때와 SpEL을 쓸 때의 경계">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="인터프리터 — 작은 DSL을 AST로 해석하기 · 디자인 패턴">
+  <meta property="og:description" content="문법 규칙을 객체 트리로 만들어 문자열 규칙을 해석하는 방법과, 직접 만들 때와 SpEL을 쓸 때의 경계">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/interpreter/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>인터프리터 — 작은 DSL을 AST로 해석하기</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 행위</p>
+  <h1>인터프리터 — 작은 DSL을 AST로 해석하기</h1>
+  <p class="summary">문법 규칙을 객체 트리로 만들어 문자열 규칙을 해석하는 방법과, 직접 만들 때와 SpEL을 쓸 때의 경계</p>
+  <div class="content">
+<p>할인 조건, 알림 발송 조건, 검색 필터처럼 운영 중에 바뀌는 규칙을 코드에 if-else로 박아 두면 규칙 하나가 바뀔 때마다 배포가 필요하다. 그래서 규칙을 <code>amount &gt; 10000 and grade == &#39;VIP&#39;</code> 같은 문자열로 DB에 저장하고 실행 시점에 해석하려는 요구가 생긴다. <code>split</code>과 <code>indexOf</code>로 문자열을 잘라 처리하면 괄호 중첩과 연산자 우선순위에서 바로 무너진다. 인터프리터 패턴은 문법 규칙 하나하나를 객체로 정의하고, 입력 문자열을 그 객체들의 트리(AST)로 바꾼 뒤 트리를 재귀적으로 실행한다.</p>
+<h2>핵심 개념</h2>
+<p>패턴의 구성 요소는 네 가지다. <code>Expression</code>은 모든 구문이 구현하는 공통 인터페이스로 <code>interpret(context)</code> 하나를 가진다. 종단 표현식(Terminal)은 더 쪼개지지 않는 단위로 숫자 리터럴이나 변수 참조가 해당한다. 비종단 표현식(Non-terminal)은 다른 표현식을 자식으로 가지며 덧셈·비교·논리곱처럼 자식의 결과를 조합한다. <code>Context</code>는 변수 값처럼 해석에 필요한 정보를 담아 트리 전체에 전달된다. 구조적으로는 컴포지트 위에 <code>interpret</code> 연산을 얹은 형태다.</p>
+<p>GoF의 정의는 트리를 실행하는 부분만 다룬다. 문자열을 트리로 조립하는 파서는 패턴 밖이므로 별도로 작성해야 하며, 문법이 작을 때는 규칙마다 메서드 하나를 대응시키는 재귀 하강 파서가 가장 단순하다. 우선순위는 파서 구조로 표현한다. <code>expr := term ((&#39;+&#39;|&#39;-&#39;) term)*</code>, <code>term := factor ((&#39;*&#39;|&#39;/&#39;) factor)*</code>처럼 낮은 우선순위 규칙이 높은 우선순위 규칙을 호출하게 만들면 <code>1 + 2 * 3</code>에서 곱셈이 먼저 묶인다.</p>
+<p>구현 방식은 크게 둘로 나뉜다. 규칙마다 클래스를 두는 GoF 방식은 트리 구조가 코드에 드러나고 새 연산을 클래스 하나로 추가할 수 있지만 규칙 수만큼 클래스가 늘어난다. 연산자를 <code>Map&lt;String, IntBinaryOperator&gt;</code>에 람다로 등록하는 함수형 방식은 짧지만 트리 없이 즉시 계산하므로 중첩과 우선순위를 처리하려면 결국 스택이나 재귀가 다시 필요하다. Java 21에서는 <code>sealed interface</code>와 <code>record</code>로 노드를 정의하면 한 파일에 문법 전체를 담을 수 있어 두 방식의 간극이 줄었다. 우선순위·중첩·변수가 있는 자체 문법이면 클래스 기반 AST, 일반적인 산술·비교·논리 규칙이면 SpEL이나 JEXL 같은 표현식 엔진을 택한다.</p>
+<p>이미 쓰고 있는 것들이 대부분 이 패턴이다. SpEL은 <code>@Value(&quot;#{...}&quot;)</code>와 <code>@PreAuthorize</code> 문자열을 AST로 파싱해 실행하고, Hibernate 6은 JPQL을 SQM이라는 트리로 변환한 뒤 방언별 SQL로 렌더링하며, <code>Pattern.compile</code>은 정규식 문자열을 노드 체인으로 컴파일해 <code>Matcher</code>가 실행한다.</p>
+<h2>코드</h2>
+<p>숫자·변수·이항 연산 세 종류의 노드를 <code>sealed interface</code>와 <code>record</code>로 정의한다. <code>Context</code>는 변수 이름과 값의 맵이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.Map;
+
+<span class="hljs-keyword">sealed</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Expr</span> <span class="hljs-keyword">permits</span> Num, Var, Bin {
+    <span class="hljs-type">int</span> <span class="hljs-title function_">interpret</span><span class="hljs-params">(Map&lt;String, Integer&gt; ctx)</span>;
+}
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Num</span><span class="hljs-params">(<span class="hljs-type">int</span> value)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Expr</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">interpret</span><span class="hljs-params">(Map&lt;String, Integer&gt; ctx)</span> { <span class="hljs-keyword">return</span> value; }
+}
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Var</span><span class="hljs-params">(String name)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Expr</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">interpret</span><span class="hljs-params">(Map&lt;String, Integer&gt; ctx)</span> {
+        <span class="hljs-type">Integer</span> <span class="hljs-variable">v</span> <span class="hljs-operator">=</span> ctx.get(name);
+        <span class="hljs-keyword">if</span> (v == <span class="hljs-literal">null</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;undefined variable: &quot;</span> + name);
+        <span class="hljs-keyword">return</span> v;
+    }
+}
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Bin</span><span class="hljs-params">(<span class="hljs-type">char</span> op, Expr left, Expr right)</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Expr</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">interpret</span><span class="hljs-params">(Map&lt;String, Integer&gt; ctx)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">l</span> <span class="hljs-operator">=</span> left.interpret(ctx);
+        <span class="hljs-type">int</span> <span class="hljs-variable">r</span> <span class="hljs-operator">=</span> right.interpret(ctx);
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">switch</span> (op) {
+            <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;+&#x27;</span> -&gt; l + r;
+            <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;-&#x27;</span> -&gt; l - r;
+            <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;*&#x27;</span> -&gt; l * r;
+            <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;/&#x27;</span> -&gt; l / r;
+            <span class="hljs-keyword">default</span> -&gt; <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;unknown operator: &quot;</span> + op);
+        };
+    }
+}</code></pre>
+<p>문자열을 위 노드 트리로 바꾸는 재귀 하강 파서다. 메서드 호출 순서가 곧 우선순위이며, 괄호는 <code>factor</code>에서 <code>expr</code>로 되돌아가 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Parser</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String src;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> pos;
+
+    Parser(String src) { <span class="hljs-built_in">this</span>.src = src.replace(<span class="hljs-string">&quot; &quot;</span>, <span class="hljs-string">&quot;&quot;</span>); }
+
+    <span class="hljs-type">Expr</span> <span class="hljs-title function_">parse</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Expr</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> expr();
+        <span class="hljs-keyword">if</span> (pos != src.length()) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;trailing input at &quot;</span> + pos);
+        <span class="hljs-keyword">return</span> e;
+    }
+
+    <span class="hljs-comment">// expr := term ((&#x27;+&#x27;|&#x27;-&#x27;) term)*</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Expr</span> <span class="hljs-title function_">expr</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Expr</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> term();
+        <span class="hljs-keyword">while</span> (peek(<span class="hljs-string">&#x27;+&#x27;</span>) || peek(<span class="hljs-string">&#x27;-&#x27;</span>)) e = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Bin</span>(next(), e, term());
+        <span class="hljs-keyword">return</span> e;
+    }
+
+    <span class="hljs-comment">// term := factor ((&#x27;*&#x27;|&#x27;/&#x27;) factor)*</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Expr</span> <span class="hljs-title function_">term</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Expr</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> factor();
+        <span class="hljs-keyword">while</span> (peek(<span class="hljs-string">&#x27;*&#x27;</span>) || peek(<span class="hljs-string">&#x27;/&#x27;</span>)) e = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Bin</span>(next(), e, factor());
+        <span class="hljs-keyword">return</span> e;
+    }
+
+    <span class="hljs-comment">// factor := number | identifier | &#x27;(&#x27; expr &#x27;)&#x27;</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Expr</span> <span class="hljs-title function_">factor</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">if</span> (peek(<span class="hljs-string">&#x27;(&#x27;</span>)) { next(); <span class="hljs-type">Expr</span> <span class="hljs-variable">e</span> <span class="hljs-operator">=</span> expr(); expect(<span class="hljs-string">&#x27;)&#x27;</span>); <span class="hljs-keyword">return</span> e; }
+        <span class="hljs-type">int</span> <span class="hljs-variable">start</span> <span class="hljs-operator">=</span> pos;
+        <span class="hljs-keyword">if</span> (Character.isDigit(cur())) {
+            <span class="hljs-keyword">while</span> (pos &lt; src.length() &amp;&amp; Character.isDigit(cur())) pos++;
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Num</span>(Integer.parseInt(src.substring(start, pos)));
+        }
+        <span class="hljs-keyword">while</span> (pos &lt; src.length() &amp;&amp; Character.isLetter(cur())) pos++;
+        <span class="hljs-keyword">if</span> (start == pos) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;unexpected input at &quot;</span> + pos);
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Var</span>(src.substring(start, pos));
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">char</span> <span class="hljs-title function_">cur</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> src.charAt(pos); }
+    <span class="hljs-keyword">private</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">peek</span><span class="hljs-params">(<span class="hljs-type">char</span> c)</span> { <span class="hljs-keyword">return</span> pos &lt; src.length() &amp;&amp; cur() == c; }
+    <span class="hljs-keyword">private</span> <span class="hljs-type">char</span> <span class="hljs-title function_">next</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> src.charAt(pos++); }
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">expect</span><span class="hljs-params">(<span class="hljs-type">char</span> c)</span> {
+        <span class="hljs-keyword">if</span> (!peek(c)) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;expected &#x27;&quot;</span> + c + <span class="hljs-string">&quot;&#x27; at &quot;</span> + pos);
+        pos++;
+    }
+}</code></pre>
+<p>파싱은 한 번만 하고 트리를 재사용한다. 같은 규칙을 다른 변수 값으로 여러 번 평가하는 것이 이 패턴의 일반적인 사용 형태다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">Expr</span> <span class="hljs-variable">ast</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Parser</span>(<span class="hljs-string">&quot;price * qty - (discount + 500)&quot;</span>).parse();
+
+<span class="hljs-type">int</span> <span class="hljs-variable">a</span> <span class="hljs-operator">=</span> ast.interpret(Map.of(<span class="hljs-string">&quot;price&quot;</span>, <span class="hljs-number">1200</span>, <span class="hljs-string">&quot;qty&quot;</span>, <span class="hljs-number">3</span>, <span class="hljs-string">&quot;discount&quot;</span>, <span class="hljs-number">300</span>)); <span class="hljs-comment">// 2800</span>
+<span class="hljs-type">int</span> <span class="hljs-variable">b</span> <span class="hljs-operator">=</span> ast.interpret(Map.of(<span class="hljs-string">&quot;price&quot;</span>, <span class="hljs-number">900</span>, <span class="hljs-string">&quot;qty&quot;</span>, <span class="hljs-number">2</span>, <span class="hljs-string">&quot;discount&quot;</span>, <span class="hljs-number">0</span>));    <span class="hljs-comment">// 1300</span></code></pre>
+<p>자체 문법이 필요 없는 산술·비교·논리 규칙이면 Spring Boot에 포함된 SpEL을 쓴다. 파싱된 <code>Expression</code>은 스레드 안전하므로 규칙 문자열을 키로 캐시하고, 외부 입력을 평가할 때는 <code>SimpleEvaluationContext</code>로 기능을 제한한다. <code>Order</code>는 <code>getAmount()</code>·<code>getGrade()</code>를 가진 클래스다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> org.springframework.expression.Expression;
+<span class="hljs-keyword">import</span> org.springframework.expression.ExpressionParser;
+<span class="hljs-keyword">import</span> org.springframework.expression.spel.standard.SpelExpressionParser;
+<span class="hljs-keyword">import</span> org.springframework.expression.spel.support.SimpleEvaluationContext;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Component;
+
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.concurrent.ConcurrentHashMap;
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DiscountRuleEvaluator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">ExpressionParser</span> <span class="hljs-variable">parser</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SpelExpressionParser</span>();
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Map</span>&lt;String, Expression&gt; <span class="hljs-variable">cache</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">matches</span><span class="hljs-params">(String rule, Order order)</span> {
+        <span class="hljs-type">Expression</span> <span class="hljs-variable">expr</span> <span class="hljs-operator">=</span> cache.computeIfAbsent(rule, parser::parseExpression);
+        <span class="hljs-type">var</span> <span class="hljs-variable">ctx</span> <span class="hljs-operator">=</span> SimpleEvaluationContext.forReadOnlyDataBinding().build();
+        <span class="hljs-keyword">return</span> Boolean.TRUE.equals(expr.getValue(ctx, order, Boolean.class));
+    }
+}
+
+<span class="hljs-comment">// evaluator.matches(&quot;amount &gt; 10000 and grade == &#x27;VIP&#x27;&quot;, order)</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>파싱 비용이 실행 비용을 압도한다.</strong> <mark>같은 규칙 문자열인데 요청마다 <code>parseExpression</code>이나 <code>new Parser().parse()</code>를 다시 호출하면 GC 압력과 지연이 규칙 수에 비례해 늘어나므로 파싱된 트리를 캐시해야 한다.</mark> 파싱된 트리는 불변이라 스레드 간 공유가 안전하다.</li>
+<li><strong>표현식 엔진에 외부 입력을 넣는 것은 코드 실행 권한을 주는 것이다.</strong> <mark>사용자가 작성한 문자열을 <code>StandardEvaluationContext</code>로 평가하면 <code>T(java.lang.Runtime).getRuntime().exec(...)</code> 같은 타입 참조로 임의 코드가 실행된다.</mark> 외부 입력에는 타입 참조·생성자·빈 참조를 막은 <code>SimpleEvaluationContext</code>를 쓴다.</li>
+<li><strong>재귀 깊이에 상한이 없다.</strong> 재귀 하강 파서와 <code>interpret</code>는 모두 중첩 깊이만큼 스택을 쓰므로 괄호를 수천 번 중첩한 입력 하나로 <code>StackOverflowError</code>를 낼 수 있다. 입력 길이와 중첩 깊이를 파서에서 제한하고, SpEL도 최대 표현식 길이 설정을 기본값에 의존하지 말고 서비스에 맞게 낮춘다.</li>
+<li><strong>의미 규칙이 조용히 다르게 동작한다.</strong> 위 예제의 <code>/</code>는 정수 나눗셈이라 <code>7 / 2</code>가 3이 되고, 미정의 변수를 0으로 볼지 예외로 볼지도 명세가 없으면 구현마다 달라진다. 규칙 작성자가 참조할 문법 명세를 먼저 쓰고 테스트로 고정한다.</li>
+<li><strong>저장된 규칙은 문법과 함께 버전 관리 대상이다.</strong> <mark>규칙을 DB에 저장하는 시점에 파싱해 검증하지 않으면 오타 하나가 며칠 뒤 실제 주문 평가에서 예외로 터진다.</mark> 저장 API에서 파싱을 강제하고, 연산자를 추가하거나 의미를 바꿀 때는 저장된 규칙 전체를 새 파서로 다시 파싱해 호환성을 확인한 뒤 배포한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/composite/">컴포지트 — 개별 객체와 트리를 같은 인터페이스로</a></li>
+<li><a href="/notes/design-patterns/visitor/">방문자 — 클래스 수정 없이 연산 추가하기</a></li>
+<li><a href="/notes/design-patterns/strategy/">전략 — if-else 분기를 교체 가능한 알고리즘으로</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Interpreter, AST, DSL, SpEL, recursive descent</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/visitor/"><small>이전</small>방문자 — 클래스 수정 없이 연산 추가하기</a>
+  <a class="next" href="/notes/design-patterns/null-object/"><small>다음</small>널 객체 — null 검사 대신 아무것도 안 하는 객체</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

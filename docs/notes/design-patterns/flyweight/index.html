@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>플라이웨이트 — 공유 상태 분리로 메모리 절약 · 디자인 패턴</title>
+  <meta name="description" content="비슷한 객체를 수십만 개 만들 때 불변 데이터를 하나로 공유하고 가변 데이터만 개별 보관해 메모리를 줄이는 방법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="플라이웨이트 — 공유 상태 분리로 메모리 절약 · 디자인 패턴">
+  <meta property="og:description" content="비슷한 객체를 수십만 개 만들 때 불변 데이터를 하나로 공유하고 가변 데이터만 개별 보관해 메모리를 줄이는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/flyweight/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>플라이웨이트 — 공유 상태 분리로 메모리 절약</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 구조</p>
+  <h1>플라이웨이트 — 공유 상태 분리로 메모리 절약</h1>
+  <p class="summary">비슷한 객체를 수십만 개 만들 때 불변 데이터를 하나로 공유하고 가변 데이터만 개별 보관해 메모리를 줄이는 방법</p>
+  <div class="content">
+<p>렌더링할 나무 객체 하나가 메시·텍스처·좌표를 모두 들고 있고 그 크기가 1KB라면, 100만 그루를 배치하는 순간 1GB가 필요하다. 나무 종류는 수십 가지뿐인데 메시와 텍스처를 100만 번 복제하는 셈이다. 서버에서도 같은 문제가 반복된다. 주문 100만 건을 메모리에 올릴 때 각 주문이 상품 마스터 정보(이름·카테고리·이미지 URL)를 필드로 복사해 가지면, 실제로 다른 값은 주문번호·수량·시각뿐인데 힙은 상품 정보 사본으로 채워진다. 플라이웨이트 패턴은 객체의 데이터를 공유 가능한 부분과 개별적인 부분으로 나눠, 공유 가능한 부분을 단 하나의 인스턴스로 유지하고 참조만 나눠 갖게 한다.</p>
+<h2>핵심 개념</h2>
+<p>객체의 상태를 두 종류로 분리한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>정의</th>
+<th>예</th>
+<th>보관 위치</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>내부 상태(intrinsic)</td>
+<td>문맥에 관계없이 같고 공유 가능한 값</td>
+<td>나무의 종류·메시·텍스처, 글자의 폰트·크기</td>
+<td>플라이웨이트 객체 내부, 불변</td>
+</tr>
+<tr>
+<td>외부 상태(extrinsic)</td>
+<td>문맥마다 달라 공유할 수 없는 값</td>
+<td>나무의 좌표, 글자의 위치</td>
+<td>클라이언트 측 객체 또는 메서드 인자</td>
+</tr>
+</tbody></table>
+<p>플라이웨이트 객체는 내부 상태만 가지며 불변이어야 한다. 외부 상태는 플라이웨이트가 저장하지 않고, 동작이 필요할 때 인자로 받는다. <code>draw(x, y)</code>처럼 메서드 시그니처에 외부 상태가 드러나는 이유다.</p>
+<p>공유 인스턴스는 팩토리가 관리한다. 팩토리는 내부 상태를 키로 하는 캐시를 두고, 같은 키로 요청이 오면 기존 인스턴스를 돌려주고 없을 때만 새로 만든다. 클라이언트는 <code>new</code>를 직접 호출하지 않고 항상 팩토리를 거친다. 메모리 사용량은 <code>N × (무거운 데이터)</code>에서 <code>종류 수 × (무거운 데이터) + N × (참조 + 가벼운 외부 상태)</code>로 바뀐다.</p>
+<p>JDK에도 같은 구조가 들어 있다. 문자열 리터럴은 String pool에 한 번만 저장되어 같은 리터럴은 같은 인스턴스를 가리키고, <code>Integer.valueOf()</code>는 -128부터 127까지의 값을 미리 만들어 둔 캐시에서 반환한다. <code>Boolean.valueOf()</code>, <code>Character.valueOf()</code>(0<del>127)도 같은 방식이다. <mark><code>Integer</code> 비교에 `</mark>`를 쓰면 -128</del>127 범위에서만 true가 나오고 그 밖에서는 같은 값이라도 false가 되므로, 박싱 타입 비교는 반드시 <code>equals()</code>로 한다.== 캐시 상한은 <code>-XX:AutoBoxCacheMax</code>로 늘릴 수 있지만 하한은 고정이다.</p>
+<h2>코드</h2>
+<p>내부 상태만 가지는 불변 플라이웨이트와, 캐시로 인스턴스를 공유하는 팩토리다. 팩토리 캐시는 여러 스레드가 동시에 접근할 수 있으므로 <code>ConcurrentHashMap</code>을 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">TreeModel</span><span class="hljs-params">(String type, <span class="hljs-type">byte</span>[] mesh, <span class="hljs-type">byte</span>[] texture)</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">draw</span><span class="hljs-params">(<span class="hljs-type">int</span> x, <span class="hljs-type">int</span> y)</span> {
+        System.out.printf(<span class="hljs-string">&quot;%s at (%d, %d)%n&quot;</span>, type, x, y);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TreeModelFactory</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Map</span>&lt;String, TreeModel&gt; <span class="hljs-variable">CACHE</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+
+    <span class="hljs-type">private</span> <span class="hljs-title function_">TreeModelFactory</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">TreeModel</span> <span class="hljs-title function_">of</span><span class="hljs-params">(String type)</span> {
+        <span class="hljs-keyword">return</span> CACHE.computeIfAbsent(type, t -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">TreeModel</span>(t, loadMesh(t), loadTexture(t)));
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">cachedCount</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> CACHE.size();
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">byte</span>[] <span class="hljs-title function_">loadMesh</span><span class="hljs-params">(String type)</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">byte</span>[<span class="hljs-number">512</span>]; }
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-type">byte</span>[] <span class="hljs-title function_">loadTexture</span><span class="hljs-params">(String type)</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">byte</span>[<span class="hljs-number">512</span>]; }
+}</code></pre>
+<p>외부 상태(좌표)를 가지는 클라이언트 객체다. 무거운 데이터는 참조로만 들고 있고, 그릴 때 좌표를 플라이웨이트에 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Tree</span><span class="hljs-params">(<span class="hljs-type">int</span> x, <span class="hljs-type">int</span> y, TreeModel model)</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Tree</span> <span class="hljs-title function_">plant</span><span class="hljs-params">(<span class="hljs-type">int</span> x, <span class="hljs-type">int</span> y, String type)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Tree</span>(x, y, TreeModelFactory.of(type));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">render</span><span class="hljs-params">()</span> {
+        model.draw(x, y);
+    }
+}
+
+<span class="hljs-comment">// 사용</span>
+<span class="hljs-type">List</span>&lt;Tree&gt; <span class="hljs-variable">forest</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;();
+<span class="hljs-type">String</span>[] <span class="hljs-variable">types</span> <span class="hljs-operator">=</span> {<span class="hljs-string">&quot;oak&quot;</span>, <span class="hljs-string">&quot;pine&quot;</span>, <span class="hljs-string">&quot;birch&quot;</span>};
+<span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">i</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">1_000_000</span>; i++) {
+    forest.add(Tree.plant(i % <span class="hljs-number">1000</span>, i / <span class="hljs-number">1000</span>, types[i % <span class="hljs-number">3</span>]));
+}
+System.out.println(TreeModelFactory.cachedCount()); <span class="hljs-comment">// 3</span></code></pre>
+<p>Spring Boot에서 마스터성 데이터를 공유하는 예다. 상품 정보를 캐시된 불변 객체로 두고, 주문 항목은 상품 ID와 수량만 보관한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductCatalog</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ProductRepository repository;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductCatalog</span><span class="hljs-params">(ProductRepository repository)</span> {
+        <span class="hljs-built_in">this</span>.repository = repository;
+    }
+
+    <span class="hljs-meta">@Cacheable(cacheNames = &quot;products&quot;, key = &quot;#id&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProductView</span> <span class="hljs-title function_">find</span><span class="hljs-params">(<span class="hljs-type">long</span> id)</span> {
+        <span class="hljs-keyword">return</span> repository.findById(id)
+                .map(p -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">ProductView</span>(p.getId(), p.getName(), p.getCategory(), p.getImageUrl()))
+                .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">NoSuchElementException</span>(<span class="hljs-string">&quot;product &quot;</span> + id));
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">ProductView</span><span class="hljs-params">(<span class="hljs-type">long</span> id, String name, String category, String imageUrl)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">OrderLine</span><span class="hljs-params">(<span class="hljs-type">long</span> productId, <span class="hljs-type">int</span> quantity)</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">describe</span><span class="hljs-params">(ProductCatalog catalog)</span> {
+        <span class="hljs-type">ProductView</span> <span class="hljs-variable">view</span> <span class="hljs-operator">=</span> catalog.find(productId);
+        <span class="hljs-keyword">return</span> view.name() + <span class="hljs-string">&quot; x &quot;</span> + quantity;
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>가변 필드가 섞이면 공유가 곧 버그가 된다.</strong> 플라이웨이트에 setter가 하나라도 있으면 한 클라이언트의 변경이 같은 인스턴스를 참조하는 모든 클라이언트에 전파된다. <code>record</code>나 <code>final</code> 필드로 불변을 강제하고, 배열·컬렉션 필드는 방어적 복사 또는 <code>List.copyOf()</code>로 감싼다.</li>
+<li><strong>캐시 키가 무한하면 캐시가 곧 누수다.</strong> 종류가 유한한 내부 상태만 키로 삼아야 한다. <mark>사용자 ID나 요청 파라미터처럼 값 공간이 열려 있는 것을 키로 쓰면 팩토리 캐시가 계속 자라 OOM으로 이어진다.</mark> 그런 값은 외부 상태이며, 키로 써야 한다면 Caffeine 같은 크기 제한·만료가 있는 캐시를 쓴다.</li>
+<li><strong><code>HashMap</code>을 캐시로 쓰면 동시성 문제가 생긴다.</strong> 동시 <code>put</code>은 맵 내부 구조를 깨뜨릴 수 있고, <code>computeIfAbsent</code> 없이 get-null-put 순서로 짜면 같은 키의 플라이웨이트가 두 개 만들어져 공유 전제가 무너진다. <code>ConcurrentHashMap.computeIfAbsent</code>를 쓰되, <mark>그 매핑 함수 안에서 같은 맵을 다시 수정하면 무한 루프나 <code>IllegalStateException</code>이 발생한다.</mark></li>
+<li><strong>객체 100개 수준에서는 손해다.</strong> 팩토리 조회와 외부 상태 전달 비용이 절약분보다 크고, 코드 구조도 복잡해진다. 힙 덤프에서 같은 클래스 인스턴스가 수만 개 이상 보이고 그 필드 대부분이 중복 값일 때 도입한다.</li>
+<li><strong>동일성 비교에 의존하지 않는다.</strong> 캐시를 거쳤으니 <code>==</code>로 비교해도 된다고 가정한 코드는 캐시 정책이 바뀌거나 역직렬화된 인스턴스가 섞이는 순간 깨진다. <code>Integer</code> 캐시와 마찬가지로 <code>equals()</code>를 기준으로 짠다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/singleton/">싱글톤 — 인스턴스 하나를 안전하게 보장하는 다섯 가지 구현</a></li>
+<li><a href="/notes/design-patterns/factory/">팩토리 — Simple Factory·Factory Method·Abstract Factory</a></li>
+<li><a href="/notes/design-patterns/proxy/">프록시 — 접근 제어·지연 로딩·Spring 동적 프록시</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Flyweight, 구조 패턴, 캐싱, Integer cache, String pool</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/facade/"><small>이전</small>퍼사드 — 복잡한 서브시스템에 단일 진입점</a>
+  <a class="next" href="/notes/design-patterns/proxy/"><small>다음</small>프록시 — 접근 제어·지연 로딩·Spring 동적 프록시</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

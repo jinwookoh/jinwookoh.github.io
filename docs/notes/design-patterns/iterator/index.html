@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>이터레이터 — 내부 구조를 감추고 순회하기 · 디자인 패턴</title>
+  <meta name="description" content="컬렉션 내부 구조를 노출하지 않고 순회하는 외부 반복자와 내부 반복자의 차이, Java Iterator와 Stream의 선택 기준">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="이터레이터 — 내부 구조를 감추고 순회하기 · 디자인 패턴">
+  <meta property="og:description" content="컬렉션 내부 구조를 노출하지 않고 순회하는 외부 반복자와 내부 반복자의 차이, Java Iterator와 Stream의 선택 기준">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/iterator/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>이터레이터 — 내부 구조를 감추고 순회하기</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 행위</p>
+  <h1>이터레이터 — 내부 구조를 감추고 순회하기</h1>
+  <p class="summary">컬렉션 내부 구조를 노출하지 않고 순회하는 외부 반복자와 내부 반복자의 차이, Java Iterator와 Stream의 선택 기준</p>
+  <div class="content">
+<p>컬렉션을 순회하는 코드가 저장 방식에 묶이면 호출부마다 자료구조별 지식이 흩어진다. 배열은 인덱스로, 연결 리스트는 다음 노드 참조로, 트리는 스택이나 재귀로 돌아야 하므로 저장 구조를 바꾸는 순간 모든 순회 코드가 함께 바뀐다. 내부 배열이나 노드를 getter로 노출하면 캡슐화가 깨진다. 이터레이터 패턴은 순회 책임을 별도 객체로 떼어내어, 컬렉션이 내부 구조를 감춘 채 &quot;다음 요소가 있는가&quot;와 &quot;다음 요소는 무엇인가&quot;라는 두 질문에만 답하게 한다.</p>
+<h2>핵심 개념</h2>
+<p>구조는 두 인터페이스로 이루어진다. Aggregate는 자신을 순회할 Iterator를 만들어 돌려주고, Iterator는 <code>hasNext()</code>와 <code>next()</code>로 순회를 진행한다. Java에서는 각각 <code>Iterable&lt;T&gt;</code>와 <code>Iterator&lt;T&gt;</code>에 대응하며, 확장 for 문은 컴파일 시 <code>iterator()</code> 호출과 <code>hasNext()</code>/<code>next()</code> 루프로 변환된다. 순회 위치(커서)는 컬렉션이 아니라 Iterator 객체가 갖는다. 그래서 같은 컬렉션에 대해 독립적인 순회를 여러 개 동시에 진행할 수 있고, 하나의 Iterator는 단방향 일회용이므로 다시 돌려면 <code>iterator()</code>를 새로 호출해야 한다.</p>
+<p>순회의 제어권이 누구에게 있는지에 따라 두 방식으로 나뉜다.</p>
+<p>외부 반복자(external iterator)는 클라이언트가 <code>next()</code>를 호출하며 진행을 직접 제어한다. 언제 멈출지, 어떤 요소를 건너뛸지, 두 컬렉션을 나란히 전진시킬지를 호출부가 결정한다.</p>
+<p>내부 반복자(internal iterator)는 클라이언트가 요소에 적용할 동작만 넘기고 순회 자체는 컬렉션이 수행한다. <code>Iterable.forEach</code>와 Stream API가 여기에 속한다. 무엇을 할지만 선언하므로 코드가 짧고, 순회 방법이 라이브러리 안에 있어 <code>parallel()</code>처럼 실행 전략을 바꾸는 일도 라이브러리에 맡길 수 있다. 대신 <code>forEach</code> 람다 안에서는 <code>break</code>가 불가능하고 체크 예외를 밖으로 던질 수 없다. Stream에서 중간에 멈추는 수단은 <code>findFirst</code>, <code>anyMatch</code>, <code>takeWhile</code> 같은 단락(short-circuit) 연산뿐이다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>외부 반복자</th>
+<th>내부 반복자</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>제어 주체</td>
+<td>호출부</td>
+<td>컬렉션·라이브러리</td>
+</tr>
+<tr>
+<td>Java 대응</td>
+<td><code>Iterator</code>, 확장 for 문</td>
+<td><code>forEach</code>, <code>Stream</code></td>
+</tr>
+<tr>
+<td>중간 중단</td>
+<td><code>break</code>, <code>return</code> 자유</td>
+<td>단락 연산으로만 가능</td>
+</tr>
+<tr>
+<td>다중 컬렉션 동시 순회</td>
+<td>직접 가능</td>
+<td>어렵다</td>
+</tr>
+<tr>
+<td>병렬 처리</td>
+<td>직접 구현</td>
+<td><code>parallel()</code>로 위임</td>
+</tr>
+</tbody></table>
+<p>Stream의 병렬화는 <code>Spliterator</code>가 담당한다. <code>trySplit()</code>으로 담당 구간을 나누어 다른 스레드에 넘기는 분할 가능한 반복자다. <code>ArrayList</code>처럼 크기를 알고 임의 접근이 되는 소스는 균등하게 쪼개지지만, <code>LinkedList</code>나 <code>Iterator</code>에서 만든 Stream은 분할 효율이 낮아 병렬화 이득이 거의 없다.</p>
+<h2>코드</h2>
+<p>정렬 이진 트리를 중위 순회하는 Iterator다. 재귀 대신 스택에 경로를 저장해 순회 상태를 Iterator 객체 안에 두고, 호출부는 트리 구조를 모른 채 확장 for 문으로 순회한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.*;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SortedTree</span>&lt;T <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Comparable</span>&lt;T&gt;&gt; <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Iterable</span>&lt;T&gt; {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Node</span>&lt;V&gt;(V value, Node&lt;V&gt; left, Node&lt;V&gt; right) {}
+
+    <span class="hljs-keyword">private</span> Node&lt;T&gt; root;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">add</span><span class="hljs-params">(T value)</span> {
+        root = insert(root, value);
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">Node</span>&lt;T&gt; <span class="hljs-title function_">insert</span><span class="hljs-params">(Node&lt;T&gt; node, T value)</span> {
+        <span class="hljs-keyword">if</span> (node == <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Node</span>&lt;&gt;(value, <span class="hljs-literal">null</span>, <span class="hljs-literal">null</span>);
+        <span class="hljs-keyword">return</span> value.compareTo(node.value()) &lt; <span class="hljs-number">0</span>
+            ? <span class="hljs-keyword">new</span> <span class="hljs-title class_">Node</span>&lt;&gt;(node.value(), insert(node.left(), value), node.right())
+            : <span class="hljs-keyword">new</span> <span class="hljs-title class_">Node</span>&lt;&gt;(node.value(), node.left(), insert(node.right(), value));
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Iterator</span>&lt;T&gt; <span class="hljs-title function_">iterator</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Iterator</span>&lt;&gt;() {
+            <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Deque</span>&lt;Node&lt;T&gt;&gt; <span class="hljs-variable">stack</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayDeque</span>&lt;&gt;();
+            { pushLeft(root); }
+
+            <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pushLeft</span><span class="hljs-params">(Node&lt;T&gt; node)</span> {
+                <span class="hljs-keyword">for</span> (; node != <span class="hljs-literal">null</span>; node = node.left()) stack.push(node);
+            }
+
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">hasNext</span><span class="hljs-params">()</span> {
+                <span class="hljs-keyword">return</span> !stack.isEmpty();
+            }
+
+            <span class="hljs-meta">@Override</span>
+            <span class="hljs-keyword">public</span> <span class="hljs-type">T</span> <span class="hljs-title function_">next</span><span class="hljs-params">()</span> {
+                <span class="hljs-keyword">if</span> (stack.isEmpty()) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">NoSuchElementException</span>();
+                <span class="hljs-type">Node</span>&lt;T&gt; <span class="hljs-variable">node</span> <span class="hljs-operator">=</span> stack.pop();
+                pushLeft(node.right());
+                <span class="hljs-keyword">return</span> node.value();
+            }
+        };
+    }
+}
+
+<span class="hljs-comment">// 사용</span>
+<span class="hljs-type">SortedTree</span>&lt;Integer&gt; <span class="hljs-variable">tree</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SortedTree</span>&lt;&gt;();
+List.of(<span class="hljs-number">5</span>, <span class="hljs-number">2</span>, <span class="hljs-number">8</span>, <span class="hljs-number">1</span>).forEach(tree::add);
+<span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> v : tree) {
+    System.out.println(v); <span class="hljs-comment">// 1 2 5 8</span>
+}</code></pre>
+<p>외부 반복자가 필요한 두 경우다. 두 리스트를 나란히 전진시키며 첫 불일치 위치를 찾는 작업과, 순회 중 <code>Iterator.remove()</code>로 요소를 제거하는 작업은 <code>forEach</code>로 표현하기 어렵다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.time.Instant;
+<span class="hljs-keyword">import</span> java.util.Iterator;
+<span class="hljs-keyword">import</span> java.util.List;
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Session</span><span class="hljs-params">(String id, Instant expiresAt)</span> {}
+
+<span class="hljs-keyword">static</span> <span class="hljs-type">int</span> <span class="hljs-title function_">firstMismatch</span><span class="hljs-params">(List&lt;String&gt; expected, List&lt;String&gt; actual)</span> {
+    <span class="hljs-type">Iterator</span>&lt;String&gt; <span class="hljs-variable">a</span> <span class="hljs-operator">=</span> expected.iterator();
+    <span class="hljs-type">Iterator</span>&lt;String&gt; <span class="hljs-variable">b</span> <span class="hljs-operator">=</span> actual.iterator();
+    <span class="hljs-type">int</span> <span class="hljs-variable">index</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+    <span class="hljs-keyword">while</span> (a.hasNext() &amp;&amp; b.hasNext()) {
+        <span class="hljs-keyword">if</span> (!a.next().equals(b.next())) <span class="hljs-keyword">return</span> index;
+        index++;
+    }
+    <span class="hljs-keyword">return</span> (a.hasNext() || b.hasNext()) ? index : -<span class="hljs-number">1</span>;
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">expire</span><span class="hljs-params">(List&lt;Session&gt; sessions, Instant now)</span> {
+    <span class="hljs-type">Iterator</span>&lt;Session&gt; <span class="hljs-variable">it</span> <span class="hljs-operator">=</span> sessions.iterator();
+    <span class="hljs-keyword">while</span> (it.hasNext()) {
+        <span class="hljs-keyword">if</span> (it.next().expiresAt().isBefore(now)) {
+            it.remove(); <span class="hljs-comment">// 순회 중 안전한 제거</span>
+        }
+    }
+}</code></pre>
+<p>내부 반복자다. 필터와 변환 파이프라인은 Stream이 간결하고, 조건부 중단은 <code>findFirst</code> 같은 단락 연산으로 표현한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.time.Instant;
+<span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Optional;
+
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">User</span><span class="hljs-params">(String email, <span class="hljs-type">boolean</span> active)</span> {}
+<span class="hljs-keyword">record</span> <span class="hljs-title class_">Order</span><span class="hljs-params">(String id, Instant dueAt)</span> {}
+
+<span class="hljs-keyword">static</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-title function_">activeEmails</span><span class="hljs-params">(List&lt;User&gt; users)</span> {
+    <span class="hljs-keyword">return</span> users.stream()
+        .filter(User::active)
+        .map(User::email)
+        .toList();
+}
+
+<span class="hljs-keyword">static</span> <span class="hljs-type">Optional</span>&lt;Order&gt; <span class="hljs-title function_">firstOverdue</span><span class="hljs-params">(List&lt;Order&gt; orders, Instant now)</span> {
+    <span class="hljs-keyword">return</span> orders.stream()
+        .filter(o -&gt; o.dueAt().isBefore(now))
+        .findFirst(); <span class="hljs-comment">// 첫 일치 요소 이후 순회를 멈춘다</span>
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<p><strong>순회 중 컬렉션 직접 수정.</strong> 확장 for 문 안에서 <code>list.remove(x)</code>를 호출하면 fail-fast 검사에 걸려 <code>ConcurrentModificationException</code>이 난다. 이 검사는 보장이 아니라 best-effort다. <mark><code>ArrayList</code>에서 뒤에서 두 번째 요소를 제거하면 커서가 크기와 같아져 <code>hasNext()</code>가 false를 돌려주고, 마지막 요소를 건너뛴 채 예외 없이 끝난다</mark>. 제거는 <code>Iterator.remove()</code>나 <code>removeIf</code>, 또는 새 컬렉션으로 수집하는 방식으로 한다.</p>
+<p><strong>일회용 순회.</strong> Stream은 종단 연산을 한 번 실행하면 재사용할 수 없고 두 번째 사용에서 <code>IllegalStateException</code>이 난다. 재순회가 필요하면 <code>Supplier&lt;Stream&lt;T&gt;&gt;</code>로 매번 새로 만들거나 리스트로 수집한다.</p>
+<p><strong><code>parallelStream</code>의 공용 풀.</strong> 병렬 Stream은 JVM 전체가 공유하는 <code>ForkJoinPool.commonPool()</code>에서 실행된다. <mark>HTTP 호출이나 DB 조회 같은 블로킹 작업을 병렬 Stream에 넣으면 공용 풀 스레드가 점유되어 같은 풀을 쓰는 다른 <code>parallel()</code>, <code>CompletableFuture</code> 작업까지 지연된다</mark>. 병렬화는 CPU 바운드 작업에 한정하고, 순서가 중요하면 <code>forEach</code> 대신 <code>forEachOrdered</code>를 쓴다.</p>
+<p><strong>DB 커서 기반 Stream.</strong> Spring Data JPA의 <code>Stream&lt;T&gt;</code> 반환 메서드나 JDBC 커서 위에 만든 Iterator는 커넥션을 열어 둔 채 지연 조회한다. <mark>트랜잭션 범위 밖에서 <code>next()</code>를 호출하면 커넥션이 이미 반환되어 실패하고, try-with-resources로 닫지 않으면 커넥션이 누수된다</mark>. <code>@Transactional(readOnly = true)</code> 메서드 안에서 소비를 끝내야 한다.</p>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/composite/">컴포지트 — 개별 객체와 트리를 같은 인터페이스로</a></li>
+<li><a href="/notes/design-patterns/visitor/">방문자 — 클래스 수정 없이 연산 추가하기</a></li>
+<li><a href="/notes/design-patterns/template-method/">템플릿 메서드 — 골격은 고정하고 단계만 바꾸기</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Iterator, Iterable, Stream, Spliterator, Java</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/chain-of-responsibility/"><small>이전</small>책임 연쇄 — 핸들러를 사슬로 엮어 순차 처리</a>
+  <a class="next" href="/notes/design-patterns/mediator/"><small>다음</small>중재자 — 객체 간 통신을 한곳으로 모으기</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

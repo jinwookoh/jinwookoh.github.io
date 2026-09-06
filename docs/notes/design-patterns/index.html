@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>디자인 패턴 · Notes</title>
+  <meta name="description" content="GoF 생성·구조·행위 패턴 22개와 널 객체·의존성 주입·콜백 — 패턴별 적용 신호, 구현 변형, 실무 함정.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="디자인 패턴 · Notes">
+  <meta property="og:description" content="GoF 생성·구조·행위 패턴 22개와 널 객체·의존성 주입·콜백 — 패턴별 적용 신호, 구현 변형, 실무 함정.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>디자인 패턴</span></nav>
+    <header class="series-head"><h1>디자인 패턴</h1><p>GoF 생성·구조·행위 패턴 22개와 널 객체·의존성 주입·콜백 — 패턴별 적용 신호, 구현 변형, 실무 함정.</p><p class="count">25편</p></header>
+<section class="part-group"><h2>생성</h2><ol class="toc"><li><a href="/notes/design-patterns/singleton/"><span class="n">1</span><span class="t">싱글톤 — 인스턴스 하나를 안전하게 보장하는 다섯 가지 구현</span><span class="s">순수 Java 싱글톤은 Holder 관용구나 enum으로 구현하고, Spring에서는 직접 만들지 않고 컨테이너에 맡긴다.</span></a></li>
+<li><a href="/notes/design-patterns/factory/"><span class="n">2</span><span class="t">팩토리 — Simple Factory·Factory Method·Abstract Factory</span><span class="s">생성 로직을 호출자에서 분리하는 세 단계 팩토리와, 스프링 빈 컨테이너와 만났을 때 생기는 프록시·주입 함정</span></a></li>
+<li><a href="/notes/design-patterns/builder/"><span class="n">3</span><span class="t">빌더 — 선택 파라미터가 많은 불변 객체 생성</span><span class="s">필드가 많은 불변 객체를 점층적 생성자 없이 만드는 Simple Builder와 Director가 조립 순서를 쥐는 GoF Builder의 차이</span></a></li>
+<li><a href="/notes/design-patterns/prototype/"><span class="n">4</span><span class="t">프로토타입 — 복제로 생성하기와 깊은 복사 함정</span><span class="s">생성 비용이 큰 객체는 원본을 복제해 만들되, Java clone() 대신 복사 생성자로 깊은 복사를 직접 구현해야 참조 공유 버그를 피한다.</span></a></li></ol></section>
+<section class="part-group"><h2>구조</h2><ol class="toc"><li><a href="/notes/design-patterns/adapter/"><span class="n">5</span><span class="t">어댑터 — 맞지 않는 인터페이스를 감싸서 연결</span><span class="s">기존 클래스를 수정하지 않고 새 인터페이스에 맞추는 두 가지 어댑터 구현과 객체 어댑터를 기본으로 택하는 이유</span></a></li>
+<li><a href="/notes/design-patterns/bridge/"><span class="n">6</span><span class="t">브리지 — 추상과 구현을 분리해 클래스 폭발 막기</span><span class="s">변화 축이 둘 이상일 때 상속 대신 합성으로 계층을 나눠 M×N 클래스 폭발을 M+N으로 줄인다</span></a></li>
+<li><a href="/notes/design-patterns/composite/"><span class="n">7</span><span class="t">컴포지트 — 개별 객체와 트리를 같은 인터페이스로</span><span class="s">Leaf와 Composite를 한 타입으로 다루는 두 가지 구현 방식과 sealed 타입·Spring Composite 구현체의 함정을 정리한다</span></a></li>
+<li><a href="/notes/design-patterns/decorator/"><span class="n">8</span><span class="t">데코레이터 — 상속 없이 기능을 겹겹이 추가</span><span class="s">같은 인터페이스로 객체를 감싸 실행 시점에 기능을 조합하며, 상태가 필요하면 클래스로, 순수 변환이면 함수 합성으로 쓴다</span></a></li>
+<li><a href="/notes/design-patterns/facade/"><span class="n">9</span><span class="t">퍼사드 — 복잡한 서브시스템에 단일 진입점</span><span class="s">여러 서비스를 조율하는 흐름을 퍼사드 빈 하나로 묶고, 정적 헬퍼와 트랜잭션 경계에서 갈리는 지점을 정리한다.</span></a></li>
+<li><a href="/notes/design-patterns/flyweight/"><span class="n">10</span><span class="t">플라이웨이트 — 공유 상태 분리로 메모리 절약</span><span class="s">비슷한 객체를 수십만 개 만들 때 불변 데이터를 하나로 공유하고 가변 데이터만 개별 보관해 메모리를 줄이는 방법</span></a></li>
+<li><a href="/notes/design-patterns/proxy/"><span class="n">11</span><span class="t">프록시 — 접근 제어·지연 로딩·Spring 동적 프록시</span><span class="s">실제 객체와 같은 인터페이스를 가진 대리 객체로 생성 시점과 접근을 제어하며, Spring은 이를 런타임에 자동 생성해 AOP를 구현한다</span></a></li></ol></section>
+<section class="part-group"><h2>행위</h2><ol class="toc"><li><a href="/notes/design-patterns/strategy/"><span class="n">12</span><span class="t">전략 — if-else 분기를 교체 가능한 알고리즘으로</span><span class="s">알고리즘 분기를 인터페이스 뒤로 옮기고, 서버가 전략을 고르는 세 가지 방식의 차이를 정리한다</span></a></li>
+<li><a href="/notes/design-patterns/template-method/"><span class="n">13</span><span class="t">템플릿 메서드 — 골격은 고정하고 단계만 바꾸기</span><span class="s">알고리즘 골격을 한곳에 고정하고 변하는 단계만 상속 또는 콜백으로 채우는 두 구현과 선택 기준</span></a></li>
+<li><a href="/notes/design-patterns/observer-pubsub/"><span class="n">14</span><span class="t">옵저버와 Pub/Sub — 직접 구독과 브로커 경유의 차이</span><span class="s">옵저버는 주체가 관찰자를 직접 호출하고, Pub/Sub은 채널을 사이에 둬 발행자와 구독자가 서로를 모른다.</span></a></li>
+<li><a href="/notes/design-patterns/state/"><span class="n">15</span><span class="t">상태 — 상태별 분기를 객체로 옮기기</span><span class="s">상태별 if-else를 상태 객체로 옮기고, enum 기반과 클래스 기반 구현을 언제 택하는지 정리한다</span></a></li>
+<li><a href="/notes/design-patterns/command/"><span class="n">16</span><span class="t">커맨드 — 요청을 객체로 캡슐화하고 Undo 구현</span><span class="s">요청을 execute·undo를 가진 객체로 만들면 호출자는 수신자를 몰라도 되고, 실행 이력을 스택에 쌓아 되돌릴 수 있다</span></a></li>
+<li><a href="/notes/design-patterns/chain-of-responsibility/"><span class="n">17</span><span class="t">책임 연쇄 — 핸들러를 사슬로 엮어 순차 처리</span><span class="s">하나만 처리하고 멈추는 GoF 체인과 모두 거쳐 가는 필터 체인은 같은 이름의 다른 패턴이며, 흐름 제어권이 핸들러에 있다</span></a></li>
+<li><a href="/notes/design-patterns/iterator/"><span class="n">18</span><span class="t">이터레이터 — 내부 구조를 감추고 순회하기</span><span class="s">컬렉션 내부 구조를 노출하지 않고 순회하는 외부 반복자와 내부 반복자의 차이, Java Iterator와 Stream의 선택 기준</span></a></li>
+<li><a href="/notes/design-patterns/mediator/"><span class="n">19</span><span class="t">중재자 — 객체 간 통신을 한곳으로 모으기</span><span class="s">참조가 직접 얽힌 객체들의 통신을 중재자 하나로 모으는 고전 구현과 Spring 이벤트로 느슨하게 묶는 구현의 차이</span></a></li>
+<li><a href="/notes/design-patterns/memento/"><span class="n">20</span><span class="t">메멘토 — 캡슐화를 지키며 상태 저장·복원</span><span class="s">private 상태를 getter로 열지 않고 스냅샷을 찍어 되돌리는 방법과 화이트박스·블랙박스 메멘토의 차이</span></a></li>
+<li><a href="/notes/design-patterns/visitor/"><span class="n">21</span><span class="t">방문자 — 클래스 수정 없이 연산 추가하기</span><span class="s">요소 타입은 고정되고 연산만 늘어날 때 더블 디스패치로 분기를 한곳에 모으는 방법과 sealed·switch 패턴 매칭 대체</span></a></li>
+<li><a href="/notes/design-patterns/interpreter/"><span class="n">22</span><span class="t">인터프리터 — 작은 DSL을 AST로 해석하기</span><span class="s">문법 규칙을 객체 트리로 만들어 문자열 규칙을 해석하는 방법과, 직접 만들 때와 SpEL을 쓸 때의 경계</span></a></li></ol></section>
+<section class="part-group"><h2>확장</h2><ol class="toc"><li><a href="/notes/design-patterns/null-object/"><span class="n">23</span><span class="t">널 객체 — null 검사 대신 아무것도 안 하는 객체</span><span class="s">없는 값을 null 대신 기본 행동을 가진 객체로 돌려주면 호출부의 null 검사가 사라지고, 단순 조회는 Optional로 충분하다.</span></a></li>
+<li><a href="/notes/design-patterns/dependency-injection/"><span class="n">24</span><span class="t">의존성 주입 — 필드·생성자·세터 주입의 차이</span><span class="s">생성자 주입은 불변성·컴파일 시점 검증·순환 참조 조기 감지를 보장하고, 필드 주입은 컨테이너 없이는 객체를 완성할 수 없다.</span></a></li>
+<li><a href="/notes/design-patterns/callback/"><span class="n">25</span><span class="t">콜백 — 동기·비동기 콜백과 제어 흐름</span><span class="s">콜백은 호출 대상에게 실행할 코드를 넘기는 기법이며, 동기와 비동기의 차이는 제어권이 언제 어느 스레드에서 돌아오는가에 있다.</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

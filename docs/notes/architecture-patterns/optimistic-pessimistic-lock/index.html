@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>동시성 제어 — 비관적 락과 낙관적 락 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="같은 행을 동시에 갱신할 때 갱신 손실을 막는 두 방식과 충돌 빈도에 따른 선택 기준">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="동시성 제어 — 비관적 락과 낙관적 락 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="같은 행을 동시에 갱신할 때 갱신 손실을 막는 두 방식과 충돌 빈도에 따른 선택 기준">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/optimistic-pessimistic-lock/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>동시성 제어 — 비관적 락과 낙관적 락</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 데이터</p>
+  <h1>동시성 제어 — 비관적 락과 낙관적 락</h1>
+  <p class="summary">같은 행을 동시에 갱신할 때 갱신 손실을 막는 두 방식과 충돌 빈도에 따른 선택 기준</p>
+  <div class="content">
+<p>재고가 1개 남은 상품에 두 요청이 동시에 들어오면 두 트랜잭션이 각각 재고 1을 읽고 각각 0으로 갱신한다. 두 요청 모두 성공 응답을 받지만 실제로는 재고 하나로 두 건이 팔린 셈이다. 나중에 커밋한 쪽이 먼저 커밋한 쪽의 변경을 덮어쓰는 이 현상을 갱신 손실(lost update)이라고 한다. 관계형 데이터베이스의 기본 격리 수준(READ COMMITTED, MySQL의 REPEATABLE READ 포함)은 이 문제를 막아주지 않는다. 읽기와 쓰기 사이의 간격을 어떻게 다룰지는 애플리케이션이 결정해야 하고, 그 선택지가 비관적 락과 낙관적 락이다.</p>
+<h2>핵심 개념</h2>
+<p>비관적 락은 충돌이 일어난다고 가정하고 읽는 시점에 행을 잠근다. <code>SELECT ... FOR UPDATE</code>가 대표적이며, 락을 잡은 트랜잭션이 커밋하거나 롤백할 때까지 같은 행을 잠그려는 다른 트랜잭션은 대기한다. 제어 주체는 데이터베이스이고, 잠금 범위와 대기 방식은 DB 엔진의 락 구현을 따른다. JPA에서는 <code>LockModeType.PESSIMISTIC_WRITE</code>가 <code>FOR UPDATE</code>로, <code>PESSIMISTIC_READ</code>가 <code>FOR SHARE</code>로 번역된다.</p>
+<p>낙관적 락은 충돌이 드물다고 가정하고 잠그지 않는다. 대신 엔티티에 버전 컬럼을 두고, 갱신 시 <code>UPDATE ... SET version = 2 WHERE id = ? AND version = 1</code>처럼 읽었을 때의 버전을 조건에 포함한다. 그 사이 다른 트랜잭션이 버전을 올렸다면 갱신된 행 수가 0이 되고, JPA는 이를 <code>OptimisticLockException</code>으로 보고한다. 충돌 감지는 flush 시점에 일어나며, 실패한 쪽은 트랜잭션을 롤백하고 다시 읽어서 재시도해야 한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>비관적 락</th>
+<th>낙관적 락</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>제어 주체</td>
+<td>데이터베이스(행 잠금)</td>
+<td>애플리케이션(버전 비교)</td>
+</tr>
+<tr>
+<td>충돌 시 동작</td>
+<td>대기 후 순차 처리</td>
+<td>예외 발생, 재시도 필요</td>
+</tr>
+<tr>
+<td>데드락</td>
+<td>발생 가능</td>
+<td>없음</td>
+</tr>
+<tr>
+<td>유리한 상황</td>
+<td>충돌이 잦고 재시도 비용이 큰 경우</td>
+<td>충돌이 드물고 읽기가 많은 경우</td>
+</tr>
+</tbody></table>
+<p>두 방식은 서로 다른 질문에 답한다. 비관적 락은 충돌을 얼마나 확실히 막을 것인가에, 낙관적 락은 충돌이 없는 대부분의 요청에 얼마나 비용을 물리지 않을 것인가에 최적화되어 있다. 충돌률이 높은 곳에 낙관적 락을 쓰면 재시도가 반복되어 비관적 락보다 느려지고, 충돌이 거의 없는 곳에 비관적 락을 쓰면 일어나지도 않을 충돌을 막느라 모든 요청이 직렬화된다.</p>
+<h2>코드</h2>
+<p>비관적 락은 조회 메서드에 <code>@Lock</code>을 붙이면 된다. 대기 상한은 <code>jakarta.persistence.lock.timeout</code> 힌트로 주는데, 0은 NOWAIT로 번역되지만 임의의 밀리초 값을 지원하는지는 DB마다 다르다(Oracle은 지원, MySQL과 PostgreSQL은 NOWAIT와 SKIP LOCKED만 지원).</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">TicketRepository</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">JpaRepository</span>&lt;Ticket, Long&gt; {
+
+    <span class="hljs-meta">@Lock(LockModeType.PESSIMISTIC_WRITE)</span>
+    <span class="hljs-meta">@QueryHints(@QueryHint(name = &quot;jakarta.persistence.lock.timeout&quot;, value = &quot;0&quot;))</span>
+    <span class="hljs-meta">@Query(&quot;select t from Ticket t where t.id = :id&quot;)</span>
+    <span class="hljs-type">Optional</span>&lt;Ticket&gt; <span class="hljs-title function_">findByIdForUpdate</span><span class="hljs-params">(<span class="hljs-meta">@Param(&quot;id&quot;)</span> Long id)</span>;
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TicketService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> TicketRepository ticketRepository;
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">buy</span><span class="hljs-params">(Long ticketId)</span> {
+        <span class="hljs-type">Ticket</span> <span class="hljs-variable">ticket</span> <span class="hljs-operator">=</span> ticketRepository.findByIdForUpdate(ticketId)
+                .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">EntityNotFoundException</span>(<span class="hljs-string">&quot;ticket &quot;</span> + ticketId));
+        ticket.decreaseStock();   <span class="hljs-comment">// 커밋 시점까지 이 행은 잠긴 상태</span>
+    }
+}</code></pre>
+<p>낙관적 락은 <code>@Version</code> 필드 하나로 켜진다. 값은 Hibernate가 관리하므로 애플리케이션이 직접 바꾸지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Ticket</span> {
+
+    <span class="hljs-meta">@Id</span> <span class="hljs-meta">@GeneratedValue(strategy = GenerationType.IDENTITY)</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> stock;
+
+    <span class="hljs-meta">@Version</span>
+    <span class="hljs-keyword">private</span> Long version;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">decreaseStock</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">if</span> (stock &lt;= <span class="hljs-number">0</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(<span class="hljs-string">&quot;sold out&quot;</span>);
+        }
+        stock--;
+    }
+}</code></pre>
+<p>재시도는 트랜잭션 바깥에서 감싼다. Spring이 던지는 예외는 <code>ObjectOptimisticLockingFailureException</code>이며, 트랜잭션 경계를 가진 빈과 재시도 루프를 다른 빈으로 분리해야 매 시도마다 새 트랜잭션과 새 영속성 컨텍스트가 만들어진다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-meta">@RequiredArgsConstructor</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TicketFacade</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> TicketService ticketService;   <span class="hljs-comment">// @Transactional 메서드를 가진 별도 빈</span>
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">buyWithRetry</span><span class="hljs-params">(Long ticketId)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">attempts</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">while</span> (<span class="hljs-literal">true</span>) {
+            <span class="hljs-keyword">try</span> {
+                ticketService.buy(ticketId);
+                <span class="hljs-keyword">return</span>;
+            } <span class="hljs-keyword">catch</span> (ObjectOptimisticLockingFailureException e) {
+                <span class="hljs-keyword">if</span> (++attempts &gt;= <span class="hljs-number">3</span>) {
+                    <span class="hljs-keyword">throw</span> e;
+                }
+            }
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><mark>낙관적 락 재시도를 <code>@Transactional</code> 메서드 안에서 try-catch로 돌리면 재시도가 동작하지 않는다.</mark> 예외가 발생한 시점에 트랜잭션은 이미 rollback-only로 표시되고 영속성 컨텍스트에는 낡은 엔티티가 남아 있어, 같은 트랜잭션 안의 재시도는 반복해서 실패하거나 커밋 시 <code>UnexpectedRollbackException</code>으로 끝난다. 재시도는 트랜잭션 밖 계층에서 한다.</li>
+<li><mark><code>FOR UPDATE</code>의 WHERE 조건이 인덱스를 타지 못하면 MySQL InnoDB는 행이 아니라 스캔한 범위 전체를 잠근다.</mark> 한 건을 잠그려던 쿼리가 테이블 전체를 직렬화하고, 다른 요청이 락 대기 타임아웃으로 쏟아지는 형태로 장애가 드러난다.</li>
+<li>비관적 락은 트랜잭션이 끝날 때까지 유지된다. 락을 잡은 채 외부 API 호출이나 메시지 발행처럼 응답 시간이 불확실한 작업을 하면 그 시간만큼 뒤의 요청이 모두 대기한다. 잠금 구간은 읽기, 검증, 갱신만 남기고 최소화한다.</li>
+<li>여러 행을 잠글 때는 모든 코드 경로에서 같은 순서로 잠근다. A→B 순서와 B→A 순서가 섞이면 데드락이 발생하며, DB가 한쪽을 강제 롤백하므로 애플리케이션은 이 예외도 재시도 대상으로 다뤄야 한다.</li>
+<li><mark><code>@Modifying</code> 벌크 UPDATE나 네이티브 쿼리는 <code>@Version</code> 검사를 거치지 않는다.</mark> 같은 테이블을 벌크 쿼리와 엔티티 갱신이 함께 수정하면 버전 조건을 우회한 갱신 손실이 조용히 발생한다. 벌크 쿼리를 쓴다면 <code>version = version + 1</code>을 직접 포함하거나, <code>UPDATE ... SET stock = stock - 1 WHERE id = ? AND stock &gt; 0</code>처럼 조건 자체를 원자적으로 만든다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/pagination/">페이지네이션 — 오프셋과 커서</a></li>
+<li><a href="/notes/architecture-patterns/retry/">재시도 — 지수 백오프와 지터</a></li>
+<li><a href="/notes/architecture-patterns/saga/">사가 — 코레오그래피와 오케스트레이션</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Pessimistic Lock, Optimistic Lock, JPA, @Version, SELECT FOR UPDATE</p>
+</article>
+<nav class="pager">
+  <span></span>
+  <a class="next" href="/notes/architecture-patterns/pagination/"><small>다음</small>페이지네이션 — 오프셋과 커서</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

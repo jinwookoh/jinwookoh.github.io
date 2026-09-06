@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>사가 — 코레오그래피와 오케스트레이션 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="여러 서비스에 걸친 트랜잭션을 로컬 트랜잭션과 보상 트랜잭션의 연쇄로 나누고, 그 흐름을 이벤트로 이을지 중앙 관리자가 지휘할지 정한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="사가 — 코레오그래피와 오케스트레이션 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="여러 서비스에 걸친 트랜잭션을 로컬 트랜잭션과 보상 트랜잭션의 연쇄로 나누고, 그 흐름을 이벤트로 이을지 중앙 관리자가 지휘할지 정한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/saga/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>사가 — 코레오그래피와 오케스트레이션</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 서비스 통신</p>
+  <h1>사가 — 코레오그래피와 오케스트레이션</h1>
+  <p class="summary">여러 서비스에 걸친 트랜잭션을 로컬 트랜잭션과 보상 트랜잭션의 연쇄로 나누고, 그 흐름을 이벤트로 이을지 중앙 관리자가 지휘할지 정한다.</p>
+  <div class="content">
+<p>주문·결제·배송 서비스가 각자 다른 데이터베이스를 쓰면 하나의 트랜잭션으로 세 저장소를 묶을 수 없다. 결제가 승인된 뒤 배송 정보 저장이 실패하면 결제만 완료된 상태로 남는다. 단일 데이터베이스에서는 롤백 한 번으로 정리되던 문제가, 서비스마다 저장소가 분리된 구조에서는 이미 커밋된 결과를 되돌릴 방법이 없는 문제로 바뀐다. 2PC 같은 분산 트랜잭션은 참여자 전체를 잠그고 코디네이터 장애에 취약해서 서비스 간 통신에는 거의 쓰이지 않는다. 사가는 이 상황에서 원자성을 포기하는 대신, 각 서비스의 로컬 트랜잭션을 순서대로 실행하고 중간에 실패하면 이미 완료된 단계를 되돌리는 보상 트랜잭션을 역순으로 실행해 최종 일관성을 맞춘다.</p>
+<h2>핵심 개념</h2>
+<p>사가는 로컬 트랜잭션 T1, T2, …, Tn의 순열이다. 각 Ti는 자기 서비스의 데이터베이스에서 정상적으로 커밋된다. Tk가 실패하면 T(k-1)부터 T1까지 각각에 대응하는 보상 트랜잭션 C(k-1), …, C1을 실행한다. 보상은 롤백이 아니라 별도의 비즈니스 연산이다. 결제 승인의 보상은 환불이고, 재고 차감의 보상은 재고 복원이다. 이미 커밋된 결과를 취소하는 새 커밋이므로, <mark>보상 트랜잭션은 실패해서는 안 되며 실패하면 성공할 때까지 재시도할 수 있도록 멱등하게 설계해야 한다</mark>.</p>
+<p>사가의 각 단계는 성격에 따라 세 종류로 나뉜다. 보상 가능 트랜잭션은 뒤따르는 단계가 실패하면 되돌릴 수 있는 단계다. 피벗 트랜잭션은 성공하면 사가가 끝까지 완료되는 것이 보장되는 분기점이며, 보통 결제 승인처럼 되돌리기 어렵거나 비용이 큰 단계를 여기에 둔다. 재시도 가능 트랜잭션은 피벗 이후에 오는 단계로, 실패해도 보상하지 않고 성공할 때까지 재시도한다. 이 구분을 정하면 어떤 단계에 보상 로직을 써야 하는지가 결정된다.</p>
+<p>흐름을 누가 관리하느냐에 따라 두 방식으로 갈린다.</p>
+<p>코레오그래피는 중앙 관리자 없이 각 서비스가 이벤트를 발행하고 구독하며 다음 단계를 스스로 수행한다. 주문 서비스가 OrderCreated를 발행하면 결제 서비스가 이를 받아 결제하고 PaymentCompleted를 발행하며, 배송 서비스가 다시 이를 받아 배송을 등록한다. 실패도 이벤트로 전파된다. PaymentFailed를 주문 서비스가 받아 주문을 취소하는 식이다. 사가 전체의 정의가 어디에도 존재하지 않고 각 서비스의 리스너에 흩어져 있다.</p>
+<p>오케스트레이션은 사가 오케스트레이터가 상태를 갖고 각 참여자에게 명령을 보낸다. 오케스트레이터는 결제 서비스에 결제 명령을 보내고 응답을 받은 뒤 배송 서비스에 배송 명령을 보낸다. 어느 단계가 실패하면 오케스트레이터가 어떤 보상을 어떤 순서로 보낼지 결정한다. 참여자는 명령을 처리하고 결과를 회신할 뿐 다른 참여자를 모른다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>코레오그래피</th>
+<th>오케스트레이션</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>흐름 정의 위치</td>
+<td>각 서비스의 이벤트 핸들러에 분산</td>
+<td>오케스트레이터 한 곳</td>
+</tr>
+<tr>
+<td>통신</td>
+<td>이벤트 발행·구독</td>
+<td>명령 전송과 응답</td>
+</tr>
+<tr>
+<td>참여자 간 결합</td>
+<td>이벤트 스키마를 통해 간접 결합</td>
+<td>참여자는 오케스트레이터만 안다</td>
+</tr>
+<tr>
+<td>현재 상태 파악</td>
+<td>각 서비스 로그를 모아야 한다</td>
+<td>오케스트레이터 상태 테이블 조회</td>
+</tr>
+<tr>
+<td>순환 의존 위험</td>
+<td>있음</td>
+<td>낮음</td>
+</tr>
+<tr>
+<td>적합한 규모</td>
+<td>단계 2~4개의 단순한 흐름</td>
+<td>단계가 많고 분기가 복잡한 흐름</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>코레오그래피 방식의 결제 서비스 리스너다. 주문 생성 이벤트를 받아 결제하고, 결과에 따라 완료 또는 실패 이벤트를 발행한다. 이벤트 발행은 트랜잭셔널 아웃박스를 통한다고 가정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentSagaListener</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentService paymentService;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OutboxPublisher outbox;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PaymentSagaListener</span><span class="hljs-params">(PaymentService paymentService, OutboxPublisher outbox)</span> {
+        <span class="hljs-built_in">this</span>.paymentService = paymentService;
+        <span class="hljs-built_in">this</span>.outbox = outbox;
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;order.created&quot;, groupId = &quot;payment&quot;)</span>
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">on</span><span class="hljs-params">(OrderCreated event)</span> {
+        <span class="hljs-keyword">if</span> (paymentService.alreadyProcessed(event.orderId())) {
+            <span class="hljs-keyword">return</span>;
+        }
+        <span class="hljs-keyword">try</span> {
+            paymentService.approve(event.orderId(), event.amount());
+            outbox.publish(<span class="hljs-string">&quot;payment.completed&quot;</span>, <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentCompleted</span>(event.orderId()));
+        } <span class="hljs-keyword">catch</span> (PaymentDeclinedException e) {
+            outbox.publish(<span class="hljs-string">&quot;payment.failed&quot;</span>, <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentFailed</span>(event.orderId(), e.reason()));
+        }
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;shipping.failed&quot;, groupId = &quot;payment&quot;)</span>
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">compensate</span><span class="hljs-params">(ShippingFailed event)</span> {
+        paymentService.refund(event.orderId());
+        outbox.publish(<span class="hljs-string">&quot;payment.refunded&quot;</span>, <span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentRefunded</span>(event.orderId()));
+    }
+}</code></pre>
+<p>오케스트레이션 방식의 오케스트레이터다. 사가 상태를 엔티티로 영속화하고, 각 단계의 응답 메시지를 받을 때마다 다음 단계로 진행하거나 보상을 시작한다. 단계 전이는 상태 테이블에 기록하므로 인스턴스가 재기동해도 이어서 진행할 수 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderSaga</span> {
+    <span class="hljs-meta">@Id</span>
+    <span class="hljs-keyword">private</span> UUID sagaId;
+    <span class="hljs-keyword">private</span> Long orderId;
+    <span class="hljs-meta">@Enumerated(EnumType.STRING)</span>
+    <span class="hljs-keyword">private</span> SagaStep step;          <span class="hljs-comment">// PAYMENT, SHIPPING, COMPLETED, COMPENSATING, FAILED</span>
+    <span class="hljs-meta">@Version</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> version;
+    <span class="hljs-comment">// getters, transition methods 생략</span>
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderSagaOrchestrator</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderSagaRepository sagas;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, Object&gt; kafka;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderSagaOrchestrator</span><span class="hljs-params">(OrderSagaRepository sagas, KafkaTemplate&lt;String, Object&gt; kafka)</span> {
+        <span class="hljs-built_in">this</span>.sagas = sagas;
+        <span class="hljs-built_in">this</span>.kafka = kafka;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">UUID</span> <span class="hljs-title function_">start</span><span class="hljs-params">(Long orderId, <span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-type">OrderSaga</span> <span class="hljs-variable">saga</span> <span class="hljs-operator">=</span> OrderSaga.begin(orderId);
+        sagas.save(saga);
+        kafka.send(<span class="hljs-string">&quot;payment.command&quot;</span>, saga.getSagaId().toString(),
+                <span class="hljs-keyword">new</span> <span class="hljs-title class_">ApprovePayment</span>(saga.getSagaId(), orderId, amount));
+        <span class="hljs-keyword">return</span> saga.getSagaId();
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;payment.reply&quot;, groupId = &quot;order-saga&quot;)</span>
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onPaymentReply</span><span class="hljs-params">(PaymentReply reply)</span> {
+        <span class="hljs-type">OrderSaga</span> <span class="hljs-variable">saga</span> <span class="hljs-operator">=</span> sagas.findById(reply.sagaId()).orElseThrow();
+        <span class="hljs-keyword">if</span> (saga.getStep() != SagaStep.PAYMENT) {
+            <span class="hljs-keyword">return</span>; <span class="hljs-comment">// 중복 또는 지연 도착한 응답</span>
+        }
+        <span class="hljs-keyword">if</span> (reply.success()) {
+            saga.moveTo(SagaStep.SHIPPING);
+            kafka.send(<span class="hljs-string">&quot;shipping.command&quot;</span>, saga.getSagaId().toString(),
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">CreateShipment</span>(saga.getSagaId(), saga.getOrderId()));
+        } <span class="hljs-keyword">else</span> {
+            saga.moveTo(SagaStep.FAILED);
+            kafka.send(<span class="hljs-string">&quot;order.command&quot;</span>, saga.getSagaId().toString(),
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">RejectOrder</span>(saga.getOrderId(), reply.reason()));
+        }
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;shipping.reply&quot;, groupId = &quot;order-saga&quot;)</span>
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">onShippingReply</span><span class="hljs-params">(ShippingReply reply)</span> {
+        <span class="hljs-type">OrderSaga</span> <span class="hljs-variable">saga</span> <span class="hljs-operator">=</span> sagas.findById(reply.sagaId()).orElseThrow();
+        <span class="hljs-keyword">if</span> (saga.getStep() != SagaStep.SHIPPING) {
+            <span class="hljs-keyword">return</span>;
+        }
+        <span class="hljs-keyword">if</span> (reply.success()) {
+            saga.moveTo(SagaStep.COMPLETED);
+            kafka.send(<span class="hljs-string">&quot;order.command&quot;</span>, saga.getSagaId().toString(),
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConfirmOrder</span>(saga.getOrderId()));
+        } <span class="hljs-keyword">else</span> {
+            saga.moveTo(SagaStep.COMPENSATING);
+            kafka.send(<span class="hljs-string">&quot;payment.command&quot;</span>, saga.getSagaId().toString(),
+                    <span class="hljs-keyword">new</span> <span class="hljs-title class_">RefundPayment</span>(saga.getSagaId(), saga.getOrderId()));
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>격리성 부재. 사가는 ACID 중 I를 제공하지 않는다. 결제가 끝나고 배송 등록을 기다리는 사이에 다른 요청이 그 주문을 읽으면 아직 확정되지 않은 중간 상태를 본다. <mark>사가가 진행 중인 데이터에는 PENDING 같은 시맨틱 락 상태를 두고, 그 상태에서는 갱신·취소 요청을 거부하거나 지연시켜야 한다</mark>. 그렇지 않으면 보상 중인 주문을 사용자가 동시에 변경하는 이상 갱신이 발생한다.</li>
+<li>중복 전달. 브로커는 최소 한 번 전달을 보장하므로 같은 이벤트나 명령이 두 번 도착한다. 참여자와 오케스트레이터 모두 사가 ID 또는 주문 ID로 처리 여부를 확인하는 멱등 처리가 필요하다. 오케스트레이터가 현재 단계와 맞지 않는 응답을 무시하는 것도 같은 이유다.</li>
+<li>보상 불가능한 단계. 이메일 발송이나 외부 결제망 정산처럼 되돌릴 수 없는 작업은 피벗 이후로 미루거나 사가의 마지막에 둔다. 앞쪽에 두면 이후 단계가 실패했을 때 되돌릴 수 없는 부수 효과가 남는다.</li>
+<li>코레오그래피의 순환 의존. 서비스가 늘어나면 A가 발행한 이벤트를 C가 받고 C의 이벤트를 다시 A가 받는 경로가 생긴다. 흐름이 어디에도 문서화돼 있지 않아 새 참여자가 이벤트를 구독하는 것만으로 사가의 의미가 바뀔 수 있다. 단계가 다섯을 넘거나 분기 조건이 생기면 오케스트레이션으로 옮기는 편이 유지보수 비용이 낮다.</li>
+<li>오케스트레이터의 가용성과 타임아웃. 오케스트레이터는 단일 장애점이 되기 쉬우므로 상태를 데이터베이스에 두고 여러 인스턴스로 실행한다. 참여자의 응답이 오지 않는 경우를 위해 단계별 타임아웃과 이를 감시하는 스케줄러가 없으면 사가가 영원히 진행 중 상태로 남는다. 단계가 많고 재시도·타임아웃 정책이 복잡하면 Temporal이나 Camunda 같은 워크플로 엔진이 직접 구현보다 안정적이다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/transactional-outbox/">트랜잭셔널 아웃박스 — 이중 쓰기 문제 해결</a></li>
+<li><a href="/notes/architecture-patterns/messaging/">메시징 — Point-to-Point와 Pub/Sub, 소비 모델</a></li>
+<li><a href="/notes/architecture-patterns/retry/">재시도 — 지수 백오프와 지터</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Saga, Choreography, Orchestration, Compensating Transaction, Kafka</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/transactional-outbox/"><small>이전</small>트랜잭셔널 아웃박스 — 이중 쓰기 문제 해결</a>
+  <a class="next" href="/notes/architecture-patterns/circuit-breaker/"><small>다음</small>서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

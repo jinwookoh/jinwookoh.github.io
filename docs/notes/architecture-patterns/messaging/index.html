@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>메시징 — Point-to-Point와 Pub/Sub, 소비 모델 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="메시지 하나를 소비자 하나가 가져갈지 구독자 전원이 받을지가 큐와 토픽을 가르고, 컨슈머 그룹이 둘을 한 구조에 담는다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="메시징 — Point-to-Point와 Pub/Sub, 소비 모델 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="메시지 하나를 소비자 하나가 가져갈지 구독자 전원이 받을지가 큐와 토픽을 가르고, 컨슈머 그룹이 둘을 한 구조에 담는다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/messaging/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>메시징 — Point-to-Point와 Pub/Sub, 소비 모델</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 서비스 통신</p>
+  <h1>메시징 — Point-to-Point와 Pub/Sub, 소비 모델</h1>
+  <p class="summary">메시지 하나를 소비자 하나가 가져갈지 구독자 전원이 받을지가 큐와 토픽을 가르고, 컨슈머 그룹이 둘을 한 구조에 담는다</p>
+  <div class="content">
+<p>회원 가입 처리 하나에 환영 메일 발송, 쿠폰 지급, 통계 적재를 동기 호출로 이어 붙이면 가입 API의 응답 시간은 후속 작업 전체의 합이 되고, 메일 서버 장애가 가입 실패로 번진다. 후속 작업을 하나 추가할 때마다 가입 코드를 고쳐야 하며, 순간 트래픽이 몰리면 처리 능력이 가장 낮은 하위 시스템이 전체 처리량을 끌어내린다. 메시징은 생산자와 소비자 사이에 브로커를 두어 시간·부하·장애를 분리한다. 다만 브로커를 도입하는 것만으로 설계가 끝나지는 않는다. 메시지 하나를 소비자 하나만 가져갈지, 구독자 전원이 받을지를 정하는 소비 모델이 시스템의 동작을 결정한다.</p>
+<h2>핵심 개념</h2>
+<h3>Point-to-Point (큐)</h3>
+<p>생산자가 큐에 메시지를 넣으면 여러 소비자 중 하나만 그 메시지를 가져가 처리하고, 처리 확인(ack)이 오면 큐에서 제거된다. 소비자들은 같은 큐를 두고 경쟁하므로 경쟁적 소비자(Competing Consumers) 모델이라고 부른다. 소비자를 늘리면 처리량이 늘어나는 수평 확장이 가능하고, 이미지 리사이징이나 동영상 인코딩 같은 무거운 작업을 워커 풀에 분배하는 용도에 맞는다. RabbitMQ의 큐, AWS SQS, ActiveMQ 큐가 이 모델이다.</p>
+<p>한계는 기능 확장에서 드러난다. 같은 메시지로 새로운 후속 처리를 붙이려고 소비자를 하나 더 연결하면, 새 소비자는 기존 워커의 일감을 나눠 가질 뿐 두 처리가 모두 실행되지는 않는다. <mark>큐 하나에 목적이 다른 소비자를 붙이면 메시지가 둘 중 한쪽에만 전달되어 요청의 일부가 오류 없이 누락된다.</mark></p>
+<h3>Publish-Subscribe (토픽)</h3>
+<p>생산자가 토픽에 메시지를 발행하면 그 토픽을 구독하는 모든 소비자가 같은 메시지의 사본을 받는다. 생산자는 구독자가 몇이고 누구인지 알지 못하며, 통계 기능이 필요하면 기존 코드를 손대지 않고 구독자를 하나 더 붙이면 된다. 이벤트 기반 아키텍처의 기본 전달 방식이고, Kafka 토픽, AWS SNS, Redis Pub/Sub가 대표적이다.</p>
+<p>Pub/Sub의 어려움은 부하 분산이다. 구독자마다 사본이 가는 구조에서 메일 서비스 인스턴스를 세 대로 늘리면 세 대가 모두 같은 메시지를 받아 메일이 세 통 나간다. 서비스 단위로는 브로드캐스트하되 서비스 내부의 인스턴스 사이에서는 큐처럼 나눠 처리하는 장치가 별도로 필요하다.</p>
+<h3>컨슈머 그룹 — 두 모델의 결합</h3>
+<p>Kafka는 토픽을 파티션으로 나누고 소비자를 컨슈머 그룹으로 묶어 두 모델을 한 구조에 담는다. 그룹이 다르면 각 그룹이 토픽의 모든 메시지를 받고(Pub/Sub), 같은 그룹 안에서는 파티션이 인스턴스에 하나씩 배정되어 메시지가 나뉜다(Point-to-Point). 메일 서비스와 쿠폰 서비스가 서로 다른 group.id로 구독하면 둘 다 가입 이벤트를 받고, 메일 서비스 인스턴스 세 대가 같은 group.id를 쓰면 파티션을 나눠 갖는다. RabbitMQ도 exchange를 fanout으로 두고 서비스마다 큐를 하나씩 바인딩하면 같은 형태가 된다. 차이는 메시지 수명이다. RabbitMQ는 큐마다 복사된 메시지를 소비 후 삭제하고, Kafka는 소비 여부와 무관하게 보존 기간 동안 로그를 유지하므로 그룹별 오프셋만 되돌리면 재처리가 가능하다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>Point-to-Point</th>
+<th>Pub/Sub</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>수신자</td>
+<td>소비자 하나</td>
+<td>구독자 전원</td>
+</tr>
+<tr>
+<td>소비자 추가 효과</td>
+<td>처리량 증가</td>
+<td>기능 추가</td>
+</tr>
+<tr>
+<td>메시지 수명</td>
+<td>소비 후 삭제</td>
+<td>구독자별 사본, Kafka는 보존 기간까지 유지</td>
+</tr>
+<tr>
+<td>용도</td>
+<td>작업 분배, 비동기 명령</td>
+<td>이벤트 전파, 알림, CDC</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>Spring Kafka 생산자. 사용자 ID를 키로 주어 같은 사용자의 이벤트가 같은 파티션에 순서대로 들어가게 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SignupEventPublisher</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> KafkaTemplate&lt;String, SignupEvent&gt; kafkaTemplate;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">SignupEventPublisher</span><span class="hljs-params">(KafkaTemplate&lt;String, SignupEvent&gt; kafkaTemplate)</span> {
+        <span class="hljs-built_in">this</span>.kafkaTemplate = kafkaTemplate;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">publish</span><span class="hljs-params">(SignupEvent event)</span> {
+        kafkaTemplate.send(<span class="hljs-string">&quot;user-signup&quot;</span>, String.valueOf(event.userId()), event);
+    }
+}</code></pre>
+<p>두 소비자. groupId가 다르므로 두 서비스가 모두 이벤트를 받고, 각 서비스를 여러 인스턴스로 띄우면 같은 groupId 안에서 파티션을 나눠 갖는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SignupEventConsumers</span> {
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;user-signup&quot;, groupId = &quot;mail-service&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">sendWelcomeMail</span><span class="hljs-params">(SignupEvent event)</span> {
+        <span class="hljs-comment">// 환영 메일 발송</span>
+    }
+
+    <span class="hljs-meta">@KafkaListener(topics = &quot;user-signup&quot;, groupId = &quot;coupon-service&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">issueCoupon</span><span class="hljs-params">(SignupEvent event)</span> {
+        <span class="hljs-comment">// 쿠폰 지급</span>
+    }
+}</code></pre>
+<p>RabbitMQ 작업 큐. prefetch를 1로 두어 워커가 처리 중인 메시지 외에는 미리 가져오지 않게 하고, 처리가 끝난 시점에 ack가 나가도록 수동 확인 모드를 쓴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ImageQueueConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Queue</span> <span class="hljs-title function_">imageQueue</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> QueueBuilder.durable(<span class="hljs-string">&quot;image-resize&quot;</span>).build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">SimpleRabbitListenerContainerFactory</span> <span class="hljs-title function_">imageListenerFactory</span><span class="hljs-params">(ConnectionFactory cf)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">factory</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">SimpleRabbitListenerContainerFactory</span>();
+        factory.setConnectionFactory(cf);
+        factory.setPrefetchCount(<span class="hljs-number">1</span>);
+        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        <span class="hljs-keyword">return</span> factory;
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ImageResizeWorker</span> {
+
+    <span class="hljs-meta">@RabbitListener(queues = &quot;image-resize&quot;, containerFactory = &quot;imageListenerFactory&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">resize</span><span class="hljs-params">(String imageKey, Channel channel,
+                       <span class="hljs-meta">@Header(AmqpHeaders.DELIVERY_TAG)</span> <span class="hljs-type">long</span> tag)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-comment">// 리사이징 수행</span>
+            channel.basicAck(tag, <span class="hljs-literal">false</span>);
+        } <span class="hljs-keyword">catch</span> (Exception e) {
+            channel.basicNack(tag, <span class="hljs-literal">false</span>, <span class="hljs-literal">false</span>);
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>중복 소비</strong>: 브로커는 대부분 at-least-once를 보장한다. 소비자가 처리는 마쳤지만 ack 전에 죽으면 같은 메시지가 다시 전달된다. <mark>소비자는 같은 메시지를 두 번 받아도 결과가 같도록 멱등하게 만들어야 하며, 쿠폰 지급처럼 되돌리기 어려운 작업은 이벤트 ID로 처리 여부를 먼저 조회한다.</mark></li>
+<li><strong>파티션 수와 병렬도</strong>: Kafka에서 한 파티션은 그룹 내 소비자 하나만 읽는다. <mark>컨슈머 인스턴스를 파티션 수보다 많이 띄우면 초과분은 아무 메시지도 받지 못한 채 유휴 상태로 남는다.</mark> 파티션 수는 늘릴 수만 있고 줄일 수 없으며, 늘리는 순간 키 기반 배정이 바뀌어 같은 키의 순서 보장이 그 시점 전후로 끊긴다.</li>
+<li><strong>독 메시지와 DLQ</strong>: 역직렬화 실패나 항상 예외를 던지는 메시지를 재시도만 반복하면 그 파티션 또는 큐 전체가 멈춘다. 재시도 횟수를 정하고 초과분은 DLQ로 보내 격리한 뒤 별도로 처리한다.</li>
+<li><strong>Redis Pub/Sub의 유실</strong>: Redis Pub/Sub는 메시지를 저장하지 않으므로 발행 시점에 연결되어 있지 않은 구독자는 그 메시지를 받지 못한다. 유실이 허용되지 않으면 Redis Streams나 Kafka를 쓴다.</li>
+<li><strong>소비 지연 감시</strong>: 소비자가 느려도 생산자는 정상이므로 장애로 드러나지 않는다. 컨슈머 랙(마지막 오프셋과 커밋 오프셋의 차이)을 지표로 두고 임계값 알림을 건다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/event-sourcing/">이벤트 소싱 — 상태 대신 이벤트를 저장하기</a></li>
+<li><a href="/notes/architecture-patterns/transactional-outbox/">트랜잭셔널 아웃박스 — 이중 쓰기 문제 해결</a></li>
+<li><a href="/notes/architecture-patterns/async-request-reply/">비동기 요청-응답 — 오래 걸리는 작업과 폴링</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Messaging, Point-to-Point, Pub/Sub, Kafka, RabbitMQ</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/sidecar/"><small>이전</small>사이드카 — 횡단 관심사를 보조 프로세스로 분리</a>
+  <a class="next" href="/notes/architecture-patterns/async-request-reply/"><small>다음</small>비동기 요청-응답 — 오래 걸리는 작업과 폴링</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

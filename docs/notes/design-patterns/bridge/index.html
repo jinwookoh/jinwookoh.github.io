@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>브리지 — 추상과 구현을 분리해 클래스 폭발 막기 · 디자인 패턴</title>
+  <meta name="description" content="변화 축이 둘 이상일 때 상속 대신 합성으로 계층을 나눠 M×N 클래스 폭발을 M+N으로 줄인다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="브리지 — 추상과 구현을 분리해 클래스 폭발 막기 · 디자인 패턴">
+  <meta property="og:description" content="변화 축이 둘 이상일 때 상속 대신 합성으로 계층을 나눠 M×N 클래스 폭발을 M+N으로 줄인다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/bridge/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>브리지 — 추상과 구현을 분리해 클래스 폭발 막기</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 구조</p>
+  <h1>브리지 — 추상과 구현을 분리해 클래스 폭발 막기</h1>
+  <p class="summary">변화 축이 둘 이상일 때 상속 대신 합성으로 계층을 나눠 M×N 클래스 폭발을 M+N으로 줄인다</p>
+  <div class="content">
+<p>알림 기능에 &quot;메시지 종류&quot;와 &quot;전송 채널&quot;이라는 두 축이 있다고 하자. 종류가 일반·긴급 두 가지, 채널이 이메일·슬랙 두 가지일 때 상속만으로 조합하면 UrgentEmailNotification, UrgentSlackNotification처럼 클래스 4개가 생긴다. 여기에 종류 하나, 채널 하나를 더하면 9개, 일반화하면 M종류 × N채널 개수로 늘어난다. 이런 클래스 폭발은 개수 자체보다 변경 비용이 문제다. 채널의 인증 방식이 바뀌면 그 채널을 쓰는 모든 종류의 클래스를 손봐야 하고, 전송 로직이 여러 클래스에 복사돼 있으므로 한 곳만 고치고 나머지에 버그가 남는 일이 생긴다. 브리지 패턴은 이 두 축을 별개의 계층으로 분리하고 합성으로 연결해, 클래스 수를 M + N으로 줄이고 각 축을 독립적으로 확장하게 한다.</p>
+<h2>핵심 개념</h2>
+<p>브리지는 네 가지 역할로 구성된다.</p>
+<ul>
+<li>Abstraction: 기능 계층의 최상위. 클라이언트가 호출하는 고수준 API를 정의하고, 내부에 Implementor 참조를 필드로 가진다. 이 필드가 두 계층을 잇는 다리다.</li>
+<li>Refined Abstraction: Abstraction을 확장해 기능을 변형한 클래스.</li>
+<li>Implementor: 구현 계층의 인터페이스. 저수준 원시 연산을 정의하며, Abstraction의 API와 형태가 같을 필요는 없다.</li>
+<li>Concrete Implementor: Implementor의 실제 구현.</li>
+</ul>
+<p>핵심은 Abstraction이 Implementor를 상속하지 않고 소유한다는 점이다. 상속은 컴파일 시점에 부모와 자식을 고정하지만, 합성은 생성자나 세터로 구현체를 런타임에 바꿔 끼울 수 있다. 상속 계층이 하나만 있을 때는 그 계층에 &quot;무엇을 하는가&quot;와 &quot;어떻게 하는가&quot;가 섞여 있다. 브리지는 이 둘을 각각의 계층으로 나눈 뒤, 기능 쪽 클래스가 구현 쪽 인터페이스에만 의존하게 만든다.</p>
+<p>어댑터와 자주 혼동된다. 둘 다 인터페이스 사이를 잇지만 목적과 적용 시점이 다르다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>어댑터</th>
+<th>브리지</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>목적</td>
+<td>이미 있는 클래스를 기존 인터페이스에 맞춘다</td>
+<td>추상과 구현을 처음부터 독립적으로 변경하게 한다</td>
+</tr>
+<tr>
+<td>적용 시점</td>
+<td>코드가 만들어진 뒤</td>
+<td>설계 단계</td>
+</tr>
+<tr>
+<td>감싸는 대상</td>
+<td>호환되지 않는 하나의 클래스</td>
+<td>교체 가능한 구현 계층 전체</td>
+</tr>
+</tbody></table>
+<p>JDBC가 대표적인 사례다. <code>java.sql.Connection</code>, <code>Statement</code> 같은 표준 인터페이스가 기능 계층이고, MySQL·PostgreSQL 벤더가 제공하는 <code>Driver</code> 구현체가 구현 계층이다. 애플리케이션 코드는 표준 인터페이스만 호출하고, 어떤 드라이버가 연결되는지는 <code>DriverManager</code>나 <code>DataSource</code> 설정이 결정한다. DB를 바꿔도 SQL 호출 코드는 그대로다.</p>
+<h2>코드</h2>
+<p>구현 계층. 전송 채널 인터페이스와 두 구현체다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">MessageSender</span> {
+    <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String to, String title, String body)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">EmailSender</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">MessageSender</span> {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String to, String title, String body)</span> {
+        System.out.printf(<span class="hljs-string">&quot;[email] to=%s title=%s%n&quot;</span>, to, title);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SlackSender</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">MessageSender</span> {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">send</span><span class="hljs-params">(String to, String title, String body)</span> {
+        System.out.printf(<span class="hljs-string">&quot;[slack] channel=%s text=%s%n&quot;</span>, to, title + <span class="hljs-string">&quot;\n&quot;</span> + body);
+    }
+}</code></pre>
+<p>기능 계층. <code>Notification</code>이 <code>MessageSender</code>를 필드로 소유하고, 하위 클래스는 채널을 모른 채 메시지 조립 방식만 바꾼다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Notification</span> {
+    <span class="hljs-keyword">protected</span> <span class="hljs-keyword">final</span> MessageSender sender;
+
+    <span class="hljs-type">protected</span> <span class="hljs-title function_">Notification</span><span class="hljs-params">(MessageSender sender)</span> {
+        <span class="hljs-built_in">this</span>.sender = sender;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-type">void</span> <span class="hljs-title function_">notify</span><span class="hljs-params">(String to, String content)</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PlainNotification</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Notification</span> {
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PlainNotification</span><span class="hljs-params">(MessageSender sender)</span> { <span class="hljs-built_in">super</span>(sender); }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">notify</span><span class="hljs-params">(String to, String content)</span> {
+        sender.send(to, <span class="hljs-string">&quot;알림&quot;</span>, content);
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">UrgentNotification</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Notification</span> {
+    <span class="hljs-type">public</span> <span class="hljs-title function_">UrgentNotification</span><span class="hljs-params">(MessageSender sender)</span> { <span class="hljs-built_in">super</span>(sender); }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">notify</span><span class="hljs-params">(String to, String content)</span> {
+        sender.send(to, <span class="hljs-string">&quot;[긴급] 즉시 확인 필요&quot;</span>, content);
+        sender.send(to, <span class="hljs-string">&quot;[긴급] 재전송&quot;</span>, content);
+    }
+}</code></pre>
+<p>사용. 종류와 채널을 조합해 객체를 만든다. 채널 추가는 <code>MessageSender</code> 구현 하나, 종류 추가는 <code>Notification</code> 하위 클래스 하나로 끝난다.</p>
+<pre><code class="hljs language-java"><span class="hljs-type">Notification</span> <span class="hljs-variable">n1</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">PlainNotification</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">EmailSender</span>());
+n1.notify(<span class="hljs-string">&quot;dev@example.com&quot;</span>, <span class="hljs-string">&quot;배포가 완료되었다.&quot;</span>);
+
+<span class="hljs-type">Notification</span> <span class="hljs-variable">n2</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UrgentNotification</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">SlackSender</span>());
+n2.notify(<span class="hljs-string">&quot;#ops&quot;</span>, <span class="hljs-string">&quot;결제 API 오류율 5% 초과&quot;</span>);</code></pre>
+<p>Spring Boot에서는 구현 계층을 빈으로 등록하고 기능 계층이 이를 주입받는다. 채널을 설정값으로 고르려면 <code>Map&lt;String, MessageSender&gt;</code>로 모든 구현체를 받아 빈 이름으로 선택한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">NotificationService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Map&lt;String, MessageSender&gt; senders;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">NotificationService</span><span class="hljs-params">(Map&lt;String, MessageSender&gt; senders)</span> {
+        <span class="hljs-built_in">this</span>.senders = senders; <span class="hljs-comment">// 빈 이름 -&gt; 구현체</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">sendUrgent</span><span class="hljs-params">(String channel, String to, String content)</span> {
+        <span class="hljs-type">MessageSender</span> <span class="hljs-variable">sender</span> <span class="hljs-operator">=</span> senders.get(channel);
+        <span class="hljs-keyword">if</span> (sender == <span class="hljs-literal">null</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;unknown channel: &quot;</span> + channel);
+        }
+        <span class="hljs-keyword">new</span> <span class="hljs-title class_">UrgentNotification</span>(sender).notify(to, content);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>변화 축이 하나뿐이면 브리지는 과설계다. 인터페이스와 클래스가 두 배로 늘어나므로, 두 번째 축이 실제로 독립적으로 늘어난다는 근거가 있을 때만 도입한다. 축이 하나면 전략 패턴이나 단순 인터페이스 주입으로 충분하다.</li>
+<li><mark>Implementor 인터페이스에 특정 구현체만 지원하는 메서드를 추가하기 시작하면 브리지는 무너진다.</mark> 슬랙 전용 <code>addReaction</code>을 <code>MessageSender</code>에 넣으면 이메일 구현체는 빈 메서드나 예외를 던져야 하고, 기능 계층이 구현체 종류를 분기하게 된다. 구현별 차이는 Implementor 안에서 흡수하거나 별도 인터페이스로 분리한다.</li>
+<li>Implementor를 세터로 바꿔 끼우게 만들면 스레드 안전성 문제가 생긴다. <mark>싱글톤 빈인 Abstraction의 구현체 필드를 요청마다 세터로 교체하면 동시 요청이 서로의 구현체를 덮어쓴다.</mark> 구현체는 생성자로 고정하거나, 요청별로 Abstraction 인스턴스를 새로 만든다.</li>
+<li>구현체가 외부 시스템(SMTP, HTTP API)을 감싸는 경우 실패 처리 정책을 어느 계층에 둘지 정해야 한다. 재시도·타임아웃을 Implementor 안에 넣으면 모든 기능 계층이 같은 정책을 강제받고, 기능 계층에 두면 구현체마다 실패 유형이 달라 처리가 어긋난다. 보통 전송 수준 재시도는 Implementor에, 업무 수준의 대체 채널 선택은 Abstraction에 둔다.</li>
+<li>브리지가 API를 통일해도 구현체 간 동작 차이는 남는다. <mark>같은 <code>Connection</code> 인터페이스라도 드라이버마다 fetch size 기본값과 커서 처리 방식이 달라, 대량 조회 시 한쪽은 스트리밍하고 다른 쪽은 전체 결과를 메모리에 올린다.</mark> 추상 인터페이스만 믿고 구현체를 테스트 없이 바꾸면 성능이나 결과가 달라질 수 있다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/adapter/">어댑터 — 맞지 않는 인터페이스를 감싸서 연결</a></li>
+<li><a href="/notes/design-patterns/strategy/">전략 — if-else 분기를 교체 가능한 알고리즘으로</a></li>
+<li><a href="/notes/design-patterns/dependency-injection/">의존성 주입 — 필드·생성자·세터 주입의 차이</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Bridge, 합성, 클래스 폭발, JDBC, Spring</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/adapter/"><small>이전</small>어댑터 — 맞지 않는 인터페이스를 감싸서 연결</a>
+  <a class="next" href="/notes/design-patterns/composite/"><small>다음</small>컴포지트 — 개별 객체와 트리를 같은 인터페이스로</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

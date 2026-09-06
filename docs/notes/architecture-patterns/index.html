@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>백엔드 아키텍처 패턴 · Notes</title>
+  <meta name="description" content="데이터·서비스 통신·복원력·API 운영 25개 패턴 — 락·캐싱·CQRS·사가·서킷 브레이커·멀티테넌시·스트랭글러까지.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="백엔드 아키텍처 패턴 · Notes">
+  <meta property="og:description" content="데이터·서비스 통신·복원력·API 운영 25개 패턴 — 락·캐싱·CQRS·사가·서킷 브레이커·멀티테넌시·스트랭글러까지.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>백엔드 아키텍처 패턴</span></nav>
+    <header class="series-head"><h1>백엔드 아키텍처 패턴</h1><p>데이터·서비스 통신·복원력·API 운영 25개 패턴 — 락·캐싱·CQRS·사가·서킷 브레이커·멀티테넌시·스트랭글러까지.</p><p class="count">25편</p></header>
+<section class="part-group"><h2>데이터</h2><ol class="toc"><li><a href="/notes/architecture-patterns/optimistic-pessimistic-lock/"><span class="n">1</span><span class="t">동시성 제어 — 비관적 락과 낙관적 락</span><span class="s">같은 행을 동시에 갱신할 때 갱신 손실을 막는 두 방식과 충돌 빈도에 따른 선택 기준</span></a></li>
+<li><a href="/notes/architecture-patterns/pagination/"><span class="n">2</span><span class="t">페이지네이션 — 오프셋과 커서</span><span class="s">오프셋은 건너뛴 행을 모두 읽어 뒤로 갈수록 느려지고, 커서는 인덱스 범위 조건으로 페이지 위치와 무관하게 일정한 비용을 낸다.</span></a></li>
+<li><a href="/notes/architecture-patterns/orm-active-record-repository/"><span class="n">3</span><span class="t">ORM — Active Record와 Repository</span><span class="s">Active Record는 객체가 저장을 책임지고, Data Mapper·Repository는 도메인 객체를 DB에서 떼어 낸다. JPA는 후자다.</span></a></li>
+<li><a href="/notes/architecture-patterns/caching/"><span class="n">4</span><span class="t">캐싱 — Look-aside·Write-through·Write-behind</span><span class="s">읽기 부하는 Look-aside로 DB 앞에서 걸러내고, 쓰기 폭주는 유실을 감수할 수 있는 데이터에 한해 Write-behind로 모아서 반영한다.</span></a></li>
+<li><a href="/notes/architecture-patterns/sharding/"><span class="n">5</span><span class="t">샤딩 — 수평 분할과 샤드 키 선택</span><span class="s">샤드 키는 조회 패턴과 값 분포로 고르고, 해시 샤딩은 가상 버킷을 두어 노드 추가 시 재배치 범위를 줄인다.</span></a></li>
+<li><a href="/notes/architecture-patterns/cqrs/"><span class="n">6</span><span class="t">CQRS — 명령과 조회 모델 분리</span><span class="s">쓰기 모델과 읽기 모델을 코드 수준에서 먼저 나누고, 조회 부하가 한계에 닿을 때만 저장소까지 분리한다</span></a></li>
+<li><a href="/notes/architecture-patterns/event-sourcing/"><span class="n">7</span><span class="t">이벤트 소싱 — 상태 대신 이벤트를 저장하기</span><span class="s">변경 이력을 이벤트로 append-only 저장하고 재생으로 상태를 복원하는 방식과, 스냅샷·업캐스팅·조회 모델 같은 운영 비용을 정리한다.</span></a></li></ol></section>
+<section class="part-group"><h2>서비스 통신</h2><ol class="toc"><li><a href="/notes/architecture-patterns/api-gateway/"><span class="n">8</span><span class="t">API 게이트웨이 — 단일 진입점과 BFF</span><span class="s">클라이언트가 서비스를 직접 호출하지 않도록 진입점을 하나로 모으고, 클라이언트 유형이 갈리면 BFF로 나눈다</span></a></li>
+<li><a href="/notes/architecture-patterns/service-discovery/"><span class="n">9</span><span class="t">서비스 디스커버리 — 클라이언트 사이드와 서버 사이드</span><span class="s">동적으로 바뀌는 인스턴스 주소를 레지스트리로 관리하고, 그 레지스트리를 클라이언트가 볼지 인프라가 볼지 결정한다</span></a></li>
+<li><a href="/notes/architecture-patterns/sidecar/"><span class="n">10</span><span class="t">사이드카 — 횡단 관심사를 보조 프로세스로 분리</span><span class="s">인증·로깅·트레이싱을 앱 프로세스 밖의 보조 컨테이너로 옮기면 언어와 무관하게 한 번에 바꿀 수 있다</span></a></li>
+<li><a href="/notes/architecture-patterns/messaging/"><span class="n">11</span><span class="t">메시징 — Point-to-Point와 Pub/Sub, 소비 모델</span><span class="s">메시지 하나를 소비자 하나가 가져갈지 구독자 전원이 받을지가 큐와 토픽을 가르고, 컨슈머 그룹이 둘을 한 구조에 담는다</span></a></li>
+<li><a href="/notes/architecture-patterns/async-request-reply/"><span class="n">12</span><span class="t">비동기 요청-응답 — 오래 걸리는 작업과 폴링</span><span class="s">긴 작업은 202로 접수하고 상태 리소스를 따로 두며, 완료 통지는 클라이언트 위치에 따라 폴링과 웹훅 중 고른다</span></a></li>
+<li><a href="/notes/architecture-patterns/transactional-outbox/"><span class="n">13</span><span class="t">트랜잭셔널 아웃박스 — 이중 쓰기 문제 해결</span><span class="s">DB 커밋과 메시지 발행을 한 트랜잭션에 넣을 수 없을 때, 이벤트를 같은 DB에 먼저 기록하고 뒤에서 꺼내 보낸다.</span></a></li>
+<li><a href="/notes/architecture-patterns/saga/"><span class="n">14</span><span class="t">사가 — 코레오그래피와 오케스트레이션</span><span class="s">여러 서비스에 걸친 트랜잭션을 로컬 트랜잭션과 보상 트랜잭션의 연쇄로 나누고, 그 흐름을 이벤트로 이을지 중앙 관리자가 지휘할지 정한다.</span></a></li></ol></section>
+<section class="part-group"><h2>복원력</h2><ol class="toc"><li><a href="/notes/architecture-patterns/circuit-breaker/"><span class="n">15</span><span class="t">서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</span><span class="s">실패율이 임계값을 넘은 의존 서비스로의 호출을 차단해 즉시 실패시키고, 호출 측의 스레드를 지켜 연쇄 장애를 막는다</span></a></li>
+<li><a href="/notes/architecture-patterns/retry/"><span class="n">16</span><span class="t">재시도 — 지수 백오프와 지터</span><span class="s">재시도는 일시적 오류에만, 멱등한 호출에만, 지수 백오프에 지터를 더해 한 계층에서만 해야 서버를 살린다.</span></a></li>
+<li><a href="/notes/architecture-patterns/bulkhead/"><span class="n">17</span><span class="t">벌크헤드 — 스레드 풀·세마포어로 자원 격리</span><span class="s">느린 의존성 하나가 서버 전체 스레드를 잠식하지 않도록 동시 실행 수와 스레드 풀을 기능별로 나누는 방법</span></a></li>
+<li><a href="/notes/architecture-patterns/rate-limiter/"><span class="n">18</span><span class="t">처리율 제한 — 고정 윈도·슬라이딩 윈도·토큰 버킷</span><span class="s">고정 윈도는 구간 경계에서 한도의 두 배를 통과시키므로 짧은 주기의 제한에는 슬라이딩 윈도나 토큰 버킷을 쓴다</span></a></li>
+<li><a href="/notes/architecture-patterns/health-check/"><span class="n">19</span><span class="t">헬스 체크 — Liveness와 Readiness</span><span class="s">재시작 판단과 트래픽 차단 판단은 답이 다르므로 헬스 체크를 두 개로 분리해야 한다</span></a></li>
+<li><a href="/notes/architecture-patterns/leader-election/"><span class="n">20</span><span class="t">리더 선출 — 인스턴스 하나만 작업하게 만들기</span><span class="s">여러 인스턴스 중 하나만 작업하게 하는 락 기반·합의 기반 선출을 비교하고 분할 뇌를 막는 방법을 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>API·운영</h2><ol class="toc"><li><a href="/notes/architecture-patterns/api-versioning/"><span class="n">21</span><span class="t">API 버저닝 — 버전 정보의 위치와 호환성</span><span class="s">버전은 깨지는 변경에만 올리고, 위치는 URI·헤더·미디어 타입 중 캐싱과 클라이언트 특성에 맞춰 고른다</span></a></li>
+<li><a href="/notes/architecture-patterns/session-vs-jwt/"><span class="n">22</span><span class="t">인증 상태 관리 — 세션과 JWT</span><span class="s">세션은 서버가 상태를 쥐어 즉시 회수하고, JWT는 서명 검증만으로 확장하되 회수 불가를 리프레시 토큰으로 보완한다</span></a></li>
+<li><a href="/notes/architecture-patterns/multi-tenancy/"><span class="n">23</span><span class="t">멀티테넌시 — 테넌트별 데이터 격리 전략</span><span class="s">하나의 애플리케이션이 여러 고객사를 서비스할 때 데이터를 어느 계층에서 어떤 강도로 격리할지 세 방식으로 비교한다</span></a></li>
+<li><a href="/notes/architecture-patterns/feature-toggle/"><span class="n">24</span><span class="t">피처 토글 — 배포와 릴리스 분리</span><span class="s">코드 배포와 기능 공개를 분리해 재배포 없이 기능을 켜고 끄고, 일부 사용자에게만 점진적으로 여는 방법</span></a></li>
+<li><a href="/notes/architecture-patterns/strangler-fig/"><span class="n">25</span><span class="t">스트랭글러 — 레거시를 점진적으로 교체하기</span><span class="s">레거시 앞에 프록시를 세우고 기능 단위로 라우팅을 옮기면 빅뱅 재작성 없이 시스템을 교체할 수 있다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

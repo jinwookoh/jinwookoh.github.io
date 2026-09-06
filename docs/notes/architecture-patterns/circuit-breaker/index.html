@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="실패율이 임계값을 넘은 의존 서비스로의 호출을 차단해 즉시 실패시키고, 호출 측의 스레드를 지켜 연쇄 장애를 막는다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="실패율이 임계값을 넘은 의존 서비스로의 호출을 차단해 즉시 실패시키고, 호출 측의 스레드를 지켜 연쇄 장애를 막는다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/circuit-breaker/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 복원력</p>
+  <h1>서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</h1>
+  <p class="summary">실패율이 임계값을 넘은 의존 서비스로의 호출을 차단해 즉시 실패시키고, 호출 측의 스레드를 지켜 연쇄 장애를 막는다</p>
+  <div class="content">
+<p>주문 서비스가 결제 서비스를 동기 호출하는 구조에서 결제 서비스가 응답을 멈추면, 주문 서비스의 요청 스레드는 타임아웃이 날 때까지 대기한다. 초당 수백 건의 요청이 들어오는 상황이라면 이 대기는 곧 스레드 풀 고갈로 이어지고, 결제와 무관한 조회 API까지 응답하지 못하게 된다. 장애가 호출 체인을 따라 상위로 번지는 이 현상을 연쇄 장애(cascading failure)라고 한다. 서킷 브레이커는 의존 서비스의 실패율이 임계값을 넘으면 호출 자체를 차단하고 즉시 실패(fail fast)시킨다. 호출 측은 자원을 지키고, 장애가 난 서비스는 회복할 시간을 얻는다.</p>
+<h2>핵심 개념</h2>
+<h3>세 가지 상태</h3>
+<ul>
+<li><strong>Closed</strong>: 정상 상태. 모든 호출을 통과시키고 결과(성공·실패·느린 호출)를 슬라이딩 윈도에 기록한다. 실패율 또는 느린 호출 비율이 임계값을 넘으면 Open으로 전이한다.</li>
+<li><strong>Open</strong>: 차단 상태. 원격 호출을 보내지 않고 <code>CallNotPermittedException</code>을 즉시 던진다. <code>waitDurationInOpenState</code>가 지나면 Half-Open으로 전이한다.</li>
+<li><strong>Half-Open</strong>: 회복 확인 상태. <code>permittedNumberOfCallsInHalfOpenState</code>만큼의 호출만 통과시키고 나머지는 거부한다. 통과시킨 호출의 실패율이 임계값 아래면 Closed로, 넘으면 다시 Open으로 돌아간다.</li>
+</ul>
+<h3>실패율을 계산하는 슬라이딩 윈도</h3>
+<p>Resilience4j는 두 종류의 윈도를 제공한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>COUNT_BASED</th>
+<th>TIME_BASED</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>집계 대상</td>
+<td>최근 N개의 호출</td>
+<td>최근 N초 동안의 호출</td>
+</tr>
+<tr>
+<td>자료 구조</td>
+<td>고정 크기 원형 배열</td>
+<td>1초 단위 버킷 N개</td>
+</tr>
+<tr>
+<td>트래픽이 적을 때</td>
+<td>N개가 채워지면 판단 가능</td>
+<td>윈도 안에 호출이 부족하면 판단 불가</td>
+</tr>
+<tr>
+<td>트래픽이 많을 때</td>
+<td>표본이 빠르게 교체됨</td>
+<td>현재 시점의 상태를 반영</td>
+</tr>
+</tbody></table>
+<p>호출 빈도가 낮은 배치나 내부 도구는 횟수 기반, 초당 수십 건 이상 들어오는 고객 API는 시간 기반이 맞는다. 어느 쪽이든 <code>minimumNumberOfCalls</code> 이상의 호출이 쌓이기 전에는 실패율을 계산하지 않으며, <mark><code>slidingWindowSize</code>와 <code>minimumNumberOfCalls</code>의 기본값은 모두 100이므로 설정 없이 쓰면 호출이 100건 쌓이기 전까지는 어떤 실패도 서킷을 열지 못한다</mark>.</p>
+<h3>무엇을 실패로 볼 것인가</h3>
+<p>기본 설정은 모든 예외를 실패로 기록한다. <code>ignoreExceptions</code>에 지정한 예외는 성공도 실패도 아닌 것으로 취급되고, <code>recordExceptions</code>를 지정하면 그 예외만 실패로 센다. 실패율과 별도로 <code>slowCallDurationThreshold</code>를 넘긴 호출은 느린 호출로 집계되며, 그 비율이 <code>slowCallRateThreshold</code>를 넘으면 실패율과 무관하게 서킷이 열린다.</p>
+<h2>코드</h2>
+<p>의존성은 <code>io.github.resilience4j:resilience4j-spring-boot3</code>와 <code>spring-boot-starter-aop</code>이다. 결제 서비스용 서킷을 시간 기반 윈도로 설정하고, 클라이언트 오류인 결제 거절은 실패에서 제외한다. HTTP 타임아웃은 Spring Boot 3.4부터 지원하는 <code>spring.http.client</code> 속성으로 <code>RestClient</code>에 적용한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">http:</span>
+    <span class="hljs-attr">client:</span>
+      <span class="hljs-attr">connect-timeout:</span> <span class="hljs-string">1s</span>
+      <span class="hljs-attr">read-timeout:</span> <span class="hljs-string">2s</span>
+
+<span class="hljs-attr">resilience4j:</span>
+  <span class="hljs-attr">circuitbreaker:</span>
+    <span class="hljs-attr">instances:</span>
+      <span class="hljs-attr">payment:</span>
+        <span class="hljs-attr">slidingWindowType:</span> <span class="hljs-string">TIME_BASED</span>
+        <span class="hljs-attr">slidingWindowSize:</span> <span class="hljs-number">10</span>
+        <span class="hljs-attr">minimumNumberOfCalls:</span> <span class="hljs-number">20</span>
+        <span class="hljs-attr">failureRateThreshold:</span> <span class="hljs-number">50</span>
+        <span class="hljs-attr">slowCallDurationThreshold:</span> <span class="hljs-string">1500ms</span>
+        <span class="hljs-attr">slowCallRateThreshold:</span> <span class="hljs-number">80</span>
+        <span class="hljs-attr">waitDurationInOpenState:</span> <span class="hljs-string">30s</span>
+        <span class="hljs-attr">permittedNumberOfCallsInHalfOpenState:</span> <span class="hljs-number">5</span>
+        <span class="hljs-attr">automaticTransitionFromOpenToHalfOpenEnabled:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">registerHealthIndicator:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">ignoreExceptions:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">com.example.order.payment.PaymentDeclinedException</span></code></pre>
+<p><code>@CircuitBreaker</code>를 붙인 메서드에서 예외가 나오면 같은 클래스의 <code>fallbackMethod</code>가 호출된다. 폴백은 원본 메서드와 같은 매개변수 뒤에 예외 타입 하나를 더 받으며, 예외 타입이 구체적인 오버로드가 우선 선택된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderPaymentService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(OrderPaymentService.class);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient paymentClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderPaymentService</span><span class="hljs-params">(RestClient.Builder builder)</span> {
+        <span class="hljs-built_in">this</span>.paymentClient = builder.baseUrl(<span class="hljs-string">&quot;http://payment-service&quot;</span>).build();
+    }
+
+    <span class="hljs-meta">@CircuitBreaker(name = &quot;payment&quot;, fallbackMethod = &quot;payFallback&quot;)</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(Order order)</span> {
+        <span class="hljs-keyword">return</span> paymentClient.post()
+                .uri(<span class="hljs-string">&quot;/payments&quot;</span>)
+                .body(<span class="hljs-keyword">new</span> <span class="hljs-title class_">PaymentRequest</span>(order.id(), order.amount()))
+                .retrieve()
+                .body(PaymentResult.class);
+    }
+
+    <span class="hljs-comment">// 서킷이 열려 호출 자체가 거부된 경우: 원격 호출 없이 즉시 응답한다</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">payFallback</span><span class="hljs-params">(Order order, CallNotPermittedException e)</span> {
+        log.warn(<span class="hljs-string">&quot;payment circuit open, order {} deferred&quot;</span>, order.id());
+        <span class="hljs-keyword">return</span> PaymentResult.deferred(order.id());
+    }
+
+    <span class="hljs-comment">// 타임아웃·5xx 등 실제 호출이 실패한 경우</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">payFallback</span><span class="hljs-params">(Order order, Exception e)</span> {
+        log.error(<span class="hljs-string">&quot;payment call failed, order {}&quot;</span>, order.id(), e);
+        <span class="hljs-keyword">return</span> PaymentResult.deferred(order.id());
+    }
+}</code></pre>
+<p>상태 전이는 운영에서 반드시 관찰해야 하는 이벤트이므로 레지스트리에 리스너를 등록해 로그와 알림으로 내보낸다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CircuitBreakerStateLogger</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Logger</span> <span class="hljs-variable">log</span> <span class="hljs-operator">=</span> LoggerFactory.getLogger(CircuitBreakerStateLogger.class);
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">CircuitBreakerStateLogger</span><span class="hljs-params">(CircuitBreakerRegistry registry)</span> {
+        registry.getAllCircuitBreakers().forEach(<span class="hljs-built_in">this</span>::subscribe);
+        registry.getEventPublisher().onEntryAdded(event -&gt; subscribe(event.getAddedEntry()));
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">subscribe</span><span class="hljs-params">(io.github.resilience4j.circuitbreaker.CircuitBreaker cb)</span> {
+        cb.getEventPublisher().onStateTransition(event -&gt;
+                log.warn(<span class="hljs-string">&quot;circuit [{}] {} -&gt; {}&quot;</span>,
+                        event.getCircuitBreakerName(),
+                        event.getStateTransition().getFromState(),
+                        event.getStateTransition().getToState()));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>타임아웃 없는 서킷 브레이커는 스레드를 지키지 못한다.</strong> 서킷 브레이커는 새 호출을 거부할 뿐 진행 중인 호출을 끊지 않는다. <mark>HTTP 클라이언트에 읽기 타임아웃이 없으면 응답이 멈춘 호출은 실패로도 느린 호출로도 기록되지 않은 채 스레드를 붙들고 있으므로 서킷이 열리지 않는다</mark>. 타임아웃을 먼저 두고 그 위에 서킷을 얹는다.</li>
+<li><strong>비즈니스 예외를 실패로 세면 멀쩡한 서비스가 차단된다.</strong> 잔액 부족·유효하지 않은 카드 같은 4xx 응답은 의존 서비스가 정상 동작한 결과다. 이를 <code>ignoreExceptions</code>로 빼지 않으면 특정 사용자군의 요청이 몰릴 때 서킷이 열려 모든 결제가 막힌다.</li>
+<li><strong>Open에서 Half-Open으로의 전이는 기본적으로 호출이 있어야 일어난다.</strong> <code>automaticTransitionFromOpenToHalfOpenEnabled</code>가 false(기본값)면 대기 시간이 지나도 다음 호출이 들어올 때 비로소 전이된다. 트래픽이 끊긴 서비스는 헬스 체크에 OPEN으로 계속 남아 장애가 지속 중이라고 오판하기 쉽다.</li>
+<li><strong>서킷 상태는 인스턴스별이다.</strong> 통계와 상태는 JVM 메모리에 있으므로 파드 10개 중 3개만 열려 있는 상황이 정상적으로 발생한다. Actuator의 <code>resilience4j.circuitbreaker.state</code> 메트릭을 인스턴스 태그와 함께 봐야 부분 차단을 읽을 수 있다.</li>
+<li><strong>같은 클래스 안에서의 호출에는 어노테이션이 적용되지 않는다.</strong> Spring AOP 프록시를 거치지 않는 자기 호출(self-invocation)은 서킷 통계에 잡히지 않는다. 또한 <code>@Retry</code>와 함께 쓰면 기본 어스펙트 순서상 Retry가 바깥에 위치해 재시도 한 번 한 번이 서킷에 별도 호출로 기록된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/retry/">재시도 — 지수 백오프와 지터</a></li>
+<li><a href="/notes/architecture-patterns/bulkhead/">벌크헤드 — 스레드 풀·세마포어로 자원 격리</a></li>
+<li><a href="/notes/architecture-patterns/health-check/">헬스 체크 — Liveness와 Readiness</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Circuit Breaker, Resilience4j, Spring Boot, Fallback, Sliding Window</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/saga/"><small>이전</small>사가 — 코레오그래피와 오케스트레이션</a>
+  <a class="next" href="/notes/architecture-patterns/retry/"><small>다음</small>재시도 — 지수 백오프와 지터</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

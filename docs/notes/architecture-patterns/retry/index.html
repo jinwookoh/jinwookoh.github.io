@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>재시도 — 지수 백오프와 지터 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="재시도는 일시적 오류에만, 멱등한 호출에만, 지수 백오프에 지터를 더해 한 계층에서만 해야 서버를 살린다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="재시도 — 지수 백오프와 지터 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="재시도는 일시적 오류에만, 멱등한 호출에만, 지수 백오프에 지터를 더해 한 계층에서만 해야 서버를 살린다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/retry/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>재시도 — 지수 백오프와 지터</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 복원력</p>
+  <h1>재시도 — 지수 백오프와 지터</h1>
+  <p class="summary">재시도는 일시적 오류에만, 멱등한 호출에만, 지수 백오프에 지터를 더해 한 계층에서만 해야 서버를 살린다.</p>
+  <div class="content">
+<p>분산 환경에서 원격 호출은 일정 비율로 실패한다. 커넥션이 끊기고, 로드 밸런서가 인스턴스를 교체하는 사이 503이 돌아오고, GC 정지로 응답이 타임아웃을 넘긴다. 이런 일시적 오류(transient fault)를 곧바로 사용자 오류로 올리면 몇 백 밀리초 뒤에는 성공했을 요청이 실패로 끝난다. 반대로 아무 규칙 없이 재시도하면 더 큰 문제가 생긴다. 과부하로 응답을 못 하던 서버에 실패한 요청 수천 개가 같은 간격으로 동시에 다시 몰려오고, 서버는 복구되기도 전에 다시 무너진다. 재시도 패턴은 어떤 오류를, 몇 번, 어떤 간격으로 다시 시도할지를 정해 이 두 실패 사이의 균형을 잡는다.</p>
+<h2>핵심 개념</h2>
+<p>재시도 대상은 일시적 오류로 한정한다. 연결 거부·타임아웃·503·429처럼 잠시 뒤 결과가 달라질 수 있는 실패만 해당하고, 400·401·404 같은 클라이언트 오류나 검증 실패는 몇 번을 반복해도 결과가 같으므로 즉시 실패로 처리한다.</p>
+<p>고정 백오프는 실패할 때마다 같은 시간을 기다린다. 구현이 단순하고 실패 확정이 빠르지만, 같은 시각에 실패한 클라이언트들이 같은 시각에 다시 요청하므로 부하가 주기적으로 되풀이된다. 지수 백오프는 대기 시간을 <code>base × 2^n</code>으로 늘려 서버가 회복할 시간을 준다. 상한(cap)을 두지 않으면 대기가 무한히 커지므로 보통 수 초에서 수십 초로 제한한다.</p>
+<p>지수 백오프만으로는 부족하다. 같은 순간 실패한 요청은 같은 지수 스케줄을 따르므로 여전히 뭉쳐서 도착한다. 지터(jitter)는 대기 시간에 무작위성을 섞어 재시도를 시간축 위에 흩뿌린다. 대기 시간에 수십 밀리초를 더하는 정도로는 효과가 거의 없고, 0부터 지수 상한 사이에서 균등하게 뽑는 full jitter가 서버 부하 관점에서 가장 효과가 크다. 이전 대기 시간을 기준으로 다음 값을 뽑는 decorrelated jitter도 널리 쓰인다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>고정 백오프</th>
+<th>지수 백오프 + 지터</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>대기 시간</td>
+<td>1초 → 1초 → 1초</td>
+<td>0<del>1초 → 0</del>2초 → 0~4초 (무작위)</td>
+</tr>
+<tr>
+<td>서버 부하</td>
+<td>동시 재시도가 주기적으로 반복</td>
+<td>시간축으로 분산</td>
+</tr>
+<tr>
+<td>실패 확정</td>
+<td>빠름</td>
+<td>느림 (총 대기 시간이 길어짐)</td>
+</tr>
+<tr>
+<td>적합한 곳</td>
+<td>내부망 DB·캐시의 짧은 순단</td>
+<td>외부 API, 서비스 간 호출, 모바일 클라이언트</td>
+</tr>
+</tbody></table>
+<p>재시도의 전제는 멱등성이다. 조회처럼 여러 번 실행해도 결과가 같은 호출은 안전하지만, 결제 요청이나 주문 생성은 그렇지 않다. 재시도가 필요한 쓰기 호출에는 클라이언트가 생성한 <code>Idempotency-Key</code>를 실어 서버가 같은 키의 요청을 한 번만 처리하도록 만든다.</p>
+<p>재시도는 서킷 브레이커와 짝을 이룬다. 재시도는 개별 호출의 짧은 실패를 흡수하고, 실패율이 임계값을 넘으면 서킷 브레이커가 호출 자체를 차단해 재시도가 헛되이 반복되는 것을 막는다.</p>
+<h2>코드</h2>
+<p>지수 백오프에 full jitter를 적용한 순수 Java 구현이다. 대기 시간은 0부터 <code>min(cap, base × 2^(n-1))</code> 사이에서 균등하게 뽑는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Retrier</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> &lt;T&gt; <span class="hljs-type">T</span> <span class="hljs-title function_">call</span><span class="hljs-params">(Supplier&lt;T&gt; action, <span class="hljs-type">int</span> maxAttempts,
+                             Duration base, Duration cap)</span> <span class="hljs-keyword">throws</span> InterruptedException {
+        <span class="hljs-keyword">for</span> (<span class="hljs-type">int</span> <span class="hljs-variable">attempt</span> <span class="hljs-operator">=</span> <span class="hljs-number">1</span>; ; attempt++) {
+            <span class="hljs-keyword">try</span> {
+                <span class="hljs-keyword">return</span> action.get();
+            } <span class="hljs-keyword">catch</span> (TransientException e) {
+                <span class="hljs-keyword">if</span> (attempt &gt;= maxAttempts) {
+                    <span class="hljs-keyword">throw</span> e;
+                }
+                <span class="hljs-type">long</span> <span class="hljs-variable">exp</span> <span class="hljs-operator">=</span> Math.min(cap.toMillis(), base.toMillis() &lt;&lt; (attempt - <span class="hljs-number">1</span>));
+                <span class="hljs-type">long</span> <span class="hljs-variable">sleepMs</span> <span class="hljs-operator">=</span> ThreadLocalRandom.current().nextLong(exp + <span class="hljs-number">1</span>); <span class="hljs-comment">// full jitter</span>
+                Thread.sleep(sleepMs);
+            }
+        }
+    }
+}</code></pre>
+<p>Spring Retry 2.x를 쓴 선언형 재시도다. <code>spring-retry</code>와 <code>spring-boot-starter-aop</code> 의존성을 추가하고 설정 클래스에 <code>@EnableRetry</code>를 붙인다. <code>random = true</code>가 지터를 켜고, <code>@Recover</code> 메서드는 모든 시도가 실패한 뒤 호출된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PaymentGateway</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">PaymentGateway</span><span class="hljs-params">(RestClient.Builder builder)</span> {
+        <span class="hljs-built_in">this</span>.restClient = builder.baseUrl(<span class="hljs-string">&quot;https://bank.example.com&quot;</span>).build();
+    }
+
+    <span class="hljs-meta">@Retryable(
+        retryFor = { ResourceAccessException.class, HttpServerErrorException.class },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 500, multiplier = 2.0, maxDelay = 4_000, random = true)
+    )</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(PaymentRequest request)</span> {
+        <span class="hljs-keyword">return</span> restClient.post()
+                .uri(<span class="hljs-string">&quot;/payments&quot;</span>)
+                .header(<span class="hljs-string">&quot;Idempotency-Key&quot;</span>, request.idempotencyKey())
+                .body(request)
+                .retrieve()
+                .body(PaymentResult.class);
+    }
+
+    <span class="hljs-meta">@Recover</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">recover</span><span class="hljs-params">(Exception e, PaymentRequest request)</span> {
+        <span class="hljs-keyword">return</span> PaymentResult.pending(request.idempotencyKey());
+    }
+}</code></pre>
+<p>Resilience4j(<code>resilience4j-spring-boot3</code>)로 같은 정책을 설정 파일에 옮긴 예다. 지수 백오프와 무작위 대기를 함께 켜면 <code>ofExponentialRandomBackoff</code>가 적용되고, 서킷 브레이커가 열려서 던지는 예외는 재시도에서 제외한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">resilience4j:</span>
+  <span class="hljs-attr">retry:</span>
+    <span class="hljs-attr">instances:</span>
+      <span class="hljs-attr">bank:</span>
+        <span class="hljs-attr">max-attempts:</span> <span class="hljs-number">3</span>
+        <span class="hljs-attr">wait-duration:</span> <span class="hljs-string">500ms</span>
+        <span class="hljs-attr">enable-exponential-backoff:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">exponential-backoff-multiplier:</span> <span class="hljs-number">2</span>
+        <span class="hljs-attr">exponential-max-wait-duration:</span> <span class="hljs-string">4s</span>
+        <span class="hljs-attr">enable-randomized-wait:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">randomized-wait-factor:</span> <span class="hljs-number">0.5</span>
+        <span class="hljs-attr">retry-exceptions:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">org.springframework.web.client.ResourceAccessException</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">org.springframework.web.client.HttpServerErrorException</span>
+        <span class="hljs-attr">ignore-exceptions:</span>
+          <span class="hljs-bullet">-</span> <span class="hljs-string">io.github.resilience4j.circuitbreaker.CallNotPermittedException</span></code></pre>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Retry(name = &quot;bank&quot;, fallbackMethod = &quot;pending&quot;)</span>
+<span class="hljs-meta">@CircuitBreaker(name = &quot;bank&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(PaymentRequest request)</span> { <span class="hljs-comment">/* RestClient 호출 */</span> }
+
+<span class="hljs-keyword">private</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">pending</span><span class="hljs-params">(PaymentRequest request, Throwable t)</span> {
+    <span class="hljs-keyword">return</span> PaymentResult.pending(request.idempotencyKey());
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>타임아웃은 서버가 요청을 받지 못한 것이 아니라 응답이 돌아오지 않은 것이다. <mark>타임아웃 뒤에 멱등 키 없이 결제·주문 같은 쓰기 호출을 재시도하면 서버는 같은 요청을 두 번 처리한다.</mark> 재시도를 붙이기 전에 서버 쪽 중복 제거를 먼저 만든다.</li>
+<li>재시도는 계층마다 곱해진다. <mark>클라이언트·API 게이트웨이·서비스가 각각 3회씩 재시도하면 원 서버에는 한 요청당 최대 27개의 요청이 도달한다.</mark> 재시도는 호출 사슬에서 한 계층에만 두고 나머지는 실패를 그대로 전파한다.</li>
+<li>총 대기 시간을 호출자의 타임아웃 안에 맞춘다. 500ms에서 시작해 3회 지수 백오프하면 대기만 최대 3.5초이고 각 시도의 타임아웃이 더해진다. 호출자가 3초 뒤에 포기했는데 뒤에서 재시도가 계속되면 자원만 낭비된다.</li>
+<li>429나 503 응답에 <code>Retry-After</code> 헤더가 있으면 계산한 백오프 대신 그 값을 따른다. 서버가 명시한 대기 시간보다 빨리 재시도하면 처리율 제한에 다시 걸리거나 차단 시간이 길어진다.</li>
+<li>Resilience4j의 기본 데코레이터 순서는 Retry가 가장 바깥이다. <mark><code>CallNotPermittedException</code>을 <code>ignore-exceptions</code>에 넣지 않으면 서킷이 열린 뒤에도 재시도 횟수만큼 대기와 실패가 반복된다.</mark> 반대로 Retry가 안쪽에 있으면 재시도가 모두 실패한 뒤에야 서킷 브레이커가 한 번의 실패로 집계한다.</li>
+<li>Spring Retry의 <code>@Retryable</code>은 AOP 프록시로 동작하므로 같은 클래스 안에서 호출하면 재시도가 적용되지 않는다. 재시도 대상 메서드는 별도 빈으로 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/circuit-breaker/">서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</a></li>
+<li><a href="/notes/architecture-patterns/bulkhead/">벌크헤드 — 스레드 풀·세마포어로 자원 격리</a></li>
+<li><a href="/notes/architecture-patterns/rate-limiter/">처리율 제한 — 고정 윈도·슬라이딩 윈도·토큰 버킷</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Retry, Exponential Backoff, Jitter, Resilience4j, Spring Retry</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/circuit-breaker/"><small>이전</small>서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</a>
+  <a class="next" href="/notes/architecture-patterns/bulkhead/"><small>다음</small>벌크헤드 — 스레드 풀·세마포어로 자원 격리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

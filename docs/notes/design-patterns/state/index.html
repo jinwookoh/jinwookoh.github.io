@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>상태 — 상태별 분기를 객체로 옮기기 · 디자인 패턴</title>
+  <meta name="description" content="상태별 if-else를 상태 객체로 옮기고, enum 기반과 클래스 기반 구현을 언제 택하는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="상태 — 상태별 분기를 객체로 옮기기 · 디자인 패턴">
+  <meta property="og:description" content="상태별 if-else를 상태 객체로 옮기고, enum 기반과 클래스 기반 구현을 언제 택하는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/state/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>상태 — 상태별 분기를 객체로 옮기기</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 행위</p>
+  <h1>상태 — 상태별 분기를 객체로 옮기기</h1>
+  <p class="summary">상태별 if-else를 상태 객체로 옮기고, enum 기반과 클래스 기반 구현을 언제 택하는지 정리한다</p>
+  <div class="content">
+<p>주문은 결제 전에는 취소할 수 있지만 배송이 시작되면 취소할 수 없고, 배송 완료 후에는 반품만 가능하다. 이런 규칙을 각 메서드 안의 <code>if (status == PAID)</code> 분기로 구현하면 상태가 하나 늘 때마다 <code>cancel()</code>, <code>ship()</code>, <code>refund()</code> 등 모든 메서드를 찾아다니며 분기를 추가해야 한다. 어느 한 곳을 빠뜨려도 컴파일 오류가 나지 않으므로 허용되지 않은 전이가 조용히 통과한다. 상태 패턴은 &quot;현재 상태에서 이 행동이 어떻게 동작하는가&quot;를 상태 객체 하나에 모아, 상태 추가가 새 객체 추가로 끝나게 만든다.</p>
+<h2>핵심 개념</h2>
+<p>구조는 세 가지 역할로 이루어진다. <code>State</code> 인터페이스는 상태에 따라 달라지는 행동을 선언하고, <code>ConcreteState</code>는 상태별로 그 행동을 구현하며, <code>Context</code>는 현재 상태 객체를 참조하고 호출을 위임한다. 클라이언트는 컨텍스트만 호출하고 상태가 무엇인지 알 필요가 없다.</p>
+<p>상태 전이를 누가 결정하는지가 설계의 핵심이다. 상태 객체가 다음 상태를 반환하거나 컨텍스트의 상태를 직접 바꾸는 방식은 전이 규칙이 상태 옆에 놓여 읽기 쉽다. 반대로 컨텍스트가 전이를 결정하면 상태 객체는 행동만 담당하고 전이표는 한곳에 모인다. 어느 쪽이든 한 가지로 통일해야 한다. 두 방식이 섞이면 전이 규칙을 찾기 위해 코드 전체를 뒤져야 한다.</p>
+<p>전략 패턴과 구조가 같아 자주 혼동된다. 차이는 교체 주체에 있다. 전략은 클라이언트가 알고리즘을 골라 주입하고 실행 중 바뀌지 않는 편이지만, 상태는 객체 자신의 행동 결과로 실행 중에 계속 바뀐다. 상태 객체들은 서로의 존재를 알고 전이하지만 전략 객체들은 서로를 모른다.</p>
+<p>Java에서는 구현이 두 갈래로 나뉜다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>클래스 기반</th>
+<th>enum 기반</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>정의 위치</td>
+<td>상태마다 클래스 하나</td>
+<td>enum 하나에 상수별 본문</td>
+</tr>
+<tr>
+<td>의존성 주입</td>
+<td>스프링 빈으로 등록해 주입 가능</td>
+<td>빈이 아니므로 주입 불가</td>
+</tr>
+<tr>
+<td>영속화</td>
+<td>상태 코드를 따로 두고 매핑 필요</td>
+<td>상수 자체가 DB 값</td>
+</tr>
+<tr>
+<td>적합한 경우</td>
+<td>외부 호출·DB 접근이 상태별로 다를 때</td>
+<td>전이 규칙 위주로 로직이 짧을 때</td>
+</tr>
+</tbody></table>
+<p>enum 상수는 상수별 본문(constant-specific body)으로 추상 메서드를 구현할 수 있어 파일 하나로 상태 패턴이 완성된다. 다만 enum은 JVM이 클래스 로딩 시점에 생성하므로 스프링 컨테이너가 관리하지 않고, 생성자 주입이 불가능하다. 상태별 로직이 결제 환불이나 배송 API 호출처럼 외부 의존성을 필요로 하면 클래스 기반으로 가고, enum은 상태 코드와 전이표 역할로 남기는 조합이 가장 흔하다.</p>
+<h2>코드</h2>
+<p>enum 기반 구현이다. 전이가 허용되지 않은 행동은 기본 구현이 예외를 던지고, 허용되는 상태만 메서드를 재정의한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">OrderStatus</span> {
+    PENDING {
+        <span class="hljs-meta">@Override</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">pay</span><span class="hljs-params">()</span>    { <span class="hljs-keyword">return</span> PAID; }
+        <span class="hljs-meta">@Override</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> CANCELLED; }
+    },
+    PAID {
+        <span class="hljs-meta">@Override</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">ship</span><span class="hljs-params">()</span>   { <span class="hljs-keyword">return</span> SHIPPED; }
+        <span class="hljs-meta">@Override</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> CANCELLED; }
+    },
+    SHIPPED {
+        <span class="hljs-meta">@Override</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">deliver</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> DELIVERED; }
+    },
+    DELIVERED,
+    CANCELLED;
+
+    <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">pay</span><span class="hljs-params">()</span>     { <span class="hljs-keyword">throw</span> reject(<span class="hljs-string">&quot;pay&quot;</span>); }
+    <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">ship</span><span class="hljs-params">()</span>    { <span class="hljs-keyword">throw</span> reject(<span class="hljs-string">&quot;ship&quot;</span>); }
+    <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">deliver</span><span class="hljs-params">()</span> { <span class="hljs-keyword">throw</span> reject(<span class="hljs-string">&quot;deliver&quot;</span>); }
+    <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">()</span>  { <span class="hljs-keyword">throw</span> reject(<span class="hljs-string">&quot;cancel&quot;</span>); }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">IllegalStateException</span> <span class="hljs-title function_">reject</span><span class="hljs-params">(String action)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(name() + <span class="hljs-string">&quot; 상태에서는 &quot;</span> + action + <span class="hljs-string">&quot; 불가&quot;</span>);
+    }
+}</code></pre>
+<p>컨텍스트인 엔티티는 전이 결과를 저장만 한다. <code>@Version</code>은 동시 전이를 막기 위한 낙관적 잠금이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Entity</span>
+<span class="hljs-meta">@Table(name = &quot;orders&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+
+    <span class="hljs-meta">@Id</span> <span class="hljs-meta">@GeneratedValue</span>
+    <span class="hljs-keyword">private</span> Long id;
+
+    <span class="hljs-meta">@Enumerated(EnumType.STRING)</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-variable">status</span> <span class="hljs-operator">=</span> OrderStatus.PENDING;
+
+    <span class="hljs-meta">@Version</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-type">long</span> version;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">pay</span><span class="hljs-params">()</span>    { status = status.pay(); }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">ship</span><span class="hljs-params">()</span>   { status = status.ship(); }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">()</span> { status = status.cancel(); }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">getStatus</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> status; }
+}</code></pre>
+<p>외부 의존성이 필요한 상태는 스프링 빈으로 만든다. 상태 빈을 <code>OrderStatus</code> 키로 모아 두는 레지스트리가 컨텍스트와 상태를 연결한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderState</span> {
+    <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">status</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-keyword">default</span> <span class="hljs-type">void</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">(Order order)</span> { <span class="hljs-keyword">throw</span> reject(<span class="hljs-string">&quot;cancel&quot;</span>); }
+    <span class="hljs-keyword">default</span> <span class="hljs-type">void</span> <span class="hljs-title function_">ship</span><span class="hljs-params">(Order order)</span>   { <span class="hljs-keyword">throw</span> reject(<span class="hljs-string">&quot;ship&quot;</span>); }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">IllegalStateException</span> <span class="hljs-title function_">reject</span><span class="hljs-params">(String action)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalStateException</span>(status() + <span class="hljs-string">&quot; 상태에서는 &quot;</span> + action + <span class="hljs-string">&quot; 불가&quot;</span>);
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">PaidState</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OrderState</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> PaymentGateway paymentGateway;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ShippingClient shippingClient;
+
+    PaidState(PaymentGateway paymentGateway, ShippingClient shippingClient) {
+        <span class="hljs-built_in">this</span>.paymentGateway = paymentGateway;
+        <span class="hljs-built_in">this</span>.shippingClient = shippingClient;
+    }
+
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">OrderStatus</span> <span class="hljs-title function_">status</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> OrderStatus.PAID; }
+
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">(Order order)</span> {
+        paymentGateway.refund(order.getPaymentId());
+        order.cancel();
+    }
+
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">ship</span><span class="hljs-params">(Order order)</span> {
+        shippingClient.request(order.getId());
+        order.ship();
+    }
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderStateRegistry</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Map&lt;OrderStatus, OrderState&gt; states;
+
+    OrderStateRegistry(List&lt;OrderState&gt; beans) {
+        <span class="hljs-built_in">this</span>.states = beans.stream()
+            .collect(Collectors.toUnmodifiableMap(OrderState::status, Function.identity()));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">OrderState</span> <span class="hljs-title function_">of</span><span class="hljs-params">(OrderStatus status)</span> {
+        <span class="hljs-keyword">return</span> Objects.requireNonNull(states.get(status), () -&gt; <span class="hljs-string">&quot;미등록 상태: &quot;</span> + status);
+    }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository orderRepository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderStateRegistry registry;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(OrderRepository orderRepository, OrderStateRegistry registry)</span> {
+        <span class="hljs-built_in">this</span>.orderRepository = orderRepository;
+        <span class="hljs-built_in">this</span>.registry = registry;
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">cancel</span><span class="hljs-params">(Long orderId)</span> {
+        <span class="hljs-type">Order</span> <span class="hljs-variable">order</span> <span class="hljs-operator">=</span> orderRepository.findById(orderId).orElseThrow();
+        registry.of(order.getStatus()).cancel(order);
+    }
+}</code></pre>
+<p><code>toUnmodifiableMap</code>은 같은 키가 두 번 나오면 예외를 던지므로 두 빈이 같은 상태를 선언하는 실수를 기동 시점에 잡는다.</p>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>클래스 기반 상태 빈은 싱글톤이다. <mark>주문 ID나 진행 중인 값처럼 컨텍스트별 데이터를 상태 빈의 필드에 담으면 동시 요청끼리 값이 섞인다.</mark> 상태 빈은 무상태로 두고 필요한 데이터는 메서드 인자로 받는 컨텍스트에서 읽는다.</li>
+<li>허용되지 않은 전이를 예외 대신 무시하거나 로그만 남기면 잘못된 호출이 성공 응답을 받는다. 기본 구현은 반드시 예외를 던지고, 허용 상태에서만 재정의한다.</li>
+<li>애플리케이션에서 상태를 검사해도 두 트랜잭션이 같은 행을 동시에 읽으면 둘 다 전이에 성공한다. <mark><code>@Version</code> 낙관적 잠금이나 현재 상태를 WHERE 절에 넣는 조건부 UPDATE 없이는 상태 검사가 동시 요청 앞에서 무력하다.</mark></li>
+<li><code>@Enumerated(EnumType.ORDINAL)</code>은 상수 순서를 정수로 저장하므로 <mark>enum 중간에 상태를 추가하면 기존 행의 상태가 전부 다른 값으로 해석된다.</mark> <code>EnumType.STRING</code>을 쓰고 상수 이름 변경도 마이그레이션으로 다룬다.</li>
+<li>상태 수와 이벤트 수가 곱으로 늘면 상태 객체 안의 전이 로직이 다시 분기로 돌아간다. 전이표를 데이터로 분리하거나 Spring Statemachine 같은 엔진으로 옮길 시점이다. 다만 엔진 도입은 상태 정의를 코드 밖으로 빼는 결정이라 되돌리기 어렵다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/strategy/">전략 — if-else 분기를 교체 가능한 알고리즘으로</a></li>
+<li><a href="/notes/design-patterns/memento/">메멘토 — 캡슐화를 지키며 상태 저장·복원</a></li>
+<li><a href="/notes/design-patterns/null-object/">널 객체 — null 검사 대신 아무것도 안 하는 객체</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · State, enum, Spring, JPA, 상태 전이</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/observer-pubsub/"><small>이전</small>옵저버와 Pub/Sub — 직접 구독과 브로커 경유의 차이</a>
+  <a class="next" href="/notes/design-patterns/command/"><small>다음</small>커맨드 — 요청을 객체로 캡슐화하고 Undo 구현</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

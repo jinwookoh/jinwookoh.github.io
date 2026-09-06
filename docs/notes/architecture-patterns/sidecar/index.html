@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>사이드카 — 횡단 관심사를 보조 프로세스로 분리 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="인증·로깅·트레이싱을 앱 프로세스 밖의 보조 컨테이너로 옮기면 언어와 무관하게 한 번에 바꿀 수 있다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="사이드카 — 횡단 관심사를 보조 프로세스로 분리 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="인증·로깅·트레이싱을 앱 프로세스 밖의 보조 컨테이너로 옮기면 언어와 무관하게 한 번에 바꿀 수 있다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/sidecar/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>사이드카 — 횡단 관심사를 보조 프로세스로 분리</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 서비스 통신</p>
+  <h1>사이드카 — 횡단 관심사를 보조 프로세스로 분리</h1>
+  <p class="summary">인증·로깅·트레이싱을 앱 프로세스 밖의 보조 컨테이너로 옮기면 언어와 무관하게 한 번에 바꿀 수 있다</p>
+  <div class="content">
+<p>마이크로서비스는 모두 인증, 로깅, 메트릭, 분산 트레이싱, 재시도 같은 공통 기능을 갖는다. 이 기능을 라이브러리로 만들어 각 서비스에 의존성으로 넣는 방식은 언어가 하나일 때만 유지된다. Java, Node.js, Go가 섞이는 순간 같은 기능을 세 번 구현하고 세 번 검증해야 하며, 로그 포맷이나 mTLS 정책을 바꾸는 작업이 수백 개 서비스의 재배포로 번진다. 라이브러리 버전이 서비스마다 갈리면 어느 서비스가 어떤 정책을 따르는지 파악하는 일 자체가 운영 부담이 된다. 사이드카 패턴은 이 공통 기능을 애플리케이션 프로세스 밖으로 꺼내 같은 배포 단위 안의 별도 프로세스에 맡긴다.</p>
+<h2>핵심 개념</h2>
+<p>사이드카는 애플리케이션 컨테이너와 같은 Pod에 배치되는 보조 컨테이너다. 같은 Pod에 있으므로 네트워크 네임스페이스를 공유해 <code>localhost</code>로 통신하고, 볼륨을 공유해 파일을 주고받으며, 생명주기가 Pod에 묶여 함께 뜨고 함께 내려간다. 애플리케이션은 사이드카의 존재를 알 필요가 없다. 이 투명성이 언어 독립성의 근거다.</p>
+<p>역할에 따라 두 부류로 나뉜다. 첫째는 프록시형이다. Envoy 같은 프록시가 Pod로 들어오고 나가는 모든 트래픽을 가로채 mTLS, 인증 토큰 검증, 재시도, 타임아웃, 서킷 브레이커, 접근 로그, 메트릭 수집을 처리한다. Istio는 iptables 규칙으로 트래픽을 프록시로 우회시키므로 애플리케이션은 평소처럼 서비스 이름으로 요청을 보낼 뿐이다. 서비스 A가 B를 호출하면 경로는 A 앱 → A 프록시 → B 프록시 → B 앱이 되고, 두 프록시 사이 구간이 암호화와 정책 적용의 지점이다. 둘째는 보조형이다. 공유 볼륨의 로그 파일을 읽어 수집기로 보내는 Fluent Bit, 시크릿을 파일로 내려주는 Vault Agent, 설정 변경을 감시해 리로드하는 컨테이너가 여기 속한다.</p>
+<p>Kubernetes 1.29부터는 <code>initContainers</code>에 <code>restartPolicy: Always</code>를 지정하는 네이티브 사이드카가 정식 기능이다. 일반 컨테이너보다 먼저 시작해 준비 상태가 될 때까지 앱 컨테이너를 기다리게 하고, 앱 컨테이너가 종료된 뒤에 함께 종료된다. 그 전까지는 두 컨테이너의 기동 순서를 보장할 방법이 없어 별도 우회가 필요했다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>라이브러리</th>
+<th>사이드카</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>실행 위치</td>
+<td>앱 프로세스 내부</td>
+<td>같은 Pod의 별도 컨테이너</td>
+</tr>
+<tr>
+<td>언어 지원</td>
+<td>언어별 구현 필요</td>
+<td>언어 무관</td>
+</tr>
+<tr>
+<td>정책 변경</td>
+<td>코드 수정 후 전체 재배포</td>
+<td>사이드카 이미지·설정 교체</td>
+</tr>
+<tr>
+<td>호출 비용</td>
+<td>함수 호출</td>
+<td>localhost 홉 추가</td>
+</tr>
+<tr>
+<td>자원</td>
+<td>앱에 포함</td>
+<td>Pod마다 컨테이너 하나 추가</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>네이티브 사이드카로 Envoy와 로그 수집기를 붙인 Pod 정의다. 앱은 공유 볼륨에 로그 파일만 쓰고, 수집기가 그 파일을 읽어 전송한다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">apiVersion:</span> <span class="hljs-string">v1</span>
+<span class="hljs-attr">kind:</span> <span class="hljs-string">Pod</span>
+<span class="hljs-attr">metadata:</span>
+  <span class="hljs-attr">name:</span> <span class="hljs-string">order-service</span>
+<span class="hljs-attr">spec:</span>
+  <span class="hljs-attr">initContainers:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">envoy</span>
+      <span class="hljs-attr">image:</span> <span class="hljs-string">envoyproxy/envoy:v1.31.0</span>
+      <span class="hljs-attr">restartPolicy:</span> <span class="hljs-string">Always</span>
+      <span class="hljs-attr">args:</span> [<span class="hljs-string">&quot;-c&quot;</span>, <span class="hljs-string">&quot;/etc/envoy/envoy.yaml&quot;</span>]
+      <span class="hljs-attr">volumeMounts:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">envoy-config</span>
+          <span class="hljs-attr">mountPath:</span> <span class="hljs-string">/etc/envoy</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">log-shipper</span>
+      <span class="hljs-attr">image:</span> <span class="hljs-string">fluent/fluent-bit:3.1</span>
+      <span class="hljs-attr">restartPolicy:</span> <span class="hljs-string">Always</span>
+      <span class="hljs-attr">volumeMounts:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app-logs</span>
+          <span class="hljs-attr">mountPath:</span> <span class="hljs-string">/var/log/app</span>
+  <span class="hljs-attr">containers:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app</span>
+      <span class="hljs-attr">image:</span> <span class="hljs-string">order-service:1.4.0</span>
+      <span class="hljs-attr">ports:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">containerPort:</span> <span class="hljs-number">8080</span>
+      <span class="hljs-attr">volumeMounts:</span>
+        <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app-logs</span>
+          <span class="hljs-attr">mountPath:</span> <span class="hljs-string">/var/log/app</span>
+  <span class="hljs-attr">volumes:</span>
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">app-logs</span>
+      <span class="hljs-attr">emptyDir:</span> {}
+    <span class="hljs-bullet">-</span> <span class="hljs-attr">name:</span> <span class="hljs-string">envoy-config</span>
+      <span class="hljs-attr">configMap:</span>
+        <span class="hljs-attr">name:</span> <span class="hljs-string">envoy-config</span></code></pre>
+<p>Spring Boot 쪽은 로그를 공유 볼륨에 구조화된 형식으로 쓰고, 트레이스 컨텍스트를 W3C 헤더로 전파하도록 설정한다. 프록시가 스팬을 만들더라도 들어온 요청과 나가는 요청을 잇는 것은 앱의 몫이다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">logging:</span>
+  <span class="hljs-attr">file:</span>
+    <span class="hljs-attr">name:</span> <span class="hljs-string">/var/log/app/app.log</span>
+  <span class="hljs-attr">structured:</span>
+    <span class="hljs-attr">format:</span>
+      <span class="hljs-attr">file:</span> <span class="hljs-string">ecs</span>
+<span class="hljs-attr">management:</span>
+  <span class="hljs-attr">tracing:</span>
+    <span class="hljs-attr">propagation:</span>
+      <span class="hljs-attr">type:</span> <span class="hljs-string">w3c</span>
+    <span class="hljs-attr">sampling:</span>
+      <span class="hljs-attr">probability:</span> <span class="hljs-number">1.0</span></code></pre>
+<p>서비스 호출 코드에는 사이드카 관련 내용이 없다. 자동 구성된 <code>RestClient.Builder</code>를 쓰면 <code>traceparent</code> 헤더가 나가는 요청에 자동으로 붙고, mTLS와 재시도는 프록시가 처리한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">InventoryClient</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RestClient restClient;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">InventoryClient</span><span class="hljs-params">(RestClient.Builder builder)</span> {
+        <span class="hljs-built_in">this</span>.restClient = builder
+                .baseUrl(<span class="hljs-string">&quot;http://inventory-service&quot;</span>)
+                .build();
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">InventoryResponse</span> <span class="hljs-title function_">reserve</span><span class="hljs-params">(String sku, <span class="hljs-type">int</span> quantity)</span> {
+        <span class="hljs-keyword">return</span> restClient.post()
+                .uri(<span class="hljs-string">&quot;/reservations&quot;</span>)
+                .body(<span class="hljs-keyword">new</span> <span class="hljs-title class_">ReserveRequest</span>(sku, quantity))
+                .retrieve()
+                .body(InventoryResponse.class);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>트레이스 전파. <mark>프록시는 요청마다 스팬을 만들 뿐 들어온 요청과 나간 요청을 스스로 연결하지 못하므로, 앱이 <code>traceparent</code> 헤더를 그대로 넘기지 않으면 서비스 경계마다 트레이스가 끊긴다.</mark> 수동으로 만든 <code>HttpClient</code>나 별도 스레드에서 보내는 요청이 흔한 누락 지점이다.</li>
+<li>기동 순서. 네이티브 사이드카를 쓰지 않는 환경에서는 앱이 프록시보다 먼저 떠서 초기 외부 호출이 실패하고, 반대로 앱이 끝난 뒤에도 프록시가 남아 Job이 종료되지 않는다. <mark>Kubernetes 1.29 미만이거나 Istio 설정에서 <code>holdApplicationUntilProxyStarts</code>를 켜지 않았다면 기동 직후 실패에 대한 재시도가 앱 안에 있어야 한다.</mark></li>
+<li>재시도 중복. <mark>프록시의 재시도와 앱의 Resilience4j 재시도가 동시에 켜져 있으면 실제 시도 횟수는 두 값의 곱이 되어 장애 중인 서비스로 트래픽이 증폭된다.</mark> 재시도는 한 계층에서만 담당하도록 정한다.</li>
+<li>자원과 지연. Pod마다 프록시 컨테이너가 추가되어 메모리 수십 MB와 CPU가 더 든다. 수천 개 Pod 규모에서는 무시할 수 없는 양이고, 호출마다 두 번의 프록시 홉이 추가되어 밀리초 단위 지연이 붙는다. 프록시 컨테이너의 requests와 limits를 명시하지 않으면 노드 스케줄링 계산이 어긋난다.</li>
+<li>오류 출처 구분. 503이 앱에서 온 것인지 프록시가 업스트림 연결 실패로 만든 것인지 응답 본문만으로는 구분되지 않는다. Envoy 접근 로그의 response flags(<code>UF</code>, <code>UO</code>, <code>URX</code>)를 함께 수집해야 장애 원인을 프록시 계층과 앱 계층으로 나눌 수 있다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/service-discovery/">서비스 디스커버리 — 클라이언트 사이드와 서버 사이드</a></li>
+<li><a href="/notes/architecture-patterns/circuit-breaker/">서킷 브레이커 — 연쇄 장애를 끊는 세 가지 상태</a></li>
+<li><a href="/notes/architecture-patterns/retry/">재시도 — 지수 백오프와 지터</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Sidecar, Service Mesh, Envoy, Istio, Kubernetes</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/service-discovery/"><small>이전</small>서비스 디스커버리 — 클라이언트 사이드와 서버 사이드</a>
+  <a class="next" href="/notes/architecture-patterns/messaging/"><small>다음</small>메시징 — Point-to-Point와 Pub/Sub, 소비 모델</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

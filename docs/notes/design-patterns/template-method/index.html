@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>템플릿 메서드 — 골격은 고정하고 단계만 바꾸기 · 디자인 패턴</title>
+  <meta name="description" content="알고리즘 골격을 한곳에 고정하고 변하는 단계만 상속 또는 콜백으로 채우는 두 구현과 선택 기준">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="템플릿 메서드 — 골격은 고정하고 단계만 바꾸기 · 디자인 패턴">
+  <meta property="og:description" content="알고리즘 골격을 한곳에 고정하고 변하는 단계만 상속 또는 콜백으로 채우는 두 구현과 선택 기준">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/template-method/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>템플릿 메서드 — 골격은 고정하고 단계만 바꾸기</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 행위</p>
+  <h1>템플릿 메서드 — 골격은 고정하고 단계만 바꾸기</h1>
+  <p class="summary">알고리즘 골격을 한곳에 고정하고 변하는 단계만 상속 또는 콜백으로 채우는 두 구현과 선택 기준</p>
+  <div class="content">
+<p>JSON·CSV·XML 파일을 각각 읽어 처리하는 클래스가 있다고 하자. 세 클래스 모두 파일을 열고, 내용을 해석하고, 결과를 저장하고, 자원을 닫는 순서가 같다. 다른 것은 &quot;내용을 해석하는&quot; 한 단계뿐이다. 클래스마다 전체 흐름을 복사해 두면 열기·닫기 코드가 세 벌 생기고, 예외 발생 시 자원을 닫는 로직을 고칠 때 한 곳을 빠뜨리면 그 처리기만 파일 핸들을 누수한다. 불변 흐름은 한곳에 두고 달라지는 단계만 바깥에서 채우도록 만드는 것이 템플릿 메서드 패턴이다.</p>
+<h2>핵심 개념</h2>
+<p>템플릿 메서드는 알고리즘의 골격을 하나의 메서드로 정의하고, 골격 안의 일부 단계를 하위 클래스가 재정의하도록 열어 두는 패턴이다. 골격을 정의한 메서드가 템플릿 메서드이고, 하위 클래스가 채우는 단계가 원시 연산(primitive operation)이다. 호출 순서·예외 처리·자원 해제 같은 불변 부분은 부모가 소유하므로 한곳에서만 관리된다.</p>
+<p>단계는 두 종류로 나뉜다. 반드시 구현해야 하는 단계는 abstract 메서드로 선언한다. 기본 동작이 있으나 필요하면 바꿀 수 있는 단계는 빈 본문이나 기본 구현을 가진 protected 메서드로 두는데, 이를 훅(hook)이라 부른다. 훅은 &quot;처리 전 검증&quot;, &quot;처리 후 통계 기록&quot;처럼 대부분의 하위 클래스가 신경 쓰지 않아도 되는 지점에 넣는다.</p>
+<p>템플릿 메서드 자체는 final로 선언한다. 하위 클래스가 골격을 재정의하면 이 패턴을 쓰는 이유가 사라진다. 제어 흐름이 부모에서 자식으로 내려간다는 점에서 자식이 부모를 호출하는 일반적인 상속 사용과 방향이 반대다.</p>
+<p>구현 방식은 두 가지다. 고전적 GoF 구현은 상속을 사용한다. 추상 클래스가 골격을 갖고, 변하는 단계마다 하위 클래스를 하나씩 만든다. HttpServlet의 service()가 요청 메서드에 따라 doGet·doPost를 호출하는 구조, Spring의 AbstractApplicationContext.refresh()가 이 방식이다.</p>
+<p>템플릿 콜백은 상속 대신 합성을 사용한다. 골격을 가진 클래스는 일반 클래스이고, 변하는 단계를 함수형 인터페이스로 받아 메서드 파라미터로 주입한다. 호출자는 하위 클래스를 만들지 않고 람다로 단계를 넘긴다. Spring의 JdbcTemplate·TransactionTemplate·RedisTemplate이 이 방식이며, 전략 패턴과 템플릿 메서드를 결합한 형태다. HTTP 클라이언트는 과거 RestTemplate이 대표 사례였으나 현재는 유지보수 모드이므로 새 코드에는 RestClient를 쓴다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>템플릿 메서드(상속)</th>
+<th>템플릿 콜백(합성)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>변하는 단계 전달</td>
+<td>abstract·protected 메서드 재정의</td>
+<td>함수형 인터페이스를 파라미터로 주입</td>
+</tr>
+<tr>
+<td>단계 하나당 필요한 것</td>
+<td>하위 클래스 1개</td>
+<td>람다 1개</td>
+</tr>
+<tr>
+<td>골격 클래스 인스턴스</td>
+<td>하위 클래스마다 별도</td>
+<td>싱글톤 빈 하나를 공유</td>
+</tr>
+<tr>
+<td>변하는 단계가 여럿일 때</td>
+<td>메서드를 늘리면 된다</td>
+<td>콜백 인터페이스가 늘어 복잡해진다</td>
+</tr>
+<tr>
+<td>대표 사례</td>
+<td>HttpServlet, AbstractApplicationContext</td>
+<td>JdbcTemplate, TransactionTemplate</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>상속 방식이다. 골격 process()는 final이고, parse()는 필수 단계, validate()와 afterParse()는 기본 구현이 있는 훅이다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">Result</span><span class="hljs-params">(<span class="hljs-type">int</span> rowCount)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FileProcessor</span> {
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Result</span> <span class="hljs-title function_">process</span><span class="hljs-params">(Path path)</span> <span class="hljs-keyword">throws</span> IOException {
+        validate(path);
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">BufferedReader</span> <span class="hljs-variable">reader</span> <span class="hljs-operator">=</span> Files.newBufferedReader(path)) {
+            <span class="hljs-type">Result</span> <span class="hljs-variable">result</span> <span class="hljs-operator">=</span> parse(reader);
+            afterParse(result);
+            <span class="hljs-keyword">return</span> result;
+        }
+    }
+
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">void</span> <span class="hljs-title function_">validate</span><span class="hljs-params">(Path path)</span> {
+        <span class="hljs-keyword">if</span> (!Files.isRegularFile(path)) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;not a regular file: &quot;</span> + path);
+        }
+    }
+
+    <span class="hljs-keyword">protected</span> <span class="hljs-keyword">abstract</span> <span class="hljs-type">Result</span> <span class="hljs-title function_">parse</span><span class="hljs-params">(BufferedReader reader)</span> <span class="hljs-keyword">throws</span> IOException;
+
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">void</span> <span class="hljs-title function_">afterParse</span><span class="hljs-params">(Result result)</span> {
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CsvFileProcessor</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">FileProcessor</span> {
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">Result</span> <span class="hljs-title function_">parse</span><span class="hljs-params">(BufferedReader reader)</span> <span class="hljs-keyword">throws</span> IOException {
+        <span class="hljs-type">List</span>&lt;String[]&gt; <span class="hljs-variable">rows</span> <span class="hljs-operator">=</span> reader.lines()
+                .map(line -&gt; line.split(<span class="hljs-string">&quot;,&quot;</span>))
+                .toList();
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Result</span>(rows.size());
+    }
+}</code></pre>
+<p>같은 골격을 템플릿 콜백으로 바꾼 것이다. 하위 클래스 없이 람다로 단계를 넘기고, 템플릿은 싱글톤 빈으로 재사용한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@FunctionalInterface</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">ParseCallback</span>&lt;T&gt; {
+    <span class="hljs-type">T</span> <span class="hljs-title function_">parse</span><span class="hljs-params">(BufferedReader reader)</span> <span class="hljs-keyword">throws</span> IOException;
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">FileTemplate</span> {
+
+    <span class="hljs-keyword">public</span> &lt;T&gt; <span class="hljs-type">T</span> <span class="hljs-title function_">process</span><span class="hljs-params">(Path path, ParseCallback&lt;T&gt; callback)</span> {
+        <span class="hljs-keyword">try</span> (<span class="hljs-type">BufferedReader</span> <span class="hljs-variable">reader</span> <span class="hljs-operator">=</span> Files.newBufferedReader(path)) {
+            <span class="hljs-keyword">return</span> callback.parse(reader);
+        } <span class="hljs-keyword">catch</span> (IOException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">UncheckedIOException</span>(e);
+        }
+    }
+}
+
+<span class="hljs-comment">// 호출 측</span>
+<span class="hljs-type">long</span> <span class="hljs-variable">lines</span> <span class="hljs-operator">=</span> fileTemplate.process(path, reader -&gt; reader.lines().count());
+<span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-variable">headers</span> <span class="hljs-operator">=</span> fileTemplate.process(path,
+        reader -&gt; List.of(reader.readLine().split(<span class="hljs-string">&quot;,&quot;</span>)));</code></pre>
+<p>Spring의 TransactionTemplate도 같은 구조다. 트랜잭션 시작·커밋·롤백이 골격이고, 람다가 변하는 단계다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> TransactionTemplate tx;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JdbcClient jdbc;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderService</span><span class="hljs-params">(PlatformTransactionManager tm, JdbcClient jdbc)</span> {
+        <span class="hljs-built_in">this</span>.tx = <span class="hljs-keyword">new</span> <span class="hljs-title class_">TransactionTemplate</span>(tm);
+        <span class="hljs-built_in">this</span>.jdbc = jdbc;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">place</span><span class="hljs-params">(<span class="hljs-type">long</span> userId, <span class="hljs-type">long</span> amount)</span> {
+        <span class="hljs-keyword">return</span> tx.execute(status -&gt; {
+            jdbc.sql(<span class="hljs-string">&quot;UPDATE account SET balance = balance - ? WHERE id = ?&quot;</span>)
+                    .params(amount, userId).update();
+            <span class="hljs-keyword">return</span> jdbc.sql(<span class="hljs-string">&quot;INSERT INTO orders(user_id, amount) VALUES (?, ?)&quot;</span>)
+                    .params(userId, amount).update();
+        });
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>final 메서드와 프록시 AOP.</strong> <mark>골격 메서드를 final로 선언하면 CGLIB 프록시가 그 메서드를 가로채지 못하므로 @Transactional·@Cacheable 같은 프록시 기반 AOP가 적용되지 않는다.</mark> 예외 없이 그냥 동작하지 않는 것이므로 눈에 띄지 않는다. 트랜잭션이 필요하면 상속 방식 대신 TransactionTemplate 콜백으로 묶거나 AOP를 다른 계층에 건다.</li>
+<li><strong>생성자에서 단계 메서드 호출.</strong> <mark>부모 생성자에서 abstract 단계나 훅을 호출하면 하위 클래스 필드가 초기화되기 전에 실행되어 null을 읽는다.</mark> 단계 메서드는 템플릿 메서드 안에서만 호출한다.</li>
+<li><strong>콜백 안에서 예외를 삼키는 경우.</strong> <mark>TransactionTemplate 콜백 안에서 예외를 catch하고 로그만 남기면 템플릿은 정상 완료로 판단해 커밋한다.</mark> 롤백이 필요하면 예외를 다시 던지거나 status.setRollbackOnly()를 호출한다.</li>
+<li><strong>콜백 실행 횟수.</strong> 콜백이 몇 번 실행되는지는 템플릿이 정한다. RetryTemplate처럼 재시도하는 템플릿에 외부 카운터를 증가시키는 람다를 넘기면 실패 횟수만큼 중복 실행되므로, 재시도 템플릿에 넘기는 콜백은 멱등해야 한다.</li>
+<li><strong>훅 남발과 클래스 폭발.</strong> 훅이 대여섯 개를 넘으면 호출 순서를 문서 없이 알 수 없고, 하위 클래스가 어느 훅을 재정의했는지 추적하기 어렵다. 변하는 축이 둘 이상이면 상속 하나로 표현하지 말고 전략이나 브리지로 축을 분리한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/strategy/">전략 — if-else 분기를 교체 가능한 알고리즘으로</a></li>
+<li><a href="/notes/design-patterns/callback/">콜백 — 동기·비동기 콜백과 제어 흐름</a></li>
+<li><a href="/notes/design-patterns/bridge/">브리지 — 추상과 구현을 분리해 클래스 폭발 막기</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Template Method, Template Callback, Hook, JdbcTemplate, TransactionTemplate</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/strategy/"><small>이전</small>전략 — if-else 분기를 교체 가능한 알고리즘으로</a>
+  <a class="next" href="/notes/design-patterns/observer-pubsub/"><small>다음</small>옵저버와 Pub/Sub — 직접 구독과 브로커 경유의 차이</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

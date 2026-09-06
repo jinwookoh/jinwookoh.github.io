@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로토타입 — 복제로 생성하기와 깊은 복사 함정 · 디자인 패턴</title>
+  <meta name="description" content="생성 비용이 큰 객체는 원본을 복제해 만들되, Java clone() 대신 복사 생성자로 깊은 복사를 직접 구현해야 참조 공유 버그를 피한다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="프로토타입 — 복제로 생성하기와 깊은 복사 함정 · 디자인 패턴">
+  <meta property="og:description" content="생성 비용이 큰 객체는 원본을 복제해 만들되, Java clone() 대신 복사 생성자로 깊은 복사를 직접 구현해야 참조 공유 버그를 피한다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/prototype/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>프로토타입 — 복제로 생성하기와 깊은 복사 함정</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 생성</p>
+  <h1>프로토타입 — 복제로 생성하기와 깊은 복사 함정</h1>
+  <p class="summary">생성 비용이 큰 객체는 원본을 복제해 만들되, Java clone() 대신 복사 생성자로 깊은 복사를 직접 구현해야 참조 공유 버그를 피한다.</p>
+  <div class="content">
+<p>객체 하나를 만드는 데 DB 조회, 원격 호출, 설정 파일 파싱 같은 비용이 든다면 같은 종류의 객체가 100개 필요할 때 생성 과정을 100번 반복하게 된다. 초기화가 끝난 객체와 거의 같은 상태의 객체를 하나 더 원할 때도 생성자에 모든 값을 다시 넘겨야 한다. 호출하는 쪽이 구체 클래스를 모르는 상황이라면 <code>new</code> 자체가 불가능하다. 프로토타입 패턴은 이미 만들어진 인스턴스를 원본으로 두고 그것을 복제해 새 객체를 얻는 방식으로 이 문제를 해결한다. 다만 Java가 언어 차원에서 제공하는 <code>clone()</code>은 기본이 얕은 복사라서, 복제 방식을 잘못 고르면 원본과 복제본이 내부 상태를 공유하는 버그가 조용히 발생한다.</p>
+<h2>핵심 개념</h2>
+<p>프로토타입 패턴의 구조는 단순하다. 복제 메서드를 가진 인터페이스를 정의하고, 각 구체 클래스가 자기 자신을 복제해 반환하도록 구현한다. 클라이언트는 원본 인스턴스의 복제 메서드만 호출하므로 구체 타입을 알 필요가 없고, 생성 비용은 원본을 만들 때 한 번만 지불한다. 자주 쓰는 원본을 이름으로 등록해 두는 레지스트리를 두면 &quot;설정이 끝난 템플릿에서 꺼내 쓰는&quot; 형태로 확장된다.</p>
+<p>복제에는 두 수준이 있다. 얕은 복사는 객체의 필드 값을 그대로 새 객체에 옮긴다. 기본 타입과 불변 객체는 값이 복사되므로 문제가 없지만, 참조 타입 필드는 주소만 복사되어 원본과 복제본이 같은 하위 객체를 가리킨다. 깊은 복사는 참조 타입 필드가 가리키는 객체까지 재귀적으로 새로 만들어 두 객체를 완전히 분리한다.</p>
+<p>Java의 <code>Cloneable</code>은 메서드가 없는 마커 인터페이스이고, 실제 복제는 <code>Object.clone()</code>이 수행한다. <mark><code>Cloneable</code>을 구현해도 <code>Object.clone()</code>은 필드 단위 얕은 복사만 하므로 <code>List</code>나 다른 객체를 담은 필드는 원본과 복제본이 같은 인스턴스를 공유한다.</mark> 여기에 더해 <code>clone()</code>은 생성자를 거치지 않아 불변식 검증이 생략되고, <code>final</code> 참조 필드는 복제 후 새 값으로 바꿀 수 없어 깊은 복사가 막히며, 하위 클래스가 <code>super.clone()</code>을 호출하지 않으면 타입이 어긋난다. <code>CloneNotSupportedException</code>이 검사 예외라는 점도 호출부를 번거롭게 한다. 이런 이유로 Effective Java는 <code>Cloneable</code> 대신 복사 생성자나 복사 팩토리를 권한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th><code>Cloneable</code> + <code>clone()</code></th>
+<th>복사 생성자 / 복사 팩토리</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>복사 깊이</td>
+<td>기본 얕은 복사, 깊은 복사는 직접 오버라이드</td>
+<td>개발자가 필드별로 결정</td>
+</tr>
+<tr>
+<td>생성자 호출</td>
+<td>우회함</td>
+<td>정상 호출, <code>final</code> 필드 초기화 가능</td>
+</tr>
+<tr>
+<td>예외</td>
+<td>검사 예외 처리 필요</td>
+<td>없음</td>
+</tr>
+<tr>
+<td>인터페이스 타입 복제</td>
+<td>가능(다형성)</td>
+<td>인터페이스에 <code>copy()</code>를 두면 가능</td>
+</tr>
+</tbody></table>
+<p>복사 생성자는 같은 타입의 인스턴스를 인자로 받아 필드를 옮기는 생성자다. 참조 타입 필드는 그 자리에서 새 컬렉션이나 새 객체로 만들어 담으면 깊은 복사가 된다. 다형적으로 복제해야 하면 <code>Prototype&lt;T&gt;</code> 같은 인터페이스에 <code>T copy()</code>를 선언하고 각 구현이 자신의 복사 생성자를 호출하게 한다.</p>
+<h2>코드</h2>
+<p><code>Cloneable</code>로 구현했을 때 참조 필드가 공유되는 상황이다. 복제본의 리스트를 비우면 원본도 비워진다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Monster</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Cloneable</span> {
+    <span class="hljs-keyword">private</span> String name;
+    <span class="hljs-keyword">private</span> List&lt;String&gt; items;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Monster</span><span class="hljs-params">(String name, List&lt;String&gt; items)</span> {
+        <span class="hljs-built_in">this</span>.name = name;
+        <span class="hljs-built_in">this</span>.items = items;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Monster</span> <span class="hljs-title function_">clone</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> (Monster) <span class="hljs-built_in">super</span>.clone();   <span class="hljs-comment">// 필드 값만 복사, items는 같은 리스트</span>
+        } <span class="hljs-keyword">catch</span> (CloneNotSupportedException e) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">AssertionError</span>(e);
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-title function_">items</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> items; }
+}
+
+<span class="hljs-type">Monster</span> <span class="hljs-variable">original</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Monster</span>(<span class="hljs-string">&quot;Orc&quot;</span>, <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;(List.of(<span class="hljs-string">&quot;Sword&quot;</span>)));
+<span class="hljs-type">Monster</span> <span class="hljs-variable">copy</span> <span class="hljs-operator">=</span> original.clone();
+copy.items().clear();
+System.out.println(original.items());   <span class="hljs-comment">// [] — 원본까지 비워짐</span></code></pre>
+<p>복사 생성자와 <code>copy()</code> 메서드로 깊은 복사를 구현한 버전이다. 중첩 객체(<code>Stats</code>)도 자기 복사 생성자를 가지며, 인터페이스를 통해 구체 타입을 몰라도 복제할 수 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Prototype</span>&lt;T&gt; {
+    <span class="hljs-type">T</span> <span class="hljs-title function_">copy</span><span class="hljs-params">()</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Stats</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> hp;
+    <span class="hljs-keyword">private</span> <span class="hljs-type">int</span> attack;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Stats</span><span class="hljs-params">(<span class="hljs-type">int</span> hp, <span class="hljs-type">int</span> attack)</span> { <span class="hljs-built_in">this</span>.hp = hp; <span class="hljs-built_in">this</span>.attack = attack; }
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Stats</span><span class="hljs-params">(Stats source)</span> { <span class="hljs-built_in">this</span>(source.hp, source.attack); }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">damage</span><span class="hljs-params">(<span class="hljs-type">int</span> amount)</span> { hp -= amount; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">int</span> <span class="hljs-title function_">hp</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> hp; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Monster</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Prototype</span>&lt;Monster&gt; {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> String name;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> List&lt;String&gt; items;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Stats stats;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Monster</span><span class="hljs-params">(String name, List&lt;String&gt; items, Stats stats)</span> {
+        <span class="hljs-built_in">this</span>.name = name;
+        <span class="hljs-built_in">this</span>.items = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;(items);
+        <span class="hljs-built_in">this</span>.stats = stats;
+    }
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">Monster</span><span class="hljs-params">(Monster source)</span> {
+        <span class="hljs-built_in">this</span>.name = source.name;                       <span class="hljs-comment">// String은 불변, 그대로 공유</span>
+        <span class="hljs-built_in">this</span>.items = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ArrayList</span>&lt;&gt;(source.items);    <span class="hljs-comment">// 새 리스트</span>
+        <span class="hljs-built_in">this</span>.stats = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Stats</span>(source.stats);          <span class="hljs-comment">// 새 객체</span>
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Monster</span> <span class="hljs-title function_">copy</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Monster</span>(<span class="hljs-built_in">this</span>); }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;String&gt; <span class="hljs-title function_">items</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> items; }
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Stats</span> <span class="hljs-title function_">stats</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> stats; }
+}
+
+<span class="hljs-type">Monster</span> <span class="hljs-variable">original</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Monster</span>(<span class="hljs-string">&quot;Orc&quot;</span>, List.of(<span class="hljs-string">&quot;Sword&quot;</span>), <span class="hljs-keyword">new</span> <span class="hljs-title class_">Stats</span>(<span class="hljs-number">100</span>, <span class="hljs-number">12</span>));
+<span class="hljs-type">Monster</span> <span class="hljs-variable">copy</span> <span class="hljs-operator">=</span> original.copy();
+copy.items().clear();
+copy.stats().damage(<span class="hljs-number">30</span>);
+System.out.println(original.items());      <span class="hljs-comment">// [Sword]</span>
+System.out.println(original.stats().hp()); <span class="hljs-comment">// 100</span></code></pre>
+<p>원본을 이름으로 등록하고 꺼낼 때마다 복제해 주는 레지스트리다. 초기화 비용이 큰 객체를 한 번만 만들고 호출부에는 항상 독립된 인스턴스를 넘긴다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MonsterRegistry</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Map</span>&lt;String, Monster&gt; <span class="hljs-variable">prototypes</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ConcurrentHashMap</span>&lt;&gt;();
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">register</span><span class="hljs-params">(String key, Monster prototype)</span> {
+        prototypes.put(key, prototype.copy());   <span class="hljs-comment">// 등록 시점에도 분리</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Monster</span> <span class="hljs-title function_">spawn</span><span class="hljs-params">(String key)</span> {
+        <span class="hljs-type">Monster</span> <span class="hljs-variable">prototype</span> <span class="hljs-operator">=</span> prototypes.get(key);
+        <span class="hljs-keyword">if</span> (prototype == <span class="hljs-literal">null</span>) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">IllegalArgumentException</span>(<span class="hljs-string">&quot;unknown prototype: &quot;</span> + key);
+        }
+        <span class="hljs-keyword">return</span> prototype.copy();
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>컬렉션 복사 생성자는 한 단계만 복사한다.</strong> <mark><code>new ArrayList&lt;&gt;(source)</code>와 <code>List.copyOf(source)</code>는 리스트 객체만 새로 만들고 요소는 그대로 공유하므로, 요소가 가변 객체이면 복제본에서 요소를 수정할 때 원본도 바뀐다.</mark> 요소까지 분리하려면 <code>stream().map(Item::new).toList()</code>처럼 요소별 복사 생성자를 호출해야 한다.</li>
+<li><strong>Lombok <code>toBuilder</code>는 얕은 복사다.</strong> <code>@Builder(toBuilder = true)</code>로 만든 <code>original.toBuilder().build()</code>는 필드 참조를 그대로 옮긴다. 값 몇 개를 바꾼 새 객체를 만들 때는 유용하지만, 컬렉션 필드가 있으면 깊은 복사를 대신하지 못한다. <code>record</code>도 <code>with</code>류 메서드가 없으므로 같은 주의가 필요하다.</li>
+<li><strong>직렬화 기반 깊은 복사는 느리다.</strong> <code>SerializationUtils.clone()</code> 같은 유틸은 객체 그래프 전체를 바이트로 썼다가 다시 읽는다. 모든 클래스가 <code>Serializable</code>이어야 하고 반사적으로 생성되며, 복사 생성자보다 수십 배 느린 경우가 흔하다. 대량 생성 경로에서는 쓰지 않는다.</li>
+<li><strong>JPA 엔티티 복제는 식별자를 빼야 한다.</strong> <mark>엔티티를 복사하면서 <code>id</code>까지 옮기면 <code>persist</code>는 detached 예외를 내고 <code>merge</code>는 원본 행을 덮어쓴다.</mark> 새 행을 원한다면 복사 생성자에서 <code>id</code>와 버전 필드는 <code>null</code>로 두고, 연관 엔티티는 참조만 공유할지 함께 복제할지 명시적으로 결정한다.</li>
+<li><strong>Spring의 prototype 스코프는 복제가 아니다.</strong> <code>@Scope(&quot;prototype&quot;)</code>은 <code>getBean()</code> 호출마다 생성자를 새로 실행하는 것이지 원본 빈을 복제하는 것이 아니다. 싱글톤 빈에 주입하면 주입 시점에 한 번만 만들어져 이후 재사용되므로, 매번 새 인스턴스가 필요하면 <code>ObjectProvider&lt;T&gt;</code>로 꺼낸다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/builder/">빌더 — 선택 파라미터가 많은 불변 객체 생성</a></li>
+<li><a href="/notes/design-patterns/singleton/">싱글톤 — 인스턴스 하나를 안전하게 보장하는 다섯 가지 구현</a></li>
+<li><a href="/notes/design-patterns/memento/">메멘토 — 캡슐화를 지키며 상태 저장·복원</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Prototype, Cloneable, Deep Copy, Copy Constructor, Java</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/builder/"><small>이전</small>빌더 — 선택 파라미터가 많은 불변 객체 생성</a>
+  <a class="next" href="/notes/design-patterns/adapter/"><small>다음</small>어댑터 — 맞지 않는 인터페이스를 감싸서 연결</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

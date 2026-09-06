@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>팩토리 — Simple Factory·Factory Method·Abstract Factory · 디자인 패턴</title>
+  <meta name="description" content="생성 로직을 호출자에서 분리하는 세 단계 팩토리와, 스프링 빈 컨테이너와 만났을 때 생기는 프록시·주입 함정">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="팩토리 — Simple Factory·Factory Method·Abstract Factory · 디자인 패턴">
+  <meta property="og:description" content="생성 로직을 호출자에서 분리하는 세 단계 팩토리와, 스프링 빈 컨테이너와 만났을 때 생기는 프록시·주입 함정">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/design-patterns/factory/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/design-patterns/">디자인 패턴</a><span class="sep">›</span><span>팩토리 — Simple Factory·Factory Method·Abstract Factory</span></nav>
+    <article class="post">
+  <p class="part">디자인 패턴 · 생성</p>
+  <h1>팩토리 — Simple Factory·Factory Method·Abstract Factory</h1>
+  <p class="summary">생성 로직을 호출자에서 분리하는 세 단계 팩토리와, 스프링 빈 컨테이너와 만났을 때 생기는 프록시·주입 함정</p>
+  <div class="content">
+<p><code>new Sonata()</code>처럼 호출자가 구체 클래스를 직접 생성하면 호출자는 인터페이스가 아니라 구현에 결합된다. 구현을 바꾸려면 생성하는 모든 지점을 찾아 고쳐야 하고, 테스트에서 가짜 구현으로 바꿔 끼울 수도 없다. 생성 전에 필요한 검증·설정 조회·의존 객체 조립 같은 부수 로직도 호출자마다 복제된다. 팩토리 패턴은 생성 책임을 전담 객체로 옮겨 호출자가 인터페이스만 알도록 만드는 기법이며, 구현 복잡도에 따라 Simple Factory·Factory Method·Abstract Factory 세 단계로 나뉜다.</p>
+<h2>핵심 개념</h2>
+<p><strong>Simple Factory</strong>는 GoF 패턴이 아니라 관용구다. 입력값을 받아 분기하고 알맞은 구현을 반환하는 정적 메서드 하나로 끝난다. 호출자는 팩토리 클래스 하나만 알면 되지만, 새 구현이 추가될 때마다 분기문을 수정해야 하므로 확장에 닫혀 있다. Java 21에서는 <code>sealed</code> 인터페이스와 <code>switch</code> 식을 조합해 이 약점을 줄일 수 있다. 분기 대상이 봉인된 타입이면 컴파일러가 누락된 케이스를 잡아내므로, 새 구현을 추가하고 팩토리 수정을 잊는 실수가 컴파일 단계에서 드러난다.</p>
+<p><strong>Factory Method</strong>는 GoF가 정의한 패턴으로, 생성 메서드를 추상으로 선언하고 어떤 구현을 만들지는 서브클래스가 결정한다. 부모 클래스는 생성된 객체를 사용하는 공통 흐름을 갖고, 생성 단계만 서브클래스에 위임하므로 템플릿 메서드와 자주 결합된다. 새 구현은 새 서브클래스로 추가되며 기존 코드는 수정하지 않는다. 대신 구현 하나당 팩토리 클래스가 하나씩 늘어난다.</p>
+<p><strong>Abstract Factory</strong>는 객체 하나가 아니라 서로 짝이 맞아야 하는 객체 집합을 생성한다. Windows 스타일 버튼과 Mac 스타일 스크롤바가 섞이면 안 되는 경우처럼, 제품군 단위로 일관성을 강제해야 할 때 쓴다. 팩토리 인터페이스가 제품별 생성 메서드를 모두 선언하고, 구현체마다 한 제품군을 담당한다. 제품군 교체는 팩토리 구현체 하나를 바꾸는 것으로 끝나지만, 제품 종류가 추가되면 인터페이스와 모든 구현체를 함께 수정해야 한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>확장 단위</th>
+<th>새 구현 추가 시</th>
+<th>적합한 상황</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Simple Factory</td>
+<td>분기문</td>
+<td>팩토리 수정</td>
+<td>구현 종류가 적고 변경이 드물 때</td>
+</tr>
+<tr>
+<td>Factory Method</td>
+<td>서브클래스</td>
+<td>클래스 추가</td>
+<td>생성 로직을 수정 없이 확장할 때</td>
+</tr>
+<tr>
+<td>Abstract Factory</td>
+<td>제품군</td>
+<td>모든 팩토리 수정</td>
+<td>짝이 맞아야 하는 객체 집합을 통째로 교체할 때</td>
+</tr>
+</tbody></table>
+<p>스프링의 <code>BeanFactory</code>와 <code>ApplicationContext</code>는 이 패턴의 대규모 구현체다. 빈 이름이나 타입을 받아 인스턴스를 반환하고, 생성 과정에서 의존성 주입·프록시 적용·생명주기 콜백까지 처리한다. 직접 팩토리를 만들기 전에 <code>Map&lt;String, Car&gt;</code> 주입이나 <code>ObjectProvider&lt;Car&gt;</code>로 같은 목적을 달성할 수 있는지 먼저 확인한다.</p>
+<h2>코드</h2>
+<p><code>sealed</code> 인터페이스와 <code>switch</code> 식으로 구현한 Simple Factory. <code>CarType</code>에 상수를 추가하면 <code>switch</code>가 컴파일 오류를 내므로 분기 누락이 발생하지 않는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">Car</span> <span class="hljs-keyword">permits</span> Sonata, Grandeur {
+    <span class="hljs-type">void</span> <span class="hljs-title function_">drive</span><span class="hljs-params">()</span>;
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Sonata</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Car</span> {
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">drive</span><span class="hljs-params">()</span> { System.out.println(<span class="hljs-string">&quot;Sonata&quot;</span>); }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Grandeur</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">Car</span> {
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">void</span> <span class="hljs-title function_">drive</span><span class="hljs-params">()</span> { System.out.println(<span class="hljs-string">&quot;Grandeur&quot;</span>); }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">CarType</span> { SONATA, GRANDEUR }
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CarFactory</span> {
+    <span class="hljs-type">private</span> <span class="hljs-title function_">CarFactory</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">Car</span> <span class="hljs-title function_">create</span><span class="hljs-params">(CarType type)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">switch</span> (type) {
+            <span class="hljs-keyword">case</span> SONATA -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">Sonata</span>();
+            <span class="hljs-keyword">case</span> GRANDEUR -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">Grandeur</span>();
+        };
+    }
+}</code></pre>
+<p>Factory Method. 부모는 생성 후 공통 흐름을 갖고, 생성 자체는 서브클래스가 결정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">CarDealer</span> {
+    <span class="hljs-keyword">protected</span> <span class="hljs-keyword">abstract</span> <span class="hljs-type">Car</span> <span class="hljs-title function_">createCar</span><span class="hljs-params">()</span>;
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-type">void</span> <span class="hljs-title function_">deliver</span><span class="hljs-params">()</span> {
+        <span class="hljs-type">Car</span> <span class="hljs-variable">car</span> <span class="hljs-operator">=</span> createCar();
+        inspect(car);
+        car.drive();
+    }
+
+    <span class="hljs-keyword">private</span> <span class="hljs-type">void</span> <span class="hljs-title function_">inspect</span><span class="hljs-params">(Car car)</span> { <span class="hljs-comment">/* 공통 검수 */</span> }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SonataDealer</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">CarDealer</span> {
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">protected</span> <span class="hljs-type">Car</span> <span class="hljs-title function_">createCar</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Sonata</span>(); }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">GrandeurDealer</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">CarDealer</span> {
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">protected</span> <span class="hljs-type">Car</span> <span class="hljs-title function_">createCar</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Grandeur</span>(); }
+}</code></pre>
+<p>Abstract Factory를 스프링 빈으로 등록하고 설정값으로 제품군을 선택하는 예제. 제품군 구현체를 빈으로 두면 <code>Map</code> 주입으로 별도 팩토리 선택 코드 없이 교체할 수 있다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">GuiFactory</span> {
+    <span class="hljs-type">Button</span> <span class="hljs-title function_">createButton</span><span class="hljs-params">()</span>;
+    <span class="hljs-type">Scrollbar</span> <span class="hljs-title function_">createScrollbar</span><span class="hljs-params">()</span>;
+}
+
+<span class="hljs-meta">@Component(&quot;windows&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">WindowsGuiFactory</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">GuiFactory</span> {
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">Button</span> <span class="hljs-title function_">createButton</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">WinButton</span>(); }
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">Scrollbar</span> <span class="hljs-title function_">createScrollbar</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">WinScrollbar</span>(); }
+}
+
+<span class="hljs-meta">@Component(&quot;mac&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MacGuiFactory</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">GuiFactory</span> {
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">Button</span> <span class="hljs-title function_">createButton</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">MacButton</span>(); }
+    <span class="hljs-meta">@Override</span> <span class="hljs-keyword">public</span> <span class="hljs-type">Scrollbar</span> <span class="hljs-title function_">createScrollbar</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">MacScrollbar</span>(); }
+}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ScreenBuilder</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> GuiFactory factory;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ScreenBuilder</span><span class="hljs-params">(Map&lt;String, GuiFactory&gt; factories,
+                         <span class="hljs-meta">@Value(&quot;${app.ui.theme}&quot;)</span> String theme)</span> {
+        <span class="hljs-built_in">this</span>.factory = Objects.requireNonNull(factories.get(theme),
+                () -&gt; <span class="hljs-string">&quot;unknown theme: &quot;</span> + theme);
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">Screen</span> <span class="hljs-title function_">build</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Screen</span>(factory.createButton(), factory.createScrollbar());
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>문자열 키 분기</strong>: <code>&quot;SONATA&quot;</code> 같은 문자열로 분기하는 Simple Factory는 오타가 컴파일을 통과하고 런타임 예외로 나타난다. <code>enum</code>이나 <code>sealed</code> 타입으로 입력을 제한하면 잘못된 키가 코드에 들어올 수 없다.</li>
+<li><strong>팩토리 산출물과 스프링 프록시</strong>: <mark>팩토리가 <code>new</code>로 만든 객체는 스프링 빈이 아니므로 <code>@Transactional</code>·<code>@Async</code>·<code>@Cacheable</code> 같은 프록시 기반 애너테이션이 붙어 있어도 동작하지 않는다.</mark> 트랜잭션이 필요한 객체는 빈으로 등록하고 <code>ObjectProvider</code>나 <code>Map</code> 주입으로 선택한다.</li>
+<li><strong>반환 인스턴스의 공유 여부</strong>: 팩토리가 매번 새 인스턴스를 만드는지 캐시된 인스턴스를 돌려주는지가 메서드 시그니처에 드러나지 않는다. <mark>캐시된 가변 객체를 반환하면 한 호출자의 상태 변경이 다른 호출자에게 전파되고, 멀티스레드 환경에서는 재현이 어려운 경쟁 상태로 이어진다.</mark> 공유 인스턴스를 반환한다면 불변으로 만들거나 이름에 <code>getInstance</code> 계열을 써서 계약을 드러낸다.</li>
+<li><strong>Abstract Factory에 제품 추가</strong>: 새 제품 메서드를 인터페이스 <code>default</code>로 추가하고 <code>UnsupportedOperationException</code>을 던지게 두면 <mark>구현하지 않은 팩토리가 컴파일은 통과하고 실제 호출 시점에야 실패한다.</mark> 제품 추가는 모든 구현체를 함께 고치는 작업으로 계획하고, 봉인된 인터페이스로 구현체 목록을 고정해 누락을 컴파일 단계에서 잡는다.</li>
+<li><strong>과도한 계층화</strong>: 구현이 두 개뿐인데 Abstract Factory를 도입하면 클래스 수만 늘고 얻는 것이 없다. Simple Factory로 시작해 분기가 늘어나면 Factory Method로, 짝이 맞아야 하는 객체 집합이 생기면 Abstract Factory로 올리는 순서가 적절하다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/design-patterns/singleton/">싱글톤 — 인스턴스 하나를 안전하게 보장하는 다섯 가지 구현</a></li>
+<li><a href="/notes/design-patterns/builder/">빌더 — 선택 파라미터가 많은 불변 객체 생성</a></li>
+<li><a href="/notes/design-patterns/dependency-injection/">의존성 주입 — 필드·생성자·세터 주입의 차이</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Factory Method, Abstract Factory, Simple Factory, Java 21, Spring</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/design-patterns/singleton/"><small>이전</small>싱글톤 — 인스턴스 하나를 안전하게 보장하는 다섯 가지 구현</a>
+  <a class="next" href="/notes/design-patterns/builder/"><small>다음</small>빌더 — 선택 파라미터가 많은 불변 객체 생성</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

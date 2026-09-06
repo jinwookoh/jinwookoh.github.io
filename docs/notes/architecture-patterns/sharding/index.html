@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>샤딩 — 수평 분할과 샤드 키 선택 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="샤드 키는 조회 패턴과 값 분포로 고르고, 해시 샤딩은 가상 버킷을 두어 노드 추가 시 재배치 범위를 줄인다.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="샤딩 — 수평 분할과 샤드 키 선택 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="샤드 키는 조회 패턴과 값 분포로 고르고, 해시 샤딩은 가상 버킷을 두어 노드 추가 시 재배치 범위를 줄인다.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/sharding/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>샤딩 — 수평 분할과 샤드 키 선택</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · 데이터</p>
+  <h1>샤딩 — 수평 분할과 샤드 키 선택</h1>
+  <p class="summary">샤드 키는 조회 패턴과 값 분포로 고르고, 해시 샤딩은 가상 버킷을 두어 노드 추가 시 재배치 범위를 줄인다.</p>
+  <div class="content">
+<p>단일 DB 인스턴스는 디스크 용량, 쓰기 처리량, 커넥션 수에 상한이 있다. 읽기 부하는 복제본을 늘려 나눌 수 있지만 쓰기는 전부 프라이머리 한 대로 몰리고, 테이블 하나가 수십억 행에 이르면 인덱스가 메모리에 들어가지 않아 조회도 함께 느려진다. 샤딩은 같은 스키마의 테이블을 행 단위로 잘라 여러 DB 인스턴스(샤드)에 나누어 두는 수평 분할이다. 각 샤드가 독립적으로 쓰기를 처리하므로 처리량이 샤드 수에 비례해 늘어나지만, 어떤 행이 어느 샤드에 있는지를 결정하는 샤드 키를 잘못 고르면 부하가 한 샤드에 쏠리거나 모든 조회가 전 샤드를 훑게 된다.</p>
+<h2>핵심 개념</h2>
+<p>샤드 키는 행을 샤드에 배정하는 기준 컬럼이다. 좋은 샤드 키의 조건은 두 가지다. 값의 분포가 고르고 카디널리티가 높아야 하며, 자주 실행하는 조회의 WHERE 조건에 포함되어야 한다. 전자가 깨지면 핫스팟이 생기고, 후자가 깨지면 라우터가 대상 샤드를 특정하지 못해 모든 샤드에 질의를 보내야 한다. 사용자 중심 서비스가 user_id를 샤드 키로 두는 이유는 대부분의 조회가 한 사용자 범위 안에서 끝나기 때문이다.</p>
+<p>레인지 샤딩은 키의 구간으로 나눈다. id 1<del>100만은 샤드 A, 100만</del>200만은 샤드 B에 두는 식이다. 구간 경계만 추가하면 샤드를 늘릴 수 있고 BETWEEN 조회가 특정 샤드로 좁혀진다. 대신 키가 단조 증가하면 새로 들어오는 쓰기가 항상 마지막 샤드에 집중된다. 시간 기반 키를 쓰는 로그성 데이터처럼 최신 구간만 활발한 경우 나머지 샤드는 용량만 차지한다.</p>
+<p>해시 샤딩은 hash(key)를 샤드 수로 나눈 나머지로 위치를 정한다. 키의 순서와 무관하게 고르게 퍼지므로 쓰기 분산에 유리하지만, 범위 조회는 전 샤드를 대상으로 해야 한다. <mark>hash(key) % N으로 물리 노드에 직접 매핑하면 노드를 하나 추가할 때 대부분의 키가 다른 노드로 옮겨져야 하므로, 처음부터 물리 노드 수보다 훨씬 큰 고정 개수의 가상 버킷에 매핑하고 버킷을 노드에 배정하는 두 단계로 나눈다.</mark> 노드를 추가할 때는 버킷 일부만 옮기면 되고, 일관성 해싱은 같은 목표를 해시 링 위의 가상 노드로 푼다.</p>
+<p>디렉터리 샤딩은 키와 샤드의 매핑을 별도 테이블에 저장한다. 어떤 키든 원하는 샤드로 보낼 수 있고 이동도 매핑 수정으로 끝나지만, 모든 요청이 매핑 조회를 거치므로 그 테이블이 단일 장애점이자 병목이 된다. 보통 매핑을 캐시에 올려 두고 쓴다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>레인지 샤딩</th>
+<th>해시 샤딩</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>분할 기준</td>
+<td>키 구간, 날짜, 지역</td>
+<td>hash(key)를 버킷 수로 나눈 나머지</td>
+</tr>
+<tr>
+<td>데이터 분포</td>
+<td>최신 구간에 쏠리기 쉬움</td>
+<td>균등</td>
+</tr>
+<tr>
+<td>유리한 조회</td>
+<td>범위 조회</td>
+<td>단건·동등 조회</td>
+</tr>
+<tr>
+<td>샤드 추가</td>
+<td>구간 경계 추가</td>
+<td>버킷 재배정 필요</td>
+</tr>
+<tr>
+<td>적합한 데이터</td>
+<td>시계열 로그, 지역별 데이터</td>
+<td>사용자 데이터, 세션, 피드</td>
+</tr>
+</tbody></table>
+<p>샤드를 나누는 순간 잃는 것이 있다. 샤드 간 JOIN이 불가능하므로 함께 조회하는 데이터는 같은 샤드에 두거나 애플리케이션에서 합쳐야 한다. 여러 샤드에 걸친 쓰기는 하나의 트랜잭션으로 묶이지 않는다. 샤드별 auto increment는 서로 겹치므로 전역 유일 ID 생성기가 따로 필요하다. MongoDB, Cassandra 같은 분산 저장소는 라우팅과 재분배를 내장하지만, 관계형 DB를 샤딩하면 애플리케이션이나 프록시 계층에서 직접 구현한다.</p>
+<h2>코드</h2>
+<p>가상 버킷 기반 해시 라우터다. 버킷 수는 고정하고 버킷과 물리 샤드의 매핑만 바꾸므로, 샤드를 추가할 때 이동하는 데이터가 일부 버킷으로 한정된다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> java.util.stream.Collectors;
+<span class="hljs-keyword">import</span> java.util.stream.IntStream;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ShardRouter</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">int</span> <span class="hljs-variable">BUCKETS</span> <span class="hljs-operator">=</span> <span class="hljs-number">1024</span>;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> Map&lt;Integer, String&gt; bucketToShard;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ShardRouter</span><span class="hljs-params">(List&lt;String&gt; shardNames)</span> {
+        <span class="hljs-built_in">this</span>.bucketToShard = IntStream.range(<span class="hljs-number">0</span>, BUCKETS).boxed()
+                .collect(Collectors.toUnmodifiableMap(
+                        b -&gt; b,
+                        b -&gt; shardNames.get(b % shardNames.size())));
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">String</span> <span class="hljs-title function_">shardFor</span><span class="hljs-params">(<span class="hljs-type">long</span> userId)</span> {
+        <span class="hljs-type">int</span> <span class="hljs-variable">bucket</span> <span class="hljs-operator">=</span> Math.floorMod(Long.hashCode(userId), BUCKETS);
+        <span class="hljs-keyword">return</span> bucketToShard.get(bucket);
+    }
+}</code></pre>
+<p>Spring의 AbstractRoutingDataSource로 요청마다 대상 샤드의 DataSource를 고른다. 라우팅 키는 ThreadLocal에 담아 두고, 커넥션을 얻는 시점에 determineCurrentLookupKey()가 읽는다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.Map;
+<span class="hljs-keyword">import</span> javax.sql.DataSource;
+<span class="hljs-keyword">import</span> org.springframework.beans.factory.annotation.Qualifier;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Bean;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Configuration;
+<span class="hljs-keyword">import</span> org.springframework.context.annotation.Primary;
+<span class="hljs-keyword">import</span> org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ShardContext</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">ThreadLocal</span>&lt;String&gt; <span class="hljs-variable">CURRENT</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ThreadLocal</span>&lt;&gt;();
+
+    <span class="hljs-type">private</span> <span class="hljs-title function_">ShardContext</span><span class="hljs-params">()</span> {}
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">set</span><span class="hljs-params">(String shard)</span> { CURRENT.set(shard); }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">String</span> <span class="hljs-title function_">current</span><span class="hljs-params">()</span> { <span class="hljs-keyword">return</span> CURRENT.get(); }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-type">void</span> <span class="hljs-title function_">clear</span><span class="hljs-params">()</span> { CURRENT.remove(); }
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ShardRoutingDataSource</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">AbstractRoutingDataSource</span> {
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">protected</span> <span class="hljs-type">Object</span> <span class="hljs-title function_">determineCurrentLookupKey</span><span class="hljs-params">()</span> {
+        <span class="hljs-keyword">return</span> ShardContext.current();
+    }
+}
+
+<span class="hljs-meta">@Configuration</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ShardDataSourceConfig</span> {
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-meta">@Primary</span>
+    <span class="hljs-type">DataSource</span> <span class="hljs-title function_">dataSource</span><span class="hljs-params">(<span class="hljs-meta">@Qualifier(&quot;shard0&quot;)</span> DataSource shard0,
+                          <span class="hljs-meta">@Qualifier(&quot;shard1&quot;)</span> DataSource shard1)</span> {
+        <span class="hljs-type">var</span> <span class="hljs-variable">routing</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">ShardRoutingDataSource</span>();
+        routing.setTargetDataSources(Map.of(<span class="hljs-string">&quot;shard-0&quot;</span>, shard0, <span class="hljs-string">&quot;shard-1&quot;</span>, shard1));
+        routing.setDefaultTargetDataSource(shard0);
+        <span class="hljs-keyword">return</span> routing;
+    }
+}</code></pre>
+<p>서비스에서는 트랜잭션에 들어가기 전에 라우팅 키를 정하고, 끝나면 반드시 지운다. 스레드 풀에서 스레드가 재사용되므로 clear()를 빠뜨리면 다음 요청이 이전 샤드로 간다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> java.util.List;
+<span class="hljs-keyword">import</span> org.springframework.stereotype.Service;
+<span class="hljs-keyword">import</span> org.springframework.transaction.support.TransactionTemplate;
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderQueryService</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> ShardRouter router;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> OrderRepository repository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> TransactionTemplate tx;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">OrderQueryService</span><span class="hljs-params">(ShardRouter router, OrderRepository repository,
+                             TransactionTemplate tx)</span> {
+        <span class="hljs-built_in">this</span>.router = router;
+        <span class="hljs-built_in">this</span>.repository = repository;
+        <span class="hljs-built_in">this</span>.tx = tx;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">List</span>&lt;Order&gt; <span class="hljs-title function_">ordersOf</span><span class="hljs-params">(<span class="hljs-type">long</span> userId)</span> {
+        ShardContext.set(router.shardFor(userId));
+        <span class="hljs-keyword">try</span> {
+            <span class="hljs-keyword">return</span> tx.execute(status -&gt; repository.findByUserId(userId));
+        } <span class="hljs-keyword">finally</span> {
+            ShardContext.clear();
+        }
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>샤드 키 변경은 전체 데이터 재배치와 같다. <mark>샤드 키는 데이터가 쌓인 뒤에는 사실상 바꿀 수 없는 결정이므로, 현재 조회 패턴뿐 아니라 앞으로 추가될 조회가 그 키를 조건에 포함할 수 있는지까지 보고 정한다.</mark></li>
+<li>샤드 키가 조건에 없는 조회는 모든 샤드에 질의를 보내 결과를 합치는 scatter-gather가 된다. 정렬과 페이지네이션은 각 샤드의 결과를 다시 합쳐 정렬해야 하므로 오프셋 방식은 샤드 수만큼 비용이 배가된다. 이런 조회가 많으면 검색 인덱스나 조회 전용 모델을 따로 둔다.</li>
+<li><mark>샤드마다 auto increment를 그대로 쓰면 다른 샤드의 행과 같은 ID가 생겨, 나중에 샤드를 합치거나 ID만으로 행을 찾는 API에서 충돌한다.</mark> Snowflake 방식이나 UUID v7처럼 시간순 정렬이 가능한 전역 ID를 쓴다.</li>
+<li><mark>AbstractRoutingDataSource의 determineCurrentLookupKey()는 커넥션을 얻는 시점, 즉 트랜잭션 시작 시 한 번 호출되므로 @Transactional 메서드 안에서 ShardContext를 바꿔도 이미 잡은 커넥션은 바뀌지 않는다.</mark> 라우팅 키는 트랜잭션 경계 바깥에서 정하고, 여러 샤드를 순회해야 하면 샤드마다 트랜잭션을 따로 연다.</li>
+<li>해시 샤딩이라도 대형 계정이나 인기 게시물처럼 키 하나에 트래픽이 몰리면 분산되지 않는다. 샤드별 QPS와 용량을 상시 관측하고, 특정 키가 커지면 하위 키를 붙인 복합 키로 다시 나눈다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/caching/">캐싱 — Look-aside·Write-through·Write-behind</a></li>
+<li><a href="/notes/architecture-patterns/pagination/">페이지네이션 — 오프셋과 커서</a></li>
+<li><a href="/notes/architecture-patterns/multi-tenancy/">멀티테넌시 — 테넌트별 데이터 격리 전략</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Sharding, Shard Key, Consistent Hashing, AbstractRoutingDataSource, Resharding</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/caching/"><small>이전</small>캐싱 — Look-aside·Write-through·Write-behind</a>
+  <a class="next" href="/notes/architecture-patterns/cqrs/"><small>다음</small>CQRS — 명령과 조회 모델 분리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

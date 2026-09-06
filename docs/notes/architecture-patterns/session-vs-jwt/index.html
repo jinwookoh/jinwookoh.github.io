@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인증 상태 관리 — 세션과 JWT · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="세션은 서버가 상태를 쥐어 즉시 회수하고, JWT는 서명 검증만으로 확장하되 회수 불가를 리프레시 토큰으로 보완한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="인증 상태 관리 — 세션과 JWT · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="세션은 서버가 상태를 쥐어 즉시 회수하고, JWT는 서명 검증만으로 확장하되 회수 불가를 리프레시 토큰으로 보완한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/session-vs-jwt/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>인증 상태 관리 — 세션과 JWT</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · API·운영</p>
+  <h1>인증 상태 관리 — 세션과 JWT</h1>
+  <p class="summary">세션은 서버가 상태를 쥐어 즉시 회수하고, JWT는 서명 검증만으로 확장하되 회수 불가를 리프레시 토큰으로 보완한다</p>
+  <div class="content">
+<p>HTTP는 요청 사이에 아무것도 기억하지 않는다. 로그인에 성공했더라도 다음 요청은 이전 요청과 무관한 새 연결이므로, 서버는 &quot;이 요청을 보낸 주체가 방금 인증된 그 사용자&quot;라는 사실을 별도 장치로 이어 붙여야 한다. 이 장치가 없으면 매 요청마다 자격 증명을 다시 보내야 한다. 상태를 서버가 보관하느냐(세션), 클라이언트가 들고 다니느냐(토큰)에 따라 확장 방식, 강제 로그아웃 가능 여부, 저장소 구성이 달라진다.</p>
+<h2>핵심 개념</h2>
+<p>세션 기반 인증은 서버가 인증 결과를 저장소에 보관하고 클라이언트에는 그 항목을 가리키는 식별자만 준다. 로그인이 성공하면 서버가 무작위 세션 ID를 만들어 <code>Set-Cookie: JSESSIONID=...</code>로 내려주고, 이후 요청은 쿠키의 ID로 저장소를 조회해 주체를 복원한다. Spring Security는 별도 설정이 없으면 이 방식으로 동작하며 <code>SecurityContext</code>를 <code>HttpSession</code>에 저장한다. 클라이언트가 가진 값은 의미 없는 난수이고, 서버가 저장소에서 항목을 지우는 순간 해당 사용자는 즉시 로그아웃된다. <mark>로드 밸런서 뒤에 인스턴스가 두 대 이상이면 세션 저장소를 Redis 같은 외부 저장소로 옮기거나 스티키 세션을 걸지 않는 한 요청이 다른 인스턴스로 갈 때마다 로그인이 풀린다.</mark></p>
+<p>JWT는 <code>header.payload.signature</code> 세 부분을 base64url로 인코딩해 점으로 이은 문자열이다. 서버는 주체와 권한, 만료 시각(<code>exp</code>)을 payload에 넣고 비밀키(HS256) 또는 개인키(RS256·ES256)로 서명한다. 검증 측은 서명과 만료만 확인하므로 저장소 조회 없이 요청을 처리할 수 있고, 인스턴스를 늘려도 공유할 상태가 없다. <mark>payload는 암호화가 아니라 인코딩이므로 토큰을 가진 누구나 디코딩해 읽을 수 있고, 개인정보를 넣으면 그대로 노출된다.</mark> 반대로 발급된 토큰은 <code>exp</code>가 지나기 전에는 무효화할 방법이 없다.</p>
+<p>회수 불가는 액세스 토큰과 리프레시 토큰의 분리로 보완한다. 액세스 토큰은 JWT로 짧게(수 분에서 수십 분) 발급하고 상태 없이 검증한다. 리프레시 토큰은 불투명한 난수로 길게(수 일에서 수 주) 발급하되 서버 저장소에 기록한다. 액세스 토큰이 만료되면 클라이언트가 리프레시 토큰으로 재발급을 요청하고, 서버는 이때만 저장소를 조회해 차단 여부를 판단한다. 강제 로그아웃은 저장소의 리프레시 토큰을 지우는 것으로 구현되며, 반영 지연은 액세스 토큰의 남은 수명만큼이다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>세션</th>
+<th>JWT</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>상태 위치</td>
+<td>서버 저장소</td>
+<td>클라이언트</td>
+</tr>
+<tr>
+<td>요청당 비용</td>
+<td>저장소 조회 1회</td>
+<td>서명 검증(CPU)</td>
+</tr>
+<tr>
+<td>수평 확장</td>
+<td>공유 저장소 필요</td>
+<td>추가 구성 없음</td>
+</tr>
+<tr>
+<td>즉시 회수</td>
+<td>가능</td>
+<td>불가(만료 대기)</td>
+</tr>
+<tr>
+<td>전송 크기</td>
+<td>수십 바이트</td>
+<td>수백 바이트 이상</td>
+</tr>
+<tr>
+<td>적합한 환경</td>
+<td>단일 도메인 웹, 관리자 콘솔</td>
+<td>모바일 앱, 다중 서비스, 게이트웨이 뒤</td>
+</tr>
+</tbody></table>
+<h2>코드</h2>
+<p>세션 방식에서 인스턴스 간 세션을 공유하려면 Spring Session을 붙인다. 의존성 <code>spring-session-data-redis</code>를 추가하고 저장소 종류만 지정하면 <code>HttpSession</code> 구현이 Redis로 바뀐다.</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">spring:</span>
+  <span class="hljs-attr">session:</span>
+    <span class="hljs-attr">store-type:</span> <span class="hljs-string">redis</span>
+    <span class="hljs-attr">timeout:</span> <span class="hljs-string">30m</span>
+  <span class="hljs-attr">data:</span>
+    <span class="hljs-attr">redis:</span>
+      <span class="hljs-attr">host:</span> <span class="hljs-string">redis.internal</span>
+<span class="hljs-attr">server:</span>
+  <span class="hljs-attr">servlet:</span>
+    <span class="hljs-attr">session:</span>
+      <span class="hljs-attr">cookie:</span>
+        <span class="hljs-attr">http-only:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">secure:</span> <span class="hljs-literal">true</span>
+        <span class="hljs-attr">same-site:</span> <span class="hljs-string">lax</span></code></pre>
+<p>세션 방식의 <code>SecurityFilterChain</code>이다. 로그인 시 세션 ID를 교체해 세션 고정 공격을 막고, 계정당 동시 세션 수를 제한한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableWebSecurity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">SessionSecurityConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">SecurityFilterChain</span> <span class="hljs-title function_">filterChain</span><span class="hljs-params">(HttpSecurity http)</span> <span class="hljs-keyword">throws</span> Exception {
+        http
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers(<span class="hljs-string">&quot;/login&quot;</span>, <span class="hljs-string">&quot;/css/**&quot;</span>).permitAll()
+                .anyRequest().authenticated())
+            .formLogin(Customizer.withDefaults())
+            .sessionManagement(session -&gt; session
+                .sessionFixation(SessionManagementConfigurer.SessionFixationConfigurer::changeSessionId)
+                .maximumSessions(<span class="hljs-number">1</span>)
+                .maxSessionsPreventsLogin(<span class="hljs-literal">false</span>));
+        <span class="hljs-keyword">return</span> http.build();
+    }
+}</code></pre>
+<p>JWT 방식은 Spring Boot 3의 리소스 서버 지원을 사용한다. <code>spring-boot-starter-oauth2-resource-server</code>를 추가하고 <code>NimbusJwtDecoder</code>를 등록하면 <code>Authorization: Bearer</code> 헤더를 자동으로 검증한다. 세션 생성 정책은 <code>STATELESS</code>로 두어 서버가 상태를 만들지 않게 한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableWebSecurity</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">JwtSecurityConfig</span> {
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">SecurityFilterChain</span> <span class="hljs-title function_">filterChain</span><span class="hljs-params">(HttpSecurity http)</span> <span class="hljs-keyword">throws</span> Exception {
+        http
+            .csrf(AbstractHttpConfigurer::disable)
+            .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers(<span class="hljs-string">&quot;/auth/**&quot;</span>).permitAll()
+                .anyRequest().authenticated())
+            .oauth2ResourceServer(o -&gt; o.jwt(Customizer.withDefaults()));
+        <span class="hljs-keyword">return</span> http.build();
+    }
+
+    <span class="hljs-meta">@Bean</span>
+    <span class="hljs-type">JwtDecoder</span> <span class="hljs-title function_">jwtDecoder</span><span class="hljs-params">(RSAPublicKey publicKey)</span> {
+        <span class="hljs-keyword">return</span> NimbusJwtDecoder.withPublicKey(publicKey)
+            .signatureAlgorithm(SignatureAlgorithm.RS256)
+            .build();
+    }
+}</code></pre>
+<p>액세스 토큰 발급과 리프레시 토큰 회전이다. 리프레시 토큰은 해시로 저장하고, 한 번 사용된 토큰이 다시 제출되면 탈취로 간주해 해당 사용자의 리프레시 토큰을 모두 폐기한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">TokenService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Duration</span> <span class="hljs-variable">ACCESS_TTL</span> <span class="hljs-operator">=</span> Duration.ofMinutes(<span class="hljs-number">15</span>);
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Duration</span> <span class="hljs-variable">REFRESH_TTL</span> <span class="hljs-operator">=</span> Duration.ofDays(<span class="hljs-number">14</span>);
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> JwtEncoder jwtEncoder;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RefreshTokenRepository refreshTokens;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> RoleService roleService;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">TokenService</span><span class="hljs-params">(JwtEncoder jwtEncoder, RefreshTokenRepository refreshTokens, RoleService roleService)</span> {
+        <span class="hljs-built_in">this</span>.jwtEncoder = jwtEncoder;
+        <span class="hljs-built_in">this</span>.refreshTokens = refreshTokens;
+        <span class="hljs-built_in">this</span>.roleService = roleService;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">TokenPair</span> <span class="hljs-title function_">issue</span><span class="hljs-params">(String userId, List&lt;String&gt; roles)</span> {
+        <span class="hljs-type">Instant</span> <span class="hljs-variable">now</span> <span class="hljs-operator">=</span> Instant.now();
+        <span class="hljs-type">JwtClaimsSet</span> <span class="hljs-variable">claims</span> <span class="hljs-operator">=</span> JwtClaimsSet.builder()
+            .issuer(<span class="hljs-string">&quot;https://auth.example.com&quot;</span>)
+            .subject(userId)
+            .issuedAt(now)
+            .expiresAt(now.plus(ACCESS_TTL))
+            .claim(<span class="hljs-string">&quot;roles&quot;</span>, roles)
+            .build();
+        <span class="hljs-type">String</span> <span class="hljs-variable">access</span> <span class="hljs-operator">=</span> jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+
+        <span class="hljs-type">String</span> <span class="hljs-variable">refresh</span> <span class="hljs-operator">=</span> UUID.randomUUID().toString();
+        refreshTokens.save(<span class="hljs-keyword">new</span> <span class="hljs-title class_">RefreshToken</span>(sha256(refresh), userId, now.plus(REFRESH_TTL)));
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">TokenPair</span>(access, refresh);
+    }
+
+    <span class="hljs-meta">@Transactional</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">TokenPair</span> <span class="hljs-title function_">rotate</span><span class="hljs-params">(String presentedRefresh)</span> {
+        <span class="hljs-type">RefreshToken</span> <span class="hljs-variable">stored</span> <span class="hljs-operator">=</span> refreshTokens.findByHash(sha256(presentedRefresh))
+            .orElseThrow(() -&gt; <span class="hljs-keyword">new</span> <span class="hljs-title class_">InvalidTokenException</span>(<span class="hljs-string">&quot;unknown refresh token&quot;</span>));
+
+        <span class="hljs-keyword">if</span> (stored.isUsed()) {
+            refreshTokens.deleteAllByUserId(stored.userId());
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">InvalidTokenException</span>(<span class="hljs-string">&quot;refresh token reuse detected&quot;</span>);
+        }
+        <span class="hljs-keyword">if</span> (stored.expiresAt().isBefore(Instant.now())) {
+            <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">InvalidTokenException</span>(<span class="hljs-string">&quot;refresh token expired&quot;</span>);
+        }
+        stored.markUsed();
+        <span class="hljs-keyword">return</span> issue(stored.userId(), roleService.rolesOf(stored.userId()));
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li>토큰 보관 위치는 XSS와 CSRF 중 어느 쪽을 감수할지의 선택이다. <code>localStorage</code>에 두면 스크립트로 읽히므로 XSS 한 번에 토큰이 유출되고, <code>HttpOnly</code> 쿠키에 두면 XSS로부터는 안전하지만 CSRF 방어(<code>SameSite</code>, CSRF 토큰)가 다시 필요하다. 브라우저 클라이언트라면 후자가 통제하기 쉽다.</li>
+<li>블랙리스트로 JWT를 즉시 무효화하려는 시도는 결국 매 요청마다 저장소를 조회하게 만들어 세션 방식과 같은 비용으로 되돌아간다. 즉시 회수가 요구사항이면 처음부터 세션을 쓰거나 액세스 토큰 수명을 5분 이내로 줄이는 쪽이 낫다.</li>
+<li>서명 알고리즘은 검증 측이 고정해야 한다. <mark>헤더의 <code>alg</code> 값을 믿고 검증 방식을 결정하면 <code>none</code>이나 키 혼동(RS256 공개키를 HS256 비밀키로 사용) 공격에 뚫린다.</mark> <code>NimbusJwtDecoder</code>처럼 알고리즘을 명시하는 디코더를 쓰고, 오래된 라이브러리의 <code>parseClaimsJws</code> 계열 API는 최신 버전의 <code>verifyWith</code>로 교체한다.</li>
+<li>인스턴스 간 시계 차이로 방금 발급한 토큰이 &quot;아직 유효하지 않음&quot;으로 거부될 수 있다. <code>NimbusJwtDecoder</code>는 기본 60초의 허용 오차를 두며, 이 값을 0으로 줄이면 NTP 동기화가 조금만 흔들려도 간헐적 401이 발생한다.</li>
+<li>세션 저장소를 Redis로 옮기면 Redis 장애가 곧 전체 로그아웃이다. <code>SecurityContext</code> 직렬화 형식이 Spring Security 버전 사이에 바뀔 수 있으므로 롤링 업그레이드 전에 역직렬화 호환을 확인한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/api-gateway/">API 게이트웨이 — 단일 진입점과 BFF</a></li>
+<li><a href="/notes/architecture-patterns/caching/">캐싱 — Look-aside·Write-through·Write-behind</a></li>
+<li><a href="/notes/architecture-patterns/multi-tenancy/">멀티테넌시 — 테넌트별 데이터 격리 전략</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Session, JWT, Spring Security, Refresh Token, Stateless</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/api-versioning/"><small>이전</small>API 버저닝 — 버전 정보의 위치와 호환성</a>
+  <a class="next" href="/notes/architecture-patterns/multi-tenancy/"><small>다음</small>멀티테넌시 — 테넌트별 데이터 격리 전략</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

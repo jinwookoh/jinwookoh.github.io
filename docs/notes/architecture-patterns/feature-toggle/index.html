@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>피처 토글 — 배포와 릴리스 분리 · 백엔드 아키텍처 패턴</title>
+  <meta name="description" content="코드 배포와 기능 공개를 분리해 재배포 없이 기능을 켜고 끄고, 일부 사용자에게만 점진적으로 여는 방법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="피처 토글 — 배포와 릴리스 분리 · 백엔드 아키텍처 패턴">
+  <meta property="og:description" content="코드 배포와 기능 공개를 분리해 재배포 없이 기능을 켜고 끄고, 일부 사용자에게만 점진적으로 여는 방법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/architecture-patterns/feature-toggle/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/architecture-patterns/">백엔드 아키텍처 패턴</a><span class="sep">›</span><span>피처 토글 — 배포와 릴리스 분리</span></nav>
+    <article class="post">
+  <p class="part">백엔드 아키텍처 패턴 · API·운영</p>
+  <h1>피처 토글 — 배포와 릴리스 분리</h1>
+  <p class="summary">코드 배포와 기능 공개를 분리해 재배포 없이 기능을 켜고 끄고, 일부 사용자에게만 점진적으로 여는 방법</p>
+  <div class="content">
+<p>새 결제 로직을 배포한 직후 치명적 결함이 드러나면 코드 수정, 빌드, 재배포까지 수십 분이 걸리고 그동안 결제는 중단된다. 배포 행위가 기능 공개와 묶여 있기 때문이다. 반대 방향의 문제도 있다. 완성되지 않은 기능은 메인 브랜치에 합칠 수 없어 장기 브랜치가 생기고, 병합 시점에 충돌이 누적된다. 피처 토글은 기능의 활성 여부를 코드 밖에서 결정하는 분기점을 두어 배포(deploy)와 릴리스(release)를 분리한다. 코드는 먼저 나가고, 기능은 준비됐을 때 켠다.</p>
+<h2>핵심 개념</h2>
+<p>토글은 기능 실행 경로 앞에 놓인 조건 분기이며, 조건값이 어디에서 오는지에 따라 두 방식으로 나뉜다.</p>
+<p>정적 토글은 <code>application.yml</code>이나 환경 변수에 값을 두는 방식이다. 구현이 가장 단순하고, 미완성 코드를 <code>false</code>로 막아둔 채 트렁크에 병합하는 용도에 적합하다. 값을 바꾸려면 재시작 또는 설정 리로드가 필요하므로 긴급 차단 용도로는 반응이 느리고, 조건 없이 시스템 전체에 일괄 적용된다.</p>
+<p>동적 토글은 DB, Redis, 또는 Unleash·LaunchDarkly 같은 토글 관리 서버에서 런타임에 값을 읽는다. 재배포 없이 즉시 반영되고, 요청 컨텍스트(사용자 ID, IP 대역, 가입일)를 조건으로 넣어 특정 집단에만 활성화할 수 있다. 카나리 릴리스와 A/B 테스트가 이 위에서 동작한다.</p>
+<table>
+<thead>
+<tr>
+<th>구분</th>
+<th>정적 토글</th>
+<th>동적 토글</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>값의 위치</td>
+<td>yml, 환경 변수</td>
+<td>DB, Redis, 외부 SaaS</td>
+</tr>
+<tr>
+<td>변경 반영</td>
+<td>재시작·리로드</td>
+<td>런타임 즉시</td>
+</tr>
+<tr>
+<td>적용 단위</td>
+<td>전체 일괄</td>
+<td>사용자·조건별</td>
+</tr>
+<tr>
+<td>주 용도</td>
+<td>미완성 코드 은닉, 점검 모드</td>
+<td>카나리, A/B, 긴급 차단</td>
+</tr>
+</tbody></table>
+<p>토글은 수명과 용도로도 구분한다. 릴리스 토글은 미완성 기능을 숨기며 며칠에서 몇 주 안에 제거된다. 실험 토글은 A/B 테스트용으로 실험 종료와 함께 사라진다. 운영 토글은 부하가 큰 기능을 끄는 킬 스위치로 오래 남는다. 권한 토글은 특정 고객군에만 기능을 여는 용도다. 수명이 다른 토글을 한 체계로 섞어 관리하면 제거 시점을 놓친다.</p>
+<p>동적 토글을 이용한 카나리 릴리스는 다음 순서로 진행한다. 토글 OFF 상태로 배포하고, 사내 IP 대역만 ON으로 바꿔 내부 검증을 거친 뒤, 전체 사용자의 1%를 ON으로 열어 에러율과 지연을 관찰한다. 이상이 없으면 10%, 50%, 100%로 넓히고, 문제가 나오면 토글을 OFF로 되돌린다.</p>
+<h2>코드</h2>
+<p>정적 토글. <code>application.yml</code> 값을 <code>@ConfigurationProperties</code> 레코드로 바인딩한다(<code>@ConfigurationPropertiesScan</code> 또는 <code>@EnableConfigurationProperties</code> 등록이 필요하다).</p>
+<pre><code class="hljs language-yaml"><span class="hljs-attr">features:</span>
+  <span class="hljs-attr">new-billing:</span> <span class="hljs-literal">false</span></code></pre>
+<pre><code class="hljs language-java"><span class="hljs-meta">@ConfigurationProperties(prefix = &quot;features&quot;)</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">FeatureProperties</span><span class="hljs-params">(<span class="hljs-type">boolean</span> newBilling)</span> {}
+
+<span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">BillingService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> FeatureProperties features;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> LegacyBillingClient legacy;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> NewBillingClient next;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">BillingService</span><span class="hljs-params">(FeatureProperties features,
+                          LegacyBillingClient legacy,
+                          NewBillingClient next)</span> {
+        <span class="hljs-built_in">this</span>.features = features;
+        <span class="hljs-built_in">this</span>.legacy = legacy;
+        <span class="hljs-built_in">this</span>.next = next;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">PaymentResult</span> <span class="hljs-title function_">pay</span><span class="hljs-params">(PaymentRequest request)</span> {
+        <span class="hljs-keyword">return</span> features.newBilling()
+                ? next.pay(request)
+                : legacy.pay(request);
+    }
+}</code></pre>
+<p>동적 토글. 토글 상태를 DB에 두고 요청 컨텍스트로 활성 여부를 판단한다. 30초 TTL의 로컬 캐시로 매 요청 조회를 막고, 퍼센트 롤아웃은 사용자 ID 해시로 버킷을 정한다.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">FeatureContext</span><span class="hljs-params">(<span class="hljs-type">long</span> userId, String clientIp)</span> {}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title class_">FeatureFlag</span><span class="hljs-params">(String name, <span class="hljs-type">boolean</span> enabled,
+                          <span class="hljs-type">int</span> rolloutPercent, Set&lt;Long&gt; allowedUserIds)</span> {
+    <span class="hljs-keyword">static</span> <span class="hljs-type">FeatureFlag</span> <span class="hljs-title function_">disabled</span><span class="hljs-params">(String name)</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">FeatureFlag</span>(name, <span class="hljs-literal">false</span>, <span class="hljs-number">0</span>, Set.of());
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">FeatureManager</span> {
+    <span class="hljs-type">boolean</span> <span class="hljs-title function_">isActive</span><span class="hljs-params">(String feature, FeatureContext ctx)</span>;
+}
+
+<span class="hljs-meta">@Component</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DbFeatureManager</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">FeatureManager</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> FeatureFlagRepository repository;
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> <span class="hljs-type">Cache</span>&lt;String, FeatureFlag&gt; <span class="hljs-variable">cache</span> <span class="hljs-operator">=</span> Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(<span class="hljs-number">30</span>))
+            .build();
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">DbFeatureManager</span><span class="hljs-params">(FeatureFlagRepository repository)</span> {
+        <span class="hljs-built_in">this</span>.repository = repository;
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-type">boolean</span> <span class="hljs-title function_">isActive</span><span class="hljs-params">(String feature, FeatureContext ctx)</span> {
+        <span class="hljs-type">FeatureFlag</span> <span class="hljs-variable">flag</span> <span class="hljs-operator">=</span> cache.get(feature, key -&gt;
+                repository.findByName(key).orElse(FeatureFlag.disabled(key)));
+        <span class="hljs-keyword">if</span> (!flag.enabled()) {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+        }
+        <span class="hljs-keyword">if</span> (flag.allowedUserIds().contains(ctx.userId())) {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        }
+        <span class="hljs-type">int</span> <span class="hljs-variable">bucket</span> <span class="hljs-operator">=</span> Math.floorMod(Objects.hash(feature, ctx.userId()), <span class="hljs-number">100</span>);
+        <span class="hljs-keyword">return</span> bucket &lt; flag.rolloutPercent();
+    }
+}</code></pre>
+<p>사용처. 토글 평가를 서비스 진입점에서 한 번만 수행하고 결과에 따라 경로를 고른다.</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProductService</span> {
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">final</span> FeatureManager features;
+
+    <span class="hljs-type">public</span> <span class="hljs-title function_">ProductService</span><span class="hljs-params">(FeatureManager features)</span> {
+        <span class="hljs-built_in">this</span>.features = features;
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-type">ProductView</span> <span class="hljs-title function_">getProduct</span><span class="hljs-params">(<span class="hljs-type">long</span> productId, FeatureContext ctx)</span> {
+        <span class="hljs-keyword">if</span> (features.isActive(<span class="hljs-string">&quot;new-product-ui&quot;</span>, ctx)) {
+            <span class="hljs-keyword">return</span> renderNewUi(productId);
+        }
+        <span class="hljs-keyword">return</span> renderLegacyUi(productId);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>평가 결과의 일관성.</strong> 같은 사용자가 요청마다 다른 그룹에 떨어지면 A/B 결과가 오염되고 화면이 요청마다 바뀐다. <mark>퍼센트 롤아웃은 난수가 아니라 사용자 ID 해시로 버킷을 정해야 같은 사용자가 항상 같은 경로를 탄다.</mark> 한 요청 안에서 토글을 여러 번 평가하지 말고 진입점에서 한 번 평가한 결과를 전달한다.</li>
+<li><strong>토글 저장소 장애.</strong> 매 요청마다 외부 저장소를 조회하면 지연이 누적되고, 저장소가 멈추면 서비스 전체가 멈춘다. 로컬 캐시에 TTL을 두고, <mark>저장소 조회 실패 시 마지막으로 성공한 값이나 명시된 기본값으로 폴백하지 않으면 토글 서버 장애가 곧 서비스 장애가 된다.</mark></li>
+<li><strong>되돌릴 수 없는 변경.</strong> 새 기능이 DB 스키마나 데이터 형식을 바꿨다면 토글을 끄는 것만으로 이전 상태로 돌아가지 않는다. <mark>토글로 끌 수 있는 것은 실행 경로뿐이므로 스키마 변경은 신구 코드가 모두 읽을 수 있는 확장-수축(expand-contract) 방식으로 따로 관리한다.</mark></li>
+<li><strong>제거되지 않는 토글.</strong> 릴리스가 끝난 토글의 분기는 죽은 코드가 되고, 토글이 n개면 이론상 2^n 조합의 경로가 생겨 테스트 범위가 정해지지 않는다. 토글 생성 시 소유자와 만료일을 기록하고, 만료된 토글은 빌드 경고나 테스트 실패로 드러나게 한다.</li>
+<li><strong>응답 캐시와의 충돌.</strong> 토글 결과가 응답 캐시에 섞이면 토글을 껐는데도 캐시된 새 화면이 계속 나가고, 켰는데도 옛 응답이 나간다. 캐시 키에 토글 상태를 포함하거나 토글 변경 시 해당 캐시를 무효화한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/architecture-patterns/api-versioning/">API 버저닝 — 버전 정보의 위치와 호환성</a></li>
+<li><a href="/notes/architecture-patterns/strangler-fig/">스트랭글러 — 레거시를 점진적으로 교체하기</a></li>
+<li><a href="/notes/architecture-patterns/caching/">캐싱 — Look-aside·Write-through·Write-behind</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Feature Toggle, Canary Release, Trunk-based Development, Kill Switch, Spring Boot</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/architecture-patterns/multi-tenancy/"><small>이전</small>멀티테넌시 — 테넌트별 데이터 격리 전략</a>
+  <a class="next" href="/notes/architecture-patterns/strangler-fig/"><small>다음</small>스트랭글러 — 레거시를 점진적으로 교체하기</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
