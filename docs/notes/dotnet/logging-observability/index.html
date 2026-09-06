@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크 · .NET</title>
+  <meta name="description" content="ILogger 구조화 로그, OpenTelemetry로 로그·메트릭·추적을 한 파이프라인으로 내보내는 법, readiness와 liveness를 분리한 헬스 체크 구성">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크 · .NET">
+  <meta property="og:description" content="ILogger 구조화 로그, OpenTelemetry로 로그·메트릭·추적을 한 파이프라인으로 내보내는 법, readiness와 liveness를 분리한 헬스 체크 구성">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/logging-observability/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크</span></nav>
+    <article class="post">
+  <p class="part">.NET · 운영</p>
+  <h1>로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크</h1>
+  <p class="summary">ILogger 구조화 로그, OpenTelemetry로 로그·메트릭·추적을 한 파이프라인으로 내보내는 법, readiness와 liveness를 분리한 헬스 체크 구성</p>
+  <div class="content">
+<p>장애가 났을 때 남는 것은 로그와 지표뿐이다. 문자열을 이어 붙인 로그는 검색과 집계가 되지 않고, 요청이 여러 서비스를 거치면 어느 구간에서 시간이 새는지 로그만으로 알 수 없다. 오케스트레이터가 프로세스 상태를 물을 수단이 없으면 준비되지 않은 인스턴스로 트래픽이 들어간다. .NET은 이 문제를 <code>ILogger</code>, <code>Activity</code>·<code>Meter</code>, 헬스 체크로 다루고, OpenTelemetry는 앞의 둘을 표준 형식으로 내보내는 통로다.</p>
+<h2>핵심 개념</h2>
+<p><code>ILogger&lt;T&gt;</code>는 DI 컨테이너가 <code>ILoggerFactory</code>에서 만들어 주입하는 로거이고, <code>T</code>의 정규화된 타입 이름이 카테고리가 된다. SLF4J의 <code>Logger</code>와 로거 이름에 대응한다. 레벨은 <code>Trace</code>(0)부터 <code>Critical</code>(5)에 <code>None</code>(6)을 더한 일곱 값이고, <code>appsettings.json</code>의 <code>Logging:LogLevel</code> 섹션에서 카테고리 접두사별 최소 레벨을 정한다. 규칙은 프로바이더별로 가장 긴 카테고리 접두사가 이기고, 파일 구성은 변경을 다시 읽으므로 재시작 없이 레벨을 바꿀 수 있다.</p>
+<p>메시지는 템플릿과 인자로 나뉘어 전달된다. <code>&quot;Reading {Id}&quot;</code>처럼 이름 있는 자리 표시자를 쓰면 프로바이더가 <code>Id</code>를 별도 필드로 저장하며, 이것이 구조화 로깅의 근거다. <mark>자리 표시자 이름은 인자를 맞추는 데 쓰이지 않고 인자는 순서대로만 대응되므로, 이름 순서를 바꿔 써도 오류 없이 값이 뒤바뀐다.</mark> 문자열 보간을 넘기면 템플릿이 매 호출마다 달라져 필드 추출이 무너지고 분석기 CA2254가 경고한다. <code>[LoggerMessage]</code> 특성을 붙인 <code>partial</code> 메서드는 소스 생성기가 본문을 만들어 박싱과 템플릿 파싱을 없애고, 레벨이 꺼져 있으면 인자 평가를 건너뛴다. <code>BeginScope</code>는 Java의 MDC에 해당하며, 콘솔 프로바이더는 <code>IncludeScopes</code>를 켜야 출력한다.</p>
+<p>OpenTelemetry의 .NET 구현은 계측 API를 따로 제공하지 않고 런타임에 있는 <code>ILogger</code>, <code>ActivitySource</code>·<code>Activity</code>(추적), <code>Meter</code>(메트릭)를 그대로 쓴다. OTel SDK는 이 소스에서 데이터를 모아 OTLP 같은 형식으로 내보내는 계층만 맡는다. <code>Activity</code>가 스팬, <code>ActivitySource</code>가 트레이서라는 점에서 Micrometer Tracing의 <code>Span</code>·<code>Tracer</code>에, <code>Meter</code>는 <code>MeterRegistry</code>에 대응한다. <code>AddOpenTelemetry()</code>에 <code>WithTracing</code>·<code>WithMetrics</code>를 이어 붙이고 계측 패키지로 인바운드·아웃바운드 스팬을 자동으로 얻는다. <code>UseOtlpExporter()</code>는 세 신호를 한 번에 OTLP 엔드포인트로 보내며, 목적지와 서비스 이름은 <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>·<code>OTEL_SERVICE_NAME</code> 환경 변수로 준다.</p>
+<p>헬스 체크는 Spring Actuator의 <code>HealthIndicator</code>와 <code>/actuator/health</code>에 해당한다. <code>AddHealthChecks()</code>로 등록하고 <code>MapHealthChecks(&quot;/healthz&quot;)</code>로 엔드포인트 라우팅에 붙인다. 각 검사는 <code>IHealthCheck</code>를 구현해 <code>Healthy</code>·<code>Degraded</code>·<code>Unhealthy</code> 중 하나를 돌려주고, 기본 상태 코드는 앞의 둘이 200, <code>Unhealthy</code>가 503이다. 태그와 <code>HealthCheckOptions.Predicate</code>로 readiness와 liveness 엔드포인트를 분리한다.</p>
+<h2>코드</h2>
+<p>소스 생성 로거와 범위를 함께 쓰는 서비스다. <code>partial</code> 클래스에 특성 메서드를 선언하면 본문은 컴파일 시점에 생성된다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">partial</span> <span class="hljs-keyword">class</span> <span class="hljs-title">OrderService</span>(<span class="hljs-params">ILogger&lt;OrderService&gt; logger, ShopDbContext db</span>)</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">async</span> Task&lt;Order?&gt; GetAsync(<span class="hljs-built_in">int</span> id, CancellationToken ct)
+    {
+        <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> scope = logger.BeginScope(<span class="hljs-keyword">new</span> Dictionary&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">object</span>&gt; { [<span class="hljs-string">&quot;OrderId&quot;</span>] = id });
+        LogReading(logger, id);
+
+        <span class="hljs-keyword">var</span> order = <span class="hljs-keyword">await</span> db.Orders.AsNoTracking().FirstOrDefaultAsync(o =&gt; o.Id == id, ct);
+        <span class="hljs-keyword">if</span> (order <span class="hljs-keyword">is</span> <span class="hljs-literal">null</span>) LogNotFound(logger, id);
+        <span class="hljs-keyword">return</span> order;
+    }
+
+    [<span class="hljs-meta">LoggerMessage(EventId = 1001, Level = LogLevel.Information, Message = <span class="hljs-string">&quot;Reading order {Id}&quot;</span>)</span>]
+    <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">partial</span> <span class="hljs-keyword">void</span> <span class="hljs-title">LogReading</span>(<span class="hljs-params">ILogger logger, <span class="hljs-built_in">int</span> id</span>)</span>;
+
+    [<span class="hljs-meta">LoggerMessage(EventId = 4001, Level = LogLevel.Warning, Message = <span class="hljs-string">&quot;Order {Id} not found&quot;</span>)</span>]
+    <span class="hljs-function"><span class="hljs-keyword">private</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">partial</span> <span class="hljs-keyword">void</span> <span class="hljs-title">LogNotFound</span>(<span class="hljs-params">ILogger logger, <span class="hljs-built_in">int</span> id</span>)</span>;
+}</code></pre>
+<p><code>Program.cs</code>에서 로그·메트릭·추적을 OTel로 묶고, 애플리케이션 고유 <code>ActivitySource</code>와 <code>Meter</code>를 등록해 OTLP로 내보낸다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> System.Diagnostics;
+<span class="hljs-keyword">using</span> System.Diagnostics.Metrics;
+<span class="hljs-keyword">using</span> OpenTelemetry.Logs;
+
+<span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+<span class="hljs-keyword">var</span> meter = <span class="hljs-keyword">new</span> Meter(<span class="hljs-string">&quot;Shop.Orders&quot;</span>, <span class="hljs-string">&quot;1.0.0&quot;</span>);
+<span class="hljs-keyword">var</span> ordersCreated = meter.CreateCounter&lt;<span class="hljs-built_in">long</span>&gt;(<span class="hljs-string">&quot;orders.created&quot;</span>, description: <span class="hljs-string">&quot;Number of created orders&quot;</span>);
+<span class="hljs-keyword">var</span> activitySource = <span class="hljs-keyword">new</span> ActivitySource(<span class="hljs-string">&quot;Shop.Orders&quot;</span>);
+
+builder.Logging.AddOpenTelemetry(o =&gt;
+{
+    o.IncludeFormattedMessage = <span class="hljs-literal">true</span>;
+    o.IncludeScopes = <span class="hljs-literal">true</span>;
+});
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(m =&gt; m
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddRuntimeInstrumentation()
+        .AddMeter(meter.Name))
+    .WithTracing(t =&gt; t
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddSource(activitySource.Name))
+    .UseOtlpExporter();
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+
+app.MapPost(<span class="hljs-string">&quot;/orders&quot;</span>, <span class="hljs-keyword">async</span> (CreateOrder req, OrderService svc, CancellationToken ct) =&gt;
+{
+    <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> activity = activitySource.StartActivity(<span class="hljs-string">&quot;CreateOrder&quot;</span>);
+    activity?.SetTag(<span class="hljs-string">&quot;order.product_id&quot;</span>, req.ProductId);
+
+    <span class="hljs-keyword">var</span> order = <span class="hljs-keyword">await</span> svc.CreateAsync(req, ct);
+    ordersCreated.Add(<span class="hljs-number">1</span>, <span class="hljs-keyword">new</span> KeyValuePair&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">object</span>?&gt;(<span class="hljs-string">&quot;order.channel&quot;</span>, req.Channel));
+    <span class="hljs-keyword">return</span> Results.Created(<span class="hljs-string">$&quot;/orders/<span class="hljs-subst">{order.Id}</span>&quot;</span>, order);
+});
+
+app.Run();</code></pre>
+<p>DB 연결을 포함한 readiness와 프로세스 생존만 보는 liveness를 분리한 헬스 체크 구성이다.</p>
+<pre><code class="hljs language-csharp">builder.Services.AddHealthChecks()
+    .AddDbContextCheck&lt;ShopDbContext&gt;(<span class="hljs-string">&quot;database&quot;</span>, tags: [<span class="hljs-string">&quot;ready&quot;</span>])
+    .AddCheck&lt;PaymentGatewayHealthCheck&gt;(<span class="hljs-string">&quot;payment&quot;</span>, failureStatus: HealthStatus.Degraded, tags: [<span class="hljs-string">&quot;ready&quot;</span>]);
+
+app.MapHealthChecks(<span class="hljs-string">&quot;/healthz/ready&quot;</span>, <span class="hljs-keyword">new</span> HealthCheckOptions
+{
+    Predicate = r =&gt; r.Tags.Contains(<span class="hljs-string">&quot;ready&quot;</span>)
+});
+
+app.MapHealthChecks(<span class="hljs-string">&quot;/healthz/live&quot;</span>, <span class="hljs-keyword">new</span> HealthCheckOptions
+{
+    Predicate = _ =&gt; <span class="hljs-literal">false</span>
+});
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">PaymentGatewayHealthCheck</span>(<span class="hljs-params">IHttpClientFactory factory</span>) : IHealthCheck</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">async</span> Task&lt;HealthCheckResult&gt; <span class="hljs-title">CheckHealthAsync</span>(<span class="hljs-params">HealthCheckContext context, CancellationToken ct = <span class="hljs-literal">default</span></span>)</span>
+    {
+        <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> client = factory.CreateClient(<span class="hljs-string">&quot;payment&quot;</span>);
+        <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> res = <span class="hljs-keyword">await</span> client.GetAsync(<span class="hljs-string">&quot;/ping&quot;</span>, ct);
+        <span class="hljs-keyword">return</span> res.IsSuccessStatusCode
+            ? HealthCheckResult.Healthy()
+            : <span class="hljs-keyword">new</span> HealthCheckResult(context.Registration.FailureStatus, <span class="hljs-string">$&quot;payment returned <span class="hljs-subst">{(<span class="hljs-built_in">int</span>)res.StatusCode}</span>&quot;</span>);
+    }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><code>Log</code> 계열 메서드는 동기이며 비동기 오버로드가 없다. 원격 저장소에 직접 쓰는 프로바이더는 요청 스레드를 막으므로 메모리 큐와 백그라운드 작업자로 분리한다.</li>
+<li><mark><code>AddSource</code>·<code>AddMeter</code>에 이름을 등록하지 않은 <code>ActivitySource</code>와 <code>Meter</code>의 데이터는 오류 없이 버려진다.</mark> <code>StartActivity</code>는 리스너가 없으면 <code>null</code>을 돌려주므로 <code>activity?.</code> 형태로 접근한다.</li>
+<li><code>Trace</code>·<code>Debug</code>를 넓게 켠 채 배포하면 로그 비용이 급증하고 민감 정보가 섞인다. 운영은 <code>Warning</code> 이상을 기본으로 하고 조사 중인 카테고리만 낮춘다.</li>
+<li><mark>liveness 엔드포인트에 DB 같은 외부 의존성 검사를 넣으면 DB 장애 때 오케스트레이터가 정상 프로세스를 재시작 루프에 빠뜨린다.</mark> liveness는 <code>Predicate = _ =&gt; false</code>로 응답 여부만 보고, 의존성은 readiness에서 검사해 트래픽만 빼도록 나눈다.</li>
+<li>헬스 엔드포인트는 인증 없이 열리고 결과 설명에 내부 정보가 담긴다. <code>RequireHost</code>는 <code>Host</code> 헤더 스푸핑에 취약하므로 <code>RequireAuthorization()</code>을 함께 건다. 검사가 무거우면 <code>HealthCheckRegistration</code>의 <code>Period</code>로 실행 주기를 둔다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/configuration-options/">구성과 Options 패턴 — appsettings·환경·비밀 관리</a></li>
+<li><a href="/notes/dotnet/httpclient-resilience/">HttpClient — IHttpClientFactory와 복원력 파이프라인</a></li>
+<li><a href="/notes/dotnet/background-services-deploy/">백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · ILogger, OpenTelemetry, ActivitySource, Health Checks, OTLP</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/httpclient-resilience/"><small>이전</small>HttpClient — IHttpClientFactory와 복원력 파이프라인</a>
+  <a class="next" href="/notes/dotnet/testing/"><small>다음</small>테스트 — xUnit·WebApplicationFactory 통합 테스트</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

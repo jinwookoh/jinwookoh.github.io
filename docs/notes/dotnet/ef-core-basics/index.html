@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리 · .NET</title>
+  <meta name="description" content="DbContext는 요청 단위 작업 세션, 스키마는 마이그레이션, 조회는 LINQ의 SQL 번역으로 다룬다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리 · .NET">
+  <meta property="og:description" content="DbContext는 요청 단위 작업 세션, 스키마는 마이그레이션, 조회는 LINQ의 SQL 번역으로 다룬다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/ef-core-basics/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</span></nav>
+    <article class="post">
+  <p class="part">.NET · 데이터</p>
+  <h1>EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</h1>
+  <p class="summary">DbContext는 요청 단위 작업 세션, 스키마는 마이그레이션, 조회는 LINQ의 SQL 번역으로 다룬다</p>
+  <div class="content">
+<p>ADO.NET으로 SQL을 직접 다루면 문자열 쿼리와 행-객체 매핑 코드를 저장소마다 반복하게 되고, 엔티티에 속성을 추가했을 때 어느 환경의 DB에 반영됐는지 추적할 수단이 없어 배포마다 수작업 DDL이 따라온다. EF Core는 이를 DbContext(변경 추적과 저장), 마이그레이션(모델과 스키마의 버전 동기화), LINQ 번역(타입 검사를 받는 C# 식을 SQL로 변환)으로 나눠 맡는다. EF Core 10은 .NET 10 런타임에서만 동작하는 LTS 버전이다.</p>
+<h2>핵심 개념</h2>
+<h3>DbContext와 단위 작업</h3>
+<p>DbContext는 데이터베이스 세션 하나를 표현하고 DbSet<T> 속성으로 엔티티 집합을 노출한다. 생성 → 쿼리·Add로 엔티티 추적 → 변경 → SaveChangesAsync → Dispose가 한 단위 작업이다. JPA의 EntityManager와 영속성 컨텍스트에 해당하고, DbSet<T>는 Spring Data Repository와 비슷한 진입점이며, 변경 추적기는 Hibernate의 dirty checking 역할을 한다.</p>
+<p>ASP.NET Core에서는 Program.cs에서 AddDbContext<T>로 등록하며 기본 수명은 scoped다. HTTP 요청 하나가 단위 작업 하나가 되고 요청이 끝나면 컨테이너가 Dispose한다. 컨텍스트는 DbContextOptions<T>를 받는 public 생성자를 노출해야 하며, 제네릭 옵션 타입으로 컨텍스트별 설정이 구분된다.</p>
+<p>DbContext는 스레드 안전하지 않다. <mark>같은 인스턴스에서 앞선 비동기 호출을 await하지 않고 다음 작업을 시작하면 &quot;A second operation started on this context&quot; 예외가 나고, 감지되지 않으면 데이터가 조용히 깨진다.</mark> 요청 스코프와 수명이 맞지 않는 경우에는 AddDbContextFactory<T>로 만들고 직접 Dispose한다.</p>
+<h3>마이그레이션</h3>
+<p>모델이 바뀌면 dotnet ef migrations add로 마이그레이션을 추가한다. EF는 현재 모델과 저장된 모델 스냅샷을 비교해 Up/Down 코드를 생성하고, 적용 이력은 DB의 __EFMigrationsHistory 테이블에 기록한다. Flyway·Liquibase와 달리 SQL을 손으로 쓰지 않고 모델 diff로 생성한다.</p>
+<p>적용 방식은 넷이다. dotnet ef database update는 SDK와 소스가 필요해 로컬 개발용이고, 자동 배포에는 SDK 없이 실행되는 단일 파일 번들(efbundle)을, DBA 검토가 필요하면 --idempotent SQL 스크립트를 권한다. 런타임 MigrateAsync는 앱 계정에 DDL 권한을 요구한다. 스크립트를 제외한 세 방식은 EF Core 9부터 DB 전역 잠금을 잡고 실행하므로 여러 인스턴스가 동시에 시도해도 충돌하지 않는다.</p>
+<h3>LINQ 쿼리</h3>
+<p>DbSet<T>에 붙인 LINQ 연산자는 식 트리로 쌓였다가 ToListAsync·SingleAsync 같은 종단 연산에서 프로바이더가 SQL로 번역한다. 결과 엔티티가 이미 추적 중이더라도 쿼리는 항상 DB를 거친다. JPQL·QueryDSL에 해당하지만 문자열이 아닌 컴파일러 검사 식이다. 조회 전용이면 AsNoTracking으로 추적 비용을 없애고, Select 투영으로 필요한 컬럼만 읽으며, 대량 갱신·삭제는 엔티티를 로드하지 않고 ExecuteUpdateAsync·ExecuteDeleteAsync로 SQL 한 번을 보낸다.</p>
+<p>EF Core 10에서는 LeftJoin·RightJoin이 번역되고, 쿼리 필터에 이름을 붙여 선택 해제할 수 있으며, ExecuteUpdateAsync가 일반 람다를 받아 조건부 SetProperty가 가능하다.</p>
+<h2>코드</h2>
+<p>Program.cs 등록. 연결 문자열은 구성에서 읽는다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+<span class="hljs-keyword">var</span> cs = builder.Configuration.GetConnectionString(<span class="hljs-string">&quot;Default&quot;</span>)
+    ?? <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> InvalidOperationException(<span class="hljs-string">&quot;ConnectionStrings:Default 누락&quot;</span>);
+
+builder.Services.AddDbContext&lt;ShopContext&gt;(options =&gt;
+    options.UseNpgsql(cs, npgsql =&gt; npgsql.EnableRetryOnFailure()));
+
+<span class="hljs-keyword">var</span> app = builder.Build();</code></pre>
+<p>컨텍스트와 엔티티 정의. 주 생성자로 DbContextOptions<T>를 받고, 모델 구성은 OnModelCreating에 둔다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> Microsoft.EntityFrameworkCore;
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">ShopContext</span>(<span class="hljs-params">DbContextOptions&lt;ShopContext&gt; options</span>) : <span class="hljs-title">DbContext</span>(<span class="hljs-params">options</span>)</span>
+{
+    <span class="hljs-keyword">public</span> DbSet&lt;Customer&gt; Customers =&gt; Set&lt;Customer&gt;();
+    <span class="hljs-keyword">public</span> DbSet&lt;Order&gt; Orders =&gt; Set&lt;Order&gt;();
+
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> <span class="hljs-keyword">void</span> <span class="hljs-title">OnModelCreating</span>(<span class="hljs-params">ModelBuilder modelBuilder</span>)</span>
+    {
+        modelBuilder.Entity&lt;Customer&gt;(b =&gt; b.Property(c =&gt; c.Name).HasMaxLength(<span class="hljs-number">100</span>));
+
+        modelBuilder.Entity&lt;Order&gt;(b =&gt;
+        {
+            b.Property(o =&gt; o.Total).HasPrecision(<span class="hljs-number">18</span>, <span class="hljs-number">2</span>);
+            b.ComplexProperty(o =&gt; o.ShippingAddress);          <span class="hljs-comment">// 같은 테이블의 컬럼으로 분할</span>
+            b.HasQueryFilter(<span class="hljs-string">&quot;SoftDelete&quot;</span>, o =&gt; !o.IsDeleted);  <span class="hljs-comment">// 이름 있는 전역 필터</span>
+        });
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">Customer</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Id { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> Name { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> List&lt;Order&gt; Orders { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; } = [];
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">Order</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Id { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> CustomerId { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> Customer Customer { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; } = <span class="hljs-literal">null</span>!;
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">decimal</span> Total { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> Address ShippingAddress { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">bool</span> IsDeleted { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">Address</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> Street { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> City { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> ZipCode { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+}</code></pre>
+<p>마이그레이션 명령. 로컬은 database update, 배포는 CI에서 만든 번들을 배포 잡에서 한 번 실행한다.</p>
+<pre><code class="hljs language-bash">dotnet tool install --global dotnet-ef        <span class="hljs-comment"># 최초 1회, EF Core 패키지와 같은 메이저 버전</span>
+dotnet ef migrations add InitialCreate
+dotnet ef database update                     <span class="hljs-comment"># 로컬 개발용</span>
+
+dotnet ef migrations has-pending-model-changes                      <span class="hljs-comment"># CI: 누락 마이그레이션 검출</span>
+dotnet ef migrations script --idempotent -o artifacts/migrations.sql
+ASPNETCORE_ENVIRONMENT=Production \
+  dotnet ef migrations bundle --self-contained --target-runtime linux-x64 -o artifacts/efbundle
+./efbundle --connection <span class="hljs-string">&quot;<span class="hljs-variable">$DEPLOYMENT_CONNECTION_STRING</span>&quot;</span>             <span class="hljs-comment"># 배포 잡에서 1회 실행</span></code></pre>
+<p>Minimal API 조회·갱신. 추적 없는 투영, LeftJoin, 람다 기반 ExecuteUpdateAsync를 사용한다.</p>
+<pre><code class="hljs language-csharp">app.MapGet(<span class="hljs-string">&quot;/customers/{id:int}/orders&quot;</span>, <span class="hljs-keyword">async</span> (<span class="hljs-built_in">int</span> id, ShopContext db, CancellationToken ct) =&gt;
+    <span class="hljs-keyword">await</span> db.Orders
+        .AsNoTracking()
+        .Where(o =&gt; o.CustomerId == id)
+        .OrderByDescending(o =&gt; o.Id)
+        .Select(o =&gt; <span class="hljs-keyword">new</span> OrderSummary(o.Id, o.Total, o.ShippingAddress.City))
+        .ToListAsync(ct));
+
+<span class="hljs-comment">// 주문이 없는 고객도 포함 — LEFT JOIN 으로 번역</span>
+app.MapGet(<span class="hljs-string">&quot;/customers/with-orders&quot;</span>, <span class="hljs-keyword">async</span> (ShopContext db, CancellationToken ct) =&gt;
+    <span class="hljs-keyword">await</span> db.Customers
+        .LeftJoin(db.Orders, c =&gt; c.Id, o =&gt; o.CustomerId,
+            (c, o) =&gt; <span class="hljs-keyword">new</span> { c.Name, OrderId = (<span class="hljs-built_in">int</span>?)o.Id, Total = (<span class="hljs-built_in">decimal</span>?)o.Total })
+        .ToListAsync(ct));
+
+<span class="hljs-comment">// 엔티티를 로드하지 않고 UPDATE 한 번, 조건부 SetProperty</span>
+app.MapPost(<span class="hljs-string">&quot;/orders/{id:int}/cancel&quot;</span>, <span class="hljs-keyword">async</span> (<span class="hljs-built_in">int</span> id, <span class="hljs-built_in">bool</span> clearTotal, ShopContext db, CancellationToken ct) =&gt;
+{
+    <span class="hljs-keyword">var</span> affected = <span class="hljs-keyword">await</span> db.Orders
+        .Where(o =&gt; o.Id == id)
+        .ExecuteUpdateAsync(s =&gt;
+        {
+            s.SetProperty(o =&gt; o.IsDeleted, <span class="hljs-literal">true</span>);
+            <span class="hljs-keyword">if</span> (clearTotal) s.SetProperty(o =&gt; o.Total, <span class="hljs-number">0m</span>);
+        }, ct);
+    <span class="hljs-keyword">return</span> affected == <span class="hljs-number">0</span> ? Results.NotFound() : Results.NoContent();
+});
+
+app.Run();
+
+<span class="hljs-keyword">record</span> <span class="hljs-title">OrderSummary</span>(<span class="hljs-title">int</span> <span class="hljs-title">Id</span>, <span class="hljs-title">decimal</span> <span class="hljs-title">Total</span>, <span class="hljs-title">string</span> <span class="hljs-title">City</span>);</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>시작 시 MigrateAsync</strong>: 잠금 덕에 동시 실행은 막히지만 앱 계정에 DDL 권한이 필요하고 롤백 경로가 없다. <mark>EF Core 9부터 Migrate()는 마지막 마이그레이션 이후 모델 변경이 남아 있으면 PendingModelChangesWarning으로 예외를 던진다.</mark> CI에서 has-pending-model-changes로 걸러낸다. EnsureCreatedAsync를 먼저 부르면 이력 테이블이 없어 MigrateAsync가 실패한다.</li>
+<li><strong>생성된 마이그레이션을 읽지 않고 적용</strong>: <mark>속성 이름만 바꾼 변경을 EF가 컬럼 삭제 후 추가로 해석할 수 있고, 그대로 적용하면 해당 컬럼 데이터가 사라진다.</mark> Up과 Down 모두 검토하고 운영 데이터 복제본에서 먼저 실행한다.</li>
+<li><strong>기본 컬럼 타입</strong>: string은 nvarchar(max), decimal은 (18, 2)로 생성된다. 운영 데이터가 쌓이면 바꾸기 어려우므로 HasMaxLength·HasPrecision을 미리 정한다.</li>
+<li><strong>EF Core 10의 json 타입 전환</strong>: <mark>SQL Server 2025 호환성 수준 170 이상이거나 UseAzureSql을 쓰면 기존 nvarchar JSON 컬럼이 다음 마이그레이션에서 json 타입으로 바뀐다.</mark> 의도가 아니면 컬럼 타입을 nvarchar(max)로 명시한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/csharp-essentials/">C# 핵심 — record·패턴 매칭·nullable·LINQ</a></li>
+<li><a href="/notes/dotnet/dependency-injection/">의존성 주입 — 수명 주기·등록·키 서비스</a></li>
+<li><a href="/notes/dotnet/ef-core-performance/">EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · EF Core, DbContext, Migrations, LINQ, ASP.NET Core</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/authentication-authorization/"><small>이전</small>인증과 인가 — JWT Bearer·정책·Identity</a>
+  <a class="next" href="/notes/dotnet/ef-core-performance/"><small>다음</small>EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

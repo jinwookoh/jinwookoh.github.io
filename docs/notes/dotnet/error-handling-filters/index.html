@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>예외 처리와 ProblemDetails — 미들웨어·필터 · .NET</title>
+  <meta name="description" content="예외 처리 미들웨어·IExceptionHandler·예외 필터가 예외를 잡는 위치와 ProblemDetails로 오류 응답을 통일하는 방법을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="예외 처리와 ProblemDetails — 미들웨어·필터 · .NET">
+  <meta property="og:description" content="예외 처리 미들웨어·IExceptionHandler·예외 필터가 예외를 잡는 위치와 ProblemDetails로 오류 응답을 통일하는 방법을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/error-handling-filters/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>예외 처리와 ProblemDetails — 미들웨어·필터</span></nav>
+    <article class="post">
+  <p class="part">.NET · 웹 API</p>
+  <h1>예외 처리와 ProblemDetails — 미들웨어·필터</h1>
+  <p class="summary">예외 처리 미들웨어·IExceptionHandler·예외 필터가 예외를 잡는 위치와 ProblemDetails로 오류 응답을 통일하는 방법을 정리한다</p>
+  <div class="content">
+<p>예외를 처리하는 공통 층이 없으면 각 액션이 try/catch로 오류 본문을 직접 만들고 같은 오류가 엔드포인트마다 다른 모양으로 나간다. 미처리 예외는 본문 없는 500으로 나가 원인을 알 수 없고, 개발용 예외 페이지가 운영에 노출되면 스택 트레이스가 새어 나간다. ASP.NET Core는 이를 예외 처리 미들웨어, RFC 9457 ProblemDetails, MVC 필터의 조합으로 해결한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>ProblemDetails</strong>는 <code>type</code>·<code>title</code>·<code>status</code>·<code>detail</code>·<code>instance</code>와 임의 확장 필드를 갖는 표준 오류 본문이다. <code>AddProblemDetails()</code>를 호출하면 <code>IProblemDetailsService</code>가 등록되고, 예외 처리·상태 코드 페이지·개발자 예외 페이지 미들웨어가 본문이 비어 있는 오류 응답을 이 형식으로 채운다. 기본 writer는 <code>Accept</code>가 JSON 계열이나 와일드카드일 때만 쓰고 <code>text/html</code>·<code>application/xml</code>만 받는 요청에는 아무것도 쓰지 않는다. <code>CustomizeProblemDetails</code>로 traceId 같은 확장 필드를 전역으로 덧붙인다.</p>
+<p><strong>예외 처리 미들웨어</strong>(<code>UseExceptionHandler</code>)는 뒤쪽 파이프라인에서 올라온 예외를 잡아 응답을 대신 만든다. 확장 지점은 <code>IExceptionHandler</code>다. <code>TryHandleAsync</code>가 <code>true</code>를 반환하면 처리가 끝나고 <code>false</code>면 등록 순서대로 다음 핸들러로 넘어가며, 전부 <code>false</code>면 미들웨어에 설정된 폴백(오류 경로·ProblemDetails·람다)이 동작한다. <mark><code>AddExceptionHandler&lt;T&gt;()</code>로 등록만 하고 <code>UseExceptionHandler()</code>를 호출하지 않으면 그 핸들러는 한 번도 실행되지 않는다.</mark> <code>ExceptionHandlerOptions.StatusCodeSelector</code>로 예외 타입별 상태 코드를 정한다.</p>
+<p><strong>상태 코드 페이지 미들웨어</strong>(<code>UseStatusCodePages</code>)는 예외가 아니라 본문 없는 4xx·5xx 응답을 대상으로 한다. 라우팅에 실패한 404나 <code>Results.BadRequest()</code>처럼 빈 채로 돌아온 응답에 ProblemDetails 본문을 채운다.</p>
+<p><strong>필터</strong>는 MVC 컨트롤러 전용 파이프라인이다. 인가, 리소스, 액션, 예외, 결과 필터 순서로 실행되고 전역·컨트롤러·액션 범위로 등록한다. 예외 필터는 모델 바인딩·액션 필터·액션에서 던진 예외만 잡고 결과 실행 단계의 예외는 잡지 못한다. <code>[ApiController]</code>는 모델 검증 실패 시 자동으로 <code>ValidationProblemDetails</code> 400을 반환하며, <code>ControllerBase.Problem()</code>으로 직접 결과를 만든다. Minimal API에는 필터 대신 엔드포인트 필터와 <code>TypedResults.Problem</code>이 있다.</p>
+<p>Spring과 대응시키면 <code>IExceptionHandler</code>와 예외 필터 ≈ <code>@ControllerAdvice</code> + <code>@ExceptionHandler</code>, ProblemDetails ≈ Spring 6의 <code>ProblemDetail</code>, 미들웨어 ≈ Servlet Filter, MVC 필터 ≈ <code>HandlerInterceptor</code>다. 미들웨어는 MVC 밖에서 동작해 Minimal API·라우팅 실패까지 한 층에서 다루므로 전역 정책은 미들웨어에, 컨트롤러별 규칙은 예외 필터에 둔다.</p>
+<h2>코드</h2>
+<p>ProblemDetails 서비스·커스텀 핸들러·상태 코드 페이지를 구성한 Program.cs다. 개발 환경은 개발자 예외 페이지가 기본으로 켜지므로 운영 환경에서만 예외 처리 미들웨어를 등록한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+builder.Services.AddControllers();
+builder.Services.AddProblemDetails(options =&gt;
+    options.CustomizeProblemDetails = ctx =&gt;
+        ctx.ProblemDetails.Extensions[<span class="hljs-string">&quot;traceId&quot;</span>] =
+            ctx.HttpContext.TraceIdentifier);
+builder.Services.AddExceptionHandler&lt;DomainExceptionHandler&gt;();
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+
+<span class="hljs-keyword">if</span> (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler(<span class="hljs-keyword">new</span> ExceptionHandlerOptions
+    {
+        StatusCodeSelector = ex =&gt; ex <span class="hljs-keyword">is</span> TimeoutException
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status500InternalServerError
+    });
+}
+app.UseStatusCodePages();
+
+app.MapControllers();
+app.MapGet(<span class="hljs-string">&quot;/orders/{id:int}&quot;</span>, (<span class="hljs-built_in">int</span> id) =&gt;
+    id &lt;= <span class="hljs-number">0</span>
+        ? Results.ValidationProblem(<span class="hljs-keyword">new</span> Dictionary&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">string</span>[]&gt;
+        {
+            [<span class="hljs-string">&quot;id&quot;</span>] = [<span class="hljs-string">&quot;id는 1 이상이어야 한다.&quot;</span>]
+        })
+        : Results.Ok(<span class="hljs-keyword">new</span> { id }));
+
+app.Run();</code></pre>
+<p>도메인 예외를 상태 코드로 매핑하는 <code>IExceptionHandler</code>다. 모르는 예외는 <code>false</code>로 폴백에 맡기고, 아는 예외는 <code>TryWriteAsync</code>로 본문을 쓴 뒤 그 결과를 반환한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">NotFoundException</span>(<span class="hljs-params"><span class="hljs-built_in">string</span> entity, <span class="hljs-built_in">object</span> key</span>)
+    : <span class="hljs-title">Exception</span>(<span class="hljs-params"><span class="hljs-string">$&quot;<span class="hljs-subst">{entity}</span> <span class="hljs-subst">{key}</span> 을(를) 찾을 수 없다.&quot;</span></span>)</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">DomainExceptionHandler</span>(<span class="hljs-params">
+    IProblemDetailsService problemDetails,
+    ILogger&lt;DomainExceptionHandler&gt; logger</span>) : IExceptionHandler</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">async</span> ValueTask&lt;<span class="hljs-built_in">bool</span>&gt; <span class="hljs-title">TryHandleAsync</span>(<span class="hljs-params">
+        HttpContext httpContext,
+        Exception exception,
+        CancellationToken cancellationToken</span>)</span>
+    {
+        (<span class="hljs-built_in">int</span> status, <span class="hljs-built_in">string</span>? title) = exception <span class="hljs-keyword">switch</span>
+        {
+            NotFoundException =&gt; (StatusCodes.Status404NotFound, <span class="hljs-string">&quot;리소스 없음&quot;</span>),
+            ArgumentException =&gt; (StatusCodes.Status400BadRequest, <span class="hljs-string">&quot;잘못된 요청&quot;</span>),
+            _ =&gt; (<span class="hljs-number">0</span>, <span class="hljs-literal">null</span>)
+        };
+        <span class="hljs-keyword">if</span> (status == <span class="hljs-number">0</span>)
+        {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+        }
+
+        logger.LogWarning(exception, <span class="hljs-string">&quot;도메인 예외 {Status}&quot;</span>, status);
+        httpContext.Response.StatusCode = status;
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">await</span> problemDetails.TryWriteAsync(<span class="hljs-keyword">new</span> ProblemDetailsContext
+        {
+            HttpContext = httpContext,
+            Exception = exception,
+            ProblemDetails =
+            {
+                Status = status,
+                Title = title,
+                Detail = exception.Message
+            }
+        });
+    }
+}</code></pre>
+<p>EF Core의 낙관적 동시성 충돌을 409로 바꾸는 전역 예외 필터다. <code>Order</code>를 크게 잡아 다른 필터가 먼저 실행되게 한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">ConcurrencyExceptionFilter</span> : <span class="hljs-title">IExceptionFilter</span>, <span class="hljs-title">IOrderedFilter</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Order =&gt; <span class="hljs-built_in">int</span>.MaxValue - <span class="hljs-number">10</span>;
+
+    <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">OnException</span>(<span class="hljs-params">ExceptionContext context</span>)</span>
+    {
+        <span class="hljs-keyword">if</span> (context.Exception <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> DbUpdateConcurrencyException)
+        {
+            <span class="hljs-keyword">return</span>;
+        }
+
+        context.Result = <span class="hljs-keyword">new</span> ConflictObjectResult(<span class="hljs-keyword">new</span> ProblemDetails
+        {
+            Status = StatusCodes.Status409Conflict,
+            Title = <span class="hljs-string">&quot;동시 수정 충돌&quot;</span>,
+            Detail = <span class="hljs-string">&quot;다른 요청이 먼저 저장했다. 최신 데이터를 다시 읽어 재시도한다.&quot;</span>,
+            Instance = context.HttpContext.Request.Path
+        });
+        context.ExceptionHandled = <span class="hljs-literal">true</span>;
+    }
+}
+
+<span class="hljs-comment">// Program.cs</span>
+builder.Services.AddControllers(options =&gt;
+    options.Filters.Add&lt;ConcurrencyExceptionFilter&gt;());</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>true를 반환했는데 응답을 안 쓴 경우.</strong> <mark><code>TryHandleAsync</code>가 <code>true</code>를 반환하면서 상태 코드도 본문도 쓰지 않으면 응답은 404로 끝난다.</mark> <code>true</code>를 돌려주는 경로에서는 반드시 <code>StatusCode</code>를 설정하고 본문을 쓰거나 <code>TryWriteAsync</code>에 위임한다.</li>
+<li><strong>.NET 10의 진단 억제.</strong> <mark>.NET 10부터 핸들러가 <code>true</code>를 반환한 예외는 예외 처리 미들웨어가 로그와 메트릭을 남기지 않는다.</mark> 핸들러 안에서 직접 로깅하지 않으면 예외가 관측 시스템에서 사라진다. 이전 동작은 <code>SuppressDiagnosticsCallback = _ =&gt; false</code>로 되돌린다.</li>
+<li><strong>응답이 이미 시작된 뒤의 예외.</strong> <mark>응답 헤더가 전송된 뒤 발생한 예외는 어떤 핸들러나 필터도 처리하지 못하고 서버가 연결을 끊는다.</mark> 스트리밍 응답 도중에는 상태 코드 변경이 불가능하므로 검증과 조회는 본문 쓰기 전에 끝낸다.</li>
+<li><strong>필터가 삼킨 예외는 미들웨어에 도달하지 않는다.</strong> 예외 필터가 <code>ExceptionHandled = true</code>를 설정하면 <code>IExceptionHandler</code>는 그 예외를 보지 못하므로 필터에서 처리한 예외는 별도로 기록한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/aspnet-core-fundamentals/">ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</a></li>
+<li><a href="/notes/dotnet/minimal-apis-controllers/">Minimal API와 컨트롤러 — 라우팅·바인딩·검증</a></li>
+<li><a href="/notes/dotnet/logging-observability/">로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · ProblemDetails, IExceptionHandler, ASP.NET Core, 예외 필터, 미들웨어</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/minimal-apis-controllers/"><small>이전</small>Minimal API와 컨트롤러 — 라우팅·바인딩·검증</a>
+  <a class="next" href="/notes/dotnet/authentication-authorization/"><small>다음</small>인증과 인가 — JWT Bearer·정책·Identity</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

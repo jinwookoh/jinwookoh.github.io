@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HttpClient — IHttpClientFactory와 복원력 파이프라인 · .NET</title>
+  <meta name="description" content="HttpClient를 매번 new 하지도 싱글턴으로 붙들지도 않고, 팩터리와 표준 복원력 핸들러로 외부 호출을 안전하게 만드는 법">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="HttpClient — IHttpClientFactory와 복원력 파이프라인 · .NET">
+  <meta property="og:description" content="HttpClient를 매번 new 하지도 싱글턴으로 붙들지도 않고, 팩터리와 표준 복원력 핸들러로 외부 호출을 안전하게 만드는 법">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/httpclient-resilience/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>HttpClient — IHttpClientFactory와 복원력 파이프라인</span></nav>
+    <article class="post">
+  <p class="part">.NET · 데이터</p>
+  <h1>HttpClient — IHttpClientFactory와 복원력 파이프라인</h1>
+  <p class="summary">HttpClient를 매번 new 하지도 싱글턴으로 붙들지도 않고, 팩터리와 표준 복원력 핸들러로 외부 호출을 안전하게 만드는 법</p>
+  <div class="content">
+<p><code>HttpClient</code>를 요청마다 <code>new</code> 해서 <code>using</code>으로 감싸면 닫힌 소켓이 TIME_WAIT 상태로 쌓여 포트가 고갈된다. 반대로 하나를 정적으로 두고 프로세스 내내 쓰면 열린 연결이 유지돼 DNS 변경을 반영하지 못한다. <code>IHttpClientFactory</code>는 핸들러 수명을 대신 관리하고, <code>Microsoft.Extensions.Http.Resilience</code>는 그 위에 Polly 기반 복원력 파이프라인을 얹는다.</p>
+<h2>핵심 개념</h2>
+<h3>팩터리가 관리하는 것은 핸들러다</h3>
+<p><code>CreateClient()</code>는 매번 새 <code>HttpClient</code>를 반환하지만, 실제 소켓을 쥔 <code>HttpMessageHandler</code>는 클라이언트 이름별로 캐시되어 재사용된다. 핸들러 수명은 기본 2분이며 <code>SetHandlerLifetime</code>으로 조정한다. 만료된 핸들러는 쓰는 클라이언트가 사라질 때 폐기되므로, 팩터리가 만든 <code>HttpClient</code>는 <code>Dispose</code> 해도 소켓이 고갈되지 않는다. <mark>팩터리가 만든 HttpClient는 짧게 쓰고 버리는 것이 전제이고, 필드에 오래 붙잡아 두면 핸들러 교체가 일어나지 않아 DNS 변경을 다시 놓친다.</mark></p>
+<p>소비 패턴은 셋이다. 기본은 <code>AddHttpClient()</code> 후 <code>IHttpClientFactory.CreateClient()</code>로 얻고, 명명 클라이언트는 <code>AddHttpClient(&quot;name&quot;, cfg)</code>로 설정을 이름에 묶어 <code>CreateClient(&quot;name&quot;)</code>으로 얻으며, 형식화 클라이언트는 <code>AddHttpClient&lt;TClient&gt;(cfg)</code>로 등록해 생성자에서 <code>HttpClient</code>를 받는 <code>TClient</code>를 transient로 주입받는다. Spring으로 치면 형식화 클라이언트는 <code>RestClient</code>를 감싼 <code>@Service</code> 하나에 해당한다.</p>
+<h3>DelegatingHandler 파이프라인</h3>
+<p><code>AddHttpMessageHandler&lt;T&gt;</code>로 등록한 <code>DelegatingHandler</code>는 나가는 요청의 미들웨어다. 등록 순서대로 바깥에서 안쪽으로 감싸이고, 맨 안쪽의 primary handler(<code>HttpClientHandler</code> 또는 <code>SocketsHttpHandler</code>)가 실제 전송을 맡는다. Spring의 <code>ClientHttpRequestInterceptor</code> 체인과 같은 자리다. 복원력 핸들러도 이 층 가운데 하나다.</p>
+<h3>표준 복원력 핸들러</h3>
+<p><code>AddStandardResilienceHandler()</code>는 바깥부터 다섯 전략을 순서대로 쌓는다.</p>
+<ol>
+<li>속도 제한 — 동시 요청 1,000, 큐 0</li>
+<li>전체 타임아웃 — 재시도를 포함한 총 30초</li>
+<li>재시도 — 최대 3회, 지수 백오프, 지터, 기본 지연 2초</li>
+<li>서킷 브레이커 — 실패율 10%, 최소 처리량 100, 샘플링 30초, 차단 5초</li>
+<li>시도별 타임아웃 — 10초</li>
+</ol>
+<p>재시도와 서킷 브레이커는 5xx·408·429 응답과 <code>HttpRequestException</code>·<code>TimeoutRejectedException</code>을 실패로 본다. 더 세밀한 제어가 필요하면 <code>AddResilienceHandler(&quot;name&quot;, builder =&gt; ...)</code>로 Polly 파이프라인을 직접 조립한다. Resilience4j의 <code>@Retry</code>·<code>@CircuitBreaker</code>를 메서드가 아니라 클라이언트 등록 단위로 붙이는 셈이다.</p>
+<h2>코드</h2>
+<p>형식화 클라이언트에 표준 핸들러를 붙이고, 비멱등 메서드는 재시도에서 제외한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> Microsoft.Extensions.Http.Resilience;
+
+<span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+builder.Services.AddHttpClient&lt;CatalogClient&gt;(client =&gt;
+    {
+        client.BaseAddress = <span class="hljs-keyword">new</span> Uri(builder.Configuration[<span class="hljs-string">&quot;Catalog:BaseUrl&quot;</span>]!);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(<span class="hljs-string">&quot;orders-api/1.0&quot;</span>);
+    })
+    .AddStandardResilienceHandler(options =&gt;
+    {
+        options.Retry.MaxRetryAttempts = <span class="hljs-number">4</span>;
+        options.Retry.DisableForUnsafeHttpMethods();
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(<span class="hljs-number">5</span>);
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(<span class="hljs-number">20</span>);
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(<span class="hljs-number">15</span>);
+    });
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+
+app.MapGet(<span class="hljs-string">&quot;/orders/{id:int}/items&quot;</span>,
+    <span class="hljs-keyword">async</span> (<span class="hljs-built_in">int</span> id, CatalogClient catalog, CancellationToken ct) =&gt;
+        Results.Ok(<span class="hljs-keyword">await</span> catalog.GetItemsAsync(id, ct)));
+
+app.Run();
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">CatalogClient</span>(<span class="hljs-params">HttpClient http</span>)</span>
+{
+    <span class="hljs-keyword">public</span> Task&lt;CatalogItem[]?&gt; GetItemsAsync(<span class="hljs-built_in">int</span> orderId, CancellationToken ct) =&gt;
+        http.GetFromJsonAsync&lt;CatalogItem[]&gt;(<span class="hljs-string">$&quot;orders/<span class="hljs-subst">{orderId}</span>/items&quot;</span>, ct);
+}
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">record</span> <span class="hljs-title">CatalogItem</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> Id, <span class="hljs-built_in">string</span> Name, <span class="hljs-built_in">decimal</span> Price</span>)</span>;</code></pre>
+<p>명명 클라이언트에 커스텀 핸들러와 직접 조립한 파이프라인을 붙이고, 연결 회전은 <code>SocketsHttpHandler</code>에 맡겨 싱글턴 워커에서 쓴다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> System.Net;
+<span class="hljs-keyword">using</span> Microsoft.Extensions.Http.Resilience;
+<span class="hljs-keyword">using</span> Microsoft.Extensions.Options;
+<span class="hljs-keyword">using</span> Polly;
+
+builder.Services.Configure&lt;PaymentsOptions&gt;(builder.Configuration.GetSection(<span class="hljs-string">&quot;Payments&quot;</span>));
+builder.Services.AddTransient&lt;ApiKeyHandler&gt;();
+
+builder.Services.AddHttpClient(<span class="hljs-string">&quot;payments&quot;</span>, client =&gt;
+        client.BaseAddress = <span class="hljs-keyword">new</span> Uri(<span class="hljs-string">&quot;https://payments.internal/&quot;</span>))
+    .AddHttpMessageHandler&lt;ApiKeyHandler&gt;()
+    .UseSocketsHttpHandler((handler, _) =&gt;
+        handler.PooledConnectionLifetime = TimeSpan.FromMinutes(<span class="hljs-number">5</span>))
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+    .AddResilienceHandler(<span class="hljs-string">&quot;payments-pipeline&quot;</span>, pipeline =&gt;
+    {
+        pipeline.AddRetry(<span class="hljs-keyword">new</span> HttpRetryStrategyOptions
+        {
+            MaxRetryAttempts = <span class="hljs-number">2</span>,
+            BackoffType = DelayBackoffType.Exponential,
+            UseJitter = <span class="hljs-literal">true</span>,
+            ShouldHandle = <span class="hljs-keyword">args</span> =&gt; ValueTask.FromResult(
+                <span class="hljs-keyword">args</span>.Outcome.Result?.StatusCode <span class="hljs-keyword">is</span> HttpStatusCode.ServiceUnavailable
+                    <span class="hljs-keyword">or</span> HttpStatusCode.TooManyRequests)
+        });
+        pipeline.AddTimeout(TimeSpan.FromSeconds(<span class="hljs-number">3</span>));
+    });
+
+builder.Services.AddHostedService&lt;SettlementWorker&gt;();
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">ApiKeyHandler</span>(<span class="hljs-params">IOptions&lt;PaymentsOptions&gt; options</span>) : DelegatingHandler</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> Task&lt;HttpResponseMessage&gt; <span class="hljs-title">SendAsync</span>(<span class="hljs-params">
+        HttpRequestMessage request, CancellationToken ct</span>)</span>
+    {
+        request.Headers.TryAddWithoutValidation(<span class="hljs-string">&quot;X-Api-Key&quot;</span>, options.Value.ApiKey);
+        <span class="hljs-keyword">return</span> <span class="hljs-keyword">base</span>.SendAsync(request, ct);
+    }
+}
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">SettlementWorker</span>(<span class="hljs-params">IHttpClientFactory factory</span>) : BackgroundService</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> <span class="hljs-keyword">async</span> Task <span class="hljs-title">ExecuteAsync</span>(<span class="hljs-params">CancellationToken stoppingToken</span>)</span>
+    {
+        <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> timer = <span class="hljs-keyword">new</span> PeriodicTimer(TimeSpan.FromMinutes(<span class="hljs-number">1</span>));
+        <span class="hljs-keyword">while</span> (<span class="hljs-keyword">await</span> timer.WaitForNextTickAsync(stoppingToken))
+        {
+            <span class="hljs-keyword">var</span> client = factory.CreateClient(<span class="hljs-string">&quot;payments&quot;</span>);
+            <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> response = <span class="hljs-keyword">await</span> client.GetAsync(<span class="hljs-string">&quot;settlements/pending&quot;</span>, stoppingToken);
+            response.EnsureSuccessStatusCode();
+        }
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">PaymentsOptions</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> ApiKey { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">init</span>; }
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>싱글턴에 형식화 클라이언트 주입.</strong> <mark>형식화 클라이언트를 싱글턴 서비스에 주입하면 내부 HttpClient가 핸들러 하나에 영구히 묶여 DNS 변경을 반영하지 못한다.</mark> 싱글턴에서는 <code>IHttpClientFactory</code>로 그때그때 <code>CreateClient</code>를 부르거나, <code>SocketsHttpHandler.PooledConnectionLifetime</code>으로 연결 회전을 핸들러에 맡긴다.</li>
+<li><strong>비멱등 요청 재시도.</strong> 표준 핸들러는 기본값으로 모든 메서드를 재시도한다. <mark>POST로 주문을 만드는 요청이 시도별 타임아웃 뒤 재시도되면 서버에는 주문이 두 건 생긴다.</mark> <code>DisableForUnsafeHttpMethods()</code>로 끄거나 멱등성 키를 서버와 합의한다.</li>
+<li><strong>타임아웃 값의 상호 제약.</strong> 시도별 타임아웃은 전체 타임아웃보다 짧아야 하고, 서킷 브레이커 샘플링 기간은 시도별 타임아웃의 2배 이상이어야 한다. 어기면 시작 시점에 옵션 검증이 실패한다. Polly 타임아웃은 <code>TimeoutException</code>이 아니라 <code>TimeoutRejectedException</code>을 던진다.</li>
+<li><strong>핸들러 스코프.</strong> <code>DelegatingHandler</code>는 요청 스코프와 분리된 스코프에서 핸들러 수명 동안 산다. <code>HttpContext</code>에서 얻은 사용자 정보를 핸들러 필드에 저장하면 다른 사용자의 요청으로 새어 나가므로, 요청별 값은 <code>HttpRequestMessage.Options</code>나 헤더로 매번 실어 보낸다.</li>
+<li><strong>복원력 핸들러 중첩.</strong> <code>ConfigureHttpClientDefaults</code>로 전역 적용한 뒤 개별 클라이언트에 또 붙이면 두 층이 겹쳐 재시도가 곱해진다. 개별 설정은 <code>RemoveAllResilienceHandlers()</code> 뒤에 붙인다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/dependency-injection/">의존성 주입 — 수명 주기·등록·키 서비스</a></li>
+<li><a href="/notes/dotnet/async-await/">async/await와 Task — 비동기 모델과 취소</a></li>
+<li><a href="/notes/dotnet/background-services-deploy/">백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · HttpClient, IHttpClientFactory, Polly, Microsoft.Extensions.Http.Resilience, DelegatingHandler</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/ef-core-performance/"><small>이전</small>EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성</a>
+  <a class="next" href="/notes/dotnet/logging-observability/"><small>다음</small>로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

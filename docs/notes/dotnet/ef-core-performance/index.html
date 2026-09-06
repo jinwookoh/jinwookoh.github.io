@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성 · .NET</title>
+  <meta name="description" content="읽기 경로는 추적을 끄고 N+1·카티전 폭발은 로딩 전략으로, 쓰기는 트랜잭션 경계와 동시성 토큰으로 지킨다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성 · .NET">
+  <meta property="og:description" content="읽기 경로는 추적을 끄고 N+1·카티전 폭발은 로딩 전략으로, 쓰기는 트랜잭션 경계와 동시성 토큰으로 지킨다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/ef-core-performance/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성</span></nav>
+    <article class="post">
+  <p class="part">.NET · 데이터</p>
+  <h1>EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성</h1>
+  <p class="summary">읽기 경로는 추적을 끄고 N+1·카티전 폭발은 로딩 전략으로, 쓰기는 트랜잭션 경계와 동시성 토큰으로 지킨다</p>
+  <div class="content">
+<p>EF Core는 LINQ를 SQL로 바꿔 주기 때문에 코드 한 줄이 SQL을 몇 번 보내는지 드러나지 않는다. 데이터가 적은 개발 DB에서는 멀쩡하다가 운영에서 엔티티마다 쿼리가 나가는 N+1과 읽기 전용인데도 스냅샷을 찍는 추적 비용이 드러난다. 트랜잭션 경계를 모르면 부분 커밋이 남고, 동시성 토큰이 없으면 나중 요청이 먼저 저장된 변경을 경고 없이 덮어쓴다.</p>
+<h2>핵심 개념</h2>
+<h3>변경 추적과 스냅샷</h3>
+<p><code>DbContext</code>는 쿼리로 돌려준 엔티티와 <code>Add</code>·<code>Attach</code>·<code>Update</code>로 붙인 엔티티를 추적한다. 엔티티는 <code>Added</code>·<code>Unchanged</code>·<code>Modified</code>·<code>Deleted</code> 등의 <code>EntityState</code>를 가지며, <code>SaveChanges</code>는 이 상태를 보고 바뀐 컬럼만 담은 문을 만든다. 추적 쿼리의 비용은 둘이다. 같은 행을 같은 객체로 돌려주는 동일성 해석과, 스냅샷을 떠 두었다가 저장 시점에 비교하는 변경 감지다.</p>
+<p>읽기 경로는 <code>AsNoTracking()</code>으로 두 비용을 없앤다. 다만 비추적은 동일성 해석도 건너뛰어 같은 Blog를 참조하는 Post 100개가 Blog 인스턴스 100개를 만들며, 중복 제거가 필요하면 <code>AsNoTrackingWithIdentityResolution()</code>을 쓴다. DTO 프로젝션은 추적 자체가 없다.</p>
+<h3>로딩 전략과 N+1</h3>
+<p>지연 로딩은 탐색 속성에 접근할 때마다 쿼리를 보내므로 Blog 목록을 돌며 <code>blog.Posts</code>를 읽으면 Blog 수만큼 라운드트립이 붙는다. 공식 문서는 지연 로딩 대신 <code>Include</code> 또는 프로젝션으로 즉시 로딩하라고 권한다. <code>Include</code>는 JOIN 하나로 가져오지만 일대다 컬렉션을 여러 개 포함하면 부모 행이 자식 수의 곱만큼 복제되는 카티전 폭발이 생기며, 이때 <code>AsSplitQuery()</code>로 컬렉션별 쿼리를 분리한다.</p>
+<h3>트랜잭션 경계</h3>
+<p><code>SaveChanges</code> 한 번은 하나의 트랜잭션이며 전부 성공하거나 전부 롤백된다. 여러 <code>SaveChanges</code>와 조회를 묶으려면 <code>Database.BeginTransactionAsync()</code>로 열고 <code>CommitAsync()</code>로 닫는다. 트랜잭션 안에서 <code>SaveChanges</code>를 부르면 EF가 저장 전에 세이브포인트를 자동으로 만들어 실패 시 그 지점까지만 되돌린다. 여러 컨텍스트가 한 트랜잭션을 공유하려면 <code>UseTransactionAsync()</code>로 등록한다.</p>
+<h3>낙관적 동시성</h3>
+<p>EF Core는 잠금 대신 동시성 토큰을 쓴다. 토큰 프로퍼티는 UPDATE·DELETE의 WHERE 절에 원본 값으로 들어가고, 영향 받은 행이 0이면 <code>DbUpdateConcurrencyException</code>이 난다. SQL Server에서는 <code>[Timestamp]</code>(<code>IsRowVersion()</code>)로 <code>rowversion</code> 컬럼을 매핑하고, SQLite처럼 자동 갱신 타입이 없으면 <code>[ConcurrencyCheck]</code>(<code>IsConcurrencyToken()</code>)로 애플리케이션 관리 토큰을 둔다. <mark>애플리케이션 관리 토큰은 저장할 때마다 코드가 새 값을 직접 넣어야 하며, 넣지 않으면 WHERE 절이 항상 통과해 충돌을 잡지 못한다.</mark> 충돌은 예외의 <code>Entries</code>에서 현재 값과 <code>GetDatabaseValuesAsync()</code>를 비교해 병합하고 <code>OriginalValues</code>를 DB 값으로 바꾼 뒤 재시도한다.</p>
+<p>Spring 대응: <code>DbContext</code> ≈ JPA <code>EntityManager</code>, 스냅샷 변경 감지 ≈ Hibernate dirty checking, <code>Include</code> ≈ fetch join, <code>BeginTransactionAsync</code> ≈ <code>@Transactional</code> 경계, <code>[Timestamp]</code> ≈ <code>@Version</code>, <code>DbUpdateConcurrencyException</code> ≈ <code>OptimisticLockException</code>.</p>
+<h2>코드</h2>
+<p>읽기 전용 목록은 추적을 끄고 컬렉션은 분리 쿼리로, 대량 결과는 프로젝션과 스트리밍으로 가져온다.</p>
+<pre><code class="hljs language-csharp">app.MapGet(<span class="hljs-string">&quot;/blogs&quot;</span>, <span class="hljs-keyword">async</span> (BlogContext db, CancellationToken ct) =&gt;
+{
+    <span class="hljs-keyword">var</span> blogs = <span class="hljs-keyword">await</span> db.Blogs
+        .AsNoTracking()
+        .Where(b =&gt; b.Rating &gt;= <span class="hljs-number">3</span>)
+        .Include(b =&gt; b.Posts.OrderByDescending(p =&gt; p.CreatedAt).Take(<span class="hljs-number">5</span>))
+        .Include(b =&gt; b.Tags)
+        .AsSplitQuery()
+        .OrderBy(b =&gt; b.Id)
+        .Take(<span class="hljs-number">50</span>)
+        .ToListAsync(ct);
+
+    <span class="hljs-keyword">return</span> Results.Ok(blogs);
+});
+
+app.MapGet(<span class="hljs-string">&quot;/posts/export&quot;</span>, (BlogContext db) =&gt;
+{
+    <span class="hljs-comment">// 프로젝션은 추적·스냅샷이 없고, AsAsyncEnumerable은 한 행씩 넘긴다</span>
+    <span class="hljs-keyword">var</span> rows = db.Posts
+        .Where(p =&gt; p.Title.StartsWith(<span class="hljs-string">&quot;EF&quot;</span>))
+        .Select(p =&gt; <span class="hljs-keyword">new</span> PostRow(p.Id, p.Title))
+        .AsAsyncEnumerable();
+
+    <span class="hljs-keyword">return</span> Results.Ok(rows);
+});
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title">PostRow</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> Id, <span class="hljs-built_in">string</span> Title</span>)</span>;</code></pre>
+<p>두 번의 쓰기를 한 트랜잭션으로 묶되, 재시도 실행 전략과 함께 쓰기 위해 <code>ExecuteAsync</code>로 감싼다.</p>
+<pre><code class="hljs language-csharp">app.MapPost(<span class="hljs-string">&quot;/orders&quot;</span>, <span class="hljs-keyword">async</span> (CreateOrder dto, ShopContext db, CancellationToken ct) =&gt;
+{
+    <span class="hljs-keyword">var</span> strategy = db.Database.CreateExecutionStrategy();
+
+    <span class="hljs-keyword">await</span> strategy.ExecuteAsync(<span class="hljs-keyword">async</span> () =&gt;
+    {
+        <span class="hljs-keyword">await</span> <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> tx = <span class="hljs-keyword">await</span> db.Database.BeginTransactionAsync(ct);
+
+        db.Orders.Add(<span class="hljs-keyword">new</span> Order { Sku = dto.Sku, Qty = dto.Qty });
+        <span class="hljs-keyword">await</span> db.SaveChangesAsync(ct); <span class="hljs-comment">// 트랜잭션 안이므로 세이브포인트가 자동 생성된다</span>
+
+        <span class="hljs-comment">// ExecuteUpdate는 변경 추적기를 거치지 않고 바로 UPDATE를 보낸다</span>
+        <span class="hljs-keyword">await</span> db.Inventory
+            .Where(i =&gt; i.Sku == dto.Sku &amp;&amp; i.Qty &gt;= dto.Qty)
+            .ExecuteUpdateAsync(s =&gt; s.SetProperty(i =&gt; i.Qty, i =&gt; i.Qty - dto.Qty), ct);
+
+        <span class="hljs-keyword">await</span> tx.CommitAsync(ct);
+    });
+
+    <span class="hljs-keyword">return</span> Results.Created();
+});
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title">CreateOrder</span>(<span class="hljs-params"><span class="hljs-built_in">string</span> Sku, <span class="hljs-built_in">int</span> Qty</span>)</span>;</code></pre>
+<p>무상태 HTTP에서는 클라이언트가 읽은 시점의 토큰을 원본 값으로 되돌려 놓고 저장한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title">Product</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Id { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> Name { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">decimal</span> Price { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+
+    [<span class="hljs-meta">Timestamp</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">byte</span>[] Version { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; } = <span class="hljs-literal">null</span>!;
+}
+
+app.MapPut(<span class="hljs-string">&quot;/products/{id:int}&quot;</span>, <span class="hljs-keyword">async</span> (<span class="hljs-built_in">int</span> id, UpdateProduct dto, ShopContext db, CancellationToken ct) =&gt;
+{
+    <span class="hljs-keyword">var</span> product = <span class="hljs-keyword">await</span> db.Products.FindAsync([id], ct);
+    <span class="hljs-keyword">if</span> (product <span class="hljs-keyword">is</span> <span class="hljs-literal">null</span>) <span class="hljs-keyword">return</span> Results.NotFound();
+
+    db.Entry(product).Property(p =&gt; p.Version).OriginalValue = dto.Version;
+    product.Price = dto.Price;
+
+    <span class="hljs-keyword">try</span>
+    {
+        <span class="hljs-keyword">await</span> db.SaveChangesAsync(ct);
+        <span class="hljs-keyword">return</span> Results.NoContent();
+    }
+    <span class="hljs-keyword">catch</span> (DbUpdateConcurrencyException ex)
+    {
+        <span class="hljs-keyword">var</span> dbValues = <span class="hljs-keyword">await</span> ex.Entries.Single().GetDatabaseValuesAsync(ct);
+
+        <span class="hljs-keyword">return</span> dbValues <span class="hljs-keyword">is</span> <span class="hljs-literal">null</span>
+            ? Results.NotFound()                                       <span class="hljs-comment">// 그 사이 삭제됨</span>
+            : Results.Conflict(<span class="hljs-keyword">new</span> { current = dbValues.ToObject() }); <span class="hljs-comment">// 최신 값으로 재시도 유도</span>
+    }
+});
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title">UpdateProduct</span>(<span class="hljs-params"><span class="hljs-built_in">decimal</span> Price, <span class="hljs-built_in">byte</span>[] Version</span>)</span>;</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><mark>재시도 실행 전략(<code>EnableRetryOnFailure</code>)이 켜진 상태에서 <code>BeginTransactionAsync</code>를 직접 호출하면 예외가 난다.</mark> <code>CreateExecutionStrategy().ExecuteAsync</code> 안에서 열고 닫는다. 재시도 전략은 결과를 내부 버퍼링하므로 <code>ToListAsync</code>와 겹치면 메모리에 두 번 올라간다.</li>
+<li><mark>SQL Server 연결에 MARS가 켜져 있으면 세이브포인트가 생성되지 않아, 트랜잭션 안의 <code>SaveChanges</code>가 실패하면 트랜잭션이 알 수 없는 상태로 남는다.</mark> 옵션만 켜져 있어도 같다.</li>
+<li><mark><code>Database.AutoTransactionBehavior</code>를 <code>Never</code>로 두면 <code>SaveChanges</code>가 여러 문을 보내다 중간에 실패했을 때 앞선 문은 커밋된 채 남는다.</mark> 기본값 <code>WhenNeeded</code>를 유지한다.</li>
+<li>INSERT는 <code>DbUpdateConcurrencyException</code>을 던지지 않고 고유 제약 위반은 공급자별 예외로 나온다. <code>ExecuteUpdate</code>·<code>ExecuteDelete</code>도 추적기를 우회해 토큰 검사가 없다.</li>
+<li>배치 루프에서 컨텍스트 하나로 수만 건을 추적하면 <code>DetectChanges</code> 비용이 선형으로 는다. 주기적으로 <code>ChangeTracker.Clear()</code>를 부른다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/ef-core-basics/">EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</a></li>
+<li><a href="/notes/dotnet/async-await/">async/await와 Task — 비동기 모델과 취소</a></li>
+<li><a href="/notes/dotnet/dependency-injection/">의존성 주입 — 수명 주기·등록·키 서비스</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · EF Core, Change Tracking, N+1, Optimistic Concurrency, Transactions</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/ef-core-basics/"><small>이전</small>EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</a>
+  <a class="next" href="/notes/dotnet/httpclient-resilience/"><small>다음</small>HttpClient — IHttpClientFactory와 복원력 파이프라인</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,8 @@
+name: .NET
+description: .NET Core에서 이어진 통합 .NET — C# 핵심, ASP.NET Core 미들웨어·DI·구성·Minimal API·인증, EF Core, 관측성·테스트·배포.
+order: 21
+parts:
+  - 기초
+  - 웹 API
+  - 데이터
+  - 운영

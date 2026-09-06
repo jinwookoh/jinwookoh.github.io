@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인 · .NET</title>
+  <meta name="description" content="WebApplication 호스트가 기본으로 해 주는 일과, 미들웨어 등록 순서가 요청 처리 결과를 바꾸는 방식">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인 · .NET">
+  <meta property="og:description" content="WebApplication 호스트가 기본으로 해 주는 일과, 미들웨어 등록 순서가 요청 처리 결과를 바꾸는 방식">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/aspnet-core-fundamentals/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</span></nav>
+    <article class="post">
+  <p class="part">.NET · 웹 API</p>
+  <h1>ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</h1>
+  <p class="summary">WebApplication 호스트가 기본으로 해 주는 일과, 미들웨어 등록 순서가 요청 처리 결과를 바꾸는 방식</p>
+  <div class="content">
+<p>HTTP 서버를 직접 띄우면 포트 바인딩, 설정 읽기, 로거 초기화, 종료 시그널 처리를 전부 애플리케이션 코드가 떠안는다. 인증·로깅·예외 처리는 핸들러마다 반복되고, 순서가 흩어지면 어떤 요청이 인증 없이 통과하는지 추적할 수 없다. ASP.NET Core는 이를 호스트와 미들웨어 파이프라인으로 나눈다. 호스트가 서버·구성·로깅·DI를 묶어 시작과 종료를 책임지고, 파이프라인이 공통 단계를 선언된 순서대로 실행한다.</p>
+<h2>핵심 개념</h2>
+<p>호스트는 DI 컨테이너, 구성, 로깅, <code>IHostedService</code> 목록을 담은 객체다. 시작 시 등록된 <code>IHostedService</code>의 <code>StartAsync</code>를 차례로 호출하고, 웹 앱에서는 그중 하나가 Kestrel을 띄운다. 종료 시에는 <code>ApplicationStopping</code>을 발생시킨 뒤 새 연결을 거부하고 진행 중인 요청이 끝날 때까지 기다린다. 대기 상한은 <code>HostOptions.ShutdownTimeout</code>이며 기본 30초다.</p>
+<p>호스트는 범용 호스트(<code>Host.CreateApplicationBuilder</code>), 웹 전용 <code>WebApplication</code>, 하위 호환용 <code>WebHost</code> 세 종류이고 현재 템플릿은 모두 <code>WebApplication.CreateBuilder(args)</code>를 쓴다. <code>Startup</code> 클래스 분리는 .NET 5까지의 방식이고, 지금은 <code>Program.cs</code> 최상위 문에서 서비스 등록과 파이프라인 구성을 순서대로 적는다. Spring으로 치면 <code>WebApplication.CreateBuilder</code>가 자동 구성에, <code>builder.Services</code>가 빈 등록에, 미들웨어가 Servlet Filter 체인에 대응한다.</p>
+<p><code>CreateBuilder</code>는 <code>DOTNET_</code>·<code>ASPNETCORE_</code> 접두사 환경 변수와 명령줄에서 호스트 구성을 읽는다. 앱 구성은 <code>appsettings.json</code>, <code>appsettings.{Environment}.json</code>, 사용자 비밀(Development 한정), 환경 변수, 명령줄 순으로 쌓이며 뒤가 앞을 덮는다. 로깅은 Console·Debug·EventSource가 붙고 서버는 Kestrel이다. <mark>DI 스코프 검증과 <code>ValidateOnBuild</code>는 Development 환경에서만 켜지므로, 싱글톤이 스코프 서비스를 물고 있는 잘못된 등록은 운영 환경에서 예외 없이 지나간다.</mark></p>
+<p>미들웨어는 <code>HttpContext</code>를 받아 다음 미들웨어를 호출하거나 거기서 응답을 끝내는 요청 델리게이트다. <code>app.Use</code>는 <code>next</code>를 받아 앞뒤로 작업을 넣고, <code>app.Run</code>은 <code>next</code>가 없는 종단 델리게이트다. <code>Map</code>은 경로 접두사로, <code>MapWhen</code>은 조건식으로 분기하며 분기된 가지는 본선으로 돌아오지 않는다. <code>UseWhen</code>은 분기 뒤 본선으로 합류한다. 실행은 등록 순서, 응답은 그 역순이다.</p>
+<p><code>WebApplication</code>은 미들웨어 일부를 자동으로 끼워 넣는다. Development에서는 개발자 예외 페이지가 맨 앞에, 엔드포인트가 있으면 <code>UseRouting</code>이 그다음에, <code>AddAuthentication</code>·<code>AddAuthorization</code>을 등록했다면 <code>UseAuthentication</code>·<code>UseAuthorization</code>이 라우팅 바로 뒤에, <code>UseEndpoints</code>가 맨 끝에 들어간다. 사용자가 적은 미들웨어는 라우팅과 엔드포인트 사이에 놓인다.</p>
+<h2>코드</h2>
+<p>기본 Program.cs. 서비스 등록과 파이프라인 구성이 한 파일에 순서대로 놓인다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+builder.Services.AddProblemDetails();
+builder.Services.AddAuthentication().AddJwtBearer();
+builder.Services.AddAuthorization();
+builder.Services.Configure&lt;HostOptions&gt;(o =&gt; o.ShutdownTimeout = TimeSpan.FromSeconds(<span class="hljs-number">60</span>));
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+
+<span class="hljs-keyword">if</span> (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler();
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
+app.MapGet(<span class="hljs-string">&quot;/orders/{id:int}&quot;</span>, (<span class="hljs-built_in">int</span> id) =&gt; Results.Ok(<span class="hljs-keyword">new</span> { id }))
+   .RequireAuthorization();
+
+app.Run();</code></pre>
+<p>인라인 미들웨어. 처리 시간을 응답 헤더에 넣기 위해 <code>OnStarting</code> 콜백을 쓴다.</p>
+<pre><code class="hljs language-csharp">app.Use(<span class="hljs-keyword">async</span> (context, next) =&gt;
+{
+    <span class="hljs-keyword">var</span> sw = Stopwatch.StartNew();
+    context.Response.OnStarting(() =&gt;
+    {
+        context.Response.Headers[<span class="hljs-string">&quot;X-Elapsed-Ms&quot;</span>] = sw.ElapsedMilliseconds.ToString();
+        <span class="hljs-keyword">return</span> Task.CompletedTask;
+    });
+    <span class="hljs-keyword">await</span> next(context);
+});</code></pre>
+<p>클래스 미들웨어. <code>IMiddleware</code>를 구현하면 요청마다 DI가 인스턴스를 만들어 scoped 서비스를 생성자로 받을 수 있다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">TenantMiddleware</span>(<span class="hljs-params">ITenantResolver resolver</span>) : IMiddleware</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">async</span> Task <span class="hljs-title">InvokeAsync</span>(<span class="hljs-params">HttpContext context, RequestDelegate next</span>)</span>
+    {
+        <span class="hljs-keyword">var</span> tenant = <span class="hljs-keyword">await</span> resolver.ResolveAsync(context.Request.Host.Host);
+        <span class="hljs-keyword">if</span> (tenant <span class="hljs-keyword">is</span> <span class="hljs-literal">null</span>)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            <span class="hljs-keyword">return</span>;
+        }
+
+        context.Items[<span class="hljs-string">&quot;tenant&quot;</span>] = tenant;
+        <span class="hljs-keyword">await</span> next(context);
+    }
+}
+
+<span class="hljs-comment">// Program.cs</span>
+builder.Services.AddTransient&lt;TenantMiddleware&gt;();
+<span class="hljs-comment">// ...</span>
+app.UseMiddleware&lt;TenantMiddleware&gt;();</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>CORS를 쓰면 인증·인가를 직접 호출한다.</strong> 자동 삽입된 <code>UseAuthentication</code>·<code>UseAuthorization</code>은 사용자 미들웨어보다 앞에 놓여 <code>UseCors</code>가 인가보다 늦게 돈다. <mark><code>app.UseCors()</code>를 추가하면 그 뒤에 <code>UseAuthentication()</code>과 <code>UseAuthorization()</code>을 명시해야 하며, 빠뜨리면 인가가 먼저 401을 돌려보내 CORS 헤더가 빠지고 브라우저에서는 CORS 오류로 보인다.</mark></li>
+<li><strong>응답이 시작된 뒤에는 헤더와 상태 코드를 바꿀 수 없다.</strong> <code>next</code>가 돌아온 시점에는 본문이 이미 전송됐을 수 있어 예외가 난다. <code>HasStarted</code>를 확인하거나 <code>OnStarting</code> 콜백에 미룬다.</li>
+<li><strong>라우팅 앞에서 돌아야 하는 미들웨어는 <code>UseRouting</code>을 직접 호출한다.</strong> 경로 재작성처럼 엔드포인트 매칭 전에 실행돼야 하면 <code>app.UseRouting()</code>을 명시하고 그 앞에 둔다.</li>
+<li><strong>환경 이름은 환경 변수가 결정한다.</strong> <code>ASPNETCORE_ENVIRONMENT</code>가 없으면 <code>Production</code>이다. <mark><code>launchSettings.json</code>은 <code>dotnet run</code>과 IDE에서만 읽히고 publish 산출물이나 컨테이너에서는 무시되므로, 환경 변수를 넣지 않으면 개발자 예외 페이지·사용자 비밀·DI 검증이 모두 꺼진 Production으로 시작한다.</mark></li>
+<li><strong>종료 타임아웃은 인프라 유예 시간과 맞춘다.</strong> <code>ShutdownTimeout</code>이 지나면 처리 중인 요청도 끊긴다. Kubernetes <code>terminationGracePeriodSeconds</code> 기본값도 30초라 긴 요청이 있으면 함께 늘린다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/dependency-injection/">의존성 주입 — 수명 주기·등록·키 서비스</a></li>
+<li><a href="/notes/dotnet/configuration-options/">구성과 Options 패턴 — appsettings·환경·비밀 관리</a></li>
+<li><a href="/notes/dotnet/minimal-apis-controllers/">Minimal API와 컨트롤러 — 라우팅·바인딩·검증</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · ASP.NET Core, WebApplication, Middleware, Kestrel, Generic Host</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/async-await/"><small>이전</small>async/await와 Task — 비동기 모델과 취소</a>
+  <a class="next" href="/notes/dotnet/dependency-injection/"><small>다음</small>의존성 주입 — 수명 주기·등록·키 서비스</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

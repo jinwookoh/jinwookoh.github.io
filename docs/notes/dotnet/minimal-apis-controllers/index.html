@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minimal API와 컨트롤러 — 라우팅·바인딩·검증 · .NET</title>
+  <meta name="description" content="Minimal API는 람다 하나로 엔드포인트를 만들고 바인딩·검증을 규칙으로 추론하며, 컨트롤러는 MVC 확장점이 필요할 때 고른다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Minimal API와 컨트롤러 — 라우팅·바인딩·검증 · .NET">
+  <meta property="og:description" content="Minimal API는 람다 하나로 엔드포인트를 만들고 바인딩·검증을 규칙으로 추론하며, 컨트롤러는 MVC 확장점이 필요할 때 고른다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/minimal-apis-controllers/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>Minimal API와 컨트롤러 — 라우팅·바인딩·검증</span></nav>
+    <article class="post">
+  <p class="part">.NET · 웹 API</p>
+  <h1>Minimal API와 컨트롤러 — 라우팅·바인딩·검증</h1>
+  <p class="summary">Minimal API는 람다 하나로 엔드포인트를 만들고 바인딩·검증을 규칙으로 추론하며, 컨트롤러는 MVC 확장점이 필요할 때 고른다</p>
+  <div class="content">
+<p>HTTP 요청은 경로·쿼리·헤더·본문에 흩어진 문자열 묶음이다. 핸들러마다 <code>HttpContext</code>에서 값을 꺼내 파싱하면 같은 코드가 엔드포인트 수만큼 복제되고, 형식이 틀린 입력이 400 대신 500으로 새어 나간다. ASP.NET Core는 이 구간을 라우팅·바인딩·검증 규칙으로 흡수하며, 그 규칙을 노출하는 방식이 Minimal API와 컨트롤러 두 가지다.</p>
+<h2>핵심 개념</h2>
+<p>Minimal API는 <code>WebApplication</code>에 라우트 템플릿과 델리게이트를 직접 등록한다. 컨트롤러는 <code>ControllerBase</code>를 상속한 클래스에 <code>[Route]</code>·<code>[HttpGet]</code> 특성을 붙이고 <code>AddControllers()</code>·<code>MapControllers()</code>로 연결한다. 둘 다 같은 엔드포인트 라우팅 위에서 동작하므로 한 앱에서 섞어 쓸 수 있다. 공식 문서는 새 프로젝트에 Minimal API를 권장하고, <code>IModelBinder</code> 확장·<code>IModelValidator</code>·애플리케이션 파트·OData가 필요할 때 컨트롤러를 고르라고 안내한다.</p>
+<p>Spring 대응: 컨트롤러는 <code>@RestController</code>, <code>MapGet</code>은 함수형 <code>RouterFunction</code>, <code>[FromBody]</code>는 <code>@RequestBody</code>, 데이터 어노테이션 검증은 <code>@Valid</code>에 해당한다.</p>
+<p>Minimal API의 바인딩 소스는 명시하지 않으면 다음 순서로 추론된다.</p>
+<ol>
+<li><code>[FromRoute]</code>·<code>[FromQuery]</code>·<code>[FromHeader]</code>·<code>[FromBody]</code>·<code>[FromForm]</code>·<code>[FromServices]</code>·<code>[AsParameters]</code> 명시 특성</li>
+<li><code>HttpContext</code>·<code>ClaimsPrincipal</code>·<code>CancellationToken</code>·<code>IFormFile</code>·<code>Stream</code> 같은 특수 타입</li>
+<li>타입에 정적 <code>BindAsync</code>가 있으면 그 메서드</li>
+<li><code>string</code>이거나 정적 <code>TryParse</code>가 있으면 라우트 템플릿에 같은 이름이 있을 때 라우트, 없으면 쿼리</li>
+<li>DI 컨테이너에 등록된 서비스</li>
+<li>나머지는 본문 JSON</li>
+</ol>
+<p><mark>GET·HEAD·OPTIONS·DELETE는 본문을 암묵 바인딩하지 않으므로, 이 메서드의 핸들러에 <code>TryParse</code>가 없는 복합 타입 파라미터를 두면 앱 시작 시점에 예외가 난다.</mark> 폼 데이터는 <code>[FromForm]</code>을 명시해야 JSON 본문과 구분된다. 컨트롤러의 <code>[ApiController]</code>도 비슷한 추론(복합 타입은 본문, 단순 타입은 라우트·쿼리)을 적용하고 특성 라우팅을 강제하며, <code>ModelState</code> 오류 시 자동으로 400 <code>ValidationProblemDetails</code>를 반환한다.</p>
+<p>바인딩 실패는 <code>TryParse</code> false·JSON 역직렬화 실패가 400, Content-Type 불일치가 415, <code>BindAsync</code> 예외가 500이다. <mark>nullable 파라미터라도 값이 형식에 맞지 않으면 기본값으로 대체되지 않고 핸들러 자체가 실행되지 않는다.</mark></p>
+<p>검증은 .NET 10부터 Minimal API에 내장됐다. <code>builder.Services.AddValidation()</code>을 호출하면 소스 생성기가 데이터 어노테이션·<code>IValidatableObject</code>가 붙은 파라미터 타입을 찾아 핸들러 진입 전에 검사하고, 실패 시 400 <code>HttpValidationProblemDetails</code>를 돌려준다. 엔드포인트별로 <code>.DisableValidation()</code>으로 끌 수 있다.</p>
+<p>응답은 <code>Results</code>보다 <code>TypedResults</code>를 권장한다. <code>Results&lt;Ok&lt;Todo&gt;, NotFound&gt;</code> 유니언 반환 타입을 쓰면 상태 코드와 스키마가 OpenAPI 메타데이터로 자동 유추된다.</p>
+<h2>코드</h2>
+<p>라우트 그룹·바인딩 추론·내장 검증·유니언 반환 타입을 한 번에 구성한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-comment">// Program.cs</span>
+<span class="hljs-keyword">using</span> System.ComponentModel.DataAnnotations;
+<span class="hljs-keyword">using</span> Microsoft.AspNetCore.Http.HttpResults;
+<span class="hljs-keyword">using</span> Microsoft.EntityFrameworkCore;
+
+<span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+builder.Services.AddDbContext&lt;TodoDb&gt;(o =&gt; o.UseInMemoryDatabase(<span class="hljs-string">&quot;todos&quot;</span>));
+builder.Services.AddValidation();   <span class="hljs-comment">// .NET 10 내장 검증</span>
+builder.Services.AddOpenApi();
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+app.MapOpenApi();
+
+<span class="hljs-keyword">var</span> todos = app.MapGroup(<span class="hljs-string">&quot;/todos&quot;</span>).WithTags(<span class="hljs-string">&quot;Todos&quot;</span>);
+
+<span class="hljs-comment">// page·size는 쿼리에서, db는 DI에서 바인딩</span>
+todos.MapGet(<span class="hljs-string">&quot;/&quot;</span>, <span class="hljs-keyword">async</span> ([AsParameters] Paging paging, TodoDb db) =&gt;
+    <span class="hljs-keyword">await</span> db.Todos.Skip((paging.Page - <span class="hljs-number">1</span>) * paging.Size)
+                  .Take(paging.Size).ToListAsync());
+
+todos.MapGet(<span class="hljs-string">&quot;/{id:int}&quot;</span>, <span class="hljs-function"><span class="hljs-keyword">async</span> <span class="hljs-title">Task</span>&lt;<span class="hljs-title">Results</span>&lt;<span class="hljs-title">Ok</span>&lt;<span class="hljs-title">Todo</span>&gt;, NotFound&gt;&gt; (<span class="hljs-params"><span class="hljs-built_in">int</span> id, TodoDb db</span>)</span> =&gt;
+    <span class="hljs-keyword">await</span> db.Todos.FindAsync(id) <span class="hljs-keyword">is</span> { } todo
+        ? TypedResults.Ok(todo)
+        : TypedResults.NotFound())
+    .WithName(<span class="hljs-string">&quot;GetTodo&quot;</span>);
+
+<span class="hljs-comment">// CreateTodo는 복합 타입이므로 POST 본문 JSON으로 추론, 검증 실패 시 400</span>
+todos.MapPost(<span class="hljs-string">&quot;/&quot;</span>, <span class="hljs-function"><span class="hljs-keyword">async</span> <span class="hljs-title">Task</span>&lt;<span class="hljs-title">Created</span>&lt;<span class="hljs-title">Todo</span>&gt;&gt; (<span class="hljs-params">CreateTodo input, TodoDb db</span>)</span> =&gt;
+{
+    <span class="hljs-keyword">var</span> todo = <span class="hljs-keyword">new</span> Todo { Title = input.Title, DueDate = input.DueDate };
+    db.Todos.Add(todo);
+    <span class="hljs-keyword">await</span> db.SaveChangesAsync();
+    <span class="hljs-keyword">return</span> TypedResults.Created(<span class="hljs-string">$&quot;/todos/<span class="hljs-subst">{todo.Id}</span>&quot;</span>, todo);
+});
+
+app.Run();
+
+<span class="hljs-keyword">record</span> <span class="hljs-title">struct</span> <span class="hljs-title">Paging</span>(<span class="hljs-title">int</span> <span class="hljs-title">Page</span> = <span class="hljs-number">1</span>, <span class="hljs-built_in">int</span> Size = <span class="hljs-number">20</span>);
+<span class="hljs-keyword">record</span> <span class="hljs-title">CreateTodo</span>([<span class="hljs-title">Required</span>, <span class="hljs-title">StringLength</span>(100)] <span class="hljs-title">string</span> <span class="hljs-title">Title</span>, <span class="hljs-title">DateOnly</span>? <span class="hljs-title">DueDate</span>);
+
+<span class="hljs-keyword">class</span> <span class="hljs-title">Todo</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Id { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">required</span> <span class="hljs-built_in">string</span> Title { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+    <span class="hljs-keyword">public</span> DateOnly? DueDate { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+}
+
+<span class="hljs-keyword">class</span> <span class="hljs-title">TodoDb</span>(<span class="hljs-title">DbContextOptions</span>&lt;<span class="hljs-title">TodoDb</span>&gt; <span class="hljs-title">options</span>) : <span class="hljs-title">DbContext</span>(<span class="hljs-title">options</span>)
+{
+    <span class="hljs-keyword">public</span> DbSet&lt;Todo&gt; Todos =&gt; Set&lt;Todo&gt;();
+}</code></pre>
+<p>같은 기능을 컨트롤러로 옮기면 <code>[ApiController]</code>가 바인딩 추론과 자동 400을 담당한다. <code>Program.cs</code>에는 <code>AddControllers()</code>·<code>MapControllers()</code>만 추가한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> Microsoft.AspNetCore.Mvc;
+<span class="hljs-keyword">using</span> Microsoft.EntityFrameworkCore;
+
+[<span class="hljs-meta">ApiController</span>]
+[<span class="hljs-meta">Route(<span class="hljs-string">&quot;api/[controller]&quot;</span>)</span>]
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title">TodosController</span>(<span class="hljs-params">TodoDb db</span>) : ControllerBase</span>
+{
+    [<span class="hljs-meta">HttpGet(<span class="hljs-string">&quot;{id:int}&quot;</span>)</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">async</span> Task&lt;ActionResult&lt;Todo&gt;&gt; Get(<span class="hljs-built_in">int</span> id) =&gt;
+        <span class="hljs-keyword">await</span> db.Todos.FindAsync(id) <span class="hljs-keyword">is</span> { } todo ? todo : NotFound();
+
+    [<span class="hljs-meta">HttpPost</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">async</span> Task&lt;ActionResult&lt;Todo&gt;&gt; Create(CreateTodo input) <span class="hljs-comment">// [FromBody] 추론</span>
+    {
+        <span class="hljs-keyword">var</span> todo = <span class="hljs-keyword">new</span> Todo { Title = input.Title, DueDate = input.DueDate };
+        db.Todos.Add(todo);
+        <span class="hljs-keyword">await</span> db.SaveChangesAsync();
+        <span class="hljs-keyword">return</span> CreatedAtAction(<span class="hljs-keyword">nameof</span>(Get), <span class="hljs-keyword">new</span> { id = todo.Id }, todo);
+    }
+}</code></pre>
+<p>쿼리 문자열의 커스텀 형식은 정적 <code>TryParse</code>만 정의하면 별도 등록 없이 바인딩된다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">readonly</span> <span class="hljs-keyword">record</span> <span class="hljs-keyword">struct</span> <span class="hljs-title">DateRange</span>(<span class="hljs-params">DateOnly From, DateOnly To</span>)</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-built_in">bool</span> <span class="hljs-title">TryParse</span>(<span class="hljs-params"><span class="hljs-built_in">string</span>? <span class="hljs-keyword">value</span>, IFormatProvider? provider, <span class="hljs-keyword">out</span> DateRange result</span>)</span>
+    {
+        result = <span class="hljs-literal">default</span>;
+        <span class="hljs-keyword">if</span> (<span class="hljs-keyword">value</span>?.Split(<span class="hljs-string">&quot;..&quot;</span>) <span class="hljs-keyword">is</span> [<span class="hljs-keyword">var</span> f, <span class="hljs-keyword">var</span> t]
+            &amp;&amp; DateOnly.TryParse(f, provider, <span class="hljs-keyword">out</span> <span class="hljs-keyword">var</span> <span class="hljs-keyword">from</span>)
+            &amp;&amp; DateOnly.TryParse(t, provider, <span class="hljs-keyword">out</span> <span class="hljs-keyword">var</span> to))
+        {
+            result = <span class="hljs-keyword">new</span> DateRange(<span class="hljs-keyword">from</span>, to);
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>;
+    }
+}
+
+<span class="hljs-comment">// GET /todos/due?range=2026-09-01..2026-09-30</span>
+todos.MapGet(<span class="hljs-string">&quot;/due&quot;</span>, (DateRange range, TodoDb db) =&gt;
+    db.Todos.Where(t =&gt; t.DueDate &gt;= range.From &amp;&amp; t.DueDate &lt;= range.To));</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><mark><code>AddValidation()</code>의 소스 생성기는 호출한 어셈블리만 스캔하므로, 엔드포인트와 모델을 별도 프로젝트로 분리했다면 그 어셈블리 안에서 <code>AddValidation()</code>을 호출하는 확장 메서드를 두어야 한다.</mark></li>
+<li>.NET 10부터 본문 JSON 역직렬화가 <code>Stream</code> 대신 <code>PipeReader</code>를 사용한다. <mark>커스텀 <code>JsonConverter</code>가 <code>Utf8JsonReader.HasValueSequence</code>를 처리하지 않으면 버퍼 경계에 걸친 큰 본문에서만 파싱이 깨진다.</mark></li>
+<li>Minimal API의 <code>[FromForm]</code> 복합 타입은 MVC 모델 바인딩을 쓰지 않아 <code>[BindNever]</code>·<code>[BindRequired]</code>가 무시된다. 과잉 게시 방지는 허용 속성만 가진 DTO로 해결한다.</li>
+<li><code>[ApiController]</code>의 자동 400은 액션 실행 전에 응답을 끝내므로 <code>ModelState</code>를 직접 다루는 코드는 도달하지 않는다. 포맷을 바꾸려면 <code>InvalidModelStateResponseFactory</code>, 끄려면 <code>SuppressModelStateInvalidFilter</code>를 쓴다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/aspnet-core-fundamentals/">ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</a></li>
+<li><a href="/notes/dotnet/error-handling-filters/">예외 처리와 ProblemDetails — 미들웨어·필터</a></li>
+<li><a href="/notes/dotnet/authentication-authorization/">인증과 인가 — JWT Bearer·정책·Identity</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · ASP.NET Core, Minimal API, ApiController, Parameter Binding, Validation</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/configuration-options/"><small>이전</small>구성과 Options 패턴 — appsettings·환경·비밀 관리</a>
+  <a class="next" href="/notes/dotnet/error-handling-filters/"><small>다음</small>예외 처리와 ProblemDetails — 미들웨어·필터</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

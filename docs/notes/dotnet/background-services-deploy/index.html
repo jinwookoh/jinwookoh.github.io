@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT · .NET</title>
+  <meta name="description" content="BackgroundService의 시작·종료·예외 규칙과 컨테이너 이미지·Native AOT 발행에서 확인해야 할 기준을 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT · .NET">
+  <meta property="og:description" content="BackgroundService의 시작·종료·예외 규칙과 컨테이너 이미지·Native AOT 발행에서 확인해야 할 기준을 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/background-services-deploy/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</span></nav>
+    <article class="post">
+  <p class="part">.NET · 운영</p>
+  <h1>백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</h1>
+  <p class="summary">BackgroundService의 시작·종료·예외 규칙과 컨테이너 이미지·Native AOT 발행에서 확인해야 할 기준을 정리한다</p>
+  <div class="content">
+<p>API 프로세스 안에서 주기 작업이나 큐 소비를 <code>Task.Run</code>으로 던져 두면 호스트 종료 시 작업이 잘리고, 예외는 관찰되지 않은 채 사라지며, DI 스코프가 없어 <code>DbContext</code> 같은 scoped 서비스를 쓸 수 없다. 배포도 마찬가지다. SDK 이미지를 그대로 런타임에 쓰면 이미지가 수백 MB로 불고 root로 실행되며, JIT 워밍업 때문에 첫 요청이 늦다.</p>
+<h2>핵심 개념</h2>
+<p><code>IHostedService</code>는 <code>StartAsync</code>와 <code>StopAsync</code>로 이루어진 수명 주기 계약이다. 호스트는 시작 시 등록 순서대로 <code>StartAsync</code>를, 종료 시 역순으로 <code>StopAsync</code>를 호출한다. .NET 8부터는 <code>IHostedLifecycleService</code>로 앞뒤 단계에도 개입할 수 있다. Spring의 <code>SmartLifecycle</code>에 해당하고, <code>HostOptions.ShutdownTimeout</code>은 <code>spring.lifecycle.timeout-per-shutdown-phase</code>와 같은 역할이다.</p>
+<p><code>BackgroundService</code>는 이 계약을 구현한 추상 클래스로, 상속 측은 <code>ExecuteAsync(CancellationToken)</code> 하나만 채운다. <code>StartAsync</code>가 <code>ExecuteAsync</code>를 호출하고 첫 <code>await</code>에서 제어가 돌아오면 다음 서비스로 넘어간다. 따라서 <mark><code>ExecuteAsync</code>가 첫 <code>await</code>에 도달하기 전까지 동기적으로 오래 일하면 호스트 시작이 블록되어 요청 수신과 헬스 체크가 모두 지연된다</mark>. <code>StopAsync</code>는 토큰을 취소한 뒤 <code>ExecuteAsync</code>가 끝나기를 <code>ShutdownTimeout</code>(.NET 8부터 기본 30초) 동안 기다린다.</p>
+<p><mark>.NET 6 이후 <code>ExecuteAsync</code>에서 잡히지 않은 예외는 로그만 남기는 것이 아니라 호스트 전체를 정지시킨다</mark>. <code>BackgroundServiceExceptionBehavior</code>를 <code>Ignore</code>로 바꾸면 프로세스는 살아남지만 서비스는 죽은 채 남아 장애가 감지되지 않는다. 루프 한 회차 단위로 예외를 잡는 쪽이 안전하다. 호스팅 서비스는 싱글턴이므로 scoped 서비스는 <code>IServiceScopeFactory</code>로 회차마다 스코프를 만들어 꺼낸다.</p>
+<p>Worker 템플릿은 <code>Host.CreateApplicationBuilder</code>를 쓰고, 웹 앱은 <code>WebApplication.CreateBuilder</code>에 <code>AddHostedService</code>만 더하면 같은 모델로 동작한다. 컨테이너화는 <code>sdk:10.0</code>으로 빌드하고 <code>aspnet:10.0</code>으로 실행하는 다단계 Dockerfile이 기본이며, <code>dotnet publish /t:PublishContainer</code>로 Dockerfile 없이 이미지를 만들 수도 있다. <mark>.NET 8 이후 공식 <code>aspnet</code> 이미지는 80이 아니라 8080 포트에서 수신하고, <code>APP_UID</code>로 비루트 실행을 지원한다</mark>.</p>
+<p>Native AOT는 <code>PublishAot</code>로 켜며, IL을 네이티브 코드로 미리 컴파일해 런타임 없는 단일 실행 파일을 만든다. 시작 시간·메모리·이미지 크기가 줄지만 리플렉션이 불가능하므로 <code>System.Text.Json</code>은 <code>JsonSerializerContext</code> 소스 생성기를 통해야 하고, <code>CreateSlimBuilder</code>로 HTTPS·HTTP/3·IIS 통합을 뺀다. Minimal API·gRPC·Worker는 지원하지만 MVC·Blazor Server·세션은 지원하지 않는다.</p>
+<h2>코드</h2>
+<p>미처리 주문을 주기적으로 정리하는 워커다. 회차마다 스코프를 만들어 <code>DbContext</code>를 꺼내고, 예외는 회차 단위로 잡는다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">OrderCleanupWorker</span>(<span class="hljs-params">
+    IServiceScopeFactory scopeFactory,
+    ILogger&lt;OrderCleanupWorker&gt; logger</span>) : BackgroundService</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> <span class="hljs-keyword">async</span> Task <span class="hljs-title">ExecuteAsync</span>(<span class="hljs-params">CancellationToken stoppingToken</span>)</span>
+    {
+        <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> timer = <span class="hljs-keyword">new</span> PeriodicTimer(TimeSpan.FromMinutes(<span class="hljs-number">5</span>));
+
+        <span class="hljs-keyword">while</span> (<span class="hljs-keyword">await</span> timer.WaitForNextTickAsync(stoppingToken))
+        {
+            <span class="hljs-keyword">try</span>
+            {
+                <span class="hljs-keyword">await</span> <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> scope = scopeFactory.CreateAsyncScope();
+                <span class="hljs-keyword">var</span> db = scope.ServiceProvider.GetRequiredService&lt;ShopDbContext&gt;();
+
+                <span class="hljs-keyword">var</span> expired = DateTimeOffset.UtcNow.AddHours(<span class="hljs-number">-1</span>);
+                <span class="hljs-keyword">var</span> count = <span class="hljs-keyword">await</span> db.Orders
+                    .Where(o =&gt; o.Status == OrderStatus.Pending &amp;&amp; o.CreatedAt &lt; expired)
+                    .ExecuteUpdateAsync(s =&gt; s.SetProperty(o =&gt; o.Status, OrderStatus.Expired),
+                                        stoppingToken);
+
+                logger.LogInformation(<span class="hljs-string">&quot;Expired {Count} orders&quot;</span>, count);
+            }
+            <span class="hljs-keyword">catch</span> (OperationCanceledException) <span class="hljs-keyword">when</span> (stoppingToken.IsCancellationRequested)
+            {
+                <span class="hljs-keyword">break</span>;
+            }
+            <span class="hljs-keyword">catch</span> (Exception ex)
+            {
+                logger.LogError(ex, <span class="hljs-string">&quot;Order cleanup failed; retrying next tick&quot;</span>);
+            }
+        }
+    }
+}</code></pre>
+<p>AOT 발행을 전제로 한 <code>Program.cs</code>다. 슬림 빌더와 JSON 소스 생성 컨텍스트, 종료 대기 시간을 설정한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> System.Text.Json.Serialization;
+
+<span class="hljs-keyword">var</span> builder = WebApplication.CreateSlimBuilder(<span class="hljs-keyword">args</span>);
+
+builder.Services.ConfigureHttpJsonOptions(o =&gt;
+    o.SerializerOptions.TypeInfoResolverChain.Insert(<span class="hljs-number">0</span>, AppJsonContext.Default));
+
+builder.Services.Configure&lt;HostOptions&gt;(o =&gt;
+{
+    o.ShutdownTimeout = TimeSpan.FromSeconds(<span class="hljs-number">25</span>);
+    o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost;
+});
+
+builder.Services.AddDbContext&lt;ShopDbContext&gt;();
+builder.Services.AddHostedService&lt;OrderCleanupWorker&gt;();
+builder.Services.AddHealthChecks();
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+
+app.MapHealthChecks(<span class="hljs-string">&quot;/healthz&quot;</span>);
+app.MapGet(<span class="hljs-string">&quot;/orders/{id:int}&quot;</span>, <span class="hljs-keyword">async</span> (<span class="hljs-built_in">int</span> id, ShopDbContext db) =&gt;
+    <span class="hljs-keyword">await</span> db.Orders.FindAsync(id) <span class="hljs-keyword">is</span> { } order
+        ? Results.Ok(<span class="hljs-keyword">new</span> OrderDto(order.Id, order.Status.ToString()))
+        : Results.NotFound());
+
+app.Run();
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">record</span> <span class="hljs-title">OrderDto</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> Id, <span class="hljs-built_in">string</span> Status</span>)</span>;
+
+[<span class="hljs-meta">JsonSerializable(typeof(OrderDto))</span>]
+<span class="hljs-keyword">internal</span> <span class="hljs-keyword">partial</span> <span class="hljs-keyword">class</span> <span class="hljs-title">AppJsonContext</span> : <span class="hljs-title">JsonSerializerContext</span>;</code></pre>
+<p>다단계 Dockerfile이다. 최종 이미지는 비루트로 8080에서 실행한다.</p>
+<pre><code class="hljs language-dockerfile"><span class="hljs-keyword">FROM</span> mcr.microsoft.com/dotnet/sdk:<span class="hljs-number">10.0</span> AS build
+<span class="hljs-keyword">WORKDIR</span><span class="language-bash"> /src</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> Shop.Api/Shop.Api.csproj Shop.Api/</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> dotnet restore Shop.Api/Shop.Api.csproj</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> . .</span>
+<span class="hljs-keyword">RUN</span><span class="language-bash"> dotnet publish Shop.Api/Shop.Api.csproj -c Release -o /app/publish</span>
+
+<span class="hljs-keyword">FROM</span> mcr.microsoft.com/dotnet/aspnet:<span class="hljs-number">10.0</span> AS final
+<span class="hljs-keyword">WORKDIR</span><span class="language-bash"> /app</span>
+<span class="hljs-keyword">COPY</span><span class="language-bash"> --from=build /app/publish .</span>
+<span class="hljs-keyword">USER</span> $APP_UID
+<span class="hljs-keyword">EXPOSE</span> <span class="hljs-number">8080</span>
+<span class="hljs-keyword">ENTRYPOINT</span><span class="language-bash"> [<span class="hljs-string">&quot;dotnet&quot;</span>, <span class="hljs-string">&quot;Shop.Api.dll&quot;</span>]</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><mark>Kubernetes의 <code>terminationGracePeriodSeconds</code> 기본값도 30초라서 <code>ShutdownTimeout</code>을 그대로 두면 정리 작업이 끝나기 전에 SIGKILL이 먼저 온다</mark>. <code>ShutdownTimeout</code>을 몇 초 짧게 잡고, <code>ENTRYPOINT</code>는 exec 형식 배열로 써서 셸이 PID 1을 차지해 SIGTERM을 삼키지 않게 한다.</li>
+<li>복제본이 둘 이상이면 같은 <code>BackgroundService</code>가 동시에 돈다. 배치성 작업은 분산 락으로 한 인스턴스만 실행하거나, 큐 소비 모델로 바꿔 중복 실행이 무해하도록 설계한다.</li>
+<li>취소 토큰을 무시하는 호출이 하나라도 있으면 <code>StopAsync</code>는 타임아웃까지 기다렸다가 포기한다. <code>Task.Delay</code>·EF Core 쿼리·<code>HttpClient</code> 호출에 모두 <code>stoppingToken</code>을 넘긴다.</li>
+<li><code>PublishAot</code>를 켜도 <code>dotnet run</code>은 JIT로 동작하므로 로컬에서 잘 돌던 코드가 발행 후에만 실패한다. 리플렉션 기반 라이브러리, <code>JsonSerializerContext</code>에 없는 응답 타입, 정규식 라우트 제약이 대표 원인이다. CI에서 AOT 경고를 빌드 실패로 취급한다.</li>
+<li>AOT 발행은 타깃 OS에서만 가능하다. Linux 이미지는 빌드 단계 <code>sdk</code> 이미지에 <code>clang</code>과 <code>zlib1g-dev</code>를 설치해야 하며, 최종 이미지는 <code>aspnet</code> 대신 <code>runtime-deps</code>로 바꿔야 크기 이점을 얻는다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/aspnet-core-fundamentals/">ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</a></li>
+<li><a href="/notes/dotnet/dependency-injection/">의존성 주입 — 수명 주기·등록·키 서비스</a></li>
+<li><a href="/notes/dotnet/logging-observability/">로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · IHostedService, BackgroundService, Docker, Native AOT, ASP.NET Core</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/testing/"><small>이전</small>테스트 — xUnit·WebApplicationFactory 통합 테스트</a>
+  <span></span>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

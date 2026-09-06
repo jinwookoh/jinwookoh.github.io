@@ -2,7 +2,7 @@
 
 너는 아래 주제에 대해 공식 문서를 근거로 포트폴리오 사이트용 기술 노트 1편을 새로 쓴다. 참고 URL은 필요하면 WebFetch로 읽어 최신 API·권장 방식을 확인한다(외부 링크는 본문에 넣지 않는다). 결과는 마크다운 파일 하나로 저장한다.
 
-독자는 Java/Spring 백엔드 경험이 있는 개발자다. `## 핵심 개념` 안에 Spring/Java의 대응 개념을 한두 줄로 짚어 준다(예: NestJS Module ≈ Spring @Configuration, Guard ≈ Security Filter, Next.js Route Handler ≈ @RestController). 코드 기준: TypeScript 5.x, Node 22, Next.js 15 App Router, NestJS 11, React 19, Flutter 3.x·Dart 3.x.
+독자는 Java/Spring 백엔드 경험이 있는 개발자다. `## 핵심 개념` 안에 Spring/Java의 대응 개념을 한두 줄로 짚어 준다(예: NestJS Module ≈ Spring @Configuration, Guard ≈ Security Filter, Next.js Route Handler ≈ @RestController). 코드 기준: TypeScript 5.x, Node 22, Next.js 15 App Router, NestJS 11, React 19, Flutter 3.x·Dart 3.x, .NET 10 LTS·C# 14·ASP.NET Core 10·EF Core 10 (Program.cs 최상위 문 + WebApplication.CreateBuilder 기반).
 
 ## 출력 파일
 `{OUT_PATH}`
@@ -32,7 +32,7 @@ updated: {TODAY}
   5. `## 관련 글` — 같은 시리즈 글만 1~3개. 반드시 `- [글 제목](/notes/{SERIES}/<slug>/)` 형식의 마크다운 링크로 쓴다(맨주소·화살표·대시 연결 금지). 제목과 slug는 아래 목차에 있는 것만 쓴다.
 - 형광펜: 독자가 모르면 실제로 잘못 만들거나 장애를 내는 문장만 `==이렇게==` 감싼다(0~4개, 한 줄 안에서만, 코드·제목·관련 글 제외). 위치로 고르지 말 것 — 첫 문장·굵은 리드·요약이라는 이유로는 표시하지 않는다. 정의·제목 반복·일반론은 제외하고, 비자명한 사실·수치 임계값·조용히 잘못되는 동작·되돌리기 어려운 결정을 우선한다.
 - 절대 넣지 말 것: smartlifen4n.com 링크, 쿠팡·제휴·위젯 문구, 이미지, 외부 링크(공식 문서 링크도 넣지 않는다).
-- 구버전 방식(Next.js Pages Router 전용 API, NestJS v9 이전 시그니처, TypeScript 4.x 문법, React 클래스 컴포넌트 중심 설명, Flutter null safety 이전 코드)을 최신 기준인 것처럼 쓰지 않는다.
+- 구버전 방식(Next.js Pages Router 전용 API, NestJS v9 이전 시그니처, TypeScript 4.x 문법, React 클래스 컴포넌트 중심 설명, Flutter null safety 이전 코드, .NET Framework 전용 API·Startup.cs 기반 구성·.NET Core 3.x 이하 방식)을 최신 기준인 것처럼 쓰지 않는다.
 
 ## 시리즈 목차 (관련 글 링크용)
 {TOC}

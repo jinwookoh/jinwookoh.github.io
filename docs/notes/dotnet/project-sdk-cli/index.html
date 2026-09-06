@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로젝트 구조와 CLI — csproj·SDK·NuGet·솔루션 · .NET</title>
+  <meta name="description" content="SDK 스타일 csproj·global.json·NuGet 중앙 버전 관리·slnx 솔루션이 .NET 10 빌드를 어떻게 구성하는지 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="프로젝트 구조와 CLI — csproj·SDK·NuGet·솔루션 · .NET">
+  <meta property="og:description" content="SDK 스타일 csproj·global.json·NuGet 중앙 버전 관리·slnx 솔루션이 .NET 10 빌드를 어떻게 구성하는지 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/project-sdk-cli/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>프로젝트 구조와 CLI — csproj·SDK·NuGet·솔루션</span></nav>
+    <article class="post">
+  <p class="part">.NET · 기초</p>
+  <h1>프로젝트 구조와 CLI — csproj·SDK·NuGet·솔루션</h1>
+  <p class="summary">SDK 스타일 csproj·global.json·NuGet 중앙 버전 관리·slnx 솔루션이 .NET 10 빌드를 어떻게 구성하는지 정리한다</p>
+  <div class="content">
+<p>빌드 정의가 프로젝트마다 제각각이면 CI와 개발 머신의 결과가 달라지고, 같은 라이브러리가 프로젝트마다 다른 버전으로 박힌다. .NET은 SDK 스타일 프로젝트 파일, <code>dotnet</code> CLI, NuGet, 솔루션으로 이를 표준화하며, 넷이 맞물리는 방식을 알아야 빌드 오류와 의존성 충돌을 읽어 낼 수 있다.</p>
+<h2>핵심 개념</h2>
+<h3>SDK 스타일 프로젝트 파일</h3>
+<p><code>.csproj</code>는 MSBuild XML이다. 루트 <code>&lt;Project Sdk=&quot;Microsoft.NET.Sdk&quot;&gt;</code>의 <code>Sdk</code> 속성이 컴파일·패킹·게시 타깃 묶음을 지정하고 MSBuild가 이를 암묵적으로 import하므로 파일에는 차이점만 남는다. 웹은 <code>Microsoft.NET.Sdk.Web</code>, 워커는 <code>Microsoft.NET.Sdk.Worker</code>를 쓴다.</p>
+<p>SDK는 <code>Compile</code>(<code>**/*.cs</code>)·<code>EmbeddedResource</code>(<code>**/*.resx</code>)·<code>None</code>(나머지)을 글로브로 자동 수집한다. <mark>이미 잡힌 <code>.cs</code>를 <code>&lt;Compile Include&gt;</code>로 다시 선언하면 같은 파일이 두 번 포함되어 NETSDK1022 오류가 난다.</mark> 조정은 <code>Remove</code>·<code>Update</code>로 한다. Spring 관점에서 <code>.csproj</code>는 <code>build.gradle</code>, <code>Sdk</code> 속성은 Spring Boot Gradle 플러그인에 해당한다.</p>
+<h3>Directory.Build.props와 global.json</h3>
+<p><code>Directory.Build.props</code>는 하위 프로젝트 전체에 자동 import되어 공통 속성을 모은다. <code>UseArtifactsOutput</code>을 켜면 출력이 루트 <code>artifacts/</code>로 모인다.</p>
+<p><code>global.json</code>은 런타임 타깃과 별개로 SDK 버전을 고른다. 없으면 설치된 최신 SDK를 쓰고, 있으면 <code>sdk.version</code>과 <code>rollForward</code>로 범위를 정한다. <mark><code>rollForward</code>를 생략하면 기본값 <code>patch</code>가 적용되어, 지정한 feature band(10.0.1xx)가 없는 머신에서는 상위 밴드가 있어도 실패한다.</mark> CI에서는 <code>latestFeature</code>처럼 범위를 명시한다.</p>
+<h3>NuGet</h3>
+<p>패키지는 <code>&lt;PackageReference&gt;</code>로 기록되고 저장소에는 참조만 커밋된다. <code>restore</code>가 전역 패키지 폴더에 내려받아 <code>obj/project.assets.json</code>에 그래프를 쓰며, <code>build</code>·<code>run</code>·<code>publish</code>는 restore를 먼저 수행한다.</p>
+<p>프로젝트가 많으면 Central Package Management(CPM)를 쓴다. 루트 <code>Directory.Packages.props</code>에 <code>ManagePackageVersionsCentrally</code>를 켜고 <code>&lt;PackageVersion&gt;</code>으로 버전을 모으면 각 <code>&lt;PackageReference&gt;</code>에서는 <code>Version</code>을 뺀다. 예외는 <code>VersionOverride</code>로 둔다. Maven <code>dependencyManagement</code>에 대응한다.</p>
+<h3>솔루션과 CLI</h3>
+<p>솔루션은 여러 프로젝트를 묶는 빌드·테스트 단위다. .NET 10 SDK의 <code>dotnet new sln</code>은 XML 기반 <code>.slnx</code>를 만들고 기존 <code>.sln</code>은 <code>dotnet sln migrate</code>로 변환한다.</p>
+<p>.NET 10 CLI는 <code>dotnet package add</code>·<code>dotnet reference add</code> 같은 명사 우선 형식을 권장하고, 단일 <code>.cs</code>에 <code>#:package</code> 지시문을 적어 <code>dotnet run app.cs</code>로 실행하는 file-based app을 지원한다.</p>
+<h2>코드</h2>
+<p>Web SDK 프로젝트 파일. CPM이라 <code>PackageReference</code>에 버전이 없다.</p>
+<pre><code class="hljs language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Project</span> <span class="hljs-attr">Sdk</span>=<span class="hljs-string">&quot;Microsoft.NET.Sdk.Web&quot;</span>&gt;</span>
+  <span class="hljs-tag">&lt;<span class="hljs-name">PropertyGroup</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">TargetFramework</span>&gt;</span>net10.0<span class="hljs-tag">&lt;/<span class="hljs-name">TargetFramework</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">Nullable</span>&gt;</span>enable<span class="hljs-tag">&lt;/<span class="hljs-name">Nullable</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">ImplicitUsings</span>&gt;</span>enable<span class="hljs-tag">&lt;/<span class="hljs-name">ImplicitUsings</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">TreatWarningsAsErrors</span>&gt;</span>true<span class="hljs-tag">&lt;/<span class="hljs-name">TreatWarningsAsErrors</span>&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">PropertyGroup</span>&gt;</span>
+  <span class="hljs-tag">&lt;<span class="hljs-name">ItemGroup</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">PackageReference</span> <span class="hljs-attr">Include</span>=<span class="hljs-string">&quot;Microsoft.EntityFrameworkCore.Sqlite&quot;</span> /&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">ProjectReference</span> <span class="hljs-attr">Include</span>=<span class="hljs-string">&quot;../Orders.Domain/Orders.Domain.csproj&quot;</span> /&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">ItemGroup</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">Project</span>&gt;</span></code></pre>
+<p>루트 <code>Directory.Packages.props</code>. 패키지 버전을 여기서 정한다.</p>
+<pre><code class="hljs language-xml"><span class="hljs-tag">&lt;<span class="hljs-name">Project</span>&gt;</span>
+  <span class="hljs-tag">&lt;<span class="hljs-name">PropertyGroup</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">ManagePackageVersionsCentrally</span>&gt;</span>true<span class="hljs-tag">&lt;/<span class="hljs-name">ManagePackageVersionsCentrally</span>&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">PropertyGroup</span>&gt;</span>
+  <span class="hljs-tag">&lt;<span class="hljs-name">ItemGroup</span>&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">PackageVersion</span> <span class="hljs-attr">Include</span>=<span class="hljs-string">&quot;Microsoft.EntityFrameworkCore.Sqlite&quot;</span> <span class="hljs-attr">Version</span>=<span class="hljs-string">&quot;10.0.0&quot;</span> /&gt;</span>
+    <span class="hljs-tag">&lt;<span class="hljs-name">PackageVersion</span> <span class="hljs-attr">Include</span>=<span class="hljs-string">&quot;Microsoft.EntityFrameworkCore.Design&quot;</span> <span class="hljs-attr">Version</span>=<span class="hljs-string">&quot;10.0.0&quot;</span> /&gt;</span>
+  <span class="hljs-tag">&lt;/<span class="hljs-name">ItemGroup</span>&gt;</span>
+<span class="hljs-tag">&lt;/<span class="hljs-name">Project</span>&gt;</span></code></pre>
+<p>솔루션·프로젝트·참조·패키지를 CLI로 연결하는 순서.</p>
+<pre><code class="hljs language-bash">dotnet new sln --name Orders
+dotnet new buildprops --use-artifacts
+dotnet new packagesprops
+dotnet new classlib --output src/Orders.Domain
+dotnet new webapi --output src/Orders.Api
+dotnet sln add src/Orders.Domain src/Orders.Api
+dotnet reference add ../Orders.Domain/Orders.Domain.csproj --project src/Orders.Api
+dotnet package add Microsoft.EntityFrameworkCore.Sqlite --project src/Orders.Api
+dotnet build &amp;&amp; dotnet run --project src/Orders.Api</code></pre>
+<p>프로젝트 파일 없이 EF Core를 쓰는 file-based app. <code>dotnet run query.cs</code>로 실행한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-meta">#:package Microsoft.EntityFrameworkCore.Sqlite@10.0.0</span>
+<span class="hljs-meta">#:property PublishAot=false</span>
+
+<span class="hljs-keyword">using</span> Microsoft.EntityFrameworkCore;
+
+<span class="hljs-keyword">await</span> <span class="hljs-keyword">using</span> <span class="hljs-keyword">var</span> db = <span class="hljs-keyword">new</span> OrdersDb();
+<span class="hljs-keyword">await</span> db.Database.EnsureCreatedAsync();
+db.Orders.Add(<span class="hljs-keyword">new</span> Order(<span class="hljs-number">0</span>, <span class="hljs-string">&quot;keyboard&quot;</span>, <span class="hljs-number">89_000m</span>));
+<span class="hljs-keyword">await</span> db.SaveChangesAsync();
+
+<span class="hljs-keyword">foreach</span> (<span class="hljs-keyword">var</span> order <span class="hljs-keyword">in</span> <span class="hljs-keyword">await</span> db.Orders.AsNoTracking().ToListAsync())
+{
+    Console.WriteLine(<span class="hljs-string">$&quot;<span class="hljs-subst">{order.Id}</span>: <span class="hljs-subst">{order.Product}</span> <span class="hljs-subst">{order.Amount:N0}</span>&quot;</span>);
+}
+
+<span class="hljs-keyword">record</span> <span class="hljs-title">Order</span>(<span class="hljs-title">int</span> <span class="hljs-title">Id</span>, <span class="hljs-title">string</span> <span class="hljs-title">Product</span>, <span class="hljs-title">decimal</span> <span class="hljs-title">Amount</span>);
+
+<span class="hljs-keyword">class</span> <span class="hljs-title">OrdersDb</span> : <span class="hljs-title">DbContext</span>
+{
+    <span class="hljs-keyword">public</span> DbSet&lt;Order&gt; Orders =&gt; Set&lt;Order&gt;();
+
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> <span class="hljs-keyword">void</span> <span class="hljs-title">OnConfiguring</span>(<span class="hljs-params">DbContextOptionsBuilder options</span>)</span>
+        =&gt; options.UseSqlite(<span class="hljs-string">&quot;Data Source=orders.db&quot;</span>);
+}</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>CPM 파일 탐색 규칙.</strong> <mark><code>Directory.Packages.props</code>는 프로젝트에서 가장 가까운 파일 하나만 자동 import되고 상위 파일은 무시된다.</mark> 하위 폴더에 두 번째 파일을 두면 루트 버전이 조용히 빠지므로 <code>GetPathOfFileAbove</code>로 부모를 import한다.</li>
+<li><strong>transitive pinning의 다운그레이드.</strong> <code>CentralPackageTransitivePinningEnabled</code> 상태에서 의존성이 요구하는 버전보다 낮게 고정하면 NU1109로 restore가 실패한다. 라이브러리를 pack하면 고정된 전이 의존성이 직접 의존성으로 승격된다.</li>
+<li><strong>여러 패키지 소스와 NU1507.</strong> CPM에서 소스가 둘 이상이면 경고가 나고, 사내 피드와 nuget.org에 같은 ID가 있으면 선택이 보장되지 않는다. package source mapping으로 소스를 묶는다.</li>
+<li><strong>pruning으로 바뀌는 deps.json.</strong> .NET 10 SDK는 런타임이 제공하는 패키지 참조를 restore에서 잘라내므로 <code>deps.json</code>에서 항목이 사라지는 것은 정상이다. 배포 스크립트가 이 파일에 의존하면 <code>RestoreEnablePackagePruning=false</code>로 되돌린다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/what-is-dotnet/">.NET이란 무엇인가 — Framework·Core·통합 .NET과 SDK·런타임</a></li>
+<li><a href="/notes/dotnet/configuration-options/">구성과 Options 패턴 — appsettings·환경·비밀 관리</a></li>
+<li><a href="/notes/dotnet/background-services-deploy/">백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · .NET SDK, csproj, MSBuild, NuGet, dotnet CLI</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/csharp-essentials/"><small>이전</small>C# 핵심 — record·패턴 매칭·nullable·LINQ</a>
+  <a class="next" href="/notes/dotnet/async-await/"><small>다음</small>async/await와 Task — 비동기 모델과 취소</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

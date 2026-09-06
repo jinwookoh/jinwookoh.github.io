@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C# 핵심 — record·패턴 매칭·nullable·LINQ · .NET</title>
+  <meta name="description" content="ASP.NET Core·EF Core 코드를 읽는 데 필요한 C# 문법 네 가지를 Java 대응 개념과 함께 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="C# 핵심 — record·패턴 매칭·nullable·LINQ · .NET">
+  <meta property="og:description" content="ASP.NET Core·EF Core 코드를 읽는 데 필요한 C# 문법 네 가지를 Java 대응 개념과 함께 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/csharp-essentials/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>C# 핵심 — record·패턴 매칭·nullable·LINQ</span></nav>
+    <article class="post">
+  <p class="part">.NET · 기초</p>
+  <h1>C# 핵심 — record·패턴 매칭·nullable·LINQ</h1>
+  <p class="summary">ASP.NET Core·EF Core 코드를 읽는 데 필요한 C# 문법 네 가지를 Java 대응 개념과 함께 정리한다</p>
+  <div class="content">
+<p>C#을 Java와 문법이 비슷한 언어로 보고 넘어가면 ASP.NET Core와 EF Core 코드의 절반이 읽히지 않는다. DTO는 <code>record</code>로 선언되고, 분기는 <code>switch</code> 식과 패턴으로 쓰이며, 타입 뒤의 <code>?</code>와 <code>!</code>가 컴파일 경고를 좌우하고, 데이터 접근은 LINQ 체인이다. 모르면 경고를 <code>!</code>로 덮어 런타임 <code>NullReferenceException</code>을 만들거나, SQL로 번역되지 않는 쿼리를 실행 시점에야 발견한다.</p>
+<h2>핵심 개념</h2>
+<h3>record — 값 동등성과 불변 복사</h3>
+<p><code>record</code>는 컴파일러가 <code>Equals</code>·<code>GetHashCode</code>·<code>ToString</code>·해체를 합성하는 타입이다. <code>record class</code>는 참조 타입, <code>record struct</code>는 값 타입이며 위치 매개변수로 선언하면 생성자와 <code>init</code> 전용 프로퍼티가 함께 만들어진다. <code>with</code> 식은 원본을 복사해 지정한 멤버만 바꾼 새 인스턴스를 돌려준다. Java 16의 <code>record</code>와 같은 목적이지만 상속과 <code>with</code> 식이 있다.</p>
+<p>값 동등성은 멤버를 하나씩 <code>Equals</code>로 비교한다. <mark>컬렉션 프로퍼티를 가진 record는 내용이 같아도 참조가 다르면 불일치로 판정되므로 테스트나 캐시 키에서 조용히 어긋난다.</mark> 이 경우 동등성을 직접 정의한다.</p>
+<h3>패턴 매칭</h3>
+<p><code>is</code>와 <code>switch</code>가 타입·프로퍼티·관계·리스트 패턴을 받는다. 타입 패턴은 검사와 변수 선언을 한 번에 하고, 프로퍼티 패턴 <code>{ Status: &gt;= 500 }</code>은 중첩 멤버를 검사하며, 리스트 패턴 <code>[var first, .. var rest]</code>는 시퀀스를 분해한다. <code>switch</code> 식은 값을 반환하고 모든 경우를 다루지 못하면 경고가 난다. Java 21의 sealed interface + record + switch 패턴에 해당한다. <code>is not null</code>은 사용자 정의 <code>==</code>를 우회하므로 null 검사 표준이다.</p>
+<h3>nullable 참조 타입</h3>
+<p><code>string</code>은 null이 아닌 값, <code>string?</code>는 null이 가능한 값이라는 의도를 선언하고, 컴파일러가 흐름 분석으로 각 지점의 null 상태를 추적해 경고를 낸다. 런타임 타입은 둘 다 <code>System.String</code>이며 실행 동작은 바뀌지 않는다. Java의 <code>Optional&lt;T&gt;</code>가 아니라 Kotlin의 nullable 타입에 가깝다.</p>
+<p>분석은 메서드 경계를 넘지 않으므로 검사 메서드가 호출자에게 상태를 전달하려면 <code>[NotNullWhen(true)]</code>·<code>[MemberNotNull]</code> 특성을 시그니처에 붙인다. <code>!</code>는 경고만 끄는 것이라 실제 null이면 그대로 예외가 난다. 최근 템플릿은 <code>&lt;Nullable&gt;enable&lt;/Nullable&gt;</code>이 기본이다.</p>
+<h3>LINQ — IEnumerable과 IQueryable</h3>
+<p>쿼리 구문과 메서드 구문은 컴파일 결과가 같으며, <code>Count</code>·<code>Max</code>처럼 절이 없는 연산자는 메서드로만 쓴다. 쿼리는 <code>foreach</code>나 <code>ToList</code> 같은 실체화 호출 전까지 실행되지 않는다.</p>
+<p>핵심 차이는 대상 타입이다. <code>IEnumerable&lt;T&gt;</code> 쿼리는 델리게이트로 컴파일되어 메모리에서 실행되고, <code>IQueryable&lt;T&gt;</code> 쿼리는 식 트리로 컴파일되어 EF Core 같은 공급자가 SQL로 번역한다. Java로 보면 전자는 Stream API, 후자는 JPA Criteria나 QueryDSL이다. <code>DbSet&lt;T&gt;</code>는 <code>IQueryable&lt;T&gt;</code>이므로 <code>ToListAsync</code> 시점에 SQL 한 번으로 실행된다.</p>
+<h3>C# 14에서 추가된 것</h3>
+<p><code>field</code> 키워드는 백킹 필드 선언 없이 접근자 본문에서 합성 필드를 참조한다. <code>extension</code> 블록은 확장 프로퍼티·정적 확장 멤버까지 선언한다. <code>?.</code>를 대입 왼쪽에 쓸 수 있고, 왼쪽이 null이면 오른쪽 식은 평가되지 않는다.</p>
+<h2>코드</h2>
+<p>sealed record 계층과 <code>switch</code> 식으로 결제 결과를 HTTP 응답으로 바꾼다. 프로퍼티·관계·리스트 패턴을 함께 쓴다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">public</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">record</span> <span class="hljs-title">PaymentResult</span>;
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">record</span> <span class="hljs-title">Approved</span>(<span class="hljs-params"><span class="hljs-built_in">string</span> TxId, <span class="hljs-built_in">decimal</span> Amount</span>) : PaymentResult</span>;
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">record</span> <span class="hljs-title">Declined</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> Code, <span class="hljs-built_in">string</span> Reason</span>) : PaymentResult</span>;
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">record</span> <span class="hljs-title">Pending</span>(<span class="hljs-params">IReadOnlyList&lt;<span class="hljs-built_in">string</span>&gt; Steps</span>) : PaymentResult</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> IResult <span class="hljs-title">ToResponse</span>(<span class="hljs-params">PaymentResult result</span>)</span> =&gt; result <span class="hljs-keyword">switch</span>
+{
+    Approved { Amount: &gt; <span class="hljs-number">1_000_000</span> } a =&gt; Results.Accepted(<span class="hljs-string">$&quot;/payments/<span class="hljs-subst">{a.TxId}</span>&quot;</span>),
+    Approved a =&gt; Results.Ok(a <span class="hljs-keyword">with</span> { Amount = <span class="hljs-built_in">decimal</span>.Round(a.Amount, <span class="hljs-number">2</span>) }),
+    Declined { Code: &gt;= <span class="hljs-number">500</span> } =&gt; Results.StatusCode(StatusCodes.Status502BadGateway),
+    Declined d =&gt; Results.BadRequest(<span class="hljs-keyword">new</span> { d.Code, d.Reason }),
+    Pending { Steps: [<span class="hljs-keyword">var</span> next, ..] } =&gt; Results.Accepted(<span class="hljs-keyword">value</span>: <span class="hljs-keyword">new</span> { next }),
+    Pending =&gt; Results.Accepted(),
+    _ =&gt; <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> UnreachableException()
+};</code></pre>
+<p>nullable 특성으로 호출자에게 null 상태를 전달하고, C# 14의 <code>field</code>와 null 조건부 대입을 쓴다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">Customer</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">string</span> Email
+    {
+        <span class="hljs-keyword">get</span>;
+        <span class="hljs-keyword">set</span> =&gt; field = <span class="hljs-keyword">value</span>?.Trim().ToLowerInvariant()
+                       ?? <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> ArgumentNullException(<span class="hljs-keyword">nameof</span>(<span class="hljs-keyword">value</span>));
+    }
+    <span class="hljs-keyword">public</span> Order? LastOrder { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; }
+}
+
+<span class="hljs-function"><span class="hljs-keyword">static</span> <span class="hljs-built_in">bool</span> <span class="hljs-title">TryFind</span>(<span class="hljs-params">Dictionary&lt;<span class="hljs-built_in">int</span>, Customer&gt; map, <span class="hljs-built_in">int</span> id,
+                    [NotNullWhen(<span class="hljs-literal">true</span></span>)] <span class="hljs-keyword">out</span> Customer? customer)</span>
+    =&gt; map.TryGetValue(id, <span class="hljs-keyword">out</span> customer);
+
+<span class="hljs-keyword">if</span> (TryFind(customers, <span class="hljs-number">42</span>, <span class="hljs-keyword">out</span> <span class="hljs-keyword">var</span> c))
+{
+    Console.WriteLine(c.Email.Length);   <span class="hljs-comment">// c는 not-null 상태, ! 불필요</span>
+}
+c?.LastOrder = <span class="hljs-keyword">await</span> orders.LatestAsync(<span class="hljs-number">42</span>);   <span class="hljs-comment">// c가 null이면 오른쪽은 실행되지 않는다</span></code></pre>
+<p>EF Core에서 <code>IQueryable</code>을 조건부로 조립하고, DTO record로 투영한 뒤 한 번에 실행한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">record</span> <span class="hljs-title">OrderSummary</span>(<span class="hljs-params"><span class="hljs-built_in">int</span> Id, <span class="hljs-built_in">string</span> CustomerEmail, <span class="hljs-built_in">decimal</span> Total</span>)</span>;
+
+app.MapGet(<span class="hljs-string">&quot;/orders&quot;</span>, <span class="hljs-keyword">async</span> (AppDbContext db, <span class="hljs-built_in">decimal</span>? minTotal, CancellationToken ct) =&gt;
+{
+    IQueryable&lt;Order&gt; query = db.Orders.AsNoTracking();
+    <span class="hljs-keyword">if</span> (minTotal <span class="hljs-keyword">is</span> { } min)
+        query = query.Where(o =&gt; o.Total &gt;= min);        <span class="hljs-comment">// 아직 실행되지 않는다</span>
+
+    List&lt;OrderSummary&gt; items = <span class="hljs-keyword">await</span> query
+        .OrderByDescending(o =&gt; o.CreatedAt)
+        .Take(<span class="hljs-number">50</span>)
+        .Select(o =&gt; <span class="hljs-keyword">new</span> OrderSummary(o.Id, o.Customer.Email, o.Total))
+        .ToListAsync(ct);                                  <span class="hljs-comment">// 여기서 SQL 한 번</span>
+
+    <span class="hljs-keyword">return</span> Results.Ok(items);
+});</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>번역 불가 쿼리.</strong> <mark><code>IQueryable</code> 체인에 SQL로 옮길 수 없는 사용자 메서드를 넣으면 컴파일은 통과하고 실행 시점에 <code>InvalidOperationException</code>이 난다.</mark> 메모리 연산은 <code>AsEnumerable()</code> 이후로 옮기되, 그 앞에서 필터와 페이징을 끝낸다.</li>
+<li><strong>지연 실행 재평가.</strong> <mark>지연 실행 쿼리 변수를 여러 번 순회하면 순회 횟수만큼 쿼리가 다시 실행된다.</mark> 결과를 재사용할 때는 <code>ToList</code>로 실체화한다.</li>
+<li><strong>nullable과 EF Core 스키마.</strong> <mark>EF Core는 <code>string</code>을 NOT NULL, <code>string?</code>를 NULL 허용 컬럼으로 매핑하므로 엔티티의 <code>?</code> 유무가 마이그레이션 스키마를 결정한다.</mark> 나중에 바꾸면 데이터 이관이 따라온다. 필수 내비게이션 프로퍼티는 <code>= null!;</code>로 초기화한다.</li>
+<li><strong>record와 EF Core 엔티티.</strong> 변경 추적기는 인스턴스를 참조로 식별하므로 <code>with</code>로 만든 새 인스턴스는 추적되지 않는다. record는 DTO·값 객체에 쓰고 엔티티는 class로 둔다.</li>
+<li><strong>struct·배열 기본값.</strong> <code>default</code> 구조체와 <code>new string[n]</code>은 non-nullable 멤버가 null인 채로 경고 없이 만들어진다. 컬렉션 식이나 <code>required</code>로 초기화를 강제한다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/what-is-dotnet/">.NET이란 무엇인가 — Framework·Core·통합 .NET과 SDK·런타임</a></li>
+<li><a href="/notes/dotnet/async-await/">async/await와 Task — 비동기 모델과 취소</a></li>
+<li><a href="/notes/dotnet/ef-core-basics/">EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · C#, record, pattern matching, nullable, LINQ</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/what-is-dotnet/"><small>이전</small>.NET이란 무엇인가 — Framework·Core·통합 .NET과 SDK·런타임</a>
+  <a class="next" href="/notes/dotnet/project-sdk-cli/"><small>다음</small>프로젝트 구조와 CLI — csproj·SDK·NuGet·솔루션</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

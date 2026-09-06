@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>인증과 인가 — JWT Bearer·정책·Identity · .NET</title>
+  <meta name="description" content="JWT Bearer 스킴이 ClaimsPrincipal을 만들고 정책이 요구 사항으로 판정하며, Identity API는 자체 토큰 발급을 맡는 구조를 정리한다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="인증과 인가 — JWT Bearer·정책·Identity · .NET">
+  <meta property="og:description" content="JWT Bearer 스킴이 ClaimsPrincipal을 만들고 정책이 요구 사항으로 판정하며, Identity API는 자체 토큰 발급을 맡는 구조를 정리한다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/authentication-authorization/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>인증과 인가 — JWT Bearer·정책·Identity</span></nav>
+    <article class="post">
+  <p class="part">.NET · 웹 API</p>
+  <h1>인증과 인가 — JWT Bearer·정책·Identity</h1>
+  <p class="summary">JWT Bearer 스킴이 ClaimsPrincipal을 만들고 정책이 요구 사항으로 판정하며, Identity API는 자체 토큰 발급을 맡는 구조를 정리한다</p>
+  <div class="content">
+<p>인증을 뒤로 미루면 토큰 검증 코드가 컨트롤러마다 복사되고, 서명은 확인하지 않은 채 payload의 사용자 ID만 꺼내 쓰는 엔드포인트가 생긴다. 인가 규칙을 핸들러 안에 <code>if</code>로 흩어 두면 고칠 곳을 추적할 수 없고, 로그인·토큰 갱신을 직접 만들면 재발급 흐름에서 구멍이 난다. ASP.NET Core는 이 셋을 인증 스킴, 정책 기반 인가, Identity로 분리한다.</p>
+<h2>핵심 개념</h2>
+<p><strong>인증 스킴과 핸들러.</strong> 인증은 요청에서 신원을 복원해 <code>HttpContext.User</code>에 <code>ClaimsPrincipal</code>을 올리는 일이다. <code>AddAuthentication()</code> 뒤에 <code>AddJwtBearer()</code>나 <code>AddCookie()</code>를 붙이면 이름·핸들러·옵션의 묶음인 스킴이 등록된다. 핸들러는 Authenticate·Challenge·Forbid 세 동작을 가지며, JWT 스킴의 Challenge는 401, Forbid는 403을 돌려준다. 스킴이 하나면 자동으로 기본이 되지만, 둘 이상이면 기본 스킴을 지정하거나 <code>[Authorize(AuthenticationSchemes = ...)]</code>로 골라야 한다. Spring Security의 <code>AuthenticationEntryPoint</code>·<code>AccessDeniedHandler</code>에 해당한다.</p>
+<p><strong>JWT Bearer.</strong> <code>Authority</code>와 <code>Audience</code>만 주면 핸들러가 OIDC 디스커버리 문서에서 JWKS를 받아 서명·발급자·대상·만료를 검증한다. 다중 발급자는 <code>TokenValidationParameters.ValidIssuers</code>로 받는다. 검증 후 <code>sub</code> 같은 짧은 클레임 이름은 기본적으로 <code>ClaimTypes.NameIdentifier</code> 형태의 URI 이름으로 바뀌므로, <mark><code>MapInboundClaims</code>를 false로 끄지 않으면 <code>User.FindFirst(&quot;sub&quot;)</code>는 null을 돌려준다.</mark> <code>ClockSkew</code> 기본값은 5분이라 만료 직후 5분간은 토큰이 통과한다. Spring의 <code>oauth2ResourceServer().jwt()</code>에 대응한다.</p>
+<p><strong>정책 기반 인가.</strong> 정책은 이름 붙은 요구 사항(<code>IAuthorizationRequirement</code>) 집합이고, <code>AuthorizationHandler&lt;T&gt;</code>가 <code>context.Succeed()</code>로 충족을 표시한다. 한 정책의 요구 사항은 AND, 한 요구 사항에 붙은 여러 핸들러는 OR로 평가된다. 핸들러는 순서가 보장되지 않고 인증이 실패해도 호출되며, <code>context.Fail()</code>은 거부를 확정한다. <code>[Authorize]</code>만 쓰면 <code>DefaultPolicy</code>가, 속성이 없는 엔드포인트에는 <code>FallbackPolicy</code>가 적용된다. Spring의 <code>AuthorizationManager</code>·<code>@PreAuthorize</code>에 대응한다.</p>
+<p><strong>Identity API.</strong> 외부 IdP 없이 가입·로그인을 앱이 직접 맡을 때 <code>AddIdentityApiEndpoints&lt;TUser&gt;()</code>와 <code>MapIdentityApi&lt;TUser&gt;()</code>가 <code>/register</code>·<code>/login</code>·<code>/refresh</code>·<code>/manage/info</code> 등을 만든다. <code>/login?useCookies=true</code>면 쿠키를, 아니면 액세스·리프레시 토큰을 준다. 이 토큰은 JWT가 아니라 Data Protection으로 암호화된 자체 형식이라 발급한 앱만 해독할 수 있다.</p>
+<h2>코드</h2>
+<p>외부 IdP가 발급한 JWT를 검증하고 정책으로 엔드포인트를 보호한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> Microsoft.AspNetCore.Authentication.JwtBearer;
+<span class="hljs-keyword">using</span> Microsoft.AspNetCore.Authorization;
+
+<span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =&gt;
+    {
+        options.Authority = builder.Configuration[<span class="hljs-string">&quot;Auth:Authority&quot;</span>];
+        options.Audience = builder.Configuration[<span class="hljs-string">&quot;Auth:Audience&quot;</span>];
+        options.MapInboundClaims = <span class="hljs-literal">false</span>;
+        options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(<span class="hljs-number">30</span>);
+    });
+
+builder.Services.AddAuthorizationBuilder()
+    .SetFallbackPolicy(<span class="hljs-keyword">new</span> AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser().Build())
+    .AddPolicy(<span class="hljs-string">&quot;OrderWriter&quot;</span>, policy =&gt;
+        policy.RequireClaim(<span class="hljs-string">&quot;scope&quot;</span>, <span class="hljs-string">&quot;orders:write&quot;</span>))
+    .AddPolicy(<span class="hljs-string">&quot;SameTeamOrAdmin&quot;</span>, policy =&gt;
+        policy.Requirements.Add(<span class="hljs-keyword">new</span> SameTeamRequirement()));
+
+builder.Services.AddScoped&lt;IAuthorizationHandler, SameTeamHandler&gt;();
+builder.Services.AddSingleton&lt;IAuthorizationHandler, AdminOverrideHandler&gt;();
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet(<span class="hljs-string">&quot;/health&quot;</span>, () =&gt; Results.Ok()).AllowAnonymous();
+app.MapPost(<span class="hljs-string">&quot;/orders&quot;</span>, (ClaimsPrincipal user) =&gt;
+        Results.Created(<span class="hljs-string">$&quot;/orders/1&quot;</span>, <span class="hljs-keyword">new</span> { <span class="hljs-keyword">by</span> = user.FindFirstValue(<span class="hljs-string">&quot;sub&quot;</span>) }))
+    .RequireAuthorization(<span class="hljs-string">&quot;OrderWriter&quot;</span>);
+app.MapGet(<span class="hljs-string">&quot;/teams/{teamId}/orders&quot;</span>, (<span class="hljs-built_in">string</span> teamId) =&gt; Results.Ok())
+    .RequireAuthorization(<span class="hljs-string">&quot;SameTeamOrAdmin&quot;</span>);
+
+app.Run();</code></pre>
+<p>같은 요구 사항에 핸들러 두 개를 붙여 OR 규칙을 만든다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">SameTeamRequirement</span> : <span class="hljs-title">IAuthorizationRequirement</span>;
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">SameTeamHandler</span>(<span class="hljs-params">IHttpContextAccessor accessor</span>)
+    : AuthorizationHandler&lt;SameTeamRequirement&gt;</span>
+{
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> Task <span class="hljs-title">HandleRequirementAsync</span>(<span class="hljs-params">
+        AuthorizationHandlerContext context, SameTeamRequirement requirement</span>)</span>
+    {
+        <span class="hljs-keyword">var</span> routeTeam = accessor.HttpContext?.GetRouteValue(<span class="hljs-string">&quot;teamId&quot;</span>) <span class="hljs-keyword">as</span> <span class="hljs-built_in">string</span>;
+        <span class="hljs-keyword">var</span> userTeam = context.User.FindFirstValue(<span class="hljs-string">&quot;team&quot;</span>);
+        <span class="hljs-keyword">if</span> (routeTeam <span class="hljs-keyword">is</span> <span class="hljs-keyword">not</span> <span class="hljs-literal">null</span> &amp;&amp; routeTeam == userTeam)
+            context.Succeed(requirement);
+        <span class="hljs-keyword">return</span> Task.CompletedTask;
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">AdminOverrideHandler</span> : <span class="hljs-title">AuthorizationHandler</span>&lt;<span class="hljs-title">SameTeamRequirement</span>&gt;
+{
+    <span class="hljs-function"><span class="hljs-keyword">protected</span> <span class="hljs-keyword">override</span> Task <span class="hljs-title">HandleRequirementAsync</span>(<span class="hljs-params">
+        AuthorizationHandlerContext context, SameTeamRequirement requirement</span>)</span>
+    {
+        <span class="hljs-keyword">if</span> (context.User.HasClaim(<span class="hljs-string">&quot;role&quot;</span>, <span class="hljs-string">&quot;admin&quot;</span>))
+            context.Succeed(requirement);
+        <span class="hljs-keyword">return</span> Task.CompletedTask;
+    }
+}</code></pre>
+<p>Identity로 자체 로그인을 제공한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-keyword">using</span> Microsoft.AspNetCore.Identity;
+<span class="hljs-keyword">using</span> Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+<span class="hljs-keyword">using</span> Microsoft.EntityFrameworkCore;
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">AppDbContext</span>(<span class="hljs-params">DbContextOptions&lt;AppDbContext&gt; options</span>)
+    : <span class="hljs-title">IdentityDbContext</span>&lt;<span class="hljs-title">IdentityUser</span>&gt;(<span class="hljs-params">options</span>)</span>;
+
+<span class="hljs-comment">// Program.cs</span>
+builder.Services.AddDbContext&lt;AppDbContext&gt;(o =&gt;
+    o.UseNpgsql(builder.Configuration.GetConnectionString(<span class="hljs-string">&quot;Default&quot;</span>)));
+
+builder.Services.AddAuthorization();
+builder.Services.AddIdentityApiEndpoints&lt;IdentityUser&gt;(o =&gt;
+    {
+        o.Password.RequiredLength = <span class="hljs-number">12</span>;
+        o.SignIn.RequireConfirmedEmail = <span class="hljs-literal">true</span>;
+    })
+    .AddEntityFrameworkStores&lt;AppDbContext&gt;();
+
+builder.Services.Configure&lt;BearerTokenOptions&gt;(
+    IdentityConstants.BearerScheme,
+    o =&gt; o.BearerTokenExpiration = TimeSpan.FromMinutes(<span class="hljs-number">15</span>));
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+app.MapGroup(<span class="hljs-string">&quot;/auth&quot;</span>).MapIdentityApi&lt;IdentityUser&gt;();
+app.MapGet(<span class="hljs-string">&quot;/me&quot;</span>, (ClaimsPrincipal user) =&gt; user.Identity?.Name)
+    .RequireAuthorization();
+app.Run();</code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>미들웨어 순서.</strong> <code>UseAuthentication()</code>이 <code>UseAuthorization()</code>보다 앞에 와야 <code>User</code>가 채워진 상태로 정책이 평가된다. <code>WebApplication</code>이 둘을 자동으로 넣어 주지만, <code>UseRouting()</code>이나 CORS를 직접 호출하면 위치가 어긋날 수 있으므로 명시적으로 적는다.</li>
+<li><strong>핸들러 수명과 DbContext.</strong> <mark>싱글턴 핸들러에 스코프드 <code>DbContext</code>를 주입하면 개발 환경에서는 시작 시 예외가 나고, 스코프 검증이 꺼진 운영 환경에서는 한 <code>DbContext</code>가 모든 요청에 공유된다.</mark> DB를 읽는 핸들러는 <code>AddScoped</code>로 등록한다.</li>
+<li><strong>Identity 토큰의 키 관리.</strong> <mark>Identity Bearer 토큰은 Data Protection 키로 암호화되므로, 키 링을 Redis·DB·공유 스토리지에 두지 않으면 다른 인스턴스나 재시작 뒤의 앱이 발급한 토큰은 전부 401로 거부된다.</mark> 액세스 토큰 기본 만료는 1시간이다.</li>
+<li><strong>Identity 토큰을 다른 API에 넘기지 않는다.</strong> 여러 서비스가 같은 사용자를 인식해야 하면 OIDC 제공자를 두고 각 API는 JWT Bearer로 검증한다. 사용자명·비밀번호로 직접 JWT를 찍어 내는 방식은 테스트 용도로만 권장된다.</li>
+<li><strong>401과 403의 경계.</strong> 서명·<code>aud</code>·만료가 틀리면 401, 인증은 됐지만 정책이 거부하면 403이다. <code>FallbackPolicy</code>를 걸면 헬스 체크·OpenAPI 문서도 401을 받으므로 <code>AllowAnonymous()</code>를 빠뜨리지 않는다. 로컬 토큰은 <code>dotnet user-jwts create</code>로 만든다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/minimal-apis-controllers/">Minimal API와 컨트롤러 — 라우팅·바인딩·검증</a></li>
+<li><a href="/notes/dotnet/error-handling-filters/">예외 처리와 ProblemDetails — 미들웨어·필터</a></li>
+<li><a href="/notes/dotnet/ef-core-basics/">EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · ASP.NET Core, JWT, Authorization Policy, Identity, ClaimsPrincipal</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/error-handling-filters/"><small>이전</small>예외 처리와 ProblemDetails — 미들웨어·필터</a>
+  <a class="next" href="/notes/dotnet/ef-core-basics/"><small>다음</small>EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>.NET · Notes</title>
+  <meta name="description" content=".NET Core에서 이어진 통합 .NET — C# 핵심, ASP.NET Core 미들웨어·DI·구성·Minimal API·인증, EF Core, 관측성·테스트·배포.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content=".NET · Notes">
+  <meta property="og:description" content=".NET Core에서 이어진 통합 .NET — C# 핵심, ASP.NET Core 미들웨어·DI·구성·Minimal API·인증, EF Core, 관측성·테스트·배포.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><span>.NET</span></nav>
+    <header class="series-head"><h1>.NET</h1><p>.NET Core에서 이어진 통합 .NET — C# 핵심, ASP.NET Core 미들웨어·DI·구성·Minimal API·인증, EF Core, 관측성·테스트·배포.</p><p class="count">16편</p></header>
+<section class="part-group"><h2>기초</h2><ol class="toc"><li><a href="/notes/dotnet/what-is-dotnet/"><span class="n">1</span><span class="t">.NET이란 무엇인가 — Framework·Core·통합 .NET과 SDK·런타임</span><span class="s">Framework·Core·통합 .NET의 계보와 SDK·런타임의 역할을 구분하고, LTS 기준으로 버전을 고르는 법을 정리한다</span></a></li>
+<li><a href="/notes/dotnet/csharp-essentials/"><span class="n">2</span><span class="t">C# 핵심 — record·패턴 매칭·nullable·LINQ</span><span class="s">ASP.NET Core·EF Core 코드를 읽는 데 필요한 C# 문법 네 가지를 Java 대응 개념과 함께 정리한다</span></a></li>
+<li><a href="/notes/dotnet/project-sdk-cli/"><span class="n">3</span><span class="t">프로젝트 구조와 CLI — csproj·SDK·NuGet·솔루션</span><span class="s">SDK 스타일 csproj·global.json·NuGet 중앙 버전 관리·slnx 솔루션이 .NET 10 빌드를 어떻게 구성하는지 정리한다</span></a></li>
+<li><a href="/notes/dotnet/async-await/"><span class="n">4</span><span class="t">async/await와 Task — 비동기 모델과 취소</span><span class="s">Task와 await가 스레드를 점유하지 않고 I/O를 기다리는 원리와 CancellationToken으로 작업을 협조적으로 멈추는 방법</span></a></li></ol></section>
+<section class="part-group"><h2>웹 API</h2><ol class="toc"><li><a href="/notes/dotnet/aspnet-core-fundamentals/"><span class="n">5</span><span class="t">ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</span><span class="s">WebApplication 호스트가 기본으로 해 주는 일과, 미들웨어 등록 순서가 요청 처리 결과를 바꾸는 방식</span></a></li>
+<li><a href="/notes/dotnet/dependency-injection/"><span class="n">6</span><span class="t">의존성 주입 — 수명 주기·등록·키 서비스</span><span class="s">Transient·Scoped·Singleton 수명과 등록 방식, 키 서비스, 스코프 검증으로 포획 의존성을 막는 기준</span></a></li>
+<li><a href="/notes/dotnet/configuration-options/"><span class="n">7</span><span class="t">구성과 Options 패턴 — appsettings·환경·비밀 관리</span><span class="s">여러 소스를 IConfiguration 하나로 합치고, Options 패턴으로 타입·검증·리로드를 다루며 비밀은 저장소 밖에 둔다</span></a></li>
+<li><a href="/notes/dotnet/minimal-apis-controllers/"><span class="n">8</span><span class="t">Minimal API와 컨트롤러 — 라우팅·바인딩·검증</span><span class="s">Minimal API는 람다 하나로 엔드포인트를 만들고 바인딩·검증을 규칙으로 추론하며, 컨트롤러는 MVC 확장점이 필요할 때 고른다</span></a></li>
+<li><a href="/notes/dotnet/error-handling-filters/"><span class="n">9</span><span class="t">예외 처리와 ProblemDetails — 미들웨어·필터</span><span class="s">예외 처리 미들웨어·IExceptionHandler·예외 필터가 예외를 잡는 위치와 ProblemDetails로 오류 응답을 통일하는 방법을 정리한다</span></a></li>
+<li><a href="/notes/dotnet/authentication-authorization/"><span class="n">10</span><span class="t">인증과 인가 — JWT Bearer·정책·Identity</span><span class="s">JWT Bearer 스킴이 ClaimsPrincipal을 만들고 정책이 요구 사항으로 판정하며, Identity API는 자체 토큰 발급을 맡는 구조를 정리한다</span></a></li></ol></section>
+<section class="part-group"><h2>데이터</h2><ol class="toc"><li><a href="/notes/dotnet/ef-core-basics/"><span class="n">11</span><span class="t">EF Core 기본 — DbContext·마이그레이션·LINQ 쿼리</span><span class="s">DbContext는 요청 단위 작업 세션, 스키마는 마이그레이션, 조회는 LINQ의 SQL 번역으로 다룬다</span></a></li>
+<li><a href="/notes/dotnet/ef-core-performance/"><span class="n">12</span><span class="t">EF Core 성능·트랜잭션·동시성 — 추적·N+1·낙관적 동시성</span><span class="s">읽기 경로는 추적을 끄고 N+1·카티전 폭발은 로딩 전략으로, 쓰기는 트랜잭션 경계와 동시성 토큰으로 지킨다</span></a></li>
+<li><a href="/notes/dotnet/httpclient-resilience/"><span class="n">13</span><span class="t">HttpClient — IHttpClientFactory와 복원력 파이프라인</span><span class="s">HttpClient를 매번 new 하지도 싱글턴으로 붙들지도 않고, 팩터리와 표준 복원력 핸들러로 외부 호출을 안전하게 만드는 법</span></a></li></ol></section>
+<section class="part-group"><h2>운영</h2><ol class="toc"><li><a href="/notes/dotnet/logging-observability/"><span class="n">14</span><span class="t">로깅과 관측성 — ILogger·OpenTelemetry·헬스 체크</span><span class="s">ILogger 구조화 로그, OpenTelemetry로 로그·메트릭·추적을 한 파이프라인으로 내보내는 법, readiness와 liveness를 분리한 헬스 체크 구성</span></a></li>
+<li><a href="/notes/dotnet/testing/"><span class="n">15</span><span class="t">테스트 — xUnit·WebApplicationFactory 통합 테스트</span><span class="s">xUnit v3로 단위 테스트를 쓰고 WebApplicationFactory로 실제 파이프라인을 인메모리에서 검증하는 방법을 정리한다</span></a></li>
+<li><a href="/notes/dotnet/background-services-deploy/"><span class="n">16</span><span class="t">백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</span><span class="s">BackgroundService의 시작·종료·예외 규칙과 컨테이너 이미지·Native AOT 발행에서 확인해야 할 기준을 정리한다</span></a></li></ol></section>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>

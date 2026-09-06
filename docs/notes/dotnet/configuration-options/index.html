@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>구성과 Options 패턴 — appsettings·환경·비밀 관리 · .NET</title>
+  <meta name="description" content="여러 소스를 IConfiguration 하나로 합치고, Options 패턴으로 타입·검증·리로드를 다루며 비밀은 저장소 밖에 둔다">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="구성과 Options 패턴 — appsettings·환경·비밀 관리 · .NET">
+  <meta property="og:description" content="여러 소스를 IConfiguration 하나로 합치고, Options 패턴으로 타입·검증·리로드를 다루며 비밀은 저장소 밖에 둔다">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://jinwookoh.github.io/notes/dotnet/configuration-options/">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="/notes/notes.css?v=2">
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="/">홈</a><a class="notes-link" href="/notes/">Notes</a></div></header>
+<main class="sheet">
+  <div class="wrap">
+    <nav class="crumbs"><a href="/notes/">Notes</a><span class="sep">›</span><a href="/notes/dotnet/">.NET</a><span class="sep">›</span><span>구성과 Options 패턴 — appsettings·환경·비밀 관리</span></nav>
+    <article class="post">
+  <p class="part">.NET · 웹 API</p>
+  <h1>구성과 Options 패턴 — appsettings·환경·비밀 관리</h1>
+  <p class="summary">여러 소스를 IConfiguration 하나로 합치고, Options 패턴으로 타입·검증·리로드를 다루며 비밀은 저장소 밖에 둔다</p>
+  <div class="content">
+<p>연결 문자열·API 키가 코드에 박혀 있으면 환경이 바뀔 때마다 다시 빌드해야 하고, 비밀이 저장소 이력에 남는다. 각 클래스가 파일을 직접 읽으면 소스 간 우선순위가 제각각이 되고, 키 오타는 런타임에 <code>null</code>로만 드러난다. .NET은 여러 소스를 하나의 키-값 뷰로 합치는 구성 시스템과, 그 값을 타입 있는 클래스로 묶어 주입·검증하는 Options 패턴으로 이 문제를 다룬다.</p>
+<h2>핵심 개념</h2>
+<h3>소스 합성과 우선순위</h3>
+<p><code>WebApplication.CreateBuilder(args)</code>는 <code>appsettings.json</code> → <code>appsettings.{Environment}.json</code> → User Secrets(Development일 때만) → 환경 변수 → 명령줄 인수 순으로 프로바이더를 등록하고, 같은 키는 나중 소스가 이긴다. 결과는 읽기 전용 <code>IConfiguration</code> 하나로 노출된다. 환경 이름은 <code>ASPNETCORE_ENVIRONMENT</code>로 정하고 기본값은 <code>Production</code>이다.</p>
+<p>키는 콜론으로 계층을 표현한다. <code>Db:Timeout</code>은 JSON 중첩 객체에 대응하고, 배열은 <code>Hosts:0</code>처럼 인덱스가 키가 된다. 환경 변수에서는 <code>__</code>(밑줄 두 개)가 콜론으로 치환된다.</p>
+<p>Spring으로 보면 <code>appsettings.{Environment}.json</code>은 <code>application-{profile}.yml</code>, Options 클래스는 <code>@ConfigurationProperties</code>, <code>ValidateDataAnnotations</code>는 <code>@Validated</code>에 가깝다.</p>
+<h3>바인딩</h3>
+<p><code>GetSection(&quot;Db&quot;).Get&lt;DbOptions&gt;()</code>가 섹션을 객체로 만들고, <code>GetValue&lt;int&gt;(&quot;Db:Timeout&quot;)</code>는 단일 값을 변환한다. 바인더는 public setter가 있는 프로퍼티만 채우며, 단일 매개변수 생성자를 가진 record도 지원한다.</p>
+<h3>Options 인터페이스 세 가지</h3>
+<table>
+<thead>
+<tr>
+<th>인터페이스</th>
+<th>DI 수명</th>
+<th>재로드</th>
+<th>명명 옵션</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>IOptions&lt;T&gt;</code></td>
+<td>Singleton</td>
+<td>없음</td>
+<td>미지원</td>
+</tr>
+<tr>
+<td><code>IOptionsSnapshot&lt;T&gt;</code></td>
+<td>Scoped</td>
+<td>스코프마다 재계산</td>
+<td>지원</td>
+</tr>
+<tr>
+<td><code>IOptionsMonitor&lt;T&gt;</code></td>
+<td>Singleton</td>
+<td><code>CurrentValue</code>·<code>OnChange</code></td>
+<td>지원</td>
+</tr>
+</tbody></table>
+<p>부팅 후 바뀌지 않는 설정은 <code>IOptions&lt;T&gt;</code>, 요청 단위 일관성이 필요하면 <code>IOptionsSnapshot&lt;T&gt;</code>, 싱글턴이 최신 값을 봐야 하면 <code>IOptionsMonitor&lt;T&gt;</code>를 쓴다. 재로드는 파일 프로바이더에서만 일어난다.</p>
+<h3>검증</h3>
+<p><code>AddOptions&lt;T&gt;().BindConfiguration(section).ValidateDataAnnotations().Validate(predicate, message)</code> 체인으로 규칙을 붙인다. 기본 검증은 <code>Value</code>를 처음 읽는 요청에서 <code>OptionsValidationException</code>으로 터지고, <code>ValidateOnStart()</code>를 붙이면 호스트 시작 시 검증한다. DataAnnotations는 최상위 프로퍼티만 보므로 중첩 객체에는 <code>[ValidateObjectMembers]</code>, 컬렉션에는 <code>[ValidateEnumeratedItems]</code>가 필요하다.</p>
+<h3>비밀 관리</h3>
+<p>개발 비밀은 Secret Manager가 맡는다. <code>dotnet user-secrets init</code>이 csproj에 <code>UserSecretsId</code>를 넣고, 값은 프로젝트 트리 밖 <code>~/.microsoft/usersecrets/&lt;id&gt;/secrets.json</code>에 평문으로 저장되며 Development에서만 로드된다. 운영 비밀은 환경 변수나 Azure Key Vault 프로바이더로 주입하고, 어느 소스든 읽는 코드는 같다.</p>
+<h2>코드</h2>
+<p><code>appsettings.json</code>의 섹션을 Options 클래스에 바인딩하고 검증을 부팅 시점에 실행하도록 등록한다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-comment">// appsettings.json</span>
+<span class="hljs-comment">// { &quot;Db&quot;: { &quot;ConnectionString&quot;: &quot;&quot;, &quot;Timeout&quot;: 30, &quot;Replicas&quot;: [&quot;r1&quot;, &quot;r2&quot;] } }</span>
+
+<span class="hljs-keyword">using</span> System.ComponentModel.DataAnnotations;
+<span class="hljs-keyword">using</span> Microsoft.Extensions.Options;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">DbOptions</span>
+{
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">const</span> <span class="hljs-built_in">string</span> Section = <span class="hljs-string">&quot;Db&quot;</span>;
+
+    [<span class="hljs-meta">Required, MinLength(1)</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">string</span> ConnectionString { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; } = <span class="hljs-string">&quot;&quot;</span>;
+
+    [<span class="hljs-meta">Range(1, 300)</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Timeout { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; } = <span class="hljs-number">30</span>;
+
+    <span class="hljs-keyword">public</span> List&lt;<span class="hljs-built_in">string</span>&gt; Replicas { <span class="hljs-keyword">get</span>; <span class="hljs-keyword">set</span>; } = [];
+}
+
+<span class="hljs-keyword">var</span> builder = WebApplication.CreateBuilder(<span class="hljs-keyword">args</span>);
+
+builder.Services
+    .AddOptions&lt;DbOptions&gt;()
+    .BindConfiguration(DbOptions.Section)
+    .ValidateDataAnnotations()
+    .Validate(o =&gt; o.Replicas.Count &lt;= <span class="hljs-number">5</span>, <span class="hljs-string">&quot;Replicas must be 5 or fewer.&quot;</span>)
+    .ValidateOnStart();
+
+<span class="hljs-keyword">var</span> app = builder.Build();
+app.MapGet(<span class="hljs-string">&quot;/db&quot;</span>, (IOptions&lt;DbOptions&gt; db) =&gt; <span class="hljs-keyword">new</span> { db.Value.Timeout, db.Value.Replicas });
+app.Run();</code></pre>
+<p>싱글턴은 <code>IOptionsMonitor&lt;T&gt;</code>로 최신 값을, 스코프 서비스는 <code>IOptionsSnapshot&lt;T&gt;</code>로 요청 동안 고정된 값을 읽는다.</p>
+<pre><code class="hljs language-csharp"><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">ConnectionPool</span>(<span class="hljs-params">IOptionsMonitor&lt;DbOptions&gt; monitor</span>) : IDisposable</span>
+{
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> IDisposable? _sub = monitor.OnChange(o =&gt;
+        Console.WriteLine(<span class="hljs-string">$&quot;Timeout changed to <span class="hljs-subst">{o.Timeout}</span>&quot;</span>));
+
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> CurrentTimeout =&gt; monitor.CurrentValue.Timeout;
+    <span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">void</span> <span class="hljs-title">Dispose</span>()</span> =&gt; _sub?.Dispose();
+}
+
+<span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">sealed</span> <span class="hljs-keyword">class</span> <span class="hljs-title">OrderService</span>(<span class="hljs-params">IOptionsSnapshot&lt;DbOptions&gt; snapshot</span>)</span>
+{
+    <span class="hljs-comment">// 한 요청 안에서는 같은 인스턴스를 본다.</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-built_in">int</span> Timeout =&gt; snapshot.Value.Timeout;
+}
+
+builder.Services.AddSingleton&lt;ConnectionPool&gt;();
+builder.Services.AddScoped&lt;OrderService&gt;();</code></pre>
+<p>개발 비밀은 User Secrets에, 운영 비밀은 환경 변수에 둔다.</p>
+<pre><code class="hljs language-bash"><span class="hljs-comment"># 개발: 프로젝트 디렉터리에서 실행. csproj에 UserSecretsId가 추가된다.</span>
+dotnet user-secrets init
+dotnet user-secrets <span class="hljs-built_in">set</span> <span class="hljs-string">&quot;Db:ConnectionString&quot;</span> <span class="hljs-string">&quot;Host=localhost;Password=dev-only&quot;</span>
+dotnet user-secrets list
+
+<span class="hljs-comment"># 운영: 콜론 대신 __ 를 쓴다. 배열 원소도 인덱스로 덮어쓴다.</span>
+<span class="hljs-built_in">export</span> Db__ConnectionString=<span class="hljs-string">&quot;Host=prod-db;Password=...&quot;</span>
+<span class="hljs-built_in">export</span> Db__Replicas__0=<span class="hljs-string">&quot;prod-r1&quot;</span></code></pre>
+<h2>실무에서 걸리는 지점</h2>
+<ul>
+<li><strong>Scoped 옵션을 싱글턴에 넣는 실수.</strong> <mark><code>IOptionsSnapshot&lt;T&gt;</code>를 싱글턴 생성자에 주입하면 Development에서는 DI 스코프 검증 예외로 부팅이 실패하고, 검증이 꺼진 운영에서는 최초 값이 영원히 고정된다.</mark></li>
+<li><strong>컨테이너에서 리로드가 오지 않는 문제.</strong> <mark>Docker 볼륨·네트워크 공유에서는 파일 변경 알림이 누락될 수 있으므로 <code>DOTNET_USE_POLLING_FILE_WATCHER=1</code>을 설정해 4초 주기 폴링으로 전환해야 한다.</mark></li>
+<li><strong>환경 변수로 배열 덮어쓰기.</strong> <mark>환경 변수로 배열을 덮어쓰면 인덱스가 겹치는 원소만 교체되고 JSON에 남은 나머지 원소는 그대로 합쳐진다.</mark> 원소 수를 줄이려면 JSON 쪽을 비워야 한다.</li>
+<li><strong>비밀이 저장소로 새는 경로.</strong> <code>appsettings.Development.json</code>은 커밋 대상이므로 여기에 비밀을 넣으면 User Secrets를 쓰는 의미가 없다. 섹션 이름과 클래스 이름은 무관하므로 <code>nameof(DbOptions)</code>로 찾았는데 JSON 키가 <code>Db</code>이면 예외 없이 빈 객체가 바인딩된다.</li>
+</ul>
+<h2>관련 글</h2>
+<ul>
+<li><a href="/notes/dotnet/dependency-injection/">의존성 주입 — 수명 주기·등록·키 서비스</a></li>
+<li><a href="/notes/dotnet/aspnet-core-fundamentals/">ASP.NET Core 기본 — 호스트·Program.cs·미들웨어 파이프라인</a></li>
+<li><a href="/notes/dotnet/background-services-deploy/">백그라운드 서비스와 배포 — IHostedService·Docker·Native AOT</a></li>
+</ul>
+
+  </div>
+  <p class="meta">갱신 2026-09-06 · Configuration, Options 패턴, appsettings, User Secrets, IOptionsMonitor</p>
+</article>
+<nav class="pager">
+  <a class="prev" href="/notes/dotnet/dependency-injection/"><small>이전</small>의존성 주입 — 수명 주기·등록·키 서비스</a>
+  <a class="next" href="/notes/dotnet/minimal-apis-controllers/"><small>다음</small>Minimal API와 컨트롤러 — 라우팅·바인딩·검증</a>
+</nav>
+  </div>
+</main>
+<footer class="bottom"><div class="wrap">© 2026 Jinwook Oh</div></footer>
+</body>
+</html>
