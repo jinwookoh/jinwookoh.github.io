@@ -17,10 +17,17 @@ if (!row) { console.error(`order ${order} not in mapping`); process.exit(2); }
 
 const resolve = s => s.replace(/^S\//, 'spring/').replace(/^R\//, '');
 const isUrl = s => /^https?:\/\//.test(s);
+// T/<id> = 옛 티스토리 글(planning/sources/tistory/<id>.md 로 내려받아 둔 원문)
+const isTistory = s => /^T\/\d+$/.test(s);
+const tistoryUrl = s => `https://jinwookoh.tistory.com/${s.slice(2)}`;
 const docsMode = row.sources.every(isUrl);
 const fulltext = docsMode
   ? row.sources.map(u => `- ${u}`).join('\n')
   : row.sources.map(s => {
+      if (isTistory(s)) {
+        const txt = fs.readFileSync(path.join(root, 'planning/sources/tistory', `${s.slice(2)}.md`), 'utf8');
+        return `\n\n----- 원본: ${tistoryUrl(s)} -----\n${txt}`;
+      }
       const rel = resolve(s);
       const txt = fs.readFileSync(path.join(STUDY, rel), 'utf8');
       return `\n\n----- 원본: ${rel} -----\n${txt}`;
@@ -38,7 +45,7 @@ const out = tpl
   .replaceAll('{SERIES}', series)
   .replaceAll('{PART}', row.part)
   .replaceAll('{ORDER}', String(order))
-  .replaceAll('{SOURCES}', row.sources.map(x => isUrl(x) ? x : resolve(x)).join(', '))
+  .replaceAll('{SOURCES}', row.sources.map(x => isUrl(x) ? x : isTistory(x) ? tistoryUrl(x) : resolve(x)).join(', '))
   .replaceAll('{TODAY}', today)
   .replaceAll('{TOC}', toc)
   .replaceAll('{SOURCES_FULLTEXT}', fulltext);

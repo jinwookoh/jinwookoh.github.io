@@ -1,6 +1,6 @@
 name: 실험과 분석
 description: 확률·통계 기초에서 A/B 테스트 설계와 통계, Statsig 실험 플랫폼, GA4 측정·전환·BigQuery까지.
-order: 10
+order: 12
 parts:
   - 통계 기초
   - A/B 테스트
