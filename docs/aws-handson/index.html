@@ -161,11 +161,11 @@ a{color:var(--link)}
 /* 클릭해야 하는 곳 */
 .ck{cursor:pointer;position:relative;transition:border-color .12s,background .12s,box-shadow .12s}
 .ck:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-.opt.ck:not(.on):hover,.svc.ck:not(.on):hover{border-color:var(--link)}
-.ck.on{box-shadow:0 0 0 1px var(--link)}
-.opt.ck.on,.svc.ck.on{border-color:var(--link)!important;background:var(--link-soft)!important}
-.ck.on .rd{border-color:var(--link);background:radial-gradient(circle at center,var(--link) 0 5px,transparent 6px)}
-.ck.on .ck-box{border-color:var(--link);background:var(--link)}
+.opt{cursor:pointer}
+.opt:not(.on):hover,.svc:not(.on):hover{border-color:var(--link)}
+.opt.on,.svc.on{box-shadow:0 0 0 1px var(--link);border-color:var(--link)!important;background:var(--link-soft)!important}
+.opt.on .rd{border-color:var(--link);background:radial-gradient(circle at center,var(--link) 0 5px,transparent 6px)}
+.opt.on .ck-box{border-color:var(--link);background:var(--link)}
 .ck.locked{opacity:.55;cursor:not-allowed}
 /* 온디맨드 힌트: '어디를 클릭하죠?' 눌렀을 때만 */
 body.hints .ck:not(.on):not(.locked){outline:2px dashed var(--accent);outline-offset:2px}
@@ -1643,11 +1643,8 @@ function render(){
   $("console").innerHTML = st.console;
   $("cli").innerHTML = cliHTML(st.cli);
 
-  // 이미 끝낸 단계면 클릭 잠금 해제 상태로 표시
-  if(st.done){ $("console").querySelectorAll(".ck").forEach(e=>e.classList.add("on")); }
-
-  // 클릭 대상이 없는 단계(순수 완료/확인 화면)는 자동 완료 처리
-  if($("console").querySelectorAll(".ck").length===0 && !st.done){ st.done=true; persist(); }
+  // 순수 완료/확인 화면(선택·버튼 없음)은 자동 완료
+  if($("console").querySelectorAll(".opt, .btn.primary, .btn.ck, .svc").length===0 && !st.done){ st.done=true; persist(); }
   attachClicks();
   attachCopy();
   updateHint();
@@ -1658,38 +1655,38 @@ function render(){
 
 function attachClicks(){
   const st=scenarios[si].steps[sti];
-  $("console").querySelectorAll(".ck").forEach(el=>{
-    el.setAttribute("tabindex","0");
-    el.setAttribute("role","button");
-    const act=()=>{
-      if(st.done){ return; }
-      const k=el.dataset.key;
-      el.classList.add("on");
-      st._clicks.add(k);
-      const need = st.needs||1;
-      if(st._clicks.size>=need){
-        st.done=true; persist();
-        $("console").querySelectorAll(".ck").forEach(e=>e.classList.add("on"));
-      }
-      updateHint(); updateNav(); renderStepChips();
-    };
-    el.onclick=act;
-    el.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); act(); } };
-  });
-  // 틀린 선택: 클릭 가능하되 완료 안 됨 + 이유 피드백
-  $("console").querySelectorAll(".opt.wrong,.svc.wrong").forEach(el=>{
+  const root=$("console");
+  const completers=[...root.querySelectorAll(".btn.primary, .btn.ck, .svc")];
+  // 모든 선택지를 실제 콘솔처럼 자유롭게 선택 (라디오=그룹 단일, 체크박스=토글)
+  root.querySelectorAll(".opt").forEach(el=>{
+    el.classList.remove("locked","wrong");
+    el.removeAttribute("data-why");
     el.setAttribute("tabindex","0"); el.setAttribute("role","button");
-    const bad=()=>{ if(st.done) return;
-      el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
-      showBad(el.getAttribute("data-why")||"이 선택은 올바르지 않아요. 다시 골라 보세요."); };
-    el.onclick=bad;
-    el.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); bad(); } };
+    const isRadio=!!el.querySelector(".rd");
+    const sel=()=>{
+      if(st.done) return;
+      if(isRadio){
+        el.parentElement.querySelectorAll(":scope > .opt").forEach(g=>{ if(g.querySelector(".rd")) g.classList.remove("on"); });
+        el.classList.add("on");
+      } else { el.classList.toggle("on"); }
+      if(!completers.length) maybeComplete(st,root);
+      updateHint();
+    };
+    el.onclick=sel;
+    el.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); sel(); } };
+  });
+  // 생성/다음/서비스 카드 = 이 단계 진행
+  completers.forEach(el=>{
+    el.setAttribute("tabindex","0"); el.setAttribute("role","button");
+    const go=()=>{ if(st.done) return; st.done=true; persist(); updateHint(); updateNav(); renderStepChips(); };
+    el.onclick=go;
+    el.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } };
   });
 }
-function showBad(msg){
-  let box=$("console").querySelector(".hint");
-  if(!box){ box=document.createElement("div"); box.className="hint"; $("console").appendChild(box); }
-  box.className="hint bad"; box.innerHTML="❌ "+msg;
+function maybeComplete(st,root){
+  if([...root.querySelectorAll(".opt")].some(o=>o.classList.contains("on"))){
+    st.done=true; persist(); updateNav(); renderStepChips();
+  }
 }
 function attachCopy(){
   const b=$("cli").querySelector(".copybtn");
@@ -1702,15 +1699,13 @@ function attachCopy(){
 }
 function updateHint(){
   const st=scenarios[si].steps[sti];
-  let box=$("console").querySelector(".hint");
-  if(!box){ box=document.createElement("div"); box.className="hint"; $("console").appendChild(box); }
+  const root=$("console");
+  let box=root.querySelector(".hint");
+  if(!box){ box=document.createElement("div"); box.className="hint"; root.appendChild(box); }
+  const hasBtn=root.querySelector(".btn.primary, .btn.ck, .svc");
   if(st.done){ box.className="hint ok"; box.innerHTML="이 단계 완료 — 아래 <b>다음</b>으로 진행하세요."; }
-  else{
-    const need=st.needs||1, got=st._clicks.size;
-    box.className="hint todo";
-    box.innerHTML = need>1 ? `이 화면에서 필요한 항목을 선택해 작업을 완료하세요. <span class="muted2">(${got}/${need})</span>`
-                           : `이 화면에서 선택하거나 버튼을 눌러 작업을 완료하세요.`;
-  }
+  else if(hasBtn){ box.className="hint todo"; box.innerHTML="원하는 대로 선택한 뒤 <b>생성·시작·다음</b> 버튼을 누르세요. 어떤 옵션이든 골라볼 수 있어요(요금 걱정 없음)."; }
+  else { box.className="hint todo"; box.innerHTML="항목을 선택하면 다음으로 진행됩니다."; }
 }
 function updateNav(){
   const s=scenarios[si], st=s.steps[sti];
