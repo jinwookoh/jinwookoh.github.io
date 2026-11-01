@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AWS 클릭 실습실</title>
+<meta name="description" content="실제 AWS에 접속하지 않고 클릭만으로 따라 하는 초심자용 AWS 실습 시뮬레이터. 콘솔(UI) 방식과 CLI 명령어 방식을 나란히, 용어마다 툴팁 설명." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+/* 레이아웃: 상단 AWS 바 + (사이드바 단계목록 | 본문: 콘솔 pane + CLI pane) */
+:root{
+  --bg:#eef0f2; --surface:#ffffff; --surface2:#fafbfc;
+  --ink:#16191f; --muted:#5f6b7a; --line:#d5dbdb; --line2:#e9ebed;
+  --navy:#232f3e; --navy2:#1a2634;
+  --accent:#ec7211; --accent-h:#d85c04; --accent-soft:#fdefe3;
+  --link:#0073bb; --link-soft:#eef5fc; --ok:#1d8102; --ok-soft:#eaf5e6; --warn:#8a6d1f; --warn-soft:#fbf3da;
+  --term-bg:#152230; --term-ink:#e6edf3; --term-dim:#8aa0b4; --term-green:#7ee787; --term-orange:#ffbf7a;
+  --radius:10px; --shadow:0 1px 2px rgba(16,25,40,.08),0 6px 20px rgba(16,25,40,.06);
+  --disp:"Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1621; --surface:#15202e; --surface2:#1a2736;
+    --ink:#e8edf2; --muted:#9fb0c0; --line:#2b3a4d; --line2:#223042;
+    --navy:#0b141f; --navy2:#060d15;
+    --accent:#ff8c2e; --accent-h:#ffa24f; --accent-soft:#3a2614;
+    --link:#4aa8e0; --link-soft:#13273a; --ok:#5fc74a; --ok-soft:#1c3119; --warn:#e0b84a; --warn-soft:#352c12;
+    --term-bg:#0a121c; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1621; --surface:#15202e; --surface2:#1a2736;
+  --ink:#e8edf2; --muted:#9fb0c0; --line:#2b3a4d; --line2:#223042;
+  --navy:#0b141f; --navy2:#060d15;
+  --accent:#ff8c2e; --accent-h:#ffa24f; --accent-soft:#3a2614;
+  --link:#4aa8e0; --ok:#5fc74a; --ok-soft:#1c3119; --warn:#e0b84a; --warn-soft:#352c12;
+  --term-bg:#0a121c; --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);
+  font-size:15px;line-height:1.6;-webkit-text-size-adjust:100%;
+}
+h1,h2,h3{font-family:var(--disp);margin:0;text-wrap:balance;line-height:1.3}
+button{font-family:inherit}
+a{color:var(--link)}
+
+/* 상단 바 */
+.awsbar{display:flex;align-items:center;gap:12px;background:var(--navy);color:#fff;padding:0 14px;height:48px;position:sticky;top:0;z-index:30}
+.awsbar .logo{display:flex;align-items:baseline;gap:7px;font-weight:700;font-size:15px}
+.awsbar .logo .cube{color:#fff;background:var(--accent);font-weight:800;font-size:13px;letter-spacing:.5px;padding:2px 6px;border-radius:4px}
+.awsbar .logo .sfx{color:#c5cdd6;font-weight:600;font-size:13px}
+.awsbar .tnav{color:#dbe2ea;font-size:13px;padding:0 2px;white-space:nowrap}
+.awsbar .gsearch{flex:1;max-width:520px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 11px;color:#aeb9c5;font-size:12.5px;min-width:0}
+.awsbar .gsearch .gi{opacity:.8}
+.awsbar .crumb{display:none}
+.awsbar .spacer{display:none}
+.awsbar .pill{background:#2e3c4e;color:#dbe2ea;border-radius:6px;padding:5px 9px;font-size:12.5px;white-space:nowrap}
+.awsbar .pill.region{cursor:default}
+.themebtn{background:#2e3c4e;color:#dbe2ea;border:0;border-radius:6px;padding:6px 9px;font-size:13px;cursor:pointer}
+.themebtn:hover{background:#3a4a5e}
+
+/* 안내 배너 */
+.note{
+  background:var(--accent-soft);border-bottom:1px solid var(--line);
+  color:var(--ink);padding:9px 16px;font-size:13px;display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;text-align:center
+}
+.note b{color:var(--accent-h)}
+.note .dot{color:var(--muted)}
+
+/* 전체 셸 */
+.shell{display:grid;grid-template-columns:260px 1fr;gap:0;align-items:start}
+@media (max-width:860px){.shell{grid-template-columns:1fr}}
+
+/* 사이드바 */
+.sidebar{
+  background:var(--surface);border-right:1px solid var(--line);
+  min-height:calc(100vh - 48px);padding:16px 12px 40px;position:sticky;top:48px
+}
+@media (max-width:860px){.sidebar{position:static;min-height:0;border-right:0;border-bottom:1px solid var(--line)}}
+.scsel{width:100%;margin-bottom:14px;padding:10px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);color:var(--ink);font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+.scsel:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.sctitle{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:4px 6px 8px}
+.steplist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.steplist li{
+  display:flex;gap:9px;align-items:flex-start;padding:7px 9px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:13px
+}
+.steplist li:hover{background:var(--surface2)}
+.steplist li[aria-current="true"]{background:var(--accent-soft);color:var(--ink);font-weight:600}
+.steplist li.done{color:var(--ink)}
+.steplist .badge{
+  flex:none;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);
+  display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--muted);background:var(--surface);margin-top:1px
+}
+.steplist li[aria-current="true"] .badge{border-color:var(--accent);color:var(--accent-h)}
+.steplist li.done .badge{background:var(--ok);border-color:var(--ok);color:#fff}
+
+/* 본문 */
+.stage{padding:22px clamp(16px,4vw,34px) 60px;max-width:1120px}
+.stephead{margin-bottom:16px}
+.stephead .kicker{font-size:12.5px;color:var(--accent-h);font-weight:700;letter-spacing:.04em}
+.stephead h2{font-size:clamp(20px,3vw,25px);margin:3px 0 6px}
+.stephead p{margin:0;color:var(--muted);max-width:66ch}
+
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:980px){.panes{grid-template-columns:1fr}}
+.pane{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.pane>.ph{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line2);font-weight:700;font-size:13.5px}
+.pane.console>.ph{background:var(--surface2)}
+.pane.console>.ph .ic{color:var(--accent)}
+.pane.cli>.ph{background:var(--navy);color:#fff;border-bottom-color:var(--navy2)}
+.pane .body{padding:14px}
+.bcrumb{font-size:12px;color:var(--muted);margin:0 0 12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.bcrumb b{color:var(--ink);font-weight:600}
+.bcrumb i{opacity:.5;font-style:normal}
+
+/* 가짜 콘솔 요소 */
+.scr{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 1px 1px rgba(0,0,0,.04)}
+.scr + .scr{margin-top:12px}
+.scr h4{font-size:15px;margin:-16px -16px 12px;padding:11px 16px;border-bottom:1px solid var(--line2);background:var(--surface2);border-radius:8px 8px 0 0;font-family:var(--disp)}
+.scr .sub{font-size:12.5px;color:var(--muted);margin:0 0 10px}
+.field{margin:9px 0}
+.field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
+.input{
+  background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:8px 11px;font-size:13.5px;color:var(--ink);
+  display:flex;align-items:center;gap:8px;min-height:38px
+}
+.input.prefilled{color:var(--ink)}
+.input .tag{margin-left:auto;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--line2);border-radius:5px;padding:1px 6px}
+.dots{letter-spacing:3px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.svc{display:flex;gap:9px;align-items:center;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px}
+.svc .sic{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:#fff;font-size:15px;font-weight:700;flex:none}
+.svc .nm{font-size:13px;font-weight:600}
+.svc .ds{font-size:11.5px;color:var(--muted)}
+.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:10px 12px;margin:7px 0}
+.opt .rd{width:17px;height:17px;border-radius:50%;border:2px solid var(--line);flex:none;margin-top:2px}
+.opt .ck-box{width:17px;height:17px;border-radius:4px;border:2px solid var(--line);flex:none;margin-top:2px;display:grid;place-items:center;color:#fff;font-size:11px}
+.opt .nm{font-weight:600;font-size:13.5px}
+.opt .ds{font-size:12px;color:var(--muted)}
+.opt .free{margin-left:auto;font-size:11px;color:var(--ok);background:var(--ok-soft);border-radius:5px;padding:1px 7px;white-space:nowrap;align-self:center}
+.rowsum{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line2);font-size:13px}
+.rowsum:last-child{border-bottom:0}
+.rowsum .k{color:var(--muted)}
+.rowsum .v{font-weight:600;text-align:right}
+.chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:8px 11px;font-size:13px}
+.chip .fi{color:var(--link)}
+
+/* 클릭해야 하는 곳 */
+.ck{cursor:pointer;position:relative;transition:transform .08s ease,box-shadow .12s ease,border-color .12s}
+.ck:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.ck:not(.on):not(.locked){box-shadow:0 0 0 2px var(--accent)}
+.ck:not(.on):not(.locked)::after{
+  content:"";position:absolute;inset:-4px;border-radius:inherit;border:2px solid var(--accent);
+  animation:pulse 1.5s ease-out infinite;pointer-events:none
+}
+.ck:hover:not(.on){transform:translateY(-1px)}
+.ck.on{box-shadow:0 0 0 2px var(--link)!important}
+.opt.ck.on,.svc.ck.on{border-color:var(--link)!important;background:var(--link-soft)!important}
+.ck.on .rd{border-color:var(--link);background:radial-gradient(circle at center,var(--link) 0 5px,transparent 6px)}
+.ck.on .ck-box{border-color:var(--link);background:var(--link)}
+.ck.locked{opacity:.55;cursor:not-allowed}
+@keyframes pulse{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.06)}}
+@media (prefers-reduced-motion:reduce){.ck::after{animation:none;opacity:.5}}
+
+/* 콘솔 버튼 */
+.btn{border:0;border-radius:7px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-h)}
+.btn.ghost{background:var(--surface);border:1px solid var(--line);color:var(--ink);font-weight:600}
+.btnrow{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap}
+
+/* 성공 힌트 */
+.hint{margin-top:12px;font-size:13px;border-radius:8px;padding:9px 12px;display:flex;gap:8px;align-items:flex-start}
+.hint.todo{background:var(--accent-soft);color:var(--accent-h)}
+.hint.ok{background:var(--ok-soft);color:var(--ok)}
+
+/* 터미널(CLI) */
+.cli .note-sm{padding:12px 14px 2px;font-size:12.5px;color:var(--muted)}
+.term{background:var(--term-bg);margin:12px 14px 14px;border-radius:9px;padding:13px 14px;font-family:var(--mono);font-size:12.8px;line-height:1.75;color:var(--term-ink);overflow-x:auto}
+.term .line{white-space:pre;display:block}
+.term .p{color:var(--term-green)}
+.term .cmd{color:var(--term-ink)}
+.term .flag{color:var(--term-orange)}
+.term .cmt{color:var(--term-dim)}
+.term .out{color:var(--term-dim)}
+.copyrow{display:flex;justify-content:space-between;align-items:center;padding:0 14px 14px}
+.copybtn{background:var(--navy);color:#fff;border:1px solid var(--navy2);border-radius:7px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.copybtn:hover{background:var(--navy2)}
+.copybtn.copied{background:var(--ok);border-color:var(--ok)}
+.clihelp{padding:0 14px 16px;font-size:12px;color:var(--muted)}
+.clihelp b{color:var(--ink)}
+
+/* 용어 툴팁 트리거 */
+.term-w{border-bottom:1.5px dotted var(--link);cursor:help;color:inherit}
+.flag-w{border-bottom:1.5px dotted var(--term-orange);cursor:help}
+.ii{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:var(--link);color:#fff;font-size:10px;font-weight:700;cursor:help;vertical-align:middle;margin-left:2px}
+
+/* 하단 내비 */
+.navrow{display:flex;align-items:center;gap:14px;margin-top:22px;flex-wrap:wrap}
+.navrow .bar{flex:1;min-width:120px;height:8px;background:var(--line);border-radius:99px;overflow:hidden}
+.navrow .bar span{display:block;height:100%;background:var(--accent);transition:width .3s ease}
+.navrow .pct{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.nbtn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}
+.nbtn:disabled{opacity:.45;cursor:not-allowed}
+.nbtn.go{background:var(--accent);border-color:var(--accent);color:#fff}
+.nbtn.go:disabled{background:var(--line);border-color:var(--line);color:var(--muted)}
+
+/* 툴팁 */
+#tip{
+  position:fixed;z-index:60;max-width:min(270px,calc(100vw - 24px));background:var(--navy);color:#fff;
+  padding:9px 12px;border-radius:9px;font-size:12.6px;line-height:1.55;box-shadow:0 8px 28px rgba(0,0,0,.28);
+  opacity:0;transform:translateY(4px);pointer-events:none;transition:opacity .12s,transform .12s
+}
+#tip.show{opacity:1;transform:translateY(0)}
+#tip b{color:var(--accent)}
+#tip::after{content:"";position:absolute;width:10px;height:10px;background:var(--navy);transform:rotate(45deg)}
+#tip[data-pos="top"]::after{bottom:-5px;left:var(--ax,50%);margin-left:-5px}
+#tip[data-pos="bottom"]::after{top:-5px;left:var(--ax,50%);margin-left:-5px}
+
+/* 완료 오버레이 */
+#done{position:fixed;inset:0;z-index:80;background:rgba(10,16,24,.62);display:none;place-items:center;padding:20px}
+#done.show{display:grid}
+.donecard{background:var(--surface);border-radius:16px;max-width:440px;width:100%;padding:28px 26px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.donecard .big{font-size:46px;line-height:1}
+.donecard h2{font-size:22px;margin:12px 0 6px}
+.donecard p{color:var(--muted);margin:0 0 18px;font-size:14px}
+.donecard .dbtns{display:flex;gap:9px;flex-direction:column}
+.donecard .dbtns button{border-radius:9px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.donecard .dbtns button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ===== 모바일 최적화 ===== */
+@media (max-width:860px){
+  .sidebar{padding:12px 12px 14px}
+  .scsel{margin-bottom:10px}
+  .sctitle{margin:0 2px 6px}
+  .steplist{flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+  .steplist li{flex:none;padding:6px 10px;border:1px solid var(--line);border-radius:999px}
+  .steplist li span:not(.badge){display:none}
+  .steplist li[aria-current="true"] span:not(.badge){display:inline;font-size:12px;max-width:44vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .panes{gap:12px}
+}
+@media (max-width:560px){
+  body{overflow-x:hidden}
+  .awsbar{gap:8px;padding:0 10px;height:46px}
+  .awsbar .crumb{display:none}
+  .awsbar .gsearch,.awsbar .tnav{display:none}
+  .awsbar .pill.acct{display:none}
+  .awsbar .logo{font-size:14px}
+  .themebtn{padding:5px 8px}
+  .note{font-size:12px;padding:8px 12px;gap:6px}
+  .note .dot{display:none}
+  .stage{padding:16px 16px 52px}
+  .stephead h2{font-size:20px}
+  .pane .body{padding:12px}
+  .navrow{gap:10px}
+  .navrow .bar{order:-1;flex-basis:100%}
+  .nbtn{flex:1;padding:13px 10px;font-size:15px}
+  #tip{font-size:13px}
+}
+</style>
+</head>
+<body>
+<header class="awsbar">
+  <span class="logo"><span class="cube">aws</span><span class="sfx">실습실</span></span>
+  <span class="tnav">서비스 ▾</span>
+  <div class="gsearch"><span class="gi">🔍</span> 서비스, 기능, 설명서 검색</div>
+  <span class="crumb" id="crumb">콘솔 홈</span>
+  <span class="spacer"></span>
+  <button class="themebtn" id="theme" title="밝게/어둡게 전환">◐</button>
+  <span class="pill region">🌐 서울 ▾</span>
+  <span class="pill acct">연습-계정 ▾</span>
+</header>
+
+<div class="note">
+  <span>🧪 <b>실제 AWS가 아닌 연습용</b>입니다. 요금·계정 위험 없음.</span>
+  <span class="dot">·</span>
+  <span>주황색으로 <b>반짝이는 곳을 클릭</b>하면 다음으로 넘어가요 (타이핑 불필요).</span>
+  <span class="dot">·</span>
+  <span><span class="term-w">점선 밑줄</span> 용어는 올리거나 탭하면 설명이 떠요.</span>
+</div>
+
+<div class="shell">
+  <aside class="sidebar">
+    <select class="scsel" id="scsel" aria-label="실습 챕터 선택"></select>
+    <div class="sctitle" id="sctitle"></div>
+    <ul class="steplist" id="steplist"></ul>
+  </aside>
+
+  <main class="stage">
+    <div class="stephead">
+      <div class="kicker" id="kicker"></div>
+      <h2 id="stitle"></h2>
+      <p id="sintro"></p>
+    </div>
+
+    <div class="panes">
+      <section class="pane console">
+        <div class="ph"><span class="ic">🖱️</span> 콘솔(화면)에서 — 클릭</div>
+        <div class="body" id="console"></div>
+      </section>
+      <section class="pane cli">
+        <div class="ph"><span class="ic">⌨️</span> 명령어(CLI)로 — 같은 작업</div>
+        <div id="cli"></div>
+      </section>
+    </div>
+
+    <div class="navrow">
+      <button class="nbtn" id="prev">← 이전</button>
+      <div class="bar"><span id="barfill"></span></div>
+      <span class="pct" id="pct"></span>
+      <button class="nbtn go" id="next" disabled>다음 →</button>
+    </div>
+  </main>
+</div>
+
+<div id="tip" role="tooltip"></div>
+
+<div id="done" role="dialog" aria-modal="true" aria-labelledby="donetitle">
+  <div class="donecard">
+    <div class="big">🎉</div>
+    <h2 id="donetitle">실습 완료!</h2>
+    <p id="donemsg"></p>
+    <div class="dbtns" id="donebtns"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- 데이터: 두 가지 실습 ---------- */
+const T = {
+  /* 재사용 툴팁 사전 */
+};
+function term(w, tip){ return `<span class="term-w" data-tip="${tip.replace(/"/g,'&quot;')}">${w}</span>`; }
+function flag(w, tip){ return `<span class="flag-w flag" data-tip="${tip.replace(/"/g,'&quot;')}">${w}</span>`; }
+
+const scenarios = [
+{
+  id:"ec2", ch:2, icon:"🖥️", name:"EC2 서버 띄우기",
+  label:"챕터 2 · EC2 — 가상 서버 한 대 만들기",
+  doneMsg:"가상 서버(EC2 인스턴스) 한 대를 만들고 실행했어요. 실제로는 여기에 접속해 웹사이트를 올립니다.",
+  steps:[
+    {
+      title:"AWS 콘솔에 로그인",
+      intro:`모든 것은 로그인에서 시작해요. 보통 ${term('IAM 사용자','루트 계정 대신 권한을 나눠 만든 작업용 계정. 실무에서는 루트를 거의 안 쓰고 IAM 사용자로 일해요.')}로 로그인하고, 보안을 위해 ${term('MFA','Multi-Factor Authentication. 비밀번호 외에 휴대폰 코드 등 2차 인증을 더하는 것.')}를 켭니다. 아이디·비밀번호는 미리 채워 뒀어요 — <b>로그인</b>만 누르세요.`,
+      console:`<div class="scr">
+        <h4>AWS Management Console 로그인</h4>
+        <p class="sub">연습 계정으로 로그인합니다</p>
+        <div class="field"><label>IAM 사용자 이름</label><div class="input prefilled">beginner-dev <span class="tag">입력됨</span></div></div>
+        <div class="field"><label>비밀번호</label><div class="input"><span class="dots">••••••••••</span><span class="tag">입력됨</span></div></div>
+        <div class="btnrow"><button class="btn primary ck" data-key="login">로그인</button></div>
+      </div>`,
+      cli:{
+        note:`CLI는 매번 로그인하지 않아요. 처음 <b>딱 한 번</b> 자격 증명을 등록해 두면 끝.`,
+        lines:[
+          {p:"$",cmd:" aws configure"},
+          {out:"AWS Access Key ID     [****]: ",flagHtml:flag("(액세스 키)","IAM 사용자의 '프로그램용 비밀번호' 한 쌍 중 공개 ID. 콘솔 로그인 대신 CLI가 이걸로 인증해요.")},
+          {out:"AWS Secret Access Key [****]: ",flagHtml:flag("(시크릿 키)","액세스 키의 짝. 절대 외부에 공개하면 안 되는 비밀값.")},
+          {out:"Default region name    : ap-northeast-2",},
+          {out:"Default output format  : json"},
+        ],
+        copy:"aws configure",
+        help:`한 번 등록하면 이후 모든 <b>aws</b> 명령이 이 계정으로 실행돼요.`
+      }
+    },
+    {
+      title:"EC2 서비스 열기",
+      intro:`AWS에는 수백 개의 서비스가 있어요. 가상 서버를 다루는 건 ${term('EC2','Elastic Compute Cloud. 클라우드에서 빌려 쓰는 가상 컴퓨터(서버) 서비스.')}입니다. 검색창에 이미 "EC2"가 들어가 있어요 — 아래 <b>EC2 카드</b>를 클릭하세요.`,
+      console:`<div class="scr">
+        <div class="field"><label>서비스 검색</label><div class="input prefilled">🔍 EC2 <span class="tag">검색됨</span></div></div>
+        <div class="grid2" style="margin-top:4px">
+          <div class="svc ck" data-key="ec2"><span class="sic" style="background:#ec7211">▦</span><div><div class="nm">EC2</div><div class="ds">가상 서버</div></div></div>
+          <div class="svc locked"><span class="sic" style="background:#3b7ddd">⛁</span><div><div class="nm">RDS</div><div class="ds">관리형 DB</div></div></div>
+          <div class="svc locked"><span class="sic" style="background:#1d8102">⬡</span><div><div class="nm">S3</div><div class="ds">파일 저장소</div></div></div>
+          <div class="svc locked"><span class="sic" style="background:#8c4fff">λ</span><div><div class="nm">Lambda</div><div class="ds">서버리스 함수</div></div></div>
+        </div>
+      </div>`,
+      cli:{
+        note:`CLI에서는 서비스마다 <b>aws &lt;서비스&gt;</b> 형태로 씁니다. EC2는 <b>aws ec2</b>.`,
+        lines:[
+          {cmt:"# 현재 떠 있는 서버(인스턴스) 목록 보기"},
+          {p:"$",cmd:" aws ec2 ",flagHtml:flag("describe-instances","'설명해줘'라는 뜻의 조회 명령. AWS CLI는 보통 describe-/list-(조회), create-/run-(생성), delete-/terminate-(삭제) 동사를 써요.")},
+          {out:"(아직 서버가 없어 비어 있음)"}
+        ],
+        copy:"aws ec2 describe-instances",
+        help:`<b>aws ec2</b> 뒤에 동작을 붙여 서버를 만들고·보고·지웁니다.`
+      }
+    },
+    {
+      title:"‘인스턴스 시작’ 마법사 열기",
+      intro:`서버 한 대를 AWS에서는 ${term('인스턴스','Instance. 실제로 돌아가는 서버 한 대를 부르는 말. EC2로 만든 가상 컴퓨터 1개 = 인스턴스 1개.')}라고 불러요. 오른쪽 위 주황색 <b>인스턴스 시작</b> 버튼을 누르면 만들기 마법사가 열립니다.`,
+      console:`<div class="scr">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div><h4>인스턴스</h4><p class="sub" style="margin:0">실행 중 0 · 중지됨 0</p></div>
+          <button class="btn primary ck" data-key="launch">인스턴스 시작 ▾</button>
+        </div>
+      </div>
+      <div class="scr" style="text-align:center;color:var(--muted)">아직 만든 서버가 없습니다. 위 버튼으로 첫 서버를 만들어 보세요.</div>`,
+      cli:{
+        note:`CLI는 마법사 없이 <b>한 줄</b>로 바로 만들어요. 다음 단계들에서 옵션을 하나씩 붙여갑니다.`,
+        lines:[
+          {cmt:"# 서버 생성 명령의 뼈대 (옵션은 이어서 추가)"},
+          {p:"$",cmd:" aws ec2 ",flagHtml:flag("run-instances","서버를 '시작(실행)'하는 생성 명령. 콘솔의 '인스턴스 시작' 버튼과 같은 역할.")},
+          {cmd:"    ..."}
+        ],
+        copy:"aws ec2 run-instances",
+        help:`콘솔에서 클릭으로 고르는 값들을 CLI에선 <b>옵션(--)</b>으로 붙입니다.`
+      }
+    },
+    {
+      title:"이름과 운영체제(AMI) 고르기",
+      intro:`서버 이름은 <b>my-web-server</b>로 채워 뒀어요. 이제 ${term('AMI','Amazon Machine Image. 서버에 깔 운영체제와 기본 소프트웨어의 틀. 어떤 OS로 서버를 구울지 고르는 설계도예요.')}(운영체제)를 고릅니다. 초심자·${term('프리 티어','AWS 가입 후 1년간 특정 사양을 무료로 쓰는 혜택. 연습은 꼭 프리 티어로!')}에 맞는 <b>Amazon Linux</b>를 클릭하세요.`,
+      console:`<div class="scr">
+        <div class="field"><label>이름</label><div class="input prefilled">my-web-server <span class="tag">입력됨</span></div></div>
+        <label style="font-size:12.5px;color:var(--muted)">애플리케이션 및 OS 이미지(AMI)</label>
+        <div class="opt ck" data-key="ami"><span class="rd"></span><div><div class="nm">Amazon Linux 2023</div><div class="ds">AWS가 만든 가볍고 무난한 리눅스</div></div><span class="free">프리 티어 가능</span></div>
+        <div class="opt locked"><span class="rd"></span><div><div class="nm">Ubuntu</div><div class="ds">가장 많이 쓰이는 리눅스</div></div></div>
+        <div class="opt locked"><span class="rd"></span><div><div class="nm">Windows Server</div><div class="ds">윈도우 기반 (유료)</div></div></div>
+      </div>`,
+      cli:{
+        note:`CLI에선 OS를 ${''}<b>AMI ID</b>로 지정해요(지역마다 ID가 다름).`,
+        lines:[
+          {p:"$",cmd:" aws ec2 run-instances \\"},
+          {cmd:"    ",flagHtml:flag("--image-id","깔 운영체제(AMI)를 ID로 지정. ami-로 시작하는 고유 번호.")+' ami-0abc123 '+flag("# Amazon Linux 2023","주석(#)으로 사람이 알아보게 표시. 실제 ID는 지역·버전마다 달라요.")}
+        ],
+        copy:"aws ec2 run-instances --image-id ami-0abc123",
+        help:`최신 Amazon Linux AMI ID는 <b>aws ssm get-parameters</b>로 자동 조회할 수도 있어요.`
+      }
+    },
+    {
+      title:"인스턴스 유형(사양) 고르기",
+      intro:`${term('인스턴스 유형','Instance type. 서버의 사양(CPU·메모리) 등급. t2.micro처럼 이름으로 성능이 정해져 있어요.')}은 서버의 힘(CPU·메모리)이에요. 연습은 무료인 <b>t2.micro</b>(vCPU 1, 1GB)를 클릭하세요.`,
+      console:`<div class="scr">
+        <label style="font-size:12.5px;color:var(--muted)">인스턴스 유형</label>
+        <div class="opt ck" data-key="type"><span class="rd"></span><div><div class="nm">t2.micro</div><div class="ds">vCPU 1 · 메모리 1 GiB — 연습·소규모</div></div><span class="free">프리 티어 가능</span></div>
+        <div class="opt locked"><span class="rd"></span><div><div class="nm">t3.small</div><div class="ds">vCPU 2 · 메모리 2 GiB (유료)</div></div></div>
+        <div class="opt locked"><span class="rd"></span><div><div class="nm">m5.large</div><div class="ds">vCPU 2 · 메모리 8 GiB (유료)</div></div></div>
+      </div>`,
+      cli:{
+        note:`사양은 <b>--instance-type</b> 하나로 지정해요.`,
+        lines:[
+          {cmd:"    ",flagHtml:flag("--instance-type","서버 사양(CPU/메모리) 등급을 지정.")+" t2.micro \\"}
+        ],
+        copy:"--instance-type t2.micro",
+        help:`무료 연습은 <b>t2.micro</b> / <b>t3.micro</b> 같은 프리 티어 유형만.`
+      }
+    },
+    {
+      title:"키 페어(접속 열쇠) 만들기",
+      intro:`서버에 안전하게 접속하려면 ${term('키 페어','Key pair. 자물쇠(공개키)는 서버에, 열쇠(개인키 .pem 파일)는 내 PC에 두는 한 쌍. 비밀번호 대신 이 열쇠로 SSH 접속해요.')}가 필요해요. <b>새 키 페어 생성</b>을 클릭하면 열쇠 파일이 (가짜로) 만들어집니다.`,
+      console:`<div class="scr">
+        <div class="field"><label>키 페어(로그인)</label>
+          <div class="input prefilled">키 페어 이름: my-key <span class="tag">입력됨</span></div>
+        </div>
+        <div class="btnrow"><button class="btn primary ck" data-key="key">새 키 페어 생성 · 다운로드</button></div>
+        <div class="sub" style="margin-top:8px">⚠️ 실제로는 이때 받은 <b>my-key.pem</b> 파일을 잃어버리면 다시 못 받아요. 잘 보관!</div>
+      </div>`,
+      cli:{
+        note:`CLI는 키 생성과 파일 저장을 한 줄로.`,
+        lines:[
+          {p:"$",cmd:" aws ec2 ",flagHtml:flag("create-key-pair","새 키 페어를 만들고 개인키 내용을 돌려줘요.")+" \\"},
+          {cmd:"    --key-name my-key \\"},
+          {cmd:"    --query 'KeyMaterial' --output text \\"},
+          {cmd:"    ",flagHtml:flag("> my-key.pem","돌려받은 개인키를 파일로 저장(리디렉션). 이게 내 접속 열쇠.")}
+        ],
+        copy:"aws ec2 create-key-pair --key-name my-key --query 'KeyMaterial' --output text > my-key.pem",
+        help:`저장 후 <b>chmod 400 my-key.pem</b>으로 권한을 잠가야 SSH가 받아줘요.`
+      }
+    },
+    {
+      title:"보안 그룹(방화벽) 열기",
+      intro:`${term('보안 그룹','Security group. 서버 앞단의 방화벽. 어떤 포트로 들어오는 접속을 허용할지 정해요.')}은 서버의 방화벽이에요. 접속에 필요한 두 포트를 <b>둘 다</b> 체크하세요: ${term('SSH(22)','서버에 원격 접속(터미널)하는 포트. 관리용.')}와 ${term('HTTP(80)','웹 브라우저가 웹사이트를 받아오는 포트. 방문자용.')}.`,
+      needs:2,
+      console:`<div class="scr">
+        <h4>인바운드 보안 그룹 규칙</h4>
+        <p class="sub">허용할 접속만 체크하세요 (2개)</p>
+        <div class="opt ck" data-key="ssh"><span class="ck-box"></span><div><div class="nm">SSH — 포트 22</div><div class="ds">내가 서버에 원격 접속</div></div></div>
+        <div class="opt ck" data-key="http"><span class="ck-box"></span><div><div class="nm">HTTP — 포트 80</div><div class="ds">방문자가 웹사이트 열람</div></div></div>
+        <div class="sub" style="margin-top:8px">⚠️ 소스를 <b>0.0.0.0/0</b>(전체 공개)로 두면 누구나 접근 가능 — 실무에선 내 IP로 제한.</div>
+      </div>`,
+      cli:{
+        note:`CLI는 그룹을 만들고, 포트를 하나씩 열어요.`,
+        lines:[
+          {p:"$",cmd:" aws ec2 create-security-group --group-name web-sg \\"},
+          {cmd:"      --description 'web server'"},
+          {p:"$",cmd:" aws ec2 ",flagHtml:flag("authorize-security-group-ingress","들어오는(인바운드) 접속을 허용하는 규칙 추가.")+" \\"},
+          {cmd:"      --group-name web-sg ",flagHtml:flag("--port 22","SSH 포트 허용.")+" --cidr 0.0.0.0/0"},
+          {p:"$",cmd:" aws ec2 authorize-security-group-ingress \\"},
+          {cmd:"      --group-name web-sg ",flagHtml:flag("--port 80","HTTP 포트 허용.")+" --cidr 0.0.0.0/0"}
+        ],
+        copy:"aws ec2 authorize-security-group-ingress --group-name web-sg --port 22 --cidr 0.0.0.0/0",
+        help:`<b>--cidr</b>는 허용할 출처 IP 범위. 0.0.0.0/0 = 전 세계.`
+      }
+    },
+    {
+      title:"검토하고 서버 시작",
+      intro:`고른 내용을 확인해요. 문제 없으면 주황색 <b>인스턴스 시작</b>을 누릅니다. 이 한 번의 클릭이 실제로 서버를 켜요.`,
+      console:`<div class="scr">
+        <h4>요약</h4>
+        <div class="rowsum"><span class="k">이름</span><span class="v">my-web-server</span></div>
+        <div class="rowsum"><span class="k">AMI</span><span class="v">Amazon Linux 2023</span></div>
+        <div class="rowsum"><span class="k">유형</span><span class="v">t2.micro (프리 티어)</span></div>
+        <div class="rowsum"><span class="k">키 페어</span><span class="v">my-key</span></div>
+        <div class="rowsum"><span class="k">보안 그룹</span><span class="v">SSH 22, HTTP 80</span></div>
+        <div class="btnrow"><button class="btn primary ck" data-key="run">인스턴스 시작</button></div>
+      </div>`,
+      cli:{
+        note:`위 단계들을 합치면 이 <b>한 줄</b>이 서버를 만들어요.`,
+        lines:[
+          {p:"$",cmd:" aws ec2 run-instances \\"},
+          {cmd:"    --image-id ami-0abc123 \\"},
+          {cmd:"    --instance-type t2.micro \\"},
+          {cmd:"    --key-name my-key \\"},
+          {cmd:"    --security-group-ids sg-01 \\"},
+          {cmd:"    ",flagHtml:flag("--count 1","만들 서버 개수. 1대.")}
+        ],
+        copy:"aws ec2 run-instances --image-id ami-0abc123 --instance-type t2.micro --key-name my-key --security-group-ids sg-01 --count 1",
+        help:`엔터 한 번이면 끝. 콘솔의 클릭 여러 번 = CLI 한 줄.`
+      }
+    },
+    {
+      title:"완료! 서버가 켜졌어요",
+      intro:`축하해요 🎉 첫 가상 서버가 <b>실행 중(running)</b> 상태가 됐어요. 받은 ${term('퍼블릭 IP','인터넷에서 이 서버에 접속할 수 있는 공인 주소. 브라우저·SSH 접속에 사용.')}로 접속하면 됩니다.`,
+      finish:true,
+      console:`<div class="scr" style="border-color:var(--ok)">
+        <h4 style="color:var(--ok)">✓ i-0a1b2c3d4 — running</h4>
+        <div class="rowsum"><span class="k">퍼블릭 IP</span><span class="v">13.125.xx.xx</span></div>
+        <div class="rowsum"><span class="k">상태</span><span class="v" style="color:var(--ok)">실행 중</span></div>
+        <div class="sub" style="margin-top:10px">다음엔 <b>ssh -i my-key.pem ec2-user@13.125.xx.xx</b>로 접속해 웹 서버를 설치해요.</div>
+      </div>`,
+      cli:{
+        note:`잘 떴는지 CLI로 확인:`,
+        lines:[
+          {p:"$",cmd:" aws ec2 describe-instances \\"},
+          {cmd:"   --query 'Reservations[].Instances[].[InstanceId,PublicIpAddress,State.Name]'"},
+          {out:"i-0a1b2c3d4   13.125.xx.xx   running"}
+        ],
+        copy:"aws ec2 describe-instances --query 'Reservations[].Instances[].[InstanceId,PublicIpAddress,State.Name]'",
+        help:`<b>--query</b>로 필요한 값만 골라 봐요(JMESPath 문법).`
+      }
+    }
+  ]
+},
+{
+  id:"s3", ch:8, icon:"⬡", name:"S3 웹사이트 올리기",
+  label:"챕터 8 · S3 — 정적 웹사이트 올리기",
+  doneMsg:"S3 버킷을 만들고 index.html을 올려 정적 웹사이트를 공개했어요. 서버 없이도 웹페이지를 띄울 수 있답니다.",
+  steps:[
+    {
+      title:"S3 서비스 열기",
+      intro:`${term('S3','Simple Storage Service. 파일(객체)을 통째로 저장하는 클라우드 저장소. 사진·백업·웹파일 보관에 써요.')}는 파일 저장소예요. 검색창에 "S3"가 들어가 있어요 — <b>S3 카드</b>를 클릭하세요.`,
+      console:`<div class="scr">
+        <div class="field"><label>서비스 검색</label><div class="input prefilled">🔍 S3 <span class="tag">검색됨</span></div></div>
+        <div class="grid2" style="margin-top:4px">
+          <div class="svc ck" data-key="s3"><span class="sic" style="background:#1d8102">⬡</span><div><div class="nm">S3</div><div class="ds">파일 저장소</div></div></div>
+          <div class="svc locked"><span class="sic" style="background:#ec7211">▦</span><div><div class="nm">EC2</div><div class="ds">가상 서버</div></div></div>
+          <div class="svc locked"><span class="sic" style="background:#8c4fff">◈</span><div><div class="nm">CloudFront</div><div class="ds">CDN 가속</div></div></div>
+          <div class="svc locked"><span class="sic" style="background:#3b7ddd">⛁</span><div><div class="nm">RDS</div><div class="ds">관리형 DB</div></div></div>
+        </div>
+      </div>`,
+      cli:{
+        note:`S3는 두 가지 CLI가 있어요: 간편한 <b>aws s3</b>와 세밀한 <b>aws s3api</b>.`,
+        lines:[
+          {cmt:"# 내 버킷 목록 보기"},
+          {p:"$",cmd:" aws ",flagHtml:flag("s3 ls","s3는 파일 복사·목록 같은 흔한 작업을 쉽게 해주는 상위 명령. ls = 목록.")}
+        ],
+        copy:"aws s3 ls",
+        help:`파일 다루기는 <b>aws s3</b>, 세부 설정은 <b>aws s3api</b>.`
+      }
+    },
+    {
+      title:"‘버킷 만들기’ 열기",
+      intro:`S3에 파일을 담는 폴더 같은 통을 ${term('버킷','Bucket. S3에서 파일을 담는 최상위 통(컨테이너). 이름은 전 세계에서 유일해야 해요.')}이라고 해요. 주황색 <b>버킷 만들기</b>를 클릭하세요.`,
+      console:`<div class="scr">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div><h4>버킷</h4><p class="sub" style="margin:0">버킷 0개</p></div>
+          <button class="btn primary ck" data-key="createbucket">버킷 만들기</button>
+        </div>
+      </div>`,
+      cli:{
+        note:`CLI는 버킷 만들기도 한 줄(다음 단계에서 이름·지역 지정).`,
+        lines:[
+          {cmt:"# mb = make bucket (버킷 만들기)"},
+          {p:"$",cmd:" aws ",flagHtml:flag("s3 mb","make bucket. 새 버킷을 만들어요.")+" s3://... "}
+        ],
+        copy:"aws s3 mb s3://...",
+        help:`<b>s3://</b>는 'S3 안의 주소'를 뜻하는 접두사예요.`
+      }
+    },
+    {
+      title:"버킷 이름·지역 고르기",
+      intro:`버킷 이름은 <b>my-beginner-site-2026</b>으로 채워 뒀어요(이름은 전 세계 유일해야 함). 데이터가 저장될 ${term('리전','Region. AWS 데이터센터가 있는 지역. 가까운 곳일수록 빨라요.')}으로 <b>서울</b>을 클릭하세요.`,
+      console:`<div class="scr">
+        <div class="field"><label>버킷 이름</label><div class="input prefilled">my-beginner-site-2026 <span class="tag">입력됨</span></div></div>
+        <label style="font-size:12.5px;color:var(--muted)">AWS 리전</label>
+        <div class="opt ck" data-key="region"><span class="rd"></span><div><div class="nm">아시아 태평양 (서울)</div><div class="ds">ap-northeast-2 — 한국에서 가장 빠름</div></div></div>
+        <div class="opt locked"><span class="rd"></span><div><div class="nm">미국 동부 (버지니아)</div><div class="ds">us-east-1</div></div></div>
+      </div>`,
+      cli:{
+        note:`이름과 지역을 함께 지정:`,
+        lines:[
+          {p:"$",cmd:" aws s3 mb s3://my-beginner-site-2026 \\"},
+          {cmd:"      ",flagHtml:flag("--region ap-northeast-2","버킷을 만들 지역(서울). 지역 코드로 지정.")}
+        ],
+        copy:"aws s3 mb s3://my-beginner-site-2026 --region ap-northeast-2",
+        help:`이름이 이미 쓰이고 있으면 에러 — 다른 이름으로.`
+      }
+    },
+    {
+      title:"퍼블릭 액세스 허용 (웹사이트용)",
+      intro:`평소 버킷은 ${term('퍼블릭 액세스 차단','기본적으로 S3 파일은 외부에 비공개. 실수로 공개되는 사고를 막는 안전장치예요.')}로 꽁꽁 막혀 있어요(기본값). 하지만 웹사이트는 누구나 봐야 하니, 아래 <b>차단 해제</b>를 체크하세요.`,
+      console:`<div class="scr">
+        <h4>퍼블릭 액세스 차단 설정</h4>
+        <div class="opt ck" data-key="public"><span class="ck-box"></span><div><div class="nm">모든 퍼블릭 액세스 차단 해제</div><div class="ds">정적 웹사이트는 외부 공개가 필요</div></div></div>
+        <div class="sub" style="margin-top:8px">⚠️ 공개 사고의 단골 원인! <b>웹사이트 파일처럼 공개해도 되는 것</b>에만 해제하세요.</div>
+      </div>`,
+      cli:{
+        note:`세밀한 설정은 <b>s3api</b>로:`,
+        lines:[
+          {p:"$",cmd:" aws ",flagHtml:flag("s3api put-public-access-block","버킷의 공개 차단 설정을 바꾸는 세부 명령.")+" \\"},
+          {cmd:"    --bucket my-beginner-site-2026 \\"},
+          {cmd:"    --public-access-block-configuration \\"},
+          {cmd:"      BlockPublicPolicy=false"}
+        ],
+        copy:"aws s3api put-public-access-block --bucket my-beginner-site-2026 --public-access-block-configuration BlockPublicPolicy=false",
+        help:`공개가 필요한 버킷에만 신중히 적용.`
+      }
+    },
+    {
+      title:"버킷 생성 확정",
+      intro:`설정을 확인하고 <b>버킷 만들기</b>를 눌러 실제로 통을 만들어요.`,
+      console:`<div class="scr">
+        <h4>요약</h4>
+        <div class="rowsum"><span class="k">이름</span><span class="v">my-beginner-site-2026</span></div>
+        <div class="rowsum"><span class="k">리전</span><span class="v">서울 (ap-northeast-2)</span></div>
+        <div class="rowsum"><span class="k">퍼블릭</span><span class="v">웹사이트용 허용</span></div>
+        <div class="btnrow"><button class="btn primary ck" data-key="confirm">버킷 만들기</button></div>
+      </div>`,
+      cli:{
+        note:`CLI에선 앞서 <b>mb</b> 한 줄이 곧 생성이었어요. 확인:`,
+        lines:[
+          {p:"$",cmd:" aws s3 ls"},
+          {out:"2026-11-01  my-beginner-site-2026"}
+        ],
+        copy:"aws s3 ls",
+        help:`목록에 뜨면 버킷 생성 성공.`
+      }
+    },
+    {
+      title:"index.html 파일 올리기",
+      intro:`이제 웹페이지 파일을 버킷에 넣어요. 준비된 <b>index.html</b> 파일 칩이 보이죠 — <b>업로드</b>를 클릭하세요. (${term('객체','Object. S3에 올린 파일 하나하나를 객체라고 불러요.')}로 저장됩니다.)`,
+      console:`<div class="scr">
+        <h4>업로드</h4>
+        <div class="chip" style="margin:6px 0 10px"><span class="fi">📄</span> index.html <span style="color:var(--muted);font-size:12px">· 1.2 KB</span></div>
+        <div class="btnrow"><button class="btn primary ck" data-key="upload">업로드</button></div>
+      </div>`,
+      cli:{
+        note:`파일 올리기는 복사(cp) 한 줄:`,
+        lines:[
+          {p:"$",cmd:" aws ",flagHtml:flag("s3 cp","copy. 내 PC 파일을 버킷으로 복사(업로드).")+" index.html \\"},
+          {cmd:"      s3://my-beginner-site-2026/"},
+          {out:"upload: ./index.html → s3://my-beginner-site-2026/index.html"}
+        ],
+        copy:"aws s3 cp index.html s3://my-beginner-site-2026/",
+        help:`폴더째 올리려면 <b>aws s3 sync ./site s3://버킷</b>.`
+      }
+    },
+    {
+      title:"정적 웹사이트 호스팅 켜기 → 완료",
+      intro:`마지막! 버킷을 웹사이트처럼 보이게 하는 ${term('정적 웹사이트 호스팅','Static website hosting. 버킷에 올린 HTML을 웹 주소로 열람 가능하게 해주는 S3 기능.')}을 <b>활성화</b>하세요. 그러면 공개 주소가 생깁니다.`,
+      finish:true,
+      console:`<div class="scr">
+        <h4>속성 › 정적 웹사이트 호스팅</h4>
+        <div class="opt ck" data-key="host"><span class="ck-box"></span><div><div class="nm">정적 웹사이트 호스팅 활성화</div><div class="ds">인덱스 문서: index.html</div></div></div>
+        <div class="sub" style="margin-top:8px">켜면 주소: <b>http://my-beginner-site-2026.s3-website.ap-northeast-2.amazonaws.com</b></div>
+      </div>`,
+      cli:{
+        note:`호스팅 켜기도 한 줄:`,
+        lines:[
+          {p:"$",cmd:" aws ",flagHtml:flag("s3 website","버킷의 정적 웹사이트 호스팅을 켜요.")+" s3://my-beginner-site-2026/ \\"},
+          {cmd:"      --index-document index.html"},
+          {out:"✓ http://my-beginner-site-2026.s3-website...amazonaws.com"}
+        ],
+        copy:"aws s3 website s3://my-beginner-site-2026/ --index-document index.html",
+        help:`이제 그 주소로 누구나 내 웹페이지를 볼 수 있어요 🎉`
+      }
+    }
+  ]
+}
+,
+{
+  id:"iam", ch:1, icon:"🔐", name:"IAM 사용자·권한",
+  label:"챕터 1 · 글로벌 인프라 & IAM — 사용자·정책 만들기",
+  doneMsg:"작업용 IAM 사용자와 권한을 만들었어요.",
+  steps:[
+    {
+      title:"IAM 서비스 열기",
+      intro:`AWS에서 ${term("IAM","사용자와 권한을 관리하는 서비스")}는 '누가 무엇을 할 수 있는지'를 정하는 곳이에요. 보안을 위해 ${term("루트 계정","가입할 때 만든 최고 권한 계정, 평소엔 쓰지 않아요")} 대신 작업용 사용자를 따로 만들어요. 반짝이는 <b>IAM</b> 카드를 클릭하세요.`,
+      console:`<div class="scr"><div class="field"><label>서비스 검색</label><div class="input prefilled">🔍 IAM <span class="tag">검색됨</span></div></div><div class="svc ck" data-key="open"><span class="sic" style="background:#ec7211">▦</span><div><div class="nm">IAM</div><div class="ds">권한 관리</div></div></div></div>`,
+      cli:{ note:`콘솔 대신 CLI로도 사용자 목록을 볼 수 있어요.`, lines:[ {cmt:"# 현재 사용자 목록 보기"}, {p:"$",cmd:` aws iam `,flagHtml:flag("list-users","사용자 목록을 조회하는 명령")}, {out:"Users: []"} ], copy:"aws iam list-users", help:`<b>aws iam</b> 로 시작하는 명령들로 IAM을 다뤄요.` }
+    },
+    {
+      title:"사용자 만들기",
+      intro:`이제 작업용 ${term("IAM","권한 관리 서비스")} 사용자를 하나 만들어요. 이름은 <b>beginner-dev</b>로 미리 채워져 있어요. 타이핑할 필요 없이 <b>만들기</b> 버튼만 누르세요.`,
+      console:`<div class="scr"><h4>사용자 만들기</h4><div class="field"><label>사용자 이름</label><div class="input prefilled">beginner-dev <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`CLI로는 한 줄이면 끝나요.`, lines:[ {cmt:"# beginner-dev 사용자 생성"}, {p:"$",cmd:` aws iam `,flagHtml:flag("create-user","사용자를 새로 만드는 명령")}, {out:"User: beginner-dev (created)"} ], copy:"aws iam create-user --user-name beginner-dev", help:`<b>--user-name</b> 뒤에 만들 사용자 이름을 적어요.` }
+    },
+    {
+      title:"그룹·정책 연결",
+      intro:`사용자에게 권한을 주려면 ${term("정책(policy)","무엇을 할 수 있는지 적어둔 권한 문서")}을 연결해요. 보통 ${term("그룹","같은 권한을 여러 사용자에게 한 번에 주는 묶음")}에 정책을 붙이고 사용자를 그룹에 넣어요. 원칙은 ${term("최소 권한","딱 필요한 만큼만 권한을 주는 원칙")}이라 읽기 전용부터 권하지만, 실습이니 둘 중 하나를 골라 클릭하세요.`,
+      console:`<div class="scr"><h4>권한 정책 선택</h4><p class="sub">하나만 골라 클릭하세요.</p><div class="opt ck" data-key="admin"><span class="rd"></span><div><div class="nm">AdministratorAccess</div><div class="ds">모든 권한 (실습·관리용)</div></div></div><div class="opt ck" data-key="readonly"><span class="rd"></span><div><div class="nm">ReadOnlyAccess</div><div class="ds">읽기만 가능 (최소 권한에 가까움)</div></div></div></div>`,
+      cli:{ note:`그룹을 만들고 정책을 붙인 뒤 사용자를 넣어요.`, lines:[ {cmt:"# 그룹 만들기"}, {p:"$",cmd:` aws iam `,flagHtml:flag("create-group","권한 그룹을 새로 만드는 명령")}, {cmt:"# 그룹에 정책 연결"}, {p:"$",cmd:` aws iam attach-user-policy --user-name beginner-dev`} ], copy:"aws iam attach-user-policy --user-name beginner-dev --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess", help:`<b>--policy-arn</b> 은 연결할 정책의 고유 주소예요.` }
+    },
+    {
+      title:"MFA 켜기 또는 액세스 키 발급",
+      intro:`마지막으로 보안을 강화해요. ${term("MFA","비밀번호 외에 휴대폰 코드까지 확인하는 2차 인증")}를 켜거나, 프로그램이 접속할 때 쓰는 ${term("액세스 키","CLI·코드가 AWS에 접속할 때 쓰는 아이디·비밀번호 쌍")}를 발급할 수 있어요. 하나를 골라 클릭하세요. 참고로 사람이 다른 권한을 잠깐 빌릴 땐 ${term("역할(role)","특정 작업을 할 때 잠깐 빌려 쓰는 권한 꾸러미")}도 많이 써요.`,
+      console:`<div class="scr"><h4>보안 설정</h4><p class="sub">하나를 골라 클릭하세요.</p><div class="opt ck" data-key="mfa"><span class="ck-box"></span><div><div class="nm">MFA 켜기</div><div class="ds">휴대폰 2차 인증 추가 (권장)</div></div></div><div class="opt ck" data-key="key"><span class="ck-box"></span><div><div class="nm">액세스 키 발급</div><div class="ds">CLI·프로그램 접속용 키 만들기</div></div></div></div>`,
+      cli:{ note:`프로그램 접속용 액세스 키 발급 예시예요.`, lines:[ {cmt:"# 액세스 키 발급"}, {p:"$",cmd:` aws iam `,flagHtml:flag("create-access-key","접속용 액세스 키를 발급하는 명령")}, {out:"AccessKeyId: AKIA... / SecretAccessKey: ****"} ], copy:"aws iam create-access-key --user-name beginner-dev", help:`SecretAccessKey는 이때 딱 한 번만 보여요. 꼭 안전하게 보관하세요.` }
+    },
+    {
+      title:"완료",
+      intro:`작업용 사용자 준비가 끝났어요. <b>완료</b> 버튼을 누르면 마무리돼요.`,
+      finish:true,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 생성 완료</h4><div class="rowsum"><span class="k">사용자</span><span class="v">beginner-dev</span></div><div class="rowsum"><span class="k">권한</span><span class="v">정책 연결됨</span></div><div class="rowsum"><span class="k">보안</span><span class="v">MFA / 액세스 키</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`만든 사용자를 확인해봐요.`, lines:[ {p:"$",cmd:` aws iam get-user --user-name beginner-dev`}, {out:"UserName: beginner-dev"} ], copy:"aws iam get-user --user-name beginner-dev", help:`끝! 이제 이 사용자로 안전하게 작업하면 돼요.` }
+    }
+  ]
+},
+{
+  id:"asgelb", ch:3, icon:"⚖️", name:"ASG & ELB",
+  label:"챕터 3 · Auto Scaling & 로드밸런서 — 트래픽 분산·자동 확장",
+  doneMsg:"로드밸런서와 Auto Scaling 그룹을 만들어 트래픽을 자동으로 분산·확장해요.",
+  steps:[
+    {
+      title:"대상 그룹 만들기",
+      intro:`트래픽을 여러 서버로 나눠주기 전에, 먼저 ${term("대상 그룹","트래픽을 받을 서버들을 묶어둔 목록")}을 만들어요. 여기 묶인 서버들은 ${term("헬스 체크","서버가 살아있는지 주기적으로 확인하는 검사")}를 통과해야 트래픽을 받아요. 이름은 <b>tg-web</b>로 미리 채워져 있어요. 만들기 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>대상 그룹 만들기</h4><div class="field"><label>이름</label><div class="input prefilled">tg-web <span class="tag">입력됨</span></div></div><div class="field"><label>프로토콜·포트</label><div class="input prefilled">HTTP : 80 <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`CLI로 대상 그룹을 만들어요.`, lines:[ {cmt:"# 대상 그룹 생성"}, {p:"$",cmd:` aws elbv2 `,flagHtml:flag("create-target-group","트래픽을 받을 대상 그룹을 만드는 명령")}, {out:"TargetGroupArn: ...:targetgroup/tg-web"} ], copy:"aws elbv2 create-target-group --name tg-web --protocol HTTP --port 80 --vpc-id vpc-0abc", help:`<b>--vpc-id</b> 는 서버들이 들어있는 가상 네트워크 주소예요.` }
+    },
+    {
+      title:"로드밸런서 유형 선택",
+      intro:`${term("ELB","Elastic Load Balancer, 트래픽을 여러 서버로 분산하는 서비스")}에는 종류가 있어요. 웹(HTTP/HTTPS)엔 ${term("ALB","Application Load Balancer, 웹 요청을 똑똑하게 분배")}, 아주 빠른 TCP엔 ${term("NLB","Network Load Balancer, 초고속·고성능 분배")}를 써요. 하나를 골라 클릭하세요.`,
+      console:`<div class="scr"><h4>로드밸런서 유형</h4><p class="sub">하나만 골라 클릭하세요.</p><div class="opt ck" data-key="alb"><span class="rd"></span><div><div class="nm">ALB</div><div class="ds">웹 요청(HTTP/HTTPS) 분배 — 초심자 추천</div></div></div><div class="opt ck" data-key="nlb"><span class="rd"></span><div><div class="nm">NLB</div><div class="ds">초고속 TCP 분배</div></div></div></div>`,
+      cli:{ note:`유형은 생성 명령의 옵션으로 정해요.`, lines:[ {cmt:"# application = ALB, network = NLB"}, {p:"$",cmd:` aws elbv2 create-load-balancer --type `,flagHtml:flag("application","ALB로 만들겠다는 유형 지정")} ], copy:"aws elbv2 create-load-balancer --name alb-web --type application --subnets subnet-0a subnet-0b", help:`<b>--type application</b> 이면 ALB, <b>network</b> 면 NLB예요.` }
+    },
+    {
+      title:"ALB 생성",
+      intro:`선택한 유형으로 ${term("ALB","웹 요청을 여러 서버로 분배하는 로드밸런서")}를 실제로 생성해요. 생성한 로드밸런서는 아까 만든 ${term("대상 그룹","트래픽을 받을 서버 묶음")}으로 요청을 넘겨줘요. 생성 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>로드밸런서 생성</h4><div class="rowsum"><span class="k">이름</span><span class="v">alb-web</span></div><div class="rowsum"><span class="k">유형</span><span class="v">ALB (application)</span></div><div class="rowsum"><span class="k">대상 그룹</span><span class="v">tg-web</span></div><div class="btnrow"><button class="btn primary ck" data-key="create">생성</button></div></div>`,
+      cli:{ note:`로드밸런서를 생성해요.`, lines:[ {cmt:"# ALB 생성"}, {p:"$",cmd:` aws elbv2 `,flagHtml:flag("create-load-balancer","로드밸런서를 만드는 명령")}, {out:"DNSName: alb-web-123.ap-northeast-2.elb.amazonaws.com"} ], copy:"aws elbv2 create-load-balancer --name alb-web --type application --subnets subnet-0a subnet-0b", help:`출력된 <b>DNSName</b> 주소로 접속하면 서버들에 분산돼요.` }
+    },
+    {
+      title:"Auto Scaling 그룹 만들기",
+      intro:`트래픽이 늘면 서버를 자동으로 늘리고 줄이는 ${term("Auto Scaling","부하에 맞춰 서버 수를 자동 조절하는 기능")} 그룹을 만들어요. 최소 1대·원하는 2대·최대 4대로 미리 채워져 있어요. ${term("조정 정책(scaling policy)","언제 서버를 늘리고 줄일지 정한 규칙")}을 체크하고 만들기 버튼까지 누르세요.`,
+      needs:2,
+      console:`<div class="scr"><h4>Auto Scaling 그룹</h4><div class="field"><label>최소 / 원하는 / 최대</label><div class="input prefilled">min 1 · desired 2 · max 4 <span class="tag">입력됨</span></div></div><div class="opt ck" data-key="policy"><span class="ck-box"></span><div><div class="nm">조정 정책 사용</div><div class="ds">CPU 사용률이 높으면 자동으로 서버 추가</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`Auto Scaling 그룹을 만들고 대상 그룹에 연결해요.`, lines:[ {cmt:"# ASG 생성 (min1 / desired2 / max4)"}, {p:"$",cmd:` aws autoscaling `,flagHtml:flag("create-auto-scaling-group","서버 수를 자동 조절할 그룹을 만드는 명령")}, {out:"AutoScalingGroupName: asg-web (created)"} ], copy:"aws autoscaling create-auto-scaling-group --auto-scaling-group-name asg-web --min-size 1 --desired-capacity 2 --max-size 4 --target-group-arns arn:aws:elasticloadbalancing:...:targetgroup/tg-web", help:`<b>--min-size / --max-size</b> 사이에서 자동으로 서버 수가 조절돼요.` }
+    },
+    {
+      title:"완료",
+      intro:`이제 트래픽이 자동으로 분산되고, 부하에 따라 서버가 알아서 늘고 줄어요. <b>완료</b> 버튼을 누르면 마무리돼요.`,
+      finish:true,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 생성 완료</h4><div class="rowsum"><span class="k">로드밸런서</span><span class="v">alb-web (ALB)</span></div><div class="rowsum"><span class="k">대상 그룹</span><span class="v">tg-web</span></div><div class="rowsum"><span class="k">Auto Scaling</span><span class="v">1~4대 자동</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`만든 Auto Scaling 그룹을 확인해봐요.`, lines:[ {p:"$",cmd:` aws autoscaling describe-auto-scaling-groups`}, {out:"asg-web: desired 2, min 1, max 4"} ], copy:"aws autoscaling describe-auto-scaling-groups", help:`끝! 트래픽 분산과 자동 확장이 동시에 준비됐어요.` }
+    }
+  ]
+},
+{
+  id:"lambda", ch:4, icon:"λ", name:"Lambda 함수",
+  label:"챕터 4 · 서버리스 — Lambda 함수 만들고 실행하기",
+  doneMsg:"서버 없이 실행되는 Lambda 함수를 만들고 테스트까지 해봤어요.",
+  steps:[
+    {
+      title:"Lambda 서비스 열기",
+      intro:`${term("서버리스","서버를 직접 관리하지 않고 코드만 올리면 실행되는 방식")} 서비스인 ${term("Lambda","코드를 올리면 필요할 때만 자동 실행해주는 서비스")}를 열어요. 쓴 만큼만 비용이 들어서 초심자에게 부담이 적어요. 반짝이는 <b>Lambda</b> 카드를 클릭하세요.`,
+      console:`<div class="scr"><div class="field"><label>서비스 검색</label><div class="input prefilled">🔍 Lambda <span class="tag">검색됨</span></div></div><div class="svc ck" data-key="open"><span class="sic" style="background:#ec7211">λ</span><div><div class="nm">Lambda</div><div class="ds">서버리스 함수 <span class="free">프리 티어 가능</span></div></div></div></div>`,
+      cli:{ note:`CLI로 함수 목록을 볼 수 있어요.`, lines:[ {cmt:"# 함수 목록 보기"}, {p:"$",cmd:` aws lambda `,flagHtml:flag("list-functions","람다 함수 목록을 조회하는 명령")}, {out:"Functions: []"} ], copy:"aws lambda list-functions", help:`<b>aws lambda</b> 로 시작하는 명령들로 함수를 다뤄요.` }
+    },
+    {
+      title:"함수 만들기",
+      intro:`함수를 만들 때 ${term("런타임","코드를 실행할 언어·버전 환경")}을 골라요. 이번엔 <b>Python</b>을 클릭하고, 이름은 <b>hello-beginner</b>로 미리 채워져 있어요. 런타임을 고르고 만들기 버튼까지 누르세요.`,
+      needs:2,
+      console:`<div class="scr"><h4>함수 만들기</h4><div class="field"><label>함수 이름</label><div class="input prefilled">hello-beginner <span class="tag">입력됨</span></div></div><p class="sub">런타임을 골라 클릭하세요.</p><div class="opt ck" data-key="python"><span class="rd"></span><div><div class="nm">Python 3.12</div><div class="ds">초심자 추천</div></div></div><div class="opt ck" data-key="node"><span class="rd"></span><div><div class="nm">Node.js 20</div><div class="ds">자바스크립트 환경</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`CLI로 함수를 만들어요.`, lines:[ {cmt:"# Python 런타임으로 함수 생성"}, {p:"$",cmd:` aws lambda `,flagHtml:flag("create-function","람다 함수를 새로 만드는 명령")}, {out:"FunctionName: hello-beginner (Active)"} ], copy:"aws lambda create-function --function-name hello-beginner --runtime python3.12 --role arn:aws:iam::123456789012:role/lambda-role --handler lambda_function.lambda_handler --zip-file fileb://function.zip", help:`<b>--runtime</b> 으로 언어를, <b>--handler</b> 로 시작할 함수를 정해요.` }
+    },
+    {
+      title:"트리거 연결",
+      intro:`함수를 '언제' 실행할지 정하는 게 ${term("트리거","함수를 자동으로 실행시키는 이벤트·호출원")}예요. 웹 주소로 호출되도록 ${term("API Gateway","HTTP 요청을 Lambda로 연결해주는 입구")}를 체크하세요. 참고로 요청이 몰리면 함수가 여러 개 동시에 실행되는데 이를 ${term("동시성","같은 함수가 동시에 실행되는 개수")}라고 해요.`,
+      console:`<div class="scr"><h4>트리거 추가</h4><p class="sub">함수를 호출할 입구를 체크하세요.</p><div class="opt ck" data-key="apigw"><span class="ck-box"></span><div><div class="nm">API Gateway</div><div class="ds">웹 주소(HTTP)로 함수 호출</div></div></div><div class="opt locked"><span class="ck-box"></span><div><div class="nm">S3 (잠금)</div><div class="ds">파일 업로드 시 호출 — 이번 실습 제외</div></div></div></div>`,
+      cli:{ note:`API Gateway가 함수를 호출할 권한을 줘요.`, lines:[ {cmt:"# API Gateway에 호출 권한 부여"}, {p:"$",cmd:` aws lambda `,flagHtml:flag("add-permission","다른 서비스가 함수를 호출하도록 허용하는 명령")} ], copy:"aws lambda add-permission --function-name hello-beginner --action lambda:InvokeFunction --principal apigateway.amazonaws.com --statement-id apigw", help:`이렇게 해야 웹 요청이 들어올 때 함수가 실행돼요.` }
+    },
+    {
+      title:"테스트 실행",
+      intro:`이제 함수를 직접 실행해봐요. 한동안 안 쓰던 함수의 첫 실행은 준비 시간이 걸리는 ${term("cold start","안 쓰던 함수가 처음 깨어날 때 생기는 짧은 지연")}가 있을 수 있어요. 그리고 함수 한 번 실행은 최대 ${term("15분 제한","Lambda 한 번 실행은 최대 15분까지만 가능")}까지만 돼요. 테스트 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>테스트 실행</h4><div class="field"><label>테스트 입력</label><div class="input prefilled">{ } <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="test">테스트</button></div></div>`,
+      cli:{ note:`CLI로 함수를 직접 호출해요.`, lines:[ {cmt:"# 함수 실행"}, {p:"$",cmd:` aws lambda `,flagHtml:flag("invoke","함수를 실행(호출)하는 명령")}, {out:"StatusCode: 200 / response.json 저장됨"} ], copy:"aws lambda invoke --function-name hello-beginner --payload '{}' response.json", help:`<b>StatusCode 200</b> 이면 정상 실행된 거예요.` }
+    },
+    {
+      title:"완료",
+      intro:`서버 한 대 없이 코드가 실행됐어요. 서버리스의 핵심을 경험한 거예요. <b>완료</b> 버튼을 누르면 마무리돼요.`,
+      finish:true,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 실행 완료</h4><div class="rowsum"><span class="k">함수</span><span class="v">hello-beginner</span></div><div class="rowsum"><span class="k">런타임</span><span class="v">Python 3.12</span></div><div class="rowsum"><span class="k">트리거</span><span class="v">API Gateway</span></div><div class="rowsum"><span class="k">결과</span><span class="v">StatusCode 200</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`실행 로그와 함수 상태를 확인해봐요.`, lines:[ {p:"$",cmd:` aws lambda get-function --function-name hello-beginner`}, {out:"State: Active, LastUpdateStatus: Successful"} ], copy:"aws lambda get-function --function-name hello-beginner", help:`끝! 쓴 만큼만 비용이 드는 서버리스 함수가 완성됐어요.` }
+    }
+  ]
+},
+{
+  id:"container", ch:5, icon:"🐳", name:"컨테이너 배포", label:"챕터 5 · 컨테이너 — ECR에 담고 ECS Fargate로 띄우기", doneMsg:"축하해요! 이미지를 ECR에 올리고 ECS Fargate 서비스로 실행하는 흐름을 전부 클릭으로 끝냈어요.",
+  steps:[
+    { title:"ECR 리포지토리 만들기", needs:1,
+      intro:`먼저 ${term("컨테이너","앱과 실행 환경을 하나로 묶은 상자")} ${term("이미지","컨테이너를 찍어낸 설계도 파일")}를 보관할 창고가 필요해요. AWS의 도커 이미지 창고가 바로 ${term("ECR","Elastic Container Registry, AWS가 관리하는 이미지 저장소")}예요. 아래 리포지토리 이름은 미리 채워져 있으니 주황색 버튼만 누르세요.`,
+      console:`<div class="scr"><h4>Amazon ECR · 리포지토리 생성</h4><p class="sub">이미지를 올려둘 창고를 하나 만듭니다.</p><div class="field"><label>리포지토리 이름</label><div class="input prefilled">my-app <span class="tag">입력됨</span></div></div><div class="field"><label>태그 변경 가능 여부</label><div class="input prefilled">Mutable <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">리포지토리 생성</button></div></div>`,
+      cli:{ note:`콘솔 대신 CLI 한 줄로도 똑같이 만들 수 있어요.`, lines:[ {cmt:"# 이미지 창고(리포지토리) 생성"}, {p:"$",cmd:` aws ecr `,flagHtml:flag("create-repository","ECR 리포지토리 생성")}, {out:"repositoryUri: 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/my-app"} ], copy:"aws ecr create-repository --repository-name my-app", help:`<b>repositoryUri</b>가 바로 이미지를 올릴 주소예요. 숫자 앞부분은 내 AWS 계정 번호랍니다.` } },
+    { title:"이미지 푸시하기", needs:1,
+      intro:`이제 내 컴퓨터에서 만든 ${term("이미지","컨테이너를 찍어낸 설계도 파일")}를 방금 만든 창고로 올려요(푸시). 실제로는 도커 로그인 후 push 하지만, 여기서는 개념만 익히도록 버튼으로 흉내 냅니다.`,
+      console:`<div class="scr"><h4>이미지 푸시</h4><p class="sub">로컬 이미지를 ECR로 업로드합니다.</p><div class="rowsum"><span class="k">대상 리포지토리</span><span class="v">my-app</span></div><div class="rowsum"><span class="k">태그</span><span class="v">latest</span></div><div class="btnrow"><button class="btn primary ck" data-key="push">푸시 실행(시뮬)</button></div></div>`,
+      cli:{ note:`실제로는 로그인 토큰을 받아 도커로 로그인한 뒤 push 합니다.`, lines:[ {cmt:"# 1) ECR 로그인 토큰 받아 도커 로그인"}, {p:"$",cmd:` aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com`}, {cmt:"# 2) 이미지 밀어 올리기"}, {p:"$",cmd:` docker push 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/my-app:latest`}, {out:"latest: digest: sha256:... pushed"} ], copy:"docker push 123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/my-app:latest", help:`<b>팁</b> push는 이미지를 창고로 올리고, pull은 내려받는 동작이에요.` } },
+    { title:"ECS 클러스터 만들기", needs:1,
+      intro:`컨테이너를 실제로 돌릴 공간이 ${term("ECS","Elastic Container Service, AWS의 컨테이너 오케스트레이터")} 클러스터예요. 실행 방식을 고르는데, 서버를 직접 관리하기 싫다면 ${term("Fargate","서버 관리가 전혀 필요 없는 서버리스 컨테이너 실행 방식")}를 고르면 돼요. 쿠버네티스가 익숙하면 ${term("EKS","Elastic Kubernetes Service, 관리형 쿠버네티스")}도 있지만 초심자는 ECS가 쉬워요. 라운치 유형에서 Fargate를 선택하세요.`,
+      console:`<div class="scr"><h4>ECS 클러스터 · 라운치 유형</h4><p class="sub">컨테이너를 어디서 실행할지 고릅니다.</p><div class="opt ck" data-key="fargate"><span class="rd"></span><div><div class="nm">Fargate</div><div class="ds">서버 관리 없이 컨테이너만 실행 (초심자 추천)</div></div></div><div class="opt ck" data-key="ec2"><span class="rd"></span><div><div class="nm">EC2</div><div class="ds">내가 직접 서버(인스턴스)를 띄워 관리</div></div></div></div>`,
+      cli:{ note:`클러스터 생성은 이름만 주면 끝나요.`, lines:[ {cmt:"# 클러스터 생성 (Fargate는 서버 프로비저닝이 없음)"}, {p:"$",cmd:` aws ecs `,flagHtml:flag("create-cluster","ECS 클러스터 생성")}, {out:"clusterArn: arn:aws:ecs:ap-northeast-2:...:cluster/my-cluster  status: ACTIVE"} ], copy:"aws ecs create-cluster --cluster-name my-cluster", help:`<b>Fargate</b>는 서버 대수나 패치를 신경 쓸 필요가 없어요. 클러스터는 서비스들을 묶는 논리적 그룹일 뿐이에요.` } },
+    { title:"태스크 정의 · 서비스 실행", needs:1,
+      intro:`${term("태스크 정의","컨테이너 이미지, CPU, 메모리, 역할을 적어둔 설계서")}에 어떤 이미지를 얼마의 자원으로 돌릴지 적고, ${term("서비스","태스크를 원하는 개수만큼 유지해 주는 관리자")}로 실행해요. 이때 권한이 두 종류 나와요. ${term("Execution Role","ECR에서 이미지를 받고 로그를 쓰는, 실행 준비용 권한")}과 ${term("Task Role","컨테이너 안의 앱이 S3 같은 다른 AWS 서비스를 쓸 때 쓰는 권한")}를 헷갈리지 마세요. 버튼을 눌러 서비스를 띄웁니다.`,
+      console:`<div class="scr"><h4>태스크 정의 & 서비스</h4><div class="field"><label>이미지</label><div class="input prefilled">my-app:latest <span class="tag">입력됨</span></div></div><div class="rowsum"><span class="k">CPU / 메모리</span><span class="v">0.25 vCPU / 0.5GB</span></div><div class="rowsum"><span class="k">Execution Role</span><span class="v">ecsTaskExecutionRole</span></div><div class="rowsum"><span class="k">Task Role</span><span class="v">appTaskRole</span></div><div class="rowsum"><span class="k">원하는 태스크 수</span><span class="v">1</span></div><div class="btnrow"><button class="btn primary ck" data-key="run">서비스 생성 및 실행</button></div></div>`,
+      cli:{ note:`태스크 정의를 등록하고 서비스로 띄우는 두 단계예요.`, lines:[ {cmt:"# 1) 태스크 정의 등록 (설계서를 JSON으로)"}, {p:"$",cmd:` aws ecs `,flagHtml:flag("register-task-definition","태스크 정의 등록")}, {cmt:"# 2) 서비스로 실행 (Fargate 런치)"}, {p:"$",cmd:` aws ecs `,flagHtml:flag("create-service","원하는 개수만큼 태스크 유지")}, {out:"service my-svc created  desiredCount: 1  runningCount: 1"} ], copy:"aws ecs create-service --cluster my-cluster --service-name my-svc --task-definition my-task --desired-count 1 --launch-type FARGATE", help:`<b>Execution Role vs Task Role</b> — Execution Role은 ECS가 이미지를 받아 컨테이너를 띄우는 준비용, Task Role은 실행 중인 앱이 다른 서비스를 호출할 때 쓰는 권한이에요.` } },
+    { title:"배포 완료 확인", finish:true,
+      intro:`서비스가 살아 있는지 확인하면 끝이에요. runningCount가 올라오면 컨테이너가 인터넷에서 응답할 준비가 된 거예요. ${term("확인","상태 조회")} 버튼을 눌러 마무리하세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 서비스 실행 중</h4><div class="rowsum"><span class="k">서비스</span><span class="v">my-svc</span></div><div class="rowsum"><span class="k">상태</span><span class="v">ACTIVE · runningCount 1/1</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`서비스 상태 조회로 마무리:`, lines:[ {p:"$",cmd:` aws ecs describe-services --cluster my-cluster --services my-svc`}, {out:"status: ACTIVE  desiredCount: 1  runningCount: 1"} ], copy:"aws ecs describe-services --cluster my-cluster --services my-svc", help:`끝났어요! ECR(창고) → ECS Fargate(실행)의 가장 기본 흐름을 익혔습니다.` } }
+  ]
+},
+{
+  id:"vpc", ch:6, icon:"🕸️", name:"VPC 네트워크", label:"챕터 6 · VPC 네트워킹 — 내 전용 네트워크 만들기", doneMsg:"수고했어요! VPC, 서브넷, 인터넷 게이트웨이, 라우팅까지 — 클라우드 네트워크의 뼈대를 전부 세웠어요.",
+  steps:[
+    { title:"VPC 만들기", needs:1,
+      intro:`${term("VPC","Virtual Private Cloud, AWS 안에 나만 쓰는 격리된 가상 네트워크")}는 내 전용 네트워크 울타리예요. 크기는 ${term("CIDR","네트워크 주소 범위를 적는 표기법, 예 10.0.0.0/16")}로 정하는데, /16은 약 6만 5천 개 주소를 담아요. 값은 미리 채워져 있으니 버튼만 누르세요.`,
+      console:`<div class="scr"><h4>VPC 생성</h4><p class="sub">나만의 가상 네트워크 울타리를 만듭니다.</p><div class="field"><label>이름 태그</label><div class="input prefilled">my-vpc <span class="tag">입력됨</span></div></div><div class="field"><label>IPv4 CIDR</label><div class="input prefilled">10.0.0.0/16 <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="go">VPC 생성</button></div></div>`,
+      cli:{ note:`CLI로는 CIDR만 주면 바로 생겨요.`, lines:[ {cmt:"# 전용 네트워크(VPC) 생성"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("create-vpc","VPC 생성")}, {out:"VpcId: vpc-0a1b2c  CidrBlock: 10.0.0.0/16  State: available"} ], copy:"aws ec2 create-vpc --cidr-block 10.0.0.0/16", help:`<b>CIDR</b>의 /16은 뒤 16비트가 호스트 자리라는 뜻이라 주소가 아주 많아요. 숫자가 클수록(/24 등) 더 작은 범위예요.` } },
+    { title:"서브넷 만들기 (퍼블릭·프라이빗)", needs:2,
+      intro:`큰 VPC를 용도별로 쪼갠 조각이 ${term("서브넷","VPC를 더 작게 나눈 주소 구간, 보통 하나의 AZ에 속함")}이에요. 인터넷과 직접 통하는 ${term("퍼블릭 서브넷","인터넷 게이트웨이로 가는 경로가 있는 서브넷")}과, 밖에서 못 들어오는 ${term("프라이빗 서브넷","인터넷에서 직접 접근 불가, 주로 DB나 내부 서버용")}을 각각 만들어요. 서로 다른 ${term("AZ","Availability Zone, 물리적으로 분리된 데이터센터 구역")}에 두면 더 안전하죠. 아래 두 개를 모두 체크하세요.`,
+      console:`<div class="scr"><h4>서브넷 생성</h4><p class="sub">용도별로 두 조각을 만듭니다. (둘 다 선택)</p><div class="opt ck" data-key="pub"><span class="ck-box"></span><div><div class="nm">퍼블릭 서브넷 10.0.1.0/24 (AZ-a)</div><div class="ds">인터넷 접근 가능 — 웹 서버용</div></div></div><div class="opt ck" data-key="priv"><span class="ck-box"></span><div><div class="nm">프라이빗 서브넷 10.0.2.0/24 (AZ-c)</div><div class="ds">인터넷에서 직접 접근 불가 — DB용</div></div></div></div>`,
+      cli:{ note:`서브넷마다 VPC와 CIDR, AZ를 지정해 만듭니다.`, lines:[ {cmt:"# 퍼블릭 서브넷"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("create-subnet","서브넷 생성")}, {cmt:"# 프라이빗 서브넷 (다른 AZ)"}, {p:"$",cmd:` aws ec2 create-subnet --vpc-id vpc-0a1b2c --cidr-block 10.0.2.0/24 --availability-zone ap-northeast-2c`}, {out:"SubnetId: subnet-pub..., subnet-priv..."} ], copy:"aws ec2 create-subnet --vpc-id vpc-0a1b2c --cidr-block 10.0.1.0/24 --availability-zone ap-northeast-2a", help:`<b>퍼블릭 vs 프라이빗</b>의 진짜 차이는 라우팅이에요. 인터넷 게이트웨이로 가는 길이 있으면 퍼블릭, 없으면 프라이빗이죠.` } },
+    { title:"인터넷 게이트웨이 연결", needs:1,
+      intro:`VPC가 바깥 인터넷과 통하려면 ${term("인터넷 게이트웨이","IGW, VPC와 인터넷을 잇는 관문")}가 필요해요. 만든 다음 반드시 VPC에 ${term("연결","attach, 게이트웨이를 VPC에 붙이는 작업")}해야 동작해요. 버튼을 눌러 생성과 연결을 한 번에 처리합니다.`,
+      console:`<div class="scr"><h4>인터넷 게이트웨이 (IGW)</h4><p class="sub">VPC를 인터넷에 연결하는 관문입니다.</p><div class="rowsum"><span class="k">연결 대상 VPC</span><span class="v">my-vpc (vpc-0a1b2c)</span></div><div class="btnrow"><button class="btn primary ck" data-key="attach">IGW 생성 후 VPC에 연결</button></div></div>`,
+      cli:{ note:`생성과 연결은 두 명령으로 나뉘어요.`, lines:[ {cmt:"# 1) IGW 생성"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("create-internet-gateway","인터넷 게이트웨이 생성")}, {cmt:"# 2) VPC에 붙이기"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("attach-internet-gateway","IGW를 VPC에 연결")}, {out:"InternetGatewayId: igw-0f9e8d  attached to vpc-0a1b2c"} ], copy:"aws ec2 attach-internet-gateway --internet-gateway-id igw-0f9e8d --vpc-id vpc-0a1b2c", help:`<b>IGW</b>는 만든 것만으로는 소용 없고, VPC에 attach 해야 인터넷 통신이 열려요.` } },
+    { title:"라우팅 테이블 · NAT 설정 (선택)", needs:1,
+      intro:`${term("라우팅 테이블","어떤 목적지로 가려면 어디로 보낼지 적어둔 이정표")}에 0.0.0.0/0 → IGW 경로를 넣으면 퍼블릭 서브넷이 완성돼요. 프라이빗 서브넷의 서버가 밖으로 나가 업데이트만 받고 싶다면(들어오는 건 막고) ${term("NAT Gateway","프라이빗 서브넷이 인터넷으로 나가게만 해주는 단방향 관문")}를 두면 됩니다. 참고로 VPC끼리 잇는 ${term("피어링","두 VPC를 직접 연결, 단 경유 연결은 안 되는 비전이 방식")}은 비전이적이라 A-B, B-C가 있어도 A-C는 따로 맺어야 해요. 버튼으로 경로를 설정하세요.`,
+      console:`<div class="scr"><h4>라우팅 테이블 & NAT</h4><div class="rowsum"><span class="k">퍼블릭 경로</span><span class="v">0.0.0.0/0 → igw-0f9e8d</span></div><div class="rowsum"><span class="k">프라이빗 경로</span><span class="v">0.0.0.0/0 → nat-...</span></div><div class="btnrow"><button class="btn primary ck" data-key="route">경로 적용 (+ NAT 생성)</button></div></div>`,
+      cli:{ note:`경로 추가와 NAT 생성 예시:`, lines:[ {cmt:"# 퍼블릭 라우팅: 인터넷행 경로를 IGW로"}, {p:"$",cmd:` aws ec2 create-route --route-table-id rtb-pub --destination-cidr-block 0.0.0.0/0 --gateway-id igw-0f9e8d`}, {cmt:"# 프라이빗 나가는 길: NAT 게이트웨이 생성"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("create-nat-gateway","NAT 게이트웨이 생성")}, {out:"NatGatewayId: nat-0c7b  state: available"} ], copy:"aws ec2 create-nat-gateway --subnet-id subnet-pub --allocation-id eipalloc-123", help:`<b>NAT는 유료</b>예요(시간당 + 데이터 요금). 꼭 필요할 때만 두세요. 퍼블릭/프라이빗을 가르는 핵심은 결국 라우팅 테이블이에요.` } },
+    { title:"네트워크 완성 확인", finish:true,
+      intro:`VPC, 서브넷, IGW, 라우팅이 모두 자리 잡았어요. ${term("확인","구성 요약 조회")} 버튼으로 전체 구성을 점검하며 마무리합니다.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ VPC 네트워크 준비 완료</h4><div class="rowsum"><span class="k">VPC</span><span class="v">10.0.0.0/16</span></div><div class="rowsum"><span class="k">서브넷</span><span class="v">퍼블릭 1 · 프라이빗 1</span></div><div class="rowsum"><span class="k">인터넷</span><span class="v">IGW 연결됨</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`구성 요약 조회:`, lines:[ {p:"$",cmd:` aws ec2 describe-vpcs --vpc-ids vpc-0a1b2c`}, {out:"CidrBlock: 10.0.0.0/16  State: available  (subnets: 2, igw: attached)"} ], copy:"aws ec2 describe-vpcs --vpc-ids vpc-0a1b2c", help:`완성! 이 위에 EC2나 ECS를 올리면 안전하게 격리된 네트워크에서 돌아가요.` } }
+  ]
+},
+{
+  id:"edge", ch:7, icon:"🔐", name:"보안·DNS·CDN", label:"챕터 7 · SG/NACL · Route53 · CloudFront — 지키고, 연결하고, 빠르게", doneMsg:"끝까지 왔어요! 방화벽(SG) 개념부터 도메인 연결(Route53), 전 세계 캐싱(CloudFront)까지 한 바퀴 돌았어요.",
+  steps:[
+    { title:"보안 그룹 vs NACL 고르기", needs:1,
+      intro:`들어오고 나가는 트래픽을 막는 방화벽이 두 종류예요. ${term("보안 그룹","Security Group, 인스턴스에 붙는 stateful 방화벽")}은 ${term("stateful","들어온 요청의 응답은 규칙 없이도 자동 허용되는 방식")}이라 응답 규칙을 따로 안 적어도 돼요. 반면 ${term("NACL","Network ACL, 서브넷 단위의 stateless 방화벽")}은 ${term("stateless","들어오는 규칙과 나가는 규칙을 각각 다 적어야 하는 방식")}라 양방향을 모두 설정해야 하죠. 초심자가 주로 쓰는 stateful(SG)을 선택하세요.`,
+      console:`<div class="scr"><h4>방화벽 방식 선택</h4><p class="sub">인스턴스를 지킬 방화벽의 성격을 고릅니다.</p><div class="opt ck" data-key="sg"><span class="rd"></span><div><div class="nm">stateful (보안 그룹)</div><div class="ds">응답 자동 허용 — 인스턴스에 붙음 (추천)</div></div></div><div class="opt ck" data-key="nacl"><span class="rd"></span><div><div class="nm">stateless (NACL)</div><div class="ds">인/아웃 규칙을 따로 — 서브넷에 붙음</div></div></div></div>`,
+      cli:{ note:`보안 그룹에 80 포트 인바운드를 허용하는 예시예요.`, lines:[ {cmt:"# 보안 그룹에 HTTP(80) 인바운드 허용"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("authorize-security-group-ingress","인바운드 규칙 추가")}, {out:"rule added: tcp 80 from 0.0.0.0/0"} ], copy:"aws ec2 authorize-security-group-ingress --group-id sg-012abc --protocol tcp --port 80 --cidr 0.0.0.0/0", help:`<b>SG는 stateful</b> — 80을 열어두면 그 응답은 아웃바운드 규칙 없이도 나갑니다. NACL은 stateless라 나가는 규칙도 직접 열어야 해요.` } },
+    { title:"Route53 레코드 만들기 (Alias)", needs:1,
+      intro:`도메인 이름을 실제 주소로 바꿔주는 전화번호부가 ${term("Route53","AWS의 관리형 DNS 서비스")}예요. 내 도메인을 ${term("ALB","Application Load Balancer, 트래픽을 나눠주는 로드밸런서")}에 연결할 땐 ${term("Alias","AWS 리소스를 가리키는 Route53 전용 레코드, 추가 요금 없음")}를 쓰면 돼요. 일반 ${term("CNAME","다른 도메인 이름을 가리키는 표준 레코드, 루트 도메인엔 못 씀")}과 달리 Alias는 루트 도메인에도 쓸 수 있죠. 버튼으로 레코드를 만드세요.`,
+      console:`<div class="scr"><h4>Route53 · 레코드 생성</h4><div class="field"><label>레코드 이름</label><div class="input prefilled">app.example.com <span class="tag">입력됨</span></div></div><div class="field"><label>유형</label><div class="input prefilled">A · Alias → ALB <span class="tag">입력됨</span></div></div><div class="rowsum"><span class="k">대상</span><span class="v">my-alb-123.ap-northeast-2.elb.amazonaws.com</span></div><div class="btnrow"><button class="btn primary ck" data-key="record">레코드 생성</button></div></div>`,
+      cli:{ note:`레코드 변경은 JSON 배치로 적용해요.`, lines:[ {cmt:"# 도메인 → ALB Alias 레코드 적용"}, {p:"$",cmd:` aws route53 `,flagHtml:flag("change-resource-record-sets","DNS 레코드 생성/수정")}, {out:"ChangeInfo Status: PENDING → INSYNC"} ], copy:"aws route53 change-resource-record-sets --hosted-zone-id Z123 --change-batch file://alias.json", help:`<b>Alias vs CNAME</b> — Alias는 AWS 리소스 전용이라 요금이 없고 루트 도메인에도 가능, CNAME은 일반 도메인용이고 루트엔 못 써요.` } },
+    { title:"CloudFront 배포 만들기", needs:1,
+      intro:`전 세계 사용자에게 콘텐츠를 빠르게 뿌리는 ${term("CloudFront","AWS의 CDN, 콘텐츠를 전 세계에 캐싱해 빠르게 전달")}를 만들어요. 원본으로 ${term("S3","Simple Storage Service, AWS의 객체 저장소")} 버킷을 고르면, 사용자와 가까운 ${term("엣지 로케이션","사용자 근처에서 캐시를 제공하는 CDN 거점")}에서 응답해 속도가 빨라져요. S3는 비공개로 두고 CloudFront만 접근시키는 ${term("OAC","Origin Access Control, CloudFront만 S3에 접근하도록 제한하는 권한")}를 쓰는 게 요즘 권장 방식이에요. 원본 버킷을 선택하세요.`,
+      console:`<div class="scr"><h4>CloudFront · 원본(Origin) 선택</h4><p class="sub">어디서 콘텐츠를 가져올지 고릅니다.</p><div class="svc ck" data-key="origin"><span class="sic" style="background:#ec7211">▦</span><div><div class="nm">S3 버킷: my-site-assets</div><div class="ds">정적 파일 원본 — OAC로 비공개 연결</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">사용자 지정 원본(ALB 등)</div><div class="ds">이번 실습에서는 사용 안 함</div></div></div></div>`,
+      cli:{ note:`배포는 설정 JSON으로 생성해요.`, lines:[ {cmt:"# S3를 원본으로 CloudFront 배포 생성"}, {p:"$",cmd:` aws cloudfront `,flagHtml:flag("create-distribution","CloudFront 배포 생성")}, {out:"DomainName: d111abc.cloudfront.net  Status: InProgress"} ], copy:"aws cloudfront create-distribution --distribution-config file://dist.json", help:`<b>OAC</b>를 쓰면 S3 버킷을 완전 비공개로 두고도 CloudFront만 읽어가게 할 수 있어 안전해요.` } },
+    { title:"배포 완료 확인", finish:true,
+      intro:`방화벽, DNS, CDN이 모두 자리 잡았어요. CloudFront 배포 상태가 Deployed로 바뀌면 전 세계 엣지에서 서비스가 준비된 거예요. ${term("확인","배포 상태 조회")} 버튼으로 마무리하세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 엣지까지 배포 완료</h4><div class="rowsum"><span class="k">방화벽</span><span class="v">보안 그룹 (stateful)</span></div><div class="rowsum"><span class="k">도메인</span><span class="v">app.example.com → ALB</span></div><div class="rowsum"><span class="k">CDN</span><span class="v">d111abc.cloudfront.net · Deployed</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`배포 상태 조회로 마무리:`, lines:[ {p:"$",cmd:` aws cloudfront get-distribution --id E1A2B3C4`}, {out:"Status: Deployed  DomainName: d111abc.cloudfront.net"} ], copy:"aws cloudfront get-distribution --id E1A2B3C4", help:`완성! 안전하게 지키고(SG), 깔끔하게 연결하고(Route53), 빠르게 전달하는(CloudFront) 한 세트를 끝냈어요.` } }
+  ]
+},
+{
+  id:"ebs", ch:9, icon:"💾", name:"EBS·EFS 스토리지", label:"챕터 9 · EBS/EFS/FSx — 서버에 붙이는 저장공간",
+  doneMsg:"EBS 볼륨을 만들어 서버에 붙이고, 스냅샷으로 백업한 뒤, 여러 서버가 함께 쓰는 EFS까지 열어봤어요. 블록·파일 스토리지의 차이를 클릭으로 체험 완료!",
+  steps:[
+    { title:"EBS 볼륨 만들기", needs:1,
+      intro:`${term("EBS","EC2 서버 한 대에 붙여 쓰는 블록 스토리지. 외장 하드처럼 한 대에만, 같은 가용영역(AZ) 안에서만 붙습니다")} 볼륨을 새로 만듭니다. 크기는 20GiB로 미리 채워 뒀고, 유형은 ${term("gp3","범용 SSD. 대부분의 작업에 적당하고 저렴해 기본값으로 많이 씁니다")} 라디오를 고른 상태예요. ${term("io2","초고속·고신뢰 SSD. DB처럼 아주 빠른 입출력이 필요할 때 선택")}는 비교용으로 옆에 뒀습니다. 주황색 만들기 버튼을 눌러보세요.`,
+      console:`<div class="scr"><h4>볼륨 생성</h4><p class="sub">EC2 > Elastic Block Store > 볼륨</p><div class="field"><label>크기</label><div class="input prefilled">20 GiB <span class="tag">입력됨</span></div></div><p class="sub">볼륨 유형</p><div class="opt ck" data-key="gp3"><span class="rd"></span><div><div class="nm">gp3</div><div class="ds">범용 SSD · 기본값</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">io2</div><div class="ds">고성능 SSD · DB용</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">볼륨 생성</button></div></div>`,
+      cli:{ note:`콘솔 대신 명령어 한 줄로도 똑같이 만듭니다.`,
+        lines:[ {cmt:"# 서울 리전 ap-northeast-2a 에 20GiB gp3 볼륨 생성"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("create-volume","EBS 볼륨 생성")}, {out:"VolumeId: vol-0a1b2c3d  State: creating"} ],
+        copy:"aws ec2 create-volume --availability-zone ap-northeast-2a --size 20 --volume-type gp3",
+        help:`<b>팁</b> EBS는 반드시 서버와 같은 가용영역(AZ)에 만들어야 붙일 수 있어요. 그래서 --availability-zone 을 꼭 지정합니다.` } },
+
+    { title:"EC2 서버에 연결(attach)", needs:1,
+      intro:`방금 만든 볼륨을 EC2 서버에 붙입니다. 외장 하드를 노트북 USB에 꽂는 것과 같아요. 연결할 서버가 이미 골라져 있으니 연결 버튼만 누르면 됩니다.`,
+      console:`<div class="scr"><h4>볼륨 연결</h4><p class="sub">vol-0a1b2c3d (20GiB gp3)</p><div class="rowsum"><span class="k">연결 대상</span><span class="v">i-0web01 (웹서버)</span></div><div class="rowsum"><span class="k">디바이스</span><span class="v">/dev/sdf</span></div><div class="btnrow"><button class="btn primary ck" data-key="attach">볼륨 연결</button></div></div>`,
+      cli:{ note:`볼륨 ID 와 인스턴스 ID 를 이어 붙입니다.`,
+        lines:[ {cmt:"# vol-... 을 i-... 서버의 /dev/sdf 로 붙이기"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("attach-volume","볼륨을 인스턴스에 연결")}, {out:"State: attaching -> in-use"} ],
+        copy:"aws ec2 attach-volume --volume-id vol-0a1b2c3d --instance-id i-0web01 --device /dev/sdf",
+        help:`<b>팁</b> 한 볼륨은 보통 서버 한 대에만 붙습니다. 여러 서버가 동시에 써야 하면 뒤에 나올 EFS 를 쓰세요.` } },
+
+    { title:"스냅샷 만들기(백업)", needs:1,
+      intro:`${term("스냅샷","특정 시점의 볼륨 전체를 통째로 떠둔 백업. 내구성 높은 S3 에 저장되고, 변경분만 쌓여 비용이 절약됩니다")}을 떠서 지금 상태를 백업합니다. 실수로 지워도 스냅샷에서 되살릴 수 있어요. 백업 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>스냅샷 생성</h4><p class="sub">원본 볼륨 vol-0a1b2c3d</p><div class="field"><label>설명</label><div class="input prefilled">web-backup-2026 <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="snapshot">스냅샷 생성</button></div></div>`,
+      cli:{ note:`한 줄이면 백업이 시작됩니다.`,
+        lines:[ {cmt:"# 볼륨 백업 스냅샷 생성"}, {p:"$",cmd:` aws ec2 `,flagHtml:flag("create-snapshot","볼륨 스냅샷(백업) 생성")}, {out:"SnapshotId: snap-0f9e8d7  Progress: 100%"} ],
+        copy:"aws ec2 create-snapshot --volume-id vol-0a1b2c3d --description web-backup-2026",
+        help:`<b>팁</b> 스냅샷은 S3 에 저장돼 가용영역이 통째로 사라져도 안전합니다. 다른 AZ·리전으로 볼륨을 복제할 때도 스냅샷을 씁니다.` } },
+
+    { title:"EFS 공유 파일시스템 만들기", needs:1,
+      intro:`이번엔 ${term("EFS","여러 서버가 동시에 같은 폴더처럼 마운트해 쓰는 파일 스토리지(NFS). 용량은 자동으로 늘고 줄어요")}를 만듭니다. EBS 가 한 서버 전용이라면, EFS 는 여러 대가 같은 파일을 함께 봅니다. ${term("FSx","Windows 파일 서버나 Lustre 같은 특수 파일시스템이 필요할 때 쓰는 관리형 서비스")}는 더 특수한 용도예요. 생성 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>파일 시스템 생성</h4><p class="sub">EFS · 다중 서버 동시 마운트</p><div class="field"><label>이름</label><div class="input prefilled">shared-docs <span class="tag">입력됨</span></div></div><div class="rowsum"><span class="k">성능 모드</span><span class="v">범용</span></div><div class="btnrow"><button class="btn primary ck" data-key="efs">파일 시스템 생성</button></div></div>`,
+      cli:{ note:`EFS 는 ec2 가 아니라 efs 명령을 씁니다.`,
+        lines:[ {cmt:"# 공유 파일시스템 생성"}, {p:"$",cmd:` aws efs `,flagHtml:flag("create-file-system","EFS 파일 시스템 생성")}, {out:"FileSystemId: fs-012abc  LifeCycleState: available"} ],
+        copy:"aws efs create-file-system --tags Key=Name,Value=shared-docs",
+        help:`<b>정리</b> EBS=한 서버 블록디스크, EFS=여러 서버 공유 파일, FSx=특수 파일시스템. 상황에 맞게 고르세요.` } },
+
+    { title:"완료", finish:true,
+      intro:`축하합니다! 이제 서버에 저장공간을 붙이고 백업하는 흐름을 이해했어요. 마침 버튼을 눌러 실습을 마칩니다.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 스토리지 준비 완료</h4><div class="rowsum"><span class="k">EBS 볼륨</span><span class="v">vol-0a1b2c3d (20GiB gp3)</span></div><div class="rowsum"><span class="k">연결</span><span class="v">i-0web01</span></div><div class="rowsum"><span class="k">스냅샷</span><span class="v">snap-0f9e8d7</span></div><div class="rowsum"><span class="k">EFS</span><span class="v">fs-012abc</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">실습 마치기</button></div></div>`,
+      cli:{ note:`지금까지 만든 볼륨 목록을 확인해 봅니다.`,
+        lines:[ {cmt:"# 내 볼륨 상태 조회"}, {p:"$",cmd:` aws ec2 describe-volumes`}, {out:"vol-0a1b2c3d  in-use  20GiB  gp3"} ],
+        copy:"aws ec2 describe-volumes",
+        help:`수고했어요! 블록(EBS)·파일(EFS)·특수(FSx) 스토리지의 차이를 몸으로 익혔습니다.` } }
+  ]
+},
+{
+  id:"rds", ch:10, icon:"🐬", name:"RDS 관리형 DB", label:"챕터 10 · RDS & Aurora — 관리형 데이터베이스",
+  doneMsg:"RDS 를 열어 엔진을 고르고, 프리 티어 템플릿으로 Multi-AZ 고가용성까지 켠 데이터베이스를 만들어봤어요. 백업·패치를 AWS 가 대신 해주는 관리형 DB 의 편리함을 체험 완료!",
+  steps:[
+    { title:"RDS 열기", needs:1,
+      intro:`${term("RDS","데이터베이스 설치·백업·패치·장애복구를 AWS 가 대신 운영해 주는 관리형 관계형 DB 서비스")} 서비스를 엽니다. 반짝이는 카드를 눌러보세요.`,
+      console:`<div class="scr"><h4>콘솔 홈</h4><p class="sub">데이터베이스 서비스를 선택하세요</p><div class="svc ck" data-key="open"><span class="sic" style="background:#3b7ddd">⛁</span><div><div class="nm">RDS</div><div class="ds">관리형 관계형 DB</div></div></div></div>`,
+      cli:{ note:`지금 떠 있는 DB 목록을 먼저 봅니다.`,
+        lines:[ {cmt:"# 내 DB 인스턴스 목록"}, {p:"$",cmd:` aws rds `,flagHtml:flag("describe-db-instances","DB 인스턴스 목록 조회")}, {out:"(아직 없음)"} ],
+        copy:"aws rds describe-db-instances",
+        help:`<b>팁</b> RDS 는 MySQL·PostgreSQL·MariaDB·Oracle·SQL Server·Aurora 를 지원합니다.` } },
+
+    { title:"DB 엔진 선택", needs:1,
+      intro:`어떤 데이터베이스 엔진을 쓸지 고릅니다. 익숙한 ${term("MySQL","가장 널리 쓰이는 오픈소스 관계형 DB")} 를 골라도 되고, AWS 가 성능을 끌어올린 ${term("Aurora","MySQL·PostgreSQL 과 호환되면서 몇 배 빠르고 자동 확장되는 AWS 전용 DB 엔진")} 를 골라도 됩니다. 라디오 하나를 선택하세요.`,
+      console:`<div class="scr"><h4>엔진 옵션</h4><p class="sub">데이터베이스 생성 방식: 표준 생성</p><div class="opt ck" data-key="mysql"><span class="rd"></span><div><div class="nm">MySQL</div><div class="ds">익숙한 오픈소스 DB</div></div></div><div class="opt ck" data-key="aurora"><span class="rd"></span><div><div class="nm">Aurora (MySQL 호환)</div><div class="ds">더 빠르고 자동 확장</div></div></div></div>`,
+      cli:{ note:`--engine 값만 바꾸면 엔진이 달라집니다.`,
+        lines:[ {cmt:"# 지원 엔진 버전 확인 (예: mysql)"}, {p:"$",cmd:` aws rds `,flagHtml:flag("describe-db-engine-versions","엔진 버전 목록 조회")}, {out:"mysql 8.0.x ...  aurora-mysql 3.x ..."} ],
+        copy:"aws rds describe-db-engine-versions --engine mysql",
+        help:`<b>팁</b> Aurora 는 데이터를 3개 AZ 에 6벌 복제해 안정성이 높고, 읽기 복제본도 쉽게 늘립니다.` } },
+
+    { title:"템플릿 선택(프리 티어)", needs:1,
+      intro:`설정 묶음을 고르는 단계예요. ${term("프리 티어","가입 후 12개월간 db.t3.micro 등 작은 사양을 무료로 쓸 수 있는 AWS 무료 범위")} 템플릿을 고르면 연습용으로 요금 걱정이 적습니다. 무료 표시가 붙은 라디오를 선택하세요.`,
+      console:`<div class="scr"><h4>템플릿</h4><p class="sub">용도에 맞는 기본 설정 묶음</p><div class="opt ck" data-key="free"><span class="rd"></span><div><div class="nm">프리 티어</div><div class="ds">연습·학습용 작은 사양</div></div><span class="free">프리 티어 가능</span></div><div class="opt locked"><span class="rd"></span><div><div class="nm">프로덕션</div><div class="ds">실서비스용 고성능</div></div></div><div class="field"><label>DB 인스턴스 식별자</label><div class="input prefilled">mydb <span class="tag">입력됨</span></div></div></div>`,
+      cli:{ note:`프리 티어는 작은 인스턴스 클래스로 표현됩니다.`,
+        lines:[ {cmt:"# 프리 티어 인스턴스 클래스 = db.t3.micro"}, {p:"$",cmd:` aws rds describe-orderable-db-instance-options`,flagHtml:flag("--engine","대상 엔진 지정")}, {out:"db.t3.micro  db.t3.small ..."} ],
+        copy:"aws rds describe-orderable-db-instance-options --engine mysql",
+        help:`<b>팁</b> ${term("자동 백업","매일 스냅샷 + 트랜잭션 로그로 특정 시점까지 복구(PITR)해주는 기능. 보관 기간을 설정합니다")} 는 템플릿에서 기본으로 켜집니다.` } },
+
+    { title:"고가용성 Multi-AZ 켜기", needs:1,
+      intro:`${term("Multi-AZ","다른 가용영역(AZ)에 대기용 복제본을 두고, 주 DB 가 죽으면 자동으로 넘어가는 고가용성 구성")} 를 켭니다. ${term("Read Replica","읽기 전용 복제본을 추가해 조회 트래픽을 분산하는 읽기 확장용 구성. 고가용성용인 Multi-AZ 와 목적이 다릅니다")} 와 헷갈리지 마세요. 체크박스를 눌러 Multi-AZ 를 활성화하세요.`,
+      console:`<div class="scr"><h4>가용성·내구성</h4><p class="sub">장애에 대비한 자동 복구 구성</p><div class="opt ck" data-key="multiaz"><span class="ck-box"></span><div><div class="nm">Multi-AZ 배포</div><div class="ds">다른 AZ 에 대기 복제본 · 자동 장애조치</div></div></div></div>`,
+      cli:{ note:`생성 명령에 --multi-az 플래그만 더하면 됩니다.`,
+        lines:[ {cmt:"# 미리보기: 고가용성 플래그"}, {p:"$",cmd:` aws rds create-db-instance`,flagHtml:flag("--multi-az","Multi-AZ 고가용성 활성화")}, {out:"(다음 단계에서 전체 명령 실행)"} ],
+        copy:"aws rds create-db-instance --multi-az",
+        help:`<b>정리</b> Multi-AZ = 안 죽게(고가용성), Read Replica = 더 많이 읽게(읽기 확장). 목적이 다릅니다.` } },
+
+    { title:"생성 · 완료", finish:true,
+      intro:`설정을 모두 마쳤어요. ${term("파라미터 그룹","여러 DB 에 공통으로 적용하는 설정값 묶음(문자셋·타임존·버퍼 크기 등)")} 같은 세부 옵션은 기본값으로 두고, 데이터베이스 생성 버튼을 누르면 끝입니다.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 설정 확인</h4><div class="rowsum"><span class="k">엔진</span><span class="v">MySQL</span></div><div class="rowsum"><span class="k">템플릿</span><span class="v">프리 티어</span></div><div class="rowsum"><span class="k">식별자</span><span class="v">mydb</span></div><div class="rowsum"><span class="k">Multi-AZ</span><span class="v">켜짐</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">데이터베이스 생성</button></div></div>`,
+      cli:{ note:`지금까지 고른 설정을 한 줄 명령으로 묶으면 이렇게 됩니다.`,
+        lines:[ {cmt:"# 프리 티어 MySQL + Multi-AZ 생성"}, {p:"$",cmd:` aws rds `,flagHtml:flag("create-db-instance","DB 인스턴스 생성")}, {out:"DBInstanceStatus: creating -> available"} ],
+        copy:"aws rds create-db-instance --db-instance-identifier mydb --engine mysql --db-instance-class db.t3.micro --allocated-storage 20 --master-username admin --master-user-password **** --multi-az",
+        help:`수고했어요! 서버 설치·백업·패치·장애조치를 AWS 가 대신 해주는 관리형 DB 를 만들어봤습니다.` } }
+  ]
+},
+{
+  id:"dynamodb", ch:11, icon:"⚡", name:"DynamoDB NoSQL", label:"챕터 11 · DynamoDB — 완전관리형 NoSQL",
+  doneMsg:"DynamoDB 를 열어 파티션 키로 테이블을 만들고, 온디맨드 용량과 GSI 를 설정한 뒤 첫 항목까지 넣어봤어요. 서버 관리 없이 무한히 확장되는 NoSQL 의 느낌을 체험 완료!",
+  steps:[
+    { title:"DynamoDB 열기", needs:1,
+      intro:`${term("NoSQL","표의 정해진 스키마 없이 키-값·문서 형태로 유연하게 저장하는 DB. 대용량·고속 처리에 강합니다")} 데이터베이스인 ${term("DynamoDB","서버 관리가 전혀 없고 트래픽에 맞춰 자동 확장되는 AWS 완전관리형 키-값 NoSQL")} 를 엽니다. 카드를 눌러보세요.`,
+      console:`<div class="scr"><h4>콘솔 홈</h4><p class="sub">NoSQL 데이터베이스</p><div class="svc ck" data-key="open"><span class="sic" style="background:#4053d6">⚡</span><div><div class="nm">DynamoDB</div><div class="ds">완전관리형 키-값 NoSQL</div></div></div></div>`,
+      cli:{ note:`지금 있는 테이블 목록을 먼저 봅니다.`,
+        lines:[ {cmt:"# 테이블 목록 조회"}, {p:"$",cmd:` aws dynamodb `,flagHtml:flag("list-tables","테이블 목록 조회")}, {out:"TableNames: []"} ],
+        copy:"aws dynamodb list-tables",
+        help:`<b>팁</b> DynamoDB 는 서버 대수·패치·백업을 신경 쓸 필요가 없어요. 테이블만 만들면 끝입니다.` } },
+
+    { title:"테이블 만들기", needs:1,
+      intro:`테이블을 만듭니다. 모든 항목을 흩뿌려 저장할 기준이 되는 ${term("파티션 키","항목을 여러 서버(파티션)에 나눠 담는 기준 키. 값이 고르게 퍼지도록 골라야 합니다")} 로 userId 를 미리 넣어 뒀어요. 한곳에만 요청이 몰리는 ${term("핫 파티션","특정 파티션 키 값에 트래픽이 집중돼 느려지는 현상. 키를 고르게 분산해 피합니다")} 를 피하려면 값이 골고루 퍼지는 키가 좋습니다. 생성 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>테이블 생성</h4><div class="field"><label>테이블 이름</label><div class="input prefilled">Users <span class="tag">입력됨</span></div></div><div class="field"><label>파티션 키</label><div class="input prefilled">userId (문자열) <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">테이블 생성</button></div></div>`,
+      cli:{ note:`키 스키마와 속성 정의를 함께 넘깁니다.`,
+        lines:[ {cmt:"# userId 를 파티션 키(HASH)로 테이블 생성"}, {p:"$",cmd:` aws dynamodb `,flagHtml:flag("create-table","테이블 생성")}, {out:"TableStatus: CREATING -> ACTIVE"} ],
+        copy:"aws dynamodb create-table --table-name Users --attribute-definitions AttributeName=userId,AttributeType=S --key-schema AttributeName=userId,KeyType=HASH --billing-mode PAY_PER_REQUEST",
+        help:`<b>팁</b> ${term("강한 일관성","방금 쓴 값을 바로 정확히 읽는 옵션. 기본은 약간 지연될 수 있는 최종 일관성 읽기입니다")} 읽기가 필요하면 조회 시 옵션으로 켤 수 있어요.` } },
+
+    { title:"용량 모드 선택", needs:1,
+      intro:`요금·성능 방식을 고릅니다. ${term("온디맨드","미리 용량을 정하지 않고 쓴 만큼만 내는 방식. 트래픽이 들쭉날쭉하거나 예측이 어려울 때 편합니다")} 를 고르면 설정이 간단하고 자동으로 확장됩니다. ${term("프로비저닝","초당 읽기·쓰기 용량을 미리 정해두는 방식. 트래픽이 일정하고 예측되면 더 저렴할 수 있습니다")} 는 비교용이에요. 온디맨드 라디오를 선택하세요.`,
+      console:`<div class="scr"><h4>용량 모드</h4><p class="sub">읽기/쓰기 요금 방식</p><div class="opt ck" data-key="ondemand"><span class="rd"></span><div><div class="nm">온디맨드</div><div class="ds">쓴 만큼 과금 · 자동 확장</div></div></div><div class="opt ck" data-key="provisioned"><span class="rd"></span><div><div class="nm">프로비저닝</div><div class="ds">용량 미리 지정 · 예측 트래픽용</div></div></div></div>`,
+      cli:{ note:`--billing-mode 로 모드를 지정합니다.`,
+        lines:[ {cmt:"# 온디맨드 = PAY_PER_REQUEST"}, {p:"$",cmd:` aws dynamodb update-table`,flagHtml:flag("--billing-mode","용량 모드 지정")}, {out:"BillingMode: PAY_PER_REQUEST"} ],
+        copy:"aws dynamodb update-table --table-name Users --billing-mode PAY_PER_REQUEST",
+        help:`<b>팁</b> 처음엔 온디맨드로 시작해 트래픽 패턴이 보이면 프로비저닝으로 바꿔 비용을 아끼는 경우가 많아요.` } },
+
+    { title:"GSI 추가(선택)", needs:1,
+      intro:`파티션 키가 아닌 다른 속성으로도 빠르게 찾으려면 ${term("GSI","Global Secondary Index. 다른 속성을 키로 삼아 전체 테이블을 가로질러 조회하는 보조 색인. 아무 때나 추가 가능")} 를 추가합니다. 같은 파티션 키 안에서만 다른 정렬키로 찾는 ${term("LSI","Local Secondary Index. 파티션 키는 그대로 두고 정렬키만 다르게 두는 보조 색인. 테이블 생성 시에만 만들 수 있습니다")} 와 구분하세요. 이메일로 찾는 GSI 체크박스를 켜세요.`,
+      console:`<div class="scr"><h4>보조 인덱스</h4><p class="sub">다른 속성으로도 조회하려면</p><div class="opt ck" data-key="gsi"><span class="ck-box"></span><div><div class="nm">GSI 추가: email-index</div><div class="ds">email 속성으로 전체 조회</div></div></div></div>`,
+      cli:{ note:`인덱스 정의를 추가하는 명령입니다.`,
+        lines:[ {cmt:"# email 을 키로 하는 GSI 추가"}, {p:"$",cmd:` aws dynamodb update-table`,flagHtml:flag("--global-secondary-index-updates","GSI 추가/변경")}, {out:"IndexStatus: CREATING -> ACTIVE"} ],
+        copy:"aws dynamodb update-table --table-name Users --attribute-definitions AttributeName=email,AttributeType=S --global-secondary-index-updates [{\"Create\":{\"IndexName\":\"email-index\",\"KeySchema\":[{\"AttributeName\":\"email\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}}]",
+        help:`<b>정리</b> GSI = 아무 속성·언제든 추가, LSI = 생성 시에만·같은 파티션 키. 용도를 구분하세요.` } },
+
+    { title:"항목 넣기 · 완료", needs:1, finish:true,
+      intro:`마지막으로 첫 데이터(항목) 하나를 넣어봅니다. userId 와 name 이 미리 채워져 있으니 넣기 버튼만 누르면 끝이에요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 테이블 준비 완료</h4><div class="rowsum"><span class="k">테이블</span><span class="v">Users</span></div><div class="rowsum"><span class="k">파티션 키</span><span class="v">userId</span></div><div class="rowsum"><span class="k">용량 모드</span><span class="v">온디맨드</span></div><div class="rowsum"><span class="k">GSI</span><span class="v">email-index</span></div><div class="field"><label>새 항목</label><div class="input prefilled">userId: u-001 / name: 지영 <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="putitem">항목 넣기</button></div></div>`,
+      cli:{ note:`항목 하나를 JSON 으로 저장합니다.`,
+        lines:[ {cmt:"# Users 테이블에 항목 1개 추가"}, {p:"$",cmd:` aws dynamodb `,flagHtml:flag("put-item","항목 저장")}, {out:"(성공 · 반환값 없음)"} ],
+        copy:"aws dynamodb put-item --table-name Users --item {\"userId\":{\"S\":\"u-001\"},\"name\":{\"S\":\"jiyoung\"}}",
+        help:`수고했어요! 서버 관리 없이 자동 확장되는 NoSQL 테이블을 만들고 첫 데이터까지 넣어봤습니다.` } }
+  ]
+},
+{
+  id:"analytics", ch:12, icon:"🔍", name:"Athena·Glue", label:"챕터 12 · 분석·특수 목적 DB — S3 데이터를 SQL로 쿼리", doneMsg:"서버 한 대 없이 S3에 쌓인 데이터를 Athena로 쿼리했습니다. 이게 데이터 레이크 분석의 기본 흐름이에요.",
+  steps:[
+    {
+      title:"AWS Glue 열기",
+      needs:1,
+      intro:`먼저 ${term("Glue","데이터를 정리하고 옮기는 ETL 작업과 데이터 카탈로그를 담당하는 서비스")}를 엽니다. Glue의 크롤러가 S3 파일을 훑어보고 ${term("데이터 레이크","가공하지 않은 원본 데이터를 형식 그대로 모아 두는 대형 저장소")}의 표 구조(스키마)를 자동으로 만들어 줍니다. 보라색 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>서비스 선택</h4><p class="sub">분석을 시작할 서비스를 엽니다</p><div class="svc ck" data-key="open"><span class="sic" style="background:#8c4fff">🧩</span><div><div class="nm">AWS Glue</div><div class="ds">크롤러 · 데이터 카탈로그</div></div></div><div class="svc locked"><span class="sic" style="background:#c7417b">📊</span><div><div class="nm">Amazon Redshift</div><div class="ds">데이터 웨어하우스</div></div></div></div>`,
+      cli:{ note:`CLI에서는 등록된 크롤러 목록부터 확인합니다.`, lines:[ {cmt:"# 등록된 크롤러 보기"}, {p:"$",cmd:` aws glue `,flagHtml:flag("list-crawlers","크롤러 목록 조회")}, {out:"[ sales-crawler ]"} ], copy:"aws glue list-crawlers", help:`<b>Glue</b>는 데이터가 어디에 어떤 구조로 있는지 적어 두는 카탈로그 역할을 합니다.` }
+    },
+    {
+      title:"크롤러 실행해 스키마 만들기",
+      needs:1,
+      intro:`크롤러를 실행하면 S3 폴더 안의 파일을 스캔해 컬럼 이름과 데이터 타입을 자동으로 알아냅니다. 타이핑 없이 버튼 한 번이면 끝. 주황 버튼을 눌러 보세요.`,
+      console:`<div class="scr"><h4>sales-crawler</h4><p class="sub">대상 경로를 스캔해 표 구조를 생성합니다</p><div class="rowsum"><span class="k">대상 S3</span><span class="v">s3://my-datalake/sales/</span></div><div class="rowsum"><span class="k">출력 DB</span><span class="v">sales_db</span></div><div class="btnrow"><button class="btn primary ck" data-key="run">크롤러 실행</button></div></div>`,
+      cli:{ note:`CLI로는 이렇게 크롤러를 시작합니다.`, lines:[ {cmt:"# S3를 훑어 스키마 생성"}, {p:"$",cmd:` aws glue `,flagHtml:flag("start-crawler","지정한 크롤러 실행")}, {out:"크롤러 sales-crawler 시작됨"}, {out:"테이블 sales 생성됨 (컬럼 5개)"} ], copy:"aws glue start-crawler --name sales-crawler", help:`<b>팁</b> 크롤러가 끝나면 데이터 카탈로그에 표가 생겨 바로 SQL로 조회할 수 있습니다.` }
+    },
+    {
+      title:"Athena 열기",
+      needs:1,
+      intro:`이제 ${term("Athena","S3에 있는 데이터를 SQL로 바로 조회하는 서버리스 분석 서비스")}를 엽니다. 서버를 띄우지 않고 쿼리한 만큼만 과금돼요. 대용량 상시 분석은 ${term("Redshift","여러 데이터를 모아 두고 빠르게 집계·분석하는 데이터 웨어하우스")}를 쓰지만, 가끔 S3를 들여다보는 데는 Athena가 간편합니다. 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>서비스 선택</h4><p class="sub">쿼리를 실행할 서비스를 엽니다</p><div class="svc ck" data-key="open"><span class="sic" style="background:#3b7ddd">🔍</span><div><div class="nm">Amazon Athena</div><div class="ds">S3를 SQL로 · 서버리스</div></div></div><div class="svc locked"><span class="sic" style="background:#1aa179">🔎</span><div><div class="nm">OpenSearch</div><div class="ds">검색 · 로그 분석</div></div></div></div>`,
+      cli:{ note:`Athena가 볼 수 있는 데이터 카탈로그를 확인합니다.`, lines:[ {cmt:"# 데이터 카탈로그 목록"}, {p:"$",cmd:` aws athena `,flagHtml:flag("list-data-catalogs","Athena 데이터 카탈로그 조회")}, {out:"AwsDataCatalog"} ], copy:"aws athena list-data-catalogs", help:`<b>Athena</b>는 Glue 카탈로그에 등록된 표를 그대로 SQL 대상으로 씁니다.` }
+    },
+    {
+      title:"데이터 소스(S3 버킷) 선택",
+      needs:1,
+      intro:`쿼리할 데이터가 들어 있는 S3 버킷을 데이터 소스로 고릅니다. 방금 크롤러가 만든 ${term("데이터 소스","Athena가 쿼리 대상으로 삼는 데이터베이스와 표의 묶음")} 중 하나를 라디오로 선택하세요.`,
+      console:`<div class="scr"><h4>데이터 소스 선택</h4><p class="sub">쿼리 대상 데이터베이스를 고릅니다</p><div class="opt ck" data-key="s3"><span class="rd"></span><div><div class="nm">sales_db (s3://my-datalake/sales/)</div><div class="ds">크롤러가 생성한 판매 데이터</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">default</div><div class="ds">비어 있음</div></div></div></div>`,
+      cli:{ note:`선택한 카탈로그 안의 데이터베이스를 확인합니다.`, lines:[ {cmt:"# DB 목록 조회"}, {p:"$",cmd:` aws athena `,flagHtml:flag("list-databases","카탈로그의 데이터베이스 조회")}, {out:"sales_db, default"} ], copy:"aws athena list-databases --catalog-name AwsDataCatalog", help:`데이터 소스를 고르면 그 안의 표를 SQL FROM 절에서 쓸 수 있습니다.` }
+    },
+    {
+      title:"미리 작성된 SQL 쿼리 실행",
+      needs:1,
+      intro:`쿼리는 이미 작성해 두었습니다. 상위 3개 지역의 매출 합계를 구하는 SQL이에요. 버튼만 누르면 Athena가 S3를 직접 읽어 결과를 돌려줍니다.`,
+      console:`<div class="scr"><h4>쿼리 편집기</h4><p class="sub">아래 SQL을 그대로 실행합니다</p><div class="term"><span class="line out">SELECT region, SUM(amount) AS total</span><span class="line out">FROM sales_db.sales</span><span class="line out">GROUP BY region ORDER BY total DESC LIMIT 3;</span></div><div class="btnrow"><button class="btn primary ck" data-key="run">쿼리 실행</button></div></div>`,
+      cli:{ note:`CLI로 쿼리를 제출하면 실행 ID가 돌아옵니다.`, lines:[ {cmt:"# 쿼리 비동기 실행"}, {p:"$",cmd:` aws athena `,flagHtml:flag("start-query-execution","쿼리 실행 요청")}, {out:"QueryExecutionId: q-1a2b3c"} ], copy:"aws athena start-query-execution --query-string \"SELECT region, SUM(amount) FROM sales_db.sales GROUP BY region\" --result-configuration OutputLocation=s3://my-athena-results/", help:`Athena는 쿼리를 비동기로 처리하고, 결과는 지정한 S3 위치에 저장합니다.` }
+    },
+    {
+      title:"결과 확인 · 완료",
+      needs:1,
+      finish:true,
+      intro:`쿼리가 끝났습니다. 로그·검색 분석이 필요하면 ${term("OpenSearch","텍스트 검색과 로그·지표 분석에 특화된 서비스")}를, 상시 대규모 집계에는 Redshift를 쓰면 됩니다. 아래 버튼으로 마무리하세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 쿼리 성공</h4><p class="sub">상위 3개 지역 매출</p><div class="term"><span class="line out">서울    12,400,000</span><span class="line out">부산     8,100,000</span><span class="line out">대구     5,300,000</span><span class="line out">(3행 · 스캔 1.2MB)</span></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`저장된 결과를 내려받아 확인합니다.`, lines:[ {cmt:"# 실행 결과 조회"}, {p:"$",cmd:` aws athena `,flagHtml:flag("get-query-results","쿼리 결과 가져오기")}, {out:"3 rows returned"} ], copy:"aws athena get-query-results --query-execution-id q-1a2b3c", help:`끝! 스캔한 데이터 양만큼만 과금됩니다. 파일을 Parquet로 압축하면 비용이 크게 줄어요.` }
+    }
+  ]
+},
+{
+  id:"messaging", ch:13, icon:"📨", name:"SQS·SNS", label:"챕터 13 · 메시징·통합 — 큐와 발행/구독으로 느슨하게 연결", doneMsg:"SQS 큐와 SNS 주제, 구독까지 연결했습니다. 서비스끼리 직접 붙지 않고 메시지로 느슨하게 통신하는 구조예요.",
+  steps:[
+    {
+      title:"SQS 큐 만들기",
+      needs:2,
+      intro:`먼저 ${term("SQS","메시지를 잠시 쌓아 두는 큐로, 보내는 쪽과 받는 쪽을 분리하는 비동기 버퍼")} 큐를 만듭니다. 순서가 꼭 필요하면 ${term("FIFO","먼저 넣은 메시지가 먼저 나오고 중복을 막는 큐 유형")}를, 그렇지 않으면 처리량이 큰 표준 큐를 고르세요. 여기서는 표준을 선택하고 만들기를 누릅니다.`,
+      console:`<div class="scr"><h4>큐 만들기</h4><p class="sub">유형을 고르고 생성합니다</p><div class="field"><label>큐 이름</label><div class="input prefilled">order-queue <span class="tag">입력됨</span></div></div><div class="opt ck" data-key="std"><span class="rd"></span><div><div class="nm">표준 큐</div><div class="ds">처리량이 크고 순서는 대체로 유지</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">FIFO 큐</div><div class="ds">엄격한 순서 · 중복 제거</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`CLI로는 한 줄이면 큐가 생깁니다.`, lines:[ {cmt:"# 표준 큐 생성"}, {p:"$",cmd:` aws sqs `,flagHtml:flag("create-queue","큐 생성")}, {out:"QueueUrl: .../order-queue"} ], copy:"aws sqs create-queue --queue-name order-queue", help:`${term("Visibility Timeout","한 소비자가 꺼내 처리하는 동안 다른 소비자에게 안 보이게 하는 시간")}을 넘기면 메시지가 다시 큐에 보여 재처리됩니다.` }
+    },
+    {
+      title:"실패 메시지용 DLQ 연결",
+      needs:2,
+      intro:`여러 번 처리에 실패한 메시지는 따로 모아 두는 게 안전합니다. 이 보관 큐를 ${term("DLQ","정해진 횟수만큼 처리에 실패한 메시지를 옮겨 담는 별도의 큐")}라고 해요. 체크하고 연결 버튼을 누르세요.`,
+      console:`<div class="scr"><h4>데드레터 큐 설정</h4><p class="sub">실패 메시지를 따로 보관합니다</p><div class="rowsum"><span class="k">연결 큐</span><span class="v">order-queue-dlq</span></div><div class="opt ck" data-key="dlq"><span class="ck-box"></span><div><div class="nm">DLQ 사용</div><div class="ds">3회 실패 시 자동 이동</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="confirm">연결</button></div></div>`,
+      cli:{ note:`재처리 정책을 큐 속성으로 지정합니다.`, lines:[ {cmt:"# DLQ 재처리 정책 설정"}, {p:"$",cmd:` aws sqs `,flagHtml:flag("set-queue-attributes","큐 속성 변경")}, {out:"RedrivePolicy 적용됨"} ], copy:"aws sqs set-queue-attributes --queue-url .../order-queue --attributes file://redrive.json", help:`DLQ에 쌓인 메시지를 보면 어떤 처리가 왜 실패했는지 추적할 수 있습니다.` }
+    },
+    {
+      title:"SNS 주제 만들기",
+      needs:1,
+      intro:`이제 ${term("SNS","하나의 메시지를 구독한 여러 대상에게 한꺼번에 뿌리는 발행/구독 팬아웃 서비스")} 주제를 만듭니다. 주제에 메시지를 한 번 발행하면 구독자 전원에게 복사되어 전달돼요. 버튼을 눌러 주제를 생성하세요.`,
+      console:`<div class="scr"><h4>주제 만들기</h4><p class="sub">발행/구독의 중심이 되는 주제입니다</p><div class="field"><label>주제 이름</label><div class="input prefilled">order-events <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`CLI로 주제를 만들면 ARN이 돌아옵니다.`, lines:[ {cmt:"# 주제 생성"}, {p:"$",cmd:` aws sns `,flagHtml:flag("create-topic","SNS 주제 생성")}, {out:"TopicArn: arn:aws:sns:...:order-events"} ], copy:"aws sns create-topic --name order-events", help:`주제 하나에 큐·이메일·Lambda를 동시에 붙여 팬아웃할 수 있습니다.` }
+    },
+    {
+      title:"구독 추가(이메일)",
+      needs:2,
+      intro:`주제에 구독을 붙입니다. 전달 방식으로 이메일을 체크하면, 주문 이벤트가 생길 때마다 해당 주소로 알림이 갑니다. 프로토콜을 체크하고 추가를 누르세요.`,
+      console:`<div class="scr"><h4>구독 추가</h4><p class="sub">order-events 주제의 알림을 받습니다</p><div class="opt ck" data-key="email"><span class="ck-box"></span><div><div class="nm">이메일(Email)</div><div class="ds">지정 주소로 알림 발송</div></div></div><div class="field"><label>수신 주소</label><div class="input prefilled">ops@example.com <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="sub">구독 추가</button></div></div>`,
+      cli:{ note:`CLI로 구독을 걸면 확인 메일이 발송됩니다.`, lines:[ {cmt:"# 이메일 구독 추가"}, {p:"$",cmd:` aws sns `,flagHtml:flag("subscribe","주제에 구독 추가")}, {out:"확인 대기: ops@example.com"} ], copy:"aws sns subscribe --topic-arn arn:aws:sns:...:order-events --protocol email --notification-endpoint ops@example.com", help:`이메일 구독은 수신자가 확인 링크를 눌러야 활성화됩니다.` }
+    },
+    {
+      title:"EventBridge 규칙 연결 · 완료",
+      needs:2,
+      finish:true,
+      intro:`마지막으로 ${term("EventBridge","발생한 이벤트를 조건에 맞게 원하는 대상으로 자동 라우팅하는 서비스")} 규칙을 골라 주제에 연결합니다. 실시간 대용량 스트림은 ${term("Kinesis","끊임없이 들어오는 데이터를 실시간으로 받아 처리하는 스트리밍 서비스")}로 다루지만, 이벤트 분배에는 EventBridge가 편합니다. 규칙을 고르고 완료를 누르세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">거의 끝났어요</h4><p class="sub">이벤트 규칙을 주제에 연결합니다</p><div class="opt ck" data-key="rule"><span class="rd"></span><div><div class="nm">주문 생성 이벤트 → order-events</div><div class="ds">source: orders / detail-type: created</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`규칙과 대상을 확인합니다.`, lines:[ {cmt:"# 규칙의 대상 조회"}, {p:"$",cmd:` aws events `,flagHtml:flag("list-targets-by-rule","규칙에 연결된 대상 조회")}, {out:"Target: order-events (SNS)"} ], copy:"aws events list-targets-by-rule --rule order-created-rule", help:`끝! 이제 주문 이벤트 → EventBridge → SNS → 구독자 순으로 메시지가 자동으로 흐릅니다.` }
+    }
+  ]
+},
+{
+  id:"security", ch:14, icon:"🔑", name:"KMS·Secrets", label:"챕터 14 · 보안 — 암호화 키와 비밀 관리", doneMsg:"KMS 키를 만들고 자동 로테이션을 켠 뒤, DB 비밀번호를 Secrets Manager에 안전하게 저장했습니다. 코드에 비밀번호를 직접 적지 않는 게 핵심이에요.",
+  steps:[
+    {
+      title:"KMS 열기",
+      needs:1,
+      intro:`먼저 ${term("KMS","암호화 키를 안전하게 만들고 보관·관리하는 서비스")}를 엽니다. 데이터를 암호화할 때 쓰는 열쇠를 직접 관리하는 곳이에요. 빨간 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>서비스 선택</h4><p class="sub">암호화 키를 관리할 서비스를 엽니다</p><div class="svc ck" data-key="open"><span class="sic" style="background:#dd3b5c">🔑</span><div><div class="nm">AWS KMS</div><div class="ds">암호화 키 관리</div></div></div><div class="svc locked"><span class="sic" style="background:#b8860b">🛡️</span><div><div class="nm">AWS WAF</div><div class="ds">웹 방화벽</div></div></div></div>`,
+      cli:{ note:`CLI에서는 보유한 키 목록부터 봅니다.`, lines:[ {cmt:"# 키 목록 조회"}, {p:"$",cmd:` aws kms `,flagHtml:flag("list-keys","KMS 키 목록 조회")}, {out:"Keys: [] (아직 없음)"} ], copy:"aws kms list-keys", help:`${term("엔벨로프 암호화","데이터는 데이터 키로 암호화하고, 그 데이터 키는 다시 KMS 키로 암호화하는 2단계 방식")} 덕분에 대용량도 빠르고 안전하게 암호화합니다.` }
+    },
+    {
+      title:"KMS 키 만들기",
+      needs:3,
+      intro:`새 키를 만듭니다. 대부분의 데이터 암호화에는 ${term("대칭 키","암호화와 복호화에 같은 하나의 키를 쓰는 방식으로 가장 일반적")}를 씁니다. 유형으로 대칭을 고르고, ${term("키 로테이션","키를 주기적으로 새것으로 교체해 유출 위험을 줄이는 기능")}도 체크한 뒤 만들기를 누르세요.`,
+      console:`<div class="scr"><h4>키 만들기</h4><p class="sub">유형과 로테이션을 설정합니다</p><div class="field"><label>별칭</label><div class="input prefilled">alias/app-data-key <span class="tag">입력됨</span></div></div><div class="opt ck" data-key="sym"><span class="rd"></span><div><div class="nm">대칭 키</div><div class="ds">일반적 · 데이터 암호화용</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">비대칭 키</div><div class="ds">서명·공개키 교환용</div></div></div><div class="opt ck" data-key="rotate"><span class="ck-box"></span><div><div class="nm">자동 키 로테이션</div><div class="ds">1년마다 자동 교체</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="create">만들기</button></div></div>`,
+      cli:{ note:`CLI로 키를 만들고 로테이션을 켭니다.`, lines:[ {cmt:"# 대칭 키 생성"}, {p:"$",cmd:` aws kms `,flagHtml:flag("create-key","암호화 키 생성")}, {out:"KeyId: 1234abcd-..."}, {cmt:"# 자동 로테이션 켜기"}, {p:"$",cmd:` aws kms `,flagHtml:flag("enable-key-rotation","키 자동 로테이션 활성화")}, {out:"로테이션 활성화됨"} ], copy:"aws kms create-key --description app-data-key", help:`로테이션을 켜도 과거 데이터는 예전 키 버전으로 그대로 복호화되니 걱정 없습니다.` }
+    },
+    {
+      title:"Secrets Manager 열기",
+      needs:1,
+      intro:`이제 ${term("Secrets Manager","DB 비밀번호 같은 비밀값을 안전하게 저장하고 자동으로 교체해 주는 서비스")}를 엽니다. 비밀번호를 코드나 설정 파일에 적는 대신 여기에 맡기는 거예요. 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>서비스 선택</h4><p class="sub">비밀값을 저장할 서비스를 엽니다</p><div class="svc ck" data-key="open"><span class="sic" style="background:#dd3b5c">🗝️</span><div><div class="nm">Secrets Manager</div><div class="ds">비밀 저장 · 자동 교체</div></div></div><div class="svc locked"><span class="sic" style="background:#2e8b57">🕵️</span><div><div class="nm">GuardDuty</div><div class="ds">위협 탐지</div></div></div></div>`,
+      cli:{ note:`저장된 비밀 목록을 확인합니다.`, lines:[ {cmt:"# 비밀 목록 조회"}, {p:"$",cmd:` aws secretsmanager `,flagHtml:flag("list-secrets","저장된 비밀 목록 조회")}, {out:"SecretList: [] (아직 없음)"} ], copy:"aws secretsmanager list-secrets", help:`위협 탐지는 ${term("GuardDuty","계정의 이상 행위를 자동으로 탐지하는 서비스")}, 민감정보 탐지는 ${term("Macie","S3에 저장된 개인정보 등 민감 데이터를 찾아 주는 서비스")}가 맡습니다.` }
+    },
+    {
+      title:"DB 비밀번호 저장",
+      needs:1,
+      intro:`DB 접속 비밀번호를 저장합니다. 이름과 값은 미리 채워 두었고, 방금 만든 KMS 키로 자동 암호화됩니다. 저장 버튼만 누르세요.`,
+      console:`<div class="scr"><h4>새 비밀 저장</h4><p class="sub">KMS 키로 암호화되어 보관됩니다</p><div class="field"><label>비밀 이름</label><div class="input prefilled">prod/db/password <span class="tag">입력됨</span></div></div><div class="field"><label>비밀 값</label><div class="input prefilled">•••••••••••• <span class="tag">입력됨</span></div></div><div class="rowsum"><span class="k">암호화 키</span><span class="v">alias/app-data-key</span></div><div class="btnrow"><button class="btn primary ck" data-key="save">저장</button></div></div>`,
+      cli:{ note:`CLI로 비밀을 저장합니다.`, lines:[ {cmt:"# DB 비밀번호 저장"}, {p:"$",cmd:` aws secretsmanager `,flagHtml:flag("create-secret","새 비밀 생성·저장")}, {out:"ARN: arn:aws:secretsmanager:...:prod/db/password"} ], copy:"aws secretsmanager create-secret --name prod/db/password --secret-string s3cr3t --kms-key-id alias/app-data-key", help:`앱은 실행 시점에 이 이름으로 비밀을 꺼내 쓰므로, 코드에 비밀번호가 남지 않습니다.` }
+    },
+    {
+      title:"접근 권한 확인 · 완료",
+      needs:2,
+      finish:true,
+      intro:`앱 역할만 이 비밀을 읽도록 권한이 걸려 있는지 확인하고 마무리합니다. 웹 공격 차단은 ${term("WAF","악성 웹 요청을 규칙으로 걸러 내는 웹 방화벽")}, 대규모 공격 방어는 ${term("Shield","DDoS 같은 대규모 공격을 막아 주는 서비스")}가 맡아요. 확인 후 완료를 누르세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">권한 확인</h4><p class="sub">허용된 대상만 비밀을 읽을 수 있습니다</p><div class="rowsum"><span class="k">허용 역할</span><span class="v">app-prod-role</span></div><div class="rowsum"><span class="k">자동 교체</span><span class="v">30일마다</span></div><div class="opt ck" data-key="verify"><span class="ck-box"></span><div><div class="nm">최소 권한 확인됨</div><div class="ds">그 외 접근은 거부</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="done">완료</button></div></div>`,
+      cli:{ note:`비밀에 걸린 리소스 정책을 확인합니다.`, lines:[ {cmt:"# 접근 정책 조회"}, {p:"$",cmd:` aws secretsmanager `,flagHtml:flag("get-resource-policy","비밀의 접근 정책 조회")}, {out:"Allow: app-prod-role"} ], copy:"aws secretsmanager get-resource-policy --secret-id prod/db/password", help:`끝! 키 관리·비밀 저장·접근 제어가 한 번에 자리 잡았습니다. 필요한 역할에만 권한을 주는 게 보안의 기본입니다.` }
+    }
+  ]
+},
+{
+  id:"observ", ch:15, icon:"📊", name:"CloudWatch 관측",
+  label:"챕터 15 · 운영·관측 — 지표·경보·감사",
+  doneMsg:"CloudWatch 지표에 경보를 걸고 CloudTrail 감사까지 켰어요. 이제 자원 상태를 자동으로 지켜봅니다.",
+  steps:[
+    { title:"CloudWatch 열기",
+      intro:`${term("CloudWatch","AWS 자원의 지표·로그·경보·대시보드를 한곳에서 모아 보는 관측 서비스")}를 엽니다. 반짝이는 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>콘솔 홈</h4><p class="sub">관측 서비스를 선택합니다.</p><div class="svc ck" data-key="open"><span class="sic" style="background:#e7157b">📊</span><div><div class="nm">CloudWatch</div><div class="ds">지표·로그·경보·대시보드</div></div></div></div>`,
+      cli:{ note:`CLI로는 어떤 지표가 쌓이는지 먼저 봅니다.`, lines:[ {cmt:"# 수집 중인 지표 목록 조회"}, {p:"$",cmd:` aws cloudwatch `,flagHtml:flag("list-metrics","수집 중인 지표 목록")}, {out:"Metrics: EC2 CPUUtilization, NetworkIn ..."} ], copy:"aws cloudwatch list-metrics --namespace AWS/EC2", help:`<b>list-metrics</b> 로 어떤 지표가 올라오는지 먼저 확인합니다.` } },
+    { title:"지표 선택",
+      intro:`EC2 인스턴스의 ${term("CPUUtilization","CPU 사용률 지표. 인스턴스가 얼마나 바쁜지 퍼센트로 보여줌")}를 고릅니다. 라디오를 클릭하세요.`,
+      console:`<div class="scr"><h4>지표 선택</h4><p class="sub">경보를 걸 지표 하나를 고릅니다.</p><div class="opt ck" data-key="cpu"><span class="rd"></span><div><div class="nm">EC2 · CPUUtilization</div><div class="ds">인스턴스 CPU 사용률</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">EC2 · NetworkIn</div><div class="ds">들어오는 네트워크 트래픽</div></div></div></div>`,
+      cli:{ note:`CLI로는 지표를 이름으로 지정합니다.`, lines:[ {cmt:"# CPU 지표의 최근 통계 조회"}, {p:"$",cmd:` aws cloudwatch `,flagHtml:flag("get-metric-statistics","지표 통계값 조회")}, {out:"Average CPU: 72%"} ], copy:"aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --statistics Average --period 300", help:`<b>namespace</b> 는 서비스 이름, <b>metric-name</b> 은 지표 이름입니다.` } },
+    { title:"경보 만들기",
+      intro:`${term("경보","alarm. 지표가 임계값을 넘으면 알림을 보내는 자동 감시 규칙")}을 만듭니다. 임계값은 80%로 미리 채워져 있어요. ${term("SNS","이메일·문자로 알림을 보내 주는 AWS 알림 서비스")} 알림을 체크하고 만들기 버튼을 누르세요.`,
+      needs:2,
+      console:`<div class="scr"><h4>경보 만들기</h4><div class="field"><label>지표</label><div class="input prefilled">EC2 CPUUtilization <span class="tag">입력됨</span></div></div><div class="field"><label>임계값</label><div class="input prefilled">80 % 초과 <span class="tag">입력됨</span></div></div><div class="opt ck" data-key="sns"><span class="ck-box"></span><div><div class="nm">SNS 알림 연결</div><div class="ds">경보 발생 시 이메일 전송</div></div></div><div class="btnrow"><button class="btn primary ck" data-key="go">경보 만들기</button></div></div>`,
+      cli:{ note:`CLI 한 줄로 경보를 생성합니다.`, lines:[ {cmt:"# CPU 80% 초과 시 울리는 경보 생성"}, {p:"$",cmd:` aws cloudwatch `,flagHtml:flag("put-metric-alarm","경보 생성 또는 수정")}, {out:"Alarm cpu-high created"} ], copy:"aws cloudwatch put-metric-alarm --alarm-name cpu-high --metric-name CPUUtilization --namespace AWS/EC2 --threshold 80 --comparison-operator GreaterThanThreshold --evaluation-periods 2 --period 300 --statistic Average", help:`<b>threshold 80</b> 과 <b>GreaterThanThreshold</b> 가 임계값 80% 초과 조건입니다.` } },
+    { title:"CloudTrail 추적 켜기",
+      intro:`${term("CloudTrail","누가 언제 어떤 API를 호출했는지 기록하는 감사 로그 서비스")} 추적을 켭니다. 감사 로그 옵션을 선택하세요. 같은 운영 묶음으로 ${term("X-Ray","요청이 여러 서비스를 거치는 경로를 따라가는 분산 추적 도구")}·${term("Systems Manager","서버에 직접 접속하지 않고 명령·패치를 관리하는 운영 도구")}·${term("Config","자원 설정 변경 이력을 기록하고 규칙 준수를 평가하는 서비스")}도 있습니다.`,
+      console:`<div class="scr"><h4>CloudTrail</h4><p class="sub">계정의 모든 API 호출을 기록합니다.</p><div class="opt ck" data-key="trail"><span class="ck-box"></span><div><div class="nm">관리 이벤트 추적 켜기</div><div class="ds">API 감사 로그를 S3에 저장</div></div></div></div>`,
+      cli:{ note:`CLI로는 추적을 생성합니다.`, lines:[ {cmt:"# 감사 추적 생성"}, {p:"$",cmd:` aws cloudtrail `,flagHtml:flag("create-trail","감사 추적 생성")}, {out:"Trail audit-trail created"} ], copy:"aws cloudtrail create-trail --name audit-trail --s3-bucket-name my-audit-logs", help:`<b>create-trail</b> 로 API 호출 기록을 남깁니다.` } },
+    { title:"관측 완료", finish:true,
+      intro:`마지막으로 ${term("대시보드","여러 지표를 한 화면에 모아 보는 관측 보드")}에 위젯을 올려 상태를 한눈에 봅니다. 완료 버튼을 누르세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 준비됨</h4><p class="sub">경보와 감사 추적이 켜졌습니다.</p><div class="btnrow"><button class="btn primary ck" data-key="done">대시보드 완성</button></div></div>`,
+      cli:{ note:`확인:`, lines:[ {p:"$",cmd:` aws cloudwatch describe-alarms`}, {out:"cpu-high  state: OK"} ], copy:"aws cloudwatch describe-alarms --alarm-names cpu-high", help:`경보가 <b>OK</b> 상태면 정상 감시 중입니다.` } }
+  ]
+},
+{
+  id:"iac", ch:16, icon:"🏗️", name:"CloudFormation 배포",
+  label:"챕터 16 · IaC·DR·Well-Architected — 코드로 인프라 배포",
+  doneMsg:"CloudFormation 템플릿으로 인프라를 코드처럼 한 번에 배포했어요. 같은 템플릿으로 언제든 똑같이 다시 만들 수 있습니다.",
+  steps:[
+    { title:"CloudFormation 열기",
+      intro:`${term("IaC","Infrastructure as Code. 서버·네트워크 같은 인프라를 손이 아니라 코드 파일로 정의해 배포하는 방식")}를 실습합니다. ${term("CloudFormation","YAML 템플릿으로 AWS 자원을 한 번에 생성·수정·삭제하는 IaC 서비스")} 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>콘솔 홈</h4><p class="sub">인프라를 코드로 배포합니다.</p><div class="svc ck" data-key="open"><span class="sic" style="background:#e7157b">🏗️</span><div><div class="nm">CloudFormation</div><div class="ds">템플릿으로 자원 자동 생성</div></div></div></div>`,
+      cli:{ note:`CLI로는 템플릿 문법을 먼저 검증합니다.`, lines:[ {cmt:"# 템플릿 문법 검사"}, {p:"$",cmd:` aws cloudformation `,flagHtml:flag("validate-template","템플릿 문법 검증")}, {out:"Template valid"} ], copy:"aws cloudformation validate-template --template-body file://infra.yaml", help:`배포 전 <b>validate-template</b> 으로 YAML 오류를 미리 잡습니다.` } },
+    { title:"템플릿 파일 선택",
+      intro:`준비된 ${term("템플릿","생성할 자원을 미리 적어 둔 YAML 설계도 파일")} 파일을 고릅니다. infra.yaml 칩을 클릭하세요.`,
+      console:`<div class="scr"><h4>템플릿 지정</h4><p class="sub">배포할 설계도를 선택합니다.</p><div class="chip ck" data-key="file"><span class="fi">📄</span> infra.yaml</div></div>`,
+      cli:{ note:`CLI에서는 템플릿이 만들 자원을 요약해 봅니다.`, lines:[ {cmt:"# 템플릿이 생성할 자원 요약"}, {p:"$",cmd:` aws cloudformation `,flagHtml:flag("get-template-summary","템플릿이 만들 자원 요약")}, {out:"Resources: AWS::S3::Bucket, AWS::EC2::Instance"} ], copy:"aws cloudformation get-template-summary --template-body file://infra.yaml", help:`<b>file://</b> 접두사로 로컬 YAML 파일을 지정합니다.` } },
+    { title:"스택 이름 확인",
+      intro:`${term("스택","하나의 템플릿으로 함께 만들어지고 함께 지워지는 자원 묶음")} 이름은 my-stack으로 미리 채워져 있어요. 확인하고 다음을 누르세요.`,
+      console:`<div class="scr"><h4>스택 설정</h4><div class="field"><label>스택 이름</label><div class="input prefilled">my-stack <span class="tag">입력됨</span></div></div><div class="field"><label>템플릿</label><div class="input prefilled">infra.yaml <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="next">다음</button></div></div>`,
+      cli:{ note:`CLI에서는 스택 이름을 인자로 넘깁니다.`, lines:[ {cmt:"# 지금 계정의 스택 목록"}, {p:"$",cmd:` aws cloudformation `,flagHtml:flag("list-stacks","스택 목록 조회")}, {out:"아직 my-stack 없음"} ], copy:"aws cloudformation list-stacks", help:`<b>--stack-name</b> 값이 스택을 구분하는 고유 이름입니다.` } },
+    { title:"스택 생성",
+      intro:`버튼을 누르면 템플릿에 적힌 자원이 자동으로 생성됩니다. 나중에 실제 자원이 템플릿과 달라지면 ${term("드리프트","배포된 자원이 템플릿 정의에서 몰래 벗어난 상태")}로 감지됩니다.`,
+      console:`<div class="scr"><h4>검토 후 생성</h4><p class="sub">my-stack · infra.yaml 의 자원을 만듭니다.</p><div class="btnrow"><button class="btn primary ck" data-key="create">스택 생성</button></div></div>`,
+      cli:{ note:`CLI 한 줄로 스택을 생성합니다.`, lines:[ {cmt:"# 템플릿으로 스택 생성"}, {p:"$",cmd:` aws cloudformation `,flagHtml:flag("create-stack","스택 생성")}, {out:"StackId: arn:aws:cloudformation:...my-stack"} ], copy:"aws cloudformation create-stack --stack-name my-stack --template-body file://infra.yaml", help:`<b>create-stack</b> 로 자원이 한 번에 만들어집니다.` } },
+    { title:"배포 완료", finish:true,
+      intro:`생성 상태를 확인하면 끝입니다. 재해 대비는 ${term("DR","Disaster Recovery. 장애 시 복구 전략. RTO는 복구까지 걸리는 시간, RPO는 잃어도 되는 데이터 양. 백업·파일럿라이트·웜스탠바이·멀티사이트 4전략으로 나뉨")}로 설계하고, 전체 설계는 ${term("Well-Architected","AWS 설계 모범 사례. 운영·보안·안정성·성능·비용·지속가능성 6기둥으로 점검")}의 6기둥으로 점검합니다. 완료 버튼을 누르세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 생성 완료</h4><p class="sub">my-stack 의 자원이 모두 만들어졌습니다.</p><div class="btnrow"><button class="btn primary ck" data-key="done">결과 확인</button></div></div>`,
+      cli:{ note:`확인:`, lines:[ {p:"$",cmd:` aws cloudformation `,flagHtml:flag("describe-stacks","스택 상태 조회")}, {out:"my-stack  CREATE_COMPLETE"} ], copy:"aws cloudformation describe-stacks --stack-name my-stack", help:`<b>CREATE_COMPLETE</b> 면 배포 성공입니다.` } }
+  ]
+},
+{
+  id:"genai", ch:17, icon:"🤖", name:"Bedrock 생성형 AI",
+  label:"챕터 17 · AI·ML — 생성형 AI 호출",
+  doneMsg:"Bedrock으로 기성 Claude 모델을 학습 없이 바로 호출했어요. 직접 모델을 학습·배포하려면 SageMaker를 씁니다.",
+  steps:[
+    { title:"Bedrock 열기",
+      intro:`${term("Bedrock","학습 없이 기성 파운데이션 모델을 API로 바로 호출하는 관리형 생성형 AI 서비스")}를 엽니다. 반짝이는 카드를 클릭하세요.`,
+      console:`<div class="scr"><h4>콘솔 홈</h4><p class="sub">생성형 AI 서비스를 엽니다.</p><div class="svc ck" data-key="open"><span class="sic" style="background:#8c4fff">◈</span><div><div class="nm">Bedrock</div><div class="ds">생성형 AI · 기성 모델 호출</div></div></div></div>`,
+      cli:{ note:`CLI로는 호출 가능한 모델 목록을 봅니다.`, lines:[ {cmt:"# 사용 가능한 파운데이션 모델 목록"}, {p:"$",cmd:` aws bedrock `,flagHtml:flag("list-foundation-models","호출 가능한 모델 목록")}, {out:"anthropic.claude-...  amazon.titan-..."} ], copy:"aws bedrock list-foundation-models", help:`<b>list-foundation-models</b> 로 어떤 모델을 쓸 수 있는지 봅니다.` } },
+    { title:"모델 액세스 선택",
+      intro:`쓸 모델을 고릅니다. 대화형 생성 모델인 Claude 라디오를 클릭하세요. 처음에는 콘솔의 모델 액세스에서 사용 신청을 한 번 승인받아야 합니다.`,
+      console:`<div class="scr"><h4>모델 액세스</h4><p class="sub">호출할 모델을 선택합니다.</p><div class="opt ck" data-key="claude"><span class="rd"></span><div><div class="nm">Claude</div><div class="ds">대화형 생성 모델</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">Titan Image</div><div class="ds">이미지 생성 모델</div></div></div></div>`,
+      cli:{ note:`모델 하나의 상세를 조회합니다.`, lines:[ {cmt:"# 특정 모델 상세 조회"}, {p:"$",cmd:` aws bedrock `,flagHtml:flag("get-foundation-model","모델 상세 정보 조회")}, {out:"Claude  status: ACTIVE"} ], copy:"aws bedrock get-foundation-model --model-identifier anthropic.claude-3-sonnet-20240229-v1:0", help:`<b>model-identifier</b> 로 특정 모델을 지정합니다.` } },
+    { title:"플레이그라운드 실행",
+      intro:`${term("Foundation Model","대량 데이터로 미리 학습돼 다양한 작업에 두루 쓰는 범용 기반 모델")}에 미리 작성된 프롬프트를 보냅니다. 실행 버튼을 누르면 응답이 표시됩니다.`,
+      console:`<div class="scr"><h4>플레이그라운드</h4><div class="field"><label>프롬프트</label><div class="input prefilled">AWS를 한 문장으로 설명해 줘 <span class="tag">입력됨</span></div></div><div class="btnrow"><button class="btn primary ck" data-key="run">실행</button></div><p class="sub">응답: AWS는 필요한 만큼 빌려 쓰는 클라우드 컴퓨팅 서비스입니다.</p></div>`,
+      cli:{ note:`CLI 한 줄로 모델을 호출합니다.`, lines:[ {cmt:"# 프롬프트를 보내 응답 받기"}, {p:"$",cmd:` aws bedrock-runtime `,flagHtml:flag("invoke-model","모델에 프롬프트를 보내 응답 받기")}, {out:"응답이 out.json 에 저장됨"} ], copy:"aws bedrock-runtime invoke-model --model-id anthropic.claude-3-sonnet-20240229-v1:0 --body file://prompt.json out.json", help:`<b>bedrock-runtime invoke-model</b> 이 실제 추론 호출입니다.` } },
+    { title:"Bedrock vs SageMaker 구분",
+      intro:`${term("SageMaker","모델을 직접 학습·튜닝·배포하는 머신러닝 플랫폼")}와 Bedrock의 차이를 고릅니다. 기성 모델을 그냥 호출하는 쪽을 선택하세요.`,
+      console:`<div class="scr"><h4>맞는 설명 고르기</h4><div class="opt ck" data-key="bedrock"><span class="rd"></span><div><div class="nm">기성 모델 호출 = Bedrock</div><div class="ds">학습 없이 바로 API 호출</div></div></div><div class="opt locked"><span class="rd"></span><div><div class="nm">기성 모델 호출 = SageMaker</div><div class="ds">직접 학습·배포용 플랫폼</div></div></div></div>`,
+      cli:{ note:`SageMaker 쪽은 직접 배포한 엔드포인트를 다룹니다.`, lines:[ {cmt:"# SageMaker 엔드포인트 목록"}, {p:"$",cmd:` aws sagemaker `,flagHtml:flag("list-endpoints","배포된 모델 엔드포인트 목록")}, {out:"직접 배포한 엔드포인트가 없으면 비어 있음"} ], copy:"aws sagemaker list-endpoints", help:`Bedrock은 엔드포인트 없이 바로 호출, SageMaker는 직접 배포가 필요합니다.` } },
+    { title:"AI 실습 완료", finish:true,
+      intro:`호출이 끝났습니다. 상시 트래픽이 많으면 ${term("Provisioned Throughput","모델 용량을 미리 예약하는 상시 과금 옵션. 호출이 적을 땐 켜 두면 요금만 나가니 주의")}을 쓰고, 번역·문서 추출 같은 건 ${term("관리형 AI","Comprehend 텍스트 분석·Textract 문서 추출처럼 학습 없이 바로 쓰는 완성형 AI 서비스")}로 해결합니다. 완료 버튼을 누르세요.`,
+      console:`<div class="scr" style="border-color:var(--ok)"><h4 style="color:var(--ok)">✓ 호출 성공</h4><p class="sub">Claude 모델이 응답을 반환했습니다.</p><div class="btnrow"><button class="btn primary ck" data-key="done">마치기</button></div></div>`,
+      cli:{ note:`응답 파일을 확인합니다.`, lines:[ {p:"$",cmd:` cat out.json`}, {out:"AWS는 필요한 만큼 빌려 쓰는 클라우드 서비스입니다."} ], copy:"cat out.json", help:`out.json 에 모델 응답이 들어 있습니다.` } }
+  ]
+}
+];
+scenarios.sort((a,b)=>(a.ch||0)-(b.ch||0));
+
+/* ---------- 상태 ---------- */
+let si=0, sti=0;
+const KEY="aws-handson-progress-v1";
+let saved={};
+try{ saved=JSON.parse(localStorage.getItem(KEY)||"{}"); }catch(e){ saved={}; }
+scenarios.forEach((s,i)=>{ s.steps.forEach((st,j)=>{ st.done = !!(saved[i]&&saved[i][j]); st._clicks=new Set(); }); });
+function persist(){
+  const m={}; scenarios.forEach((s,i)=>{ m[i]={}; s.steps.forEach((st,j)=>{ if(st.done) m[i][j]=1; }); });
+  try{ localStorage.setItem(KEY,JSON.stringify(m)); }catch(e){}
+}
+
+/* ---------- 요소 ---------- */
+const $=id=>document.getElementById(id);
+const tip=$("tip");
+
+/* ---------- 렌더 ---------- */
+function renderScenarioPicker(){
+  const sel=$("scsel");
+  sel.innerHTML = scenarios.map((s,i)=>{
+    const all=s.steps.every(x=>x.done);
+    return `<option value="${i}" ${i===si?'selected':''}>${s.icon} 챕터 ${s.ch}. ${s.name}${all?'  ✓':''}</option>`;
+  }).join("");
+  sel.onchange=()=>{ si=+sel.value; sti=0; render(); };
+}
+function renderSteps(){
+  const s=scenarios[si];
+  $("sctitle").textContent=s.label;
+  $("steplist").innerHTML = s.steps.map((st,j)=>
+    `<li data-j="${j}" aria-current="${j===sti}" class="${st.done?'done':''}">
+      <span class="badge">${st.done?'✓':(j+1)}</span><span>${st.title}</span></li>`).join("");
+  $("steplist").querySelectorAll("li").forEach(li=>li.onclick=()=>{ sti=+li.dataset.j; render(); });
+}
+function cliHTML(cli){
+  const lines = cli.lines.map(l=>{
+    if(l.cmt) return `<span class="line cmt">${l.cmt}</span>`;
+    if(l.out!==undefined && !l.flagHtml && !l.cmd) return `<span class="line out">${l.out}</span>`;
+    let s="";
+    if(l.p) s+=`<span class="p">${l.p}</span>`;
+    if(l.out!==undefined) s+=`<span class="out">${l.out}</span>`;
+    if(l.cmd) s+=`<span class="cmd">${l.cmd}</span>`;
+    if(l.flagHtml) s+=l.flagHtml;
+    return `<span class="line">${s}</span>`;
+  }).join("");
+  return `<div class="note-sm">${cli.note}</div>
+    <div class="term">${lines}</div>
+    <div class="copyrow"><span style="font-size:12px;color:var(--muted)">실제로 쓸 땐 이 명령을 터미널에</span>
+      <button class="copybtn" data-cmd="${cli.copy.replace(/"/g,'&quot;')}">⧉ 명령 복사</button></div>
+    <div class="clihelp">${cli.help}</div>`;
+}
+function render(){
+  const s=scenarios[si], st=s.steps[sti];
+  $("crumb").textContent = s.name + " › " + st.title;
+  renderScenarioPicker(); renderSteps();
+  $("kicker").textContent = `챕터 ${s.ch} · 단계 ${sti+1} / ${s.steps.length}`;
+  $("stitle").textContent = st.title;
+  $("sintro").innerHTML = st.intro;
+  $("console").innerHTML = `<div class="bcrumb">콘솔 홈 <i>›</i> ${s.name} <i>›</i> <b>${st.title}</b></div>` + st.console;
+  $("cli").innerHTML = cliHTML(st.cli);
+
+  // 이미 끝낸 단계면 클릭 잠금 해제 상태로 표시
+  if(st.done){ $("console").querySelectorAll(".ck").forEach(e=>e.classList.add("on")); }
+
+  // 클릭 대상이 없는 단계(순수 완료/확인 화면)는 자동 완료 처리
+  if($("console").querySelectorAll(".ck").length===0 && !st.done){ st.done=true; persist(); }
+  attachClicks();
+  attachCopy();
+  updateHint();
+  updateNav();
+  bindTips();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function attachClicks(){
+  const st=scenarios[si].steps[sti];
+  $("console").querySelectorAll(".ck").forEach(el=>{
+    el.setAttribute("tabindex","0");
+    el.setAttribute("role","button");
+    const act=()=>{
+      if(st.done){ return; }
+      const k=el.dataset.key;
+      el.classList.add("on");
+      st._clicks.add(k);
+      const need = st.needs||1;
+      if(st._clicks.size>=need){
+        st.done=true; persist();
+        $("console").querySelectorAll(".ck").forEach(e=>e.classList.add("on"));
+      }
+      updateHint(); updateNav(); renderSteps();
+    };
+    el.onclick=act;
+    el.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); act(); } };
+  });
+}
+function attachCopy(){
+  const b=$("cli").querySelector(".copybtn");
+  if(!b) return;
+  b.onclick=async()=>{
+    try{ await navigator.clipboard.writeText(b.dataset.cmd); b.classList.add("copied"); b.textContent="✓ 복사됨";
+      setTimeout(()=>{ b.classList.remove("copied"); b.textContent="⧉ 명령 복사"; },1500);
+    }catch(e){ b.textContent="복사 실패 — 길게 눌러 선택"; }
+  };
+}
+function updateHint(){
+  const st=scenarios[si].steps[sti];
+  let box=$("console").querySelector(".hint");
+  if(!box){ box=document.createElement("div"); box.className="hint"; $("console").appendChild(box); }
+  if(st.done){ box.className="hint ok"; box.innerHTML="✓ 잘했어요! 아래 <b>다음 →</b>으로 넘어가세요."; }
+  else{
+    const need=st.needs||1, got=st._clicks.size;
+    box.className="hint todo";
+    box.innerHTML = need>1 ? `👆 반짝이는 항목을 <b>${need}개 모두</b> 클릭하세요 (${got}/${need})`
+                           : "👆 반짝이는 <b>주황색 버튼/항목</b>을 클릭하세요.";
+  }
+}
+function updateNav(){
+  const s=scenarios[si], st=s.steps[sti];
+  $("prev").disabled = (sti===0);
+  const last = (sti===s.steps.length-1);
+  const nx=$("next");
+  nx.disabled = !st.done;
+  nx.textContent = last ? "실습 완료 🎉" : "다음 →";
+  nx.classList.toggle("go", true);
+  const totalDone = s.steps.filter(x=>x.done).length;
+  const pct = Math.round(totalDone/s.steps.length*100);
+  $("barfill").style.width = pct+"%";
+  $("pct").textContent = pct+"% 완료";
+}
+$("prev").onclick=()=>{ if(sti>0){ sti--; render(); } };
+$("next").onclick=()=>{
+  const s=scenarios[si];
+  if(sti < s.steps.length-1){ sti++; render(); }
+  else { showDone(); }
+};
+
+/* ---------- 완료 오버레이 ---------- */
+function showDone(){
+  const s=scenarios[si];
+  $("donemsg").textContent = s.doneMsg;
+  const other = (si+1)%scenarios.length;
+  $("donebtns").innerHTML =
+    `<button class="pri" id="d-other">${scenarios[other].icon} 챕터 ${scenarios[other].ch} ‘${scenarios[other].name}’ 해보기</button>
+     <button id="d-review">이 실습 다시 보기</button>
+     <button id="d-close">닫기</button>`;
+  $("done").classList.add("show");
+  $("d-other").onclick=()=>{ si=other; sti=0; $("done").classList.remove("show"); render(); };
+  $("d-review").onclick=()=>{ sti=0; $("done").classList.remove("show"); render(); };
+  $("d-close").onclick=()=>{ $("done").classList.remove("show"); };
+}
+$("done").onclick=e=>{ if(e.target===$("done")) $("done").classList.remove("show"); };
+
+/* ---------- 툴팁 ---------- */
+let tipT=null;
+function showTip(el){
+  const txt=el.getAttribute("data-tip"); if(!txt) return;
+  tip.innerHTML=txt; tip.classList.add("show");
+  const r=el.getBoundingClientRect();
+  const tw=Math.min(270, tip.offsetWidth), th=tip.offsetHeight;
+  let top=r.top-th-10, pos="top";
+  if(top<8){ top=r.bottom+10; pos="bottom"; }
+  let left=r.left+r.width/2-tw/2;
+  left=Math.max(8,Math.min(left,window.innerWidth-tw-8));
+  tip.style.top=top+"px"; tip.style.left=left+"px"; tip.dataset.pos=pos;
+  const ax=r.left+r.width/2-left; tip.style.setProperty("--ax",ax+"px");
+}
+function hideTip(){ tip.classList.remove("show"); }
+function bindTips(){
+  document.querySelectorAll("[data-tip]").forEach(el=>{
+    el.onmouseenter=()=>showTip(el);
+    el.onmouseleave=()=>{ if(!el.classList.contains("ck")) hideTip(); };
+    el.onfocus=()=>showTip(el); el.onblur=hideTip;
+    if(!el.classList.contains("ck")){
+      el.onclick=(e)=>{ e.stopPropagation(); if(tip.classList.contains("show")&&tip._for===el){ hideTip(); } else { showTip(el); tip._for=el; } };
+    }
+  });
+}
+document.addEventListener("click",e=>{ if(!e.target.closest("[data-tip]")) hideTip(); });
+window.addEventListener("scroll",hideTip,true);
+window.addEventListener("resize",hideTip);
+
+/* ---------- 테마 ---------- */
+$("theme").onclick=()=>{
+  const cur=document.documentElement.getAttribute("data-theme");
+  const next = cur==="dark" ? "light" : (cur==="light" ? "dark" : (matchMedia("(prefers-color-scheme:dark)").matches?"light":"dark"));
+  document.documentElement.setAttribute("data-theme",next);
+  try{ localStorage.setItem("aws-handson-theme",next); }catch(e){}
+};
+try{ const t=localStorage.getItem("aws-handson-theme"); if(t) document.documentElement.setAttribute("data-theme",t); }catch(e){}
+
+render();
+</script>
+</body>
+</html>
