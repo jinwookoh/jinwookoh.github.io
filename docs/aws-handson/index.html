@@ -344,7 +344,7 @@ body.hints .ck:not(.on):not(.locked){outline:2px dashed var(--accent);outline-of
   <span class="dot">·</span>
   <span><span class="term-w">점선 용어</span>는 올리거나 탭하면 설명.</span>
   <button class="hintbtn" id="hintbtn" type="button">어디를 클릭하죠?</button>
-  <a class="realbtn" href="https://builder.aws.com/" target="_blank" rel="noopener">🚀 무료로 진짜 실습 ↗</a>
+  <a class="realbtn" href="https://builder.aws.com/build/workshops" target="_blank" rel="noopener">🚀 무료로 진짜 실습 ↗</a>
 </div>
 
 <div class="shell">
@@ -1737,7 +1737,7 @@ function showDone(){
   $("donemsg").textContent = s.doneMsg;
   const other = (si+1)%scenarios.length;
   $("donebtns").innerHTML =
-    `<a class="real" href="https://builder.aws.com/" target="_blank" rel="noopener">🚀 AWS Builder Center 무료 샌드박스에서 진짜로 해보기 ↗</a>
+    `<a class="real" href="https://builder.aws.com/build/workshops" target="_blank" rel="noopener">🚀 AWS Builder Center 무료 샌드박스에서 진짜로 해보기 ↗</a>
      <button class="pri" id="d-other">${scenarios[other].icon} ‘${scenarios[other].name}’ 해보기</button>
      <button id="d-review">이 실습 다시 보기</button>
      <button id="d-close">닫기</button>`;
