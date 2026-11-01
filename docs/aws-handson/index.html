@@ -159,21 +159,16 @@ a{color:var(--link)}
 .chip .fi{color:var(--link)}
 
 /* 클릭해야 하는 곳 */
-.ck{cursor:pointer;position:relative;transition:transform .08s ease,box-shadow .12s ease,border-color .12s}
-.ck:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.ck:not(.on):not(.locked){box-shadow:0 0 0 2px var(--accent)}
-.ck:not(.on):not(.locked)::after{
-  content:"";position:absolute;inset:-4px;border-radius:inherit;border:2px solid var(--accent);
-  animation:pulse 1.5s ease-out infinite;pointer-events:none
-}
-.ck:hover:not(.on){transform:translateY(-1px)}
-.ck.on{box-shadow:0 0 0 2px var(--link)!important}
+.ck{cursor:pointer;position:relative;transition:border-color .12s,background .12s,box-shadow .12s}
+.ck:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+.opt.ck:not(.on):hover,.svc.ck:not(.on):hover{border-color:var(--link)}
+.ck.on{box-shadow:0 0 0 1px var(--link)}
 .opt.ck.on,.svc.ck.on{border-color:var(--link)!important;background:var(--link-soft)!important}
 .ck.on .rd{border-color:var(--link);background:radial-gradient(circle at center,var(--link) 0 5px,transparent 6px)}
 .ck.on .ck-box{border-color:var(--link);background:var(--link)}
 .ck.locked{opacity:.55;cursor:not-allowed}
-@keyframes pulse{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.06)}}
-@media (prefers-reduced-motion:reduce){.ck::after{animation:none;opacity:.5}}
+/* 온디맨드 힌트: '어디를 클릭하죠?' 눌렀을 때만 */
+body.hints .ck:not(.on):not(.locked){outline:2px dashed var(--accent);outline-offset:2px}
 
 /* 콘솔 버튼 */
 .btn{border:0;border-radius:7px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer}
@@ -240,6 +235,47 @@ a{color:var(--link)}
 .donecard .dbtns{display:flex;gap:9px;flex-direction:column}
 .donecard .dbtns button{border-radius:9px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .donecard .dbtns button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+/* ===== 실제 콘솔형 레이아웃 ===== */
+.ribbon{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;background:var(--accent-soft);border-bottom:1px solid var(--line);color:var(--ink);padding:7px 14px;font-size:12.5px}
+.ribbon b{color:var(--accent-h)}
+.ribbon .dot{color:var(--muted)}
+.hintbtn{margin-left:4px;border:1px solid var(--accent);background:transparent;color:var(--accent-h);border-radius:6px;padding:3px 9px;font-size:12px;font-weight:600;cursor:pointer}
+.hintbtn.on{background:var(--accent);color:#fff}
+
+.shell{grid-template-columns:240px 1fr}
+.svcnav{background:var(--surface);border-right:1px solid var(--line);min-height:calc(100vh - 48px);position:sticky;top:48px;padding:0 0 30px}
+.svc-h{font-weight:700;font-size:13.5px;padding:14px 16px 10px;border-bottom:1px solid var(--line2);color:var(--ink)}
+.svc-list{list-style:none;margin:6px 0;padding:0}
+.svc-list li{font-size:13px;color:var(--muted);padding:7px 16px 7px 15px;border-left:3px solid transparent}
+.svc-list li.on{color:var(--ink);font-weight:600;background:var(--link-soft);border-left-color:var(--accent)}
+.svc-foot{font-size:11px;color:var(--muted);padding:12px 16px;border-top:1px solid var(--line2);margin-top:6px;line-height:1.5}
+.svc-foot b{color:var(--ink);font-weight:600}
+
+.main{min-width:0}
+.toolbar{display:flex;align-items:center;gap:10px;padding:9px clamp(14px,3vw,26px);border-bottom:1px solid var(--line);background:var(--surface2);flex-wrap:wrap}
+.tlabel{font-size:12px;color:var(--muted);font-weight:600}
+.toolbar .scsel{width:auto;min-width:220px;margin:0}
+.stepchips{display:flex;gap:6px;margin-left:auto;overflow-x:auto;max-width:100%}
+.chipstep{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;display:grid;place-items:center;padding:0;font-variant-numeric:tabular-nums}
+.chipstep.cur{border-color:var(--accent);color:var(--accent-h);box-shadow:0 0 0 2px var(--accent-soft)}
+.chipstep.done{background:var(--ok);border-color:var(--ok);color:#fff}
+
+.content{padding:18px clamp(14px,3vw,26px) 54px;max-width:1040px}
+.pagehdr{margin-bottom:10px}
+.pagehdr .kicker{font-size:12px;color:var(--accent-h);font-weight:700;letter-spacing:.03em}
+.pagehdr h1{font-size:clamp(20px,3vw,26px);margin:2px 0 0;font-family:var(--disp)}
+.introbox{background:var(--link-soft);border:1px solid var(--line2);border-left:3px solid var(--link);border-radius:7px;padding:10px 13px;font-size:13px;color:var(--ink);margin-bottom:16px;line-height:1.6}
+.introbox .term-w{border-bottom-color:var(--link)}
+.muted2{color:var(--muted);font-weight:400}
+.hint.todo{background:var(--surface2);color:var(--muted);border:1px solid var(--line2)}
+.hint.ok{background:var(--ok-soft);color:var(--ok)}
+
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr}
+  .svcnav{display:none}
+  .toolbar .scsel{min-width:0;flex:1}
+  .content{padding:14px 14px 48px}
+}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 /* ===== 모바일 최적화 ===== */
@@ -285,44 +321,44 @@ a{color:var(--link)}
   <span class="pill acct">연습-계정 ▾</span>
 </header>
 
-<div class="note">
-  <span>🧪 <b>실제 AWS가 아닌 연습용</b>입니다. 요금·계정 위험 없음.</span>
+<div class="ribbon">
+  <span>🧪 <b>실습 연습 공간</b> — 실제 AWS가 아니며 요금·위험이 없습니다. 실제처럼 선택하고 버튼을 눌러 진행하세요.</span>
   <span class="dot">·</span>
-  <span>주황색으로 <b>반짝이는 곳을 클릭</b>하면 다음으로 넘어가요 (타이핑 불필요).</span>
-  <span class="dot">·</span>
-  <span><span class="term-w">점선 밑줄</span> 용어는 올리거나 탭하면 설명이 떠요.</span>
+  <span><span class="term-w">점선 용어</span>는 올리거나 탭하면 설명.</span>
+  <button class="hintbtn" id="hintbtn" type="button">어디를 클릭하죠?</button>
 </div>
 
 <div class="shell">
-  <aside class="sidebar">
-    <select class="scsel" id="scsel" aria-label="실습 챕터 선택"></select>
-    <div class="sctitle" id="sctitle"></div>
-    <ul class="steplist" id="steplist"></ul>
-  </aside>
+  <aside class="svcnav" id="svcnav"></aside>
 
-  <main class="stage">
-    <div class="stephead">
-      <div class="kicker" id="kicker"></div>
-      <h2 id="stitle"></h2>
-      <p id="sintro"></p>
+  <main class="main">
+    <div class="toolbar">
+      <span class="tlabel">실습 선택</span>
+      <select class="scsel" id="scsel" aria-label="실습 챕터 선택"></select>
+      <div class="stepchips" id="stepchips"></div>
     </div>
 
-    <div class="panes">
-      <section class="pane console">
-        <div class="ph"><span class="ic">🖱️</span> 콘솔(화면)에서 — 클릭</div>
-        <div class="body" id="console"></div>
-      </section>
+    <div class="content">
+      <div class="bcrumb" id="bcrumb"></div>
+      <div class="pagehdr">
+        <div class="kicker" id="kicker"></div>
+        <h1 id="stitle"></h1>
+      </div>
+      <div class="introbox" id="sintro"></div>
+
+      <div id="console"></div>
+
       <section class="pane cli">
         <div class="ph"><span class="ic">⌨️</span> 참고 · 같은 작업을 CLI 명령으로</div>
         <div id="cli"></div>
       </section>
-    </div>
 
-    <div class="navrow">
-      <button class="nbtn" id="prev">← 이전</button>
-      <div class="bar"><span id="barfill"></span></div>
-      <span class="pct" id="pct"></span>
-      <button class="nbtn go" id="next" disabled>다음 →</button>
+      <div class="navrow">
+        <button class="nbtn" id="prev">← 이전</button>
+        <div class="bar"><span id="barfill"></span></div>
+        <span class="pct" id="pct"></span>
+        <button class="nbtn go" id="next" disabled>다음 →</button>
+      </div>
     </div>
   </main>
 </div>
@@ -1103,13 +1139,39 @@ function renderScenarioPicker(){
   }).join("");
   sel.onchange=()=>{ si=+sel.value; sti=0; render(); };
 }
-function renderSteps(){
+/* 서비스별 좌측 메뉴 (실제 콘솔 탐색창) */
+const NAV={
+ iam:{service:"IAM",items:[{t:"대시보드"},{t:"사용자 그룹"},{t:"사용자",on:1},{t:"역할"},{t:"정책"},{t:"자격 증명 보고서"}]},
+ ec2:{service:"EC2",items:[{t:"EC2 대시보드"},{t:"인스턴스",on:1},{t:"시작 템플릿"},{t:"Spot 요청"},{t:"AMI"},{t:"볼륨"},{t:"스냅샷"},{t:"보안 그룹"},{t:"키 페어"}]},
+ asgelb:{service:"EC2 · 로드 밸런싱",items:[{t:"로드 밸런서",on:1},{t:"대상 그룹"},{t:"신뢰 저장소"},{t:"Auto Scaling 그룹"},{t:"시작 템플릿"}]},
+ lambda:{service:"Lambda",items:[{t:"대시보드"},{t:"함수",on:1},{t:"계층"},{t:"애플리케이션"}]},
+ container:{service:"ECS / ECR",items:[{t:"클러스터",on:1},{t:"태스크 정의"},{t:"리포지토리(ECR)"},{t:"네임스페이스"}]},
+ vpc:{service:"VPC",items:[{t:"VPC",on:1},{t:"서브넷"},{t:"라우팅 테이블"},{t:"인터넷 게이트웨이"},{t:"NAT 게이트웨이"},{t:"보안 그룹"},{t:"네트워크 ACL"}]},
+ edge:{service:"VPC · Route 53 · CloudFront",items:[{t:"보안 그룹",on:1},{t:"네트워크 ACL"},{t:"호스팅 영역(Route 53)"},{t:"배포(CloudFront)"}]},
+ s3:{service:"S3",items:[{t:"버킷",on:1},{t:"액세스 지점"},{t:"객체 Lambda"},{t:"배치 작업"}]},
+ ebs:{service:"EC2 · Elastic Block Store",items:[{t:"볼륨",on:1},{t:"스냅샷"},{t:"수명 주기 관리자"},{t:"파일 시스템(EFS)"}]},
+ rds:{service:"RDS",items:[{t:"대시보드"},{t:"데이터베이스",on:1},{t:"쿼리 편집기"},{t:"스냅샷"},{t:"서브넷 그룹"},{t:"파라미터 그룹"}]},
+ dynamodb:{service:"DynamoDB",items:[{t:"대시보드"},{t:"테이블",on:1},{t:"항목 탐색"},{t:"PartiQL 편집기"},{t:"백업"}]},
+ analytics:{service:"Athena · Glue",items:[{t:"쿼리 편집기",on:1},{t:"저장된 쿼리"},{t:"데이터 원본"},{t:"크롤러(Glue)"},{t:"데이터 카탈로그"}]},
+ messaging:{service:"SQS · SNS",items:[{t:"대기열(SQS)",on:1},{t:"주제(SNS)"},{t:"구독"},{t:"규칙(EventBridge)"}]},
+ security:{service:"KMS · Secrets Manager",items:[{t:"고객 관리형 키",on:1},{t:"AWS 관리형 키"},{t:"사용자 지정 키 스토어"},{t:"보안 암호"}]},
+ observ:{service:"CloudWatch",items:[{t:"대시보드"},{t:"경보",on:1},{t:"로그"},{t:"지표"},{t:"추적(CloudTrail)"}]},
+ iac:{service:"CloudFormation",items:[{t:"스택",on:1},{t:"스택 세트"},{t:"내보내기"},{t:"디자이너"}]},
+ genai:{service:"Amazon Bedrock",items:[{t:"개요"},{t:"기반 모델"},{t:"모델 액세스",on:1},{t:"플레이그라운드"},{t:"사용자 지정 모델"}]}
+};
+function svcName(s){ return (NAV[s.id]&&NAV[s.id].service)||s.name; }
+function renderServiceNav(){
+  const s=scenarios[si], nv=NAV[s.id]||{service:s.name,items:[]};
+  $("svcnav").innerHTML =
+    `<div class="svc-h">${nv.service}</div>`+
+    `<ul class="svc-list">`+ nv.items.map(it=>`<li class="${it.on?'on':''}">${it.t}</li>`).join("") +`</ul>`+
+    `<div class="svc-foot">리전<br><b>아시아 태평양 (서울) ap-northeast-2</b></div>`;
+}
+function renderStepChips(){
   const s=scenarios[si];
-  $("sctitle").textContent=s.label;
-  $("steplist").innerHTML = s.steps.map((st,j)=>
-    `<li data-j="${j}" aria-current="${j===sti}" class="${st.done?'done':''}">
-      <span class="badge">${st.done?'✓':(j+1)}</span><span>${st.title}</span></li>`).join("");
-  $("steplist").querySelectorAll("li").forEach(li=>li.onclick=()=>{ sti=+li.dataset.j; render(); });
+  $("stepchips").innerHTML = s.steps.map((st,j)=>
+    `<button class="chipstep ${j===sti?'cur':''} ${st.done?'done':''}" data-j="${j}" title="${st.title.replace(/"/g,'&quot;')}"><span class="n">${st.done?'✓':(j+1)}</span></button>`).join("");
+  $("stepchips").querySelectorAll(".chipstep").forEach(b=>b.onclick=()=>{ sti=+b.dataset.j; render(); });
 }
 function cliHTML(cli){
   const lines = cli.lines.map(l=>{
@@ -1131,11 +1193,12 @@ function cliHTML(cli){
 function render(){
   const s=scenarios[si], st=s.steps[sti];
   $("crumb").textContent = s.name + " › " + st.title;
-  renderScenarioPicker(); renderSteps();
+  renderServiceNav(); renderScenarioPicker(); renderStepChips();
+  $("bcrumb").innerHTML = `콘솔 홈 <i>›</i> ${svcName(s)} <i>›</i> <b>${st.title}</b>`;
   $("kicker").textContent = `챕터 ${s.ch} · 단계 ${sti+1} / ${s.steps.length}`;
   $("stitle").textContent = st.title;
   $("sintro").innerHTML = st.intro;
-  $("console").innerHTML = `<div class="bcrumb">콘솔 홈 <i>›</i> ${s.name} <i>›</i> <b>${st.title}</b></div>` + st.console;
+  $("console").innerHTML = st.console;
   $("cli").innerHTML = cliHTML(st.cli);
 
   // 이미 끝낸 단계면 클릭 잠금 해제 상태로 표시
@@ -1166,7 +1229,7 @@ function attachClicks(){
         st.done=true; persist();
         $("console").querySelectorAll(".ck").forEach(e=>e.classList.add("on"));
       }
-      updateHint(); updateNav(); renderSteps();
+      updateHint(); updateNav(); renderStepChips();
     };
     el.onclick=act;
     el.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); act(); } };
@@ -1185,12 +1248,12 @@ function updateHint(){
   const st=scenarios[si].steps[sti];
   let box=$("console").querySelector(".hint");
   if(!box){ box=document.createElement("div"); box.className="hint"; $("console").appendChild(box); }
-  if(st.done){ box.className="hint ok"; box.innerHTML="✓ 잘했어요! 아래 <b>다음 →</b>으로 넘어가세요."; }
+  if(st.done){ box.className="hint ok"; box.innerHTML="이 단계 완료 — 아래 <b>다음</b>으로 진행하세요."; }
   else{
     const need=st.needs||1, got=st._clicks.size;
     box.className="hint todo";
-    box.innerHTML = need>1 ? `👆 반짝이는 항목을 <b>${need}개 모두</b> 클릭하세요 (${got}/${need})`
-                           : "👆 반짝이는 <b>주황색 버튼/항목</b>을 클릭하세요.";
+    box.innerHTML = need>1 ? `이 화면에서 필요한 항목을 선택해 작업을 완료하세요. <span class="muted2">(${got}/${need})</span>`
+                           : `이 화면에서 선택하거나 버튼을 눌러 작업을 완료하세요.`;
   }
 }
 function updateNav(){
@@ -1266,6 +1329,12 @@ $("theme").onclick=()=>{
   try{ localStorage.setItem("aws-handson-theme",next); }catch(e){}
 };
 try{ const t=localStorage.getItem("aws-handson-theme"); if(t) document.documentElement.setAttribute("data-theme",t); }catch(e){}
+
+$("hintbtn").onclick=()=>{
+  const on=document.body.classList.toggle("hints");
+  $("hintbtn").classList.toggle("on",on);
+  $("hintbtn").textContent = on ? "힌트 끄기" : "어디를 클릭하죠?";
+};
 
 render();
 </script>
